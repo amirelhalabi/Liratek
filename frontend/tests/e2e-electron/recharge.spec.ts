@@ -10,6 +10,7 @@
  */
 
 import { test, expect, navigateTo } from "./fixtures";
+import { selectRechargeProvider } from "./helpers/rechargeTabs";
 
 test.describe.configure({ retries: 0 });
 
@@ -82,12 +83,8 @@ test.describe("Recharge — CREDIT_TRANSFER SMS cost deduction", () => {
     await navigateTo(appPage, "/recharge");
 
     // MTC is the default provider; CREDIT_TRANSFER is the default type.
-    // Click MTC tab to be explicit in case a previous test left a different provider.
-    const mtcTab = appPage
-      .getByRole("button", { name: "MTC", exact: true })
-      .first();
-    await expect(mtcTab).toBeVisible({ timeout: 8_000 });
-    await mtcTab.click();
+    // Select MTC explicitly in case a previous test left a different provider.
+    await selectRechargeProvider(appPage, "MTC");
 
     const before = await getMtcUsdBalance(appPage);
 
@@ -105,11 +102,7 @@ test.describe("Recharge — CREDIT_TRANSFER SMS cost deduction", () => {
   }) => {
     await navigateTo(appPage, "/recharge");
 
-    const mtcTab = appPage
-      .getByRole("button", { name: "MTC", exact: true })
-      .first();
-    await expect(mtcTab).toBeVisible({ timeout: 8_000 });
-    await mtcTab.click();
+    await selectRechargeProvider(appPage, "MTC");
 
     const before = await getMtcUsdBalance(appPage);
 
@@ -128,11 +121,7 @@ test.describe("Recharge — CREDIT_TRANSFER SMS cost deduction", () => {
     await navigateTo(appPage, "/recharge");
 
     // Switch to Alfa provider
-    const alfaTab = appPage
-      .getByRole("button", { name: "Alfa", exact: true })
-      .first();
-    await expect(alfaTab).toBeVisible({ timeout: 8_000 });
-    await alfaTab.click();
+    await selectRechargeProvider(appPage, "Alfa");
 
     const before = await getAlfaUsdBalance(appPage);
 
@@ -149,11 +138,7 @@ test.describe("Recharge — CREDIT_TRANSFER SMS cost deduction", () => {
   }) => {
     await navigateTo(appPage, "/recharge");
 
-    const mtcTab = appPage
-      .getByRole("button", { name: "MTC", exact: true })
-      .first();
-    await expect(mtcTab).toBeVisible({ timeout: 8_000 });
-    await mtcTab.click();
+    await selectRechargeProvider(appPage, "MTC");
 
     const before = await getMtcUsdBalance(appPage);
 

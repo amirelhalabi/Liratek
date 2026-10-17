@@ -11,6 +11,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { googleAuthStatus, isElectron } from "@/api/backendApi";
+import { useTranslation } from "react-i18next";
 
 interface Links {
   login: string;
@@ -47,6 +48,7 @@ export default function GoogleSignInButton({
   fallback = null,
   offerShopCreation = true,
 }: GoogleSignInButtonProps = {}) {
+  const { t } = useTranslation("auth");
   // undefined = still asking; null = Google is not available here.
   const [links, setLinks] = useState<Links | null | undefined>(() =>
     isElectron() ? null : undefined,
@@ -90,7 +92,7 @@ export default function GoogleSignInButton({
     <div className="mt-6 space-y-3">
       <div className="flex items-center gap-3 text-xs text-slate-500">
         <span className="h-px flex-1 bg-slate-600/40" />
-        or
+        {t("googleButton.or")}
         <span className="h-px flex-1 bg-slate-600/40" />
       </div>
       <a
@@ -104,16 +106,16 @@ export default function GoogleSignInButton({
         <span aria-hidden="true" className="font-bold text-[#4285F4]">
           G
         </span>
-        Continue with Google
+        {t("shared.continueWithGoogle")}
       </a>
       {intent === "login" && offerShopCreation && (
         <p className="text-center text-xs text-slate-500">
-          Or{" "}
+          {t("googleButton.orPrefix")}{" "}
           <a
             href={links.signup}
             className="text-orange-500 hover:text-orange-400"
           >
-            Create a shop with Google
+            {t("googleButton.createWithGoogle")}
           </a>
         </p>
       )}

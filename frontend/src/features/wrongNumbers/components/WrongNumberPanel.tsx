@@ -21,6 +21,8 @@ import {
   type CarrierLineEntity,
   type MobileServiceItemEntity,
 } from "@liratek/ui";
+import { useTranslation } from "react-i18next";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import type {
   RecordWrongNumberInput,
   WrongNumberCardItem,
@@ -54,6 +56,9 @@ export function WrongNumberPanel({
   const api = useApi();
   const apiRef = useRef(api);
   apiRef.current = api;
+  const { t } = useTranslation("wrongNumbers");
+  const tRef = useRef(t);
+  tRef.current = t;
 
   const [cards, setCards] = useState<MobileServiceItemEntity[]>([]);
   const [lines, setLines] = useState<CarrierLineEntity[]>([]);
@@ -106,7 +111,7 @@ export function WrongNumberPanel({
         setLoadError(
           err instanceof Error && err.message
             ? err.message
-            : "Could not load the cards.",
+            : tRef.current("panel.loadFailedDefault"),
         );
         setLoadState("error");
       }
@@ -136,16 +141,16 @@ export function WrongNumberPanel({
   const handleSave = async () => {
     setError("");
     if (!card) {
-      setError("Pick the MTC or Alfa card that was sent.");
+      setError(t("panel.pickCard"));
       return;
     }
     if (saleTransactionId !== undefined && !rightNumber.trim()) {
-      setError("Enter the customer's right number.");
+      setError(t("panel.enterRight"));
       return;
     }
     const amount = Number(credits);
     if (creditsCame && (!(amount > 0) || !lineId)) {
-      setError("Enter the credits that arrived and the shop line.");
+      setError(t("panel.enterCredits"));
       return;
     }
     // ONE payload, typed from the schema (rules 21, 22).
@@ -167,15 +172,13 @@ export function WrongNumberPanel({
     try {
       const res = await apiRef.current.recordWrongNumber(payload);
       if (!res.success) {
-        setError(res.error || "Could not record the wrong number.");
+        setError(res.error || t("panel.saveFailed"));
         return;
       }
       onDone(res.data.id);
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : "Could not record the wrong number.",
+        err instanceof Error ? err.message : t("panel.saveFailed"),
       );
     } finally {
       setSaving(false);
@@ -189,9 +192,8 @@ export function WrongNumberPanel({
     <div className="space-y-3" data-testid="wrong-number-panel">
       <p className="text-xs text-slate-400">
         {saleTransactionId !== undefined
-          ? "The sale stays as it is — it is the recharge of the right number. The wasted card is recorded as a loss from your "
-          : "The wasted card is recorded as a loss from your "}
-        {PROVIDER_LABELS[provider]} balance.
+          ? t("panel.introSale", { provider: PROVIDER_LABELS[provider] })
+          : t("panel.intro", { provider: PROVIDER_LABELS[provider] })}
       </p>
 
       {loadState === "loading" && (
@@ -199,7 +201,7 @@ export function WrongNumberPanel({
           data-testid="wrong-number-loading"
           className="text-sm text-slate-400"
         >
-          Loading cards...
+          {t("panel.loadingCards")}
         </p>
       )}
       {loadState === "error" && (
@@ -207,13 +209,13 @@ export function WrongNumberPanel({
           data-testid="wrong-number-load-error"
           className="flex items-center justify-between gap-2 text-red-400 text-sm bg-red-900/20 px-3 py-1.5 rounded"
         >
-          <span>Could not load the cards: {loadError}</span>
+          <span>{t("panel.loadFailed", { error: loadError })}</span>
           <button
             type="button"
             onClick={() => setReloadKey((k) => k + 1)}
             className="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded text-xs"
           >
-            Retry
+            {t("panel.retry")}
           </button>
         </div>
       )}
@@ -221,7 +223,7 @@ export function WrongNumberPanel({
       {loadState !== "ready" ? null : soldCard ? (
         <div>
           <span className="text-xs text-slate-400 block mb-1">
-            Card that was sent
+            {t("panel.cardSent")}
           </span>
           <p
             data-testid="wrong-number-locked-card"
@@ -229,7 +231,7 @@ export function WrongNumberPanel({
           >
             {carrierLabel(soldCard.category)} {soldCard.label} —{" "}
             {lbp(soldCard.cost_lbp)}
-            <span className="text-slate-400"> · from this sale</span>
+            <span className="text-slate-400">{t("panel.fromSale")}</span>
           </p>
         </div>
       ) : (
@@ -238,7 +240,7 @@ export function WrongNumberPanel({
             htmlFor="wn-card"
             className="text-xs text-slate-400 block mb-1"
           >
-            Card that was sent
+            {t("panel.cardSent")}
           </label>
           <select
             id="wn-card"
@@ -248,7 +250,7 @@ export function WrongNumberPanel({
           >
             {cards.length === 0 && (
               <option value="">
-                No MTC or Alfa card from {PROVIDER_LABELS[provider]}
+                {t("panel.noCard", { provider: PROVIDER_LABELS[provider] })}
               </option>
             )}
             {cards.map((c) => (
@@ -262,7 +264,7 @@ export function WrongNumberPanel({
               data-testid="wrong-number-pick-hint"
               className="text-xs text-slate-500 mt-1"
             >
-              Pick the card that was sent.
+              {t("panel.pickHint")}
             </p>
           )}
         </div>
@@ -274,7 +276,7 @@ export function WrongNumberPanel({
             htmlFor="wn-wrong"
             className="text-xs text-slate-400 block mb-1"
           >
-            Wrong number (optional)
+            {t("panel.wrongNumber")}
           </label>
           <input
             id="wn-wrong"
@@ -289,7 +291,7 @@ export function WrongNumberPanel({
             htmlFor="wn-right"
             className="text-xs text-slate-400 block mb-1"
           >
-            Customer's right number
+            {t("panel.rightNumber")}
           </label>
           <input
             id="wn-right"
@@ -307,7 +309,7 @@ export function WrongNumberPanel({
           checked={creditsCame}
           onChange={(e) => setCreditsCame(e.target.checked)}
         />
-        Credits already came back
+        {t("panel.creditsCame")}
       </label>
 
       {creditsCame && (
@@ -317,15 +319,14 @@ export function WrongNumberPanel({
               htmlFor="wn-credits"
               className="text-xs text-slate-400 block mb-1"
             >
-              Credits that arrived ($)
+              {t("panel.creditsArrived")}
             </label>
             <input
               id="wn-credits"
-              type="number"
-              min="0"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
               value={credits}
-              onChange={(e) => setCredits(e.target.value)}
+              onChange={(e) => setCredits(normalizeDigits(e.target.value))}
               className={inputClass}
             />
           </div>
@@ -334,7 +335,7 @@ export function WrongNumberPanel({
               htmlFor="wn-line"
               className="text-xs text-slate-400 block mb-1"
             >
-              On shop line
+              {t("panel.lineLabel")}
             </label>
             <select
               id="wn-line"
@@ -344,13 +345,15 @@ export function WrongNumberPanel({
             >
               {carrierLines.length === 0 && (
                 <option value="">
-                  No active {carrier ? carrierLabel(carrier) : ""} shop line
+                  {t("panel.noLine", {
+                    carrier: carrier ? carrierLabel(carrier) : "",
+                  })}
                 </option>
               )}
               {carrierLines.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.phone_number}
-                  {l.is_primary === 1 ? " (primary)" : ""}
+                  {l.is_primary === 1 ? t("panel.primary") : ""}
                 </option>
               ))}
             </select>
@@ -360,8 +363,13 @@ export function WrongNumberPanel({
 
       <p data-testid="wrong-number-preview" className="text-sm text-slate-300">
         {card
-          ? `Loss ${lbp(card.cost_lbp)}${card.credits ? ` — the card carried $${card.credits}; credits sent back reduce it` : ""}.`
-          : "Pick the card to see the loss."}
+          ? card.credits
+            ? t("panel.lossWithCredits", {
+                amount: lbp(card.cost_lbp),
+                credits: card.credits,
+              })
+            : t("panel.loss", { amount: lbp(card.cost_lbp) })
+          : t("panel.pickToSee")}
       </p>
 
       {error && (
@@ -372,17 +380,18 @@ export function WrongNumberPanel({
 
       <div className="flex gap-2">
         <button
+          data-testid="wrong-number-save"
           onClick={handleSave}
           disabled={saving || loadState !== "ready"}
           className="px-4 py-1.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded text-sm"
         >
-          {saving ? "Saving..." : "Record wrong number"}
+          {saving ? t("panel.saving") : t("panel.save")}
         </button>
         <button
           onClick={onCancel}
           className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-sm"
         >
-          Cancel
+          {t("panel.cancel")}
         </button>
       </div>
     </div>

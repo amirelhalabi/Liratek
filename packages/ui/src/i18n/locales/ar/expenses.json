@@ -1,1 +1,81 @@
-{}
+{
+  "page": {
+    "title": "المصاريف",
+    "history": "السجل"
+  },
+  "stats": {
+    "totalUSD": "مجموع الدولار",
+    "totalLBP": "مجموع الليرة",
+    "txns": "العمليات"
+  },
+  "form": {
+    "title": "إضافة مصروف جديد",
+    "stockUse": "استعمال صنف من المخزون (اختياري)",
+    "removeItem": "إزالة الصنف",
+    "quantity": "الكمية",
+    "approxCost": "الكلفة التقريبية",
+    "stockNoCash": "يخرج من المخزون بكلفته. لا تتحرك أي نقود.",
+    "catalogNoCash": "يخرج من رصيد {{source}} بكلفته. لا تتحرك أي نقود.",
+    "wrongNumberTick": "رقم خاطئ — شُحنت هذه البطاقة على رقم خاطئ",
+    "wrongNumberLabel": "الرقم الخاطئ (اختياري)",
+    "wrongNumberHint": "بطاقة واحدة. يمكن إدخال الرصيد المُعاد لاحقاً من صفحة المعاملات.",
+    "descriptionRequired": "الوصف *",
+    "descriptionOptional": "الوصف (اختياري)",
+    "descriptionPlaceholder": "مثلاً: إيجار المحل، قهوة، تصليح",
+    "category": "الفئة",
+    "billAmount": "قيمة الفاتورة *",
+    "billCurrency": "عملة الفاتورة",
+    "cashHanded": "المبلغ المدفوع",
+    "date": "التاريخ",
+    "record": "تسجيل المصروف"
+  },
+  "category": {
+    "Shop_Supply": "لوازم المحل",
+    "Bill": "فاتورة",
+    "Inventory_Loss": "خسارة مخزون",
+    "Refund_Damaged": "مرتجع تالف",
+    "Line_Usage": "استهلاك الخط",
+    "Other": "أخرى"
+  },
+  "errors": {
+    "wholeQuantity": "الرجاء إدخال كمية صحيحة من 1 أو أكثر.",
+    "description": "الرجاء إدخال الوصف.",
+    "billAmount": "الرجاء إدخال قيمة الفاتورة.",
+    "cashHanded": "الرجاء إدخال المبلغ المدفوع.",
+    "cashLess": "المبلغ المدفوع أقل من الفاتورة.",
+    "withReason": "خطأ: {{error}}",
+    "wrongNumberFailed": "تعذّر تسجيل الرقم الخاطئ",
+    "stockUseFailed": "تعذّر تسجيل استعمال المحل",
+    "addFailed": "تعذّر إضافة المصروف",
+    "voidFailed": "تعذّر إلغاء المصروف",
+    "saveFailed": "تعذّر الحفظ"
+  },
+  "toast": {
+    "wrongNumber": "تم تسجيل الرقم الخاطئ — أدخل الرصيد المُعاد من صفحة المعاملات",
+    "stockUse": "تم تسجيل استعمال المحل — أُخرج بكلفته",
+    "recorded": "تم تسجيل المصروف بنجاح"
+  },
+  "confirm": {
+    "void": "إلغاء هذا المصروف؟ سيُعاد المبلغ إلى الصندوق."
+  },
+  "history": {
+    "title": "سجل المصاريف",
+    "records": "({{count}} سجل)",
+    "description": "الوصف",
+    "paidBy": "طريقة الدفع",
+    "action": "إجراء",
+    "empty": "لا توجد مصاريف مسجّلة بعد.",
+    "refunded": "مُسترد",
+    "edited": "معدّل",
+    "editMetadata": "تعديل التفاصيل",
+    "void": "إلغاء المصروف",
+    "note": "ملاحظة"
+  },
+  "picker": {
+    "placeholder": "ابحث عن صنف في المخزون أو منتج Katsh / iPick / Whish App...",
+    "cost": "الكلفة",
+    "inStock": " · {{count}} في المخزون",
+    "noResults": "لم يتم العثور على أصناف.",
+    "inventory": "المخزون"
+  }
+}

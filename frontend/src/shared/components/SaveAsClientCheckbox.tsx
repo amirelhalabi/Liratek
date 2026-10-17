@@ -6,6 +6,7 @@
  */
 
 import { UserPlus } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 interface SaveAsClientCheckboxProps {
   checked: boolean;
@@ -19,6 +20,7 @@ export function SaveAsClientCheckbox({
   onChange,
   hidden,
 }: SaveAsClientCheckboxProps) {
+  const { t } = useTranslation("shared");
   if (hidden) return null;
 
   return (
@@ -31,7 +33,7 @@ export function SaveAsClientCheckbox({
         className="rounded border-slate-600 bg-slate-900 text-teal-500 focus:ring-teal-500 focus:ring-offset-0 h-3 w-3"
       />
       <UserPlus size={12} />
-      Save as client
+      {t("saveAsClient")}
     </label>
   );
 }

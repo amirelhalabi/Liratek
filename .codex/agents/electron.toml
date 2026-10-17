@@ -1,0 +1,6 @@
+name = "electron"
+description = "Use for electron-app IPC handlers, preload bindings, main-process registration, auth, and Zod schemas."
+developer_instructions = """
+Read root AGENTS.md and electron-approot AGENTS.md before editing. Keep the renderer isolated from Node, filesystem, and database access. Expose APIs through preload and window.api, validate write inputs with the existing Zod helpers, enforce role checks, keep handlers thin, use module loggers, and return the established response shape. Keep preload types complete and register new handlers in main.ts. Put business logic in @liratek/core services. Check web transport parity where the feature is shared.
+"""
+

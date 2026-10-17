@@ -15,6 +15,7 @@ import {
   RESALE_LINE_EXPIRY_WARNING_DAYS,
   type ResaleLineRow,
 } from "@liratek/core";
+import { i18n } from "@/i18n/setup";
 
 export type ResaleLineAlertKind = "expiring" | "grace" | "lost";
 
@@ -67,16 +68,27 @@ export function computeResaleLineAlerts(
   return alerts;
 }
 
+/** The alert's words, in the current UI language (LIRA-331). */
 export function resaleLineAlertText(a: ResaleLineAlert): string {
-  const who = `Line for sale ${a.number}${a.carrier ? ` (${CARRIER_LABEL[a.carrier]})` : ""}`;
+  const t = i18n.getFixedT(null, "phoneLines");
+  const who = a.carrier
+    ? t("alert.whoCarrier", {
+        number: a.number,
+        carrier: CARRIER_LABEL[a.carrier],
+      })
+    : t("alert.who", { number: a.number });
   switch (a.kind) {
     case "expiring":
       return a.daysLeft === 0
-        ? `${who} expires today`
-        : `${who} expires in ${a.daysLeft} day${a.daysLeft === 1 ? "" : "s"}`;
+        ? t("alert.expiresToday", { who })
+        : a.daysLeft === 1
+          ? t("alert.expiresInOne", { who, count: a.daysLeft })
+          : t("alert.expiresIn", { who, count: a.daysLeft });
     case "grace":
-      return `${who} expired — ${a.daysToSave} day${a.daysToSave === 1 ? "" : "s"} left to save it`;
+      return a.daysToSave === 1
+        ? t("alert.graceOne", { who, count: a.daysToSave })
+        : t("alert.grace", { who, count: a.daysToSave });
     case "lost":
-      return `${who} is lost — write it off?`;
+      return t("alert.lost", { who });
   }
 }

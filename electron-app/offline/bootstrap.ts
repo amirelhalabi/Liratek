@@ -189,6 +189,8 @@ export function installOfflineRecorder(
     clientDay: (d) => localDay(d),
     tzOffsetMinutes: (d) => -d.getTimezoneOffset(),
     uuid: () => crypto.randomUUID(),
+    // LIRA-332: the trial state the last check-in stored.
+    trial: () => boot.store.read()?.trial ?? null,
   });
   const mode = boot.decision.mode;
   if (mode === "offline" || mode === "finishing") guard.lockdown();

@@ -310,7 +310,7 @@ export default function PhoneUnits() {
       {/* Filters */}
       <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex flex-wrap items-center gap-4">
         <div className="relative flex-1 min-w-[240px] max-w-md">
-          <Search className="absolute left-3 top-2.5 text-slate-500 h-5 w-5" />
+          <Search className="absolute start-3 top-2.5 text-slate-500 h-5 w-5" />
           <input
             type="text"
             data-testid="phone-units-search"
@@ -319,7 +319,7 @@ export default function PhoneUnits() {
             maxLength={PHONE_UNITS_SEARCH_MAX}
             onChange={(e) => handleSearchInput(e.target.value)}
             placeholder="Search by IMEI or product..."
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg ps-10 pe-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
           />
         </div>
 
@@ -380,7 +380,7 @@ export default function PhoneUnits() {
             { header: "Warranty", className: "p-3 border-b border-slate-700" },
             {
               header: "Actions",
-              className: "p-3 border-b border-slate-700 text-right",
+              className: "p-3 border-b border-slate-700 text-end",
               width: "80px",
             },
           ]}
@@ -396,7 +396,7 @@ export default function PhoneUnits() {
              label, which ExportBar renders independently of the buttons. */
           showRowCount
           totalRowCount={total}
-          className="w-full text-left border-collapse"
+          className="w-full text-start border-collapse"
           theadClassName="bg-slate-800/50 text-slate-400 text-xs uppercase font-semibold"
           tbodyClassName="divide-y divide-slate-700 text-sm"
           renderRow={(unit) => {
@@ -475,7 +475,7 @@ export default function PhoneUnits() {
                     {badge.label}
                   </span>
                 </td>
-                <td className="p-3 text-right">
+                <td className="p-3 text-end">
                   {unit.status === "IN_STOCK" ? (
                     <button
                       type="button"

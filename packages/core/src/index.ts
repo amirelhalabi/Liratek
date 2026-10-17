@@ -82,6 +82,8 @@ export * from "./utils/walletTransfer.js";
 export * from "./utils/transactionText.js";
 export * from "./utils/transactionVisibility.js";
 export * from "./utils/cashFlow.js";
+// LIRA-333 — the one WhatsApp phone rule (FR-014/015).
+export * from "./utils/whatsappPhone.js";
 export * from "./utils/transactionRowDisplay.js";
 // LIRA-302 — catalog cart payload (web + phone) and the USD/LBP rate reader (pure).
 export * from "./utils/catalogSale.js";
@@ -91,6 +93,12 @@ export * from "./utils/exchangeRates.js";
 // carrier-line module to add a day to a date). Re-exported from BOTH entry
 // points for the same reason carrierLineValidity.js is: see browser.ts.
 export * from "./utils/calendarDate.js";
+// LIRA-332 — the free-trial calendar (explicit Asia/Beirut zone, DST-aware)
+// and the WhatsApp activation link. Pure leaves, in BOTH entry points: the
+// web banner and the phone render the server's trial view and build the same
+// link, while the server enforces with the same calendar (rule 14, rule 29).
+export * from "./utils/trialCalendar.js";
+export * from "./utils/activationLink.js";
 export * from "./utils/carrierLineValidity.js";
 // LIRA-309 — line status (OK/EXPIRING/IN_GRACE/LOST) for both kinds of line.
 export * from "./utils/lineStatus.js";

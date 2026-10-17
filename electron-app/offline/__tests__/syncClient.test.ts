@@ -201,6 +201,16 @@ describe("check-in", () => {
     expect(c.isReachable()).toBe(true);
   });
 
+  // LIRA-332 (T059). Failing-first: before syncClient stored it, `trial`
+  // was absent from pairing.json.
+  it("stores the shop's trial state from check-in; an older server (no field) reads as null", async () => {
+    const trial = { standing: "trial_ended", endsAt: "2026-10-10T21:00:00.000Z" };
+    await client(async () => checkinOk({ trial })).checkin();
+    expect(store.read()?.trial).toEqual(trial);
+    await client(async () => checkinOk()).checkin();
+    expect(store.read()?.trial).toBeNull();
+  });
+
   it("network errors never throw; unreachable time counts from the first failed attempt", async () => {
     let up = true;
     const c = client(async () => {

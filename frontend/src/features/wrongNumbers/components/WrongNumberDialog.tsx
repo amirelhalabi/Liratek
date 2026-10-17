@@ -8,6 +8,7 @@
  *   and its credits form.
  */
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useApi } from "@liratek/ui";
 import type { WrongNumberCardRow } from "@liratek/core";
 import logger from "@/utils/logger";
@@ -36,6 +37,7 @@ export function WrongNumberDialog({
   onChanged: () => void;
 }) {
   const api = useApi();
+  const { t } = useTranslation("wrongNumbers");
   // rule 25: read `api` through a ref, kept current after each render (not
   // during it), so the loader below never depends on its identity.
   const apiRef = useRef(api);
@@ -85,17 +87,19 @@ export function WrongNumberDialog({
     >
       <div
         role="dialog"
-        aria-label="Wrong number"
+        aria-label={t("dialog.title")}
         className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="p-5 border-b border-slate-700 flex items-center justify-between">
           <h3 className="text-lg font-bold text-white">
-            {target.kind === "sale" ? "Wrong number" : "Credits received"}
+            {target.kind === "sale"
+              ? t("dialog.title")
+              : t("dialog.creditsTitle")}
           </h3>
           <button
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t("dialog.close")}
             className="text-slate-400 hover:text-white text-xl leading-none"
           >
             ×
@@ -104,7 +108,7 @@ export function WrongNumberDialog({
 
         <div className="p-5 space-y-4">
           {records === null ? (
-            <p className="text-sm text-slate-400">Loading…</p>
+            <p className="text-sm text-slate-400">{t("dialog.loading")}</p>
           ) : (
             <>
               {records.map((r) => (
@@ -112,7 +116,7 @@ export function WrongNumberDialog({
               ))}
               {target.kind !== "sale" && records.length === 0 && (
                 <p className="text-sm text-slate-400">
-                  This wrong-number record was not found.
+                  {t("dialog.notFound")}
                 </p>
               )}
               {target.kind === "sale" &&
@@ -132,7 +136,7 @@ export function WrongNumberDialog({
                     onClick={() => setShowForm(true)}
                     className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded text-sm"
                   >
-                    Another card was sent to a wrong number
+                    {t("dialog.another")}
                   </button>
                 ))}
             </>

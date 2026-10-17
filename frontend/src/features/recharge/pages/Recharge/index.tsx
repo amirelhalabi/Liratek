@@ -1965,9 +1965,12 @@ export default function MobileRecharge() {
       {/* Header — two zones: provider controls (left) vs. read-only metrics + actions (right) */}
       {/* Grid, not flex-wrap: the provider tabs keep shrinking and wrapping
           internally (as before) instead of pushing the stats to a new line.
-          xl+: tabs | shop-lines chip (centred) | stats. Below xl the chip
-          takes its own row under the logos. */}
-      <div className="grid grid-cols-[minmax(0,1fr)_auto] xl:grid-cols-[minmax(0,auto)_minmax(max-content,1fr)_auto] items-start gap-x-4 gap-y-2 mb-3">
+          2xl+: tabs | shop-lines chip (centred) | stats. Below 2xl the chip
+          takes its own row under the logos. Not xl: at 1280px a busy day's
+          stats squeezed the tabs column under one tab's width and the MTC
+          tab slid UNDER the chip (clicking MTC opened "Record usage";
+          guarded by lira-web-073). */}
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] 2xl:grid-cols-[minmax(0,auto)_minmax(max-content,1fr)_auto] items-start gap-x-4 gap-y-2 mb-3">
         {/* Left zone: provider selection (the controls) */}
         <ProviderTabs
           providers={PROVIDER_CONFIGS}
@@ -1984,7 +1987,7 @@ export default function MobileRecharge() {
         {/* MTC/Alfa: the shop-lines chip. Clicking it opens the "shop
             lines" modal. */}
         {isTelecomFormMode && (
-          <div className="col-span-2 row-start-2 flex xl:col-span-1 xl:col-start-2 xl:row-start-1 xl:justify-center">
+          <div className="col-span-2 row-start-2 flex 2xl:col-span-1 2xl:col-start-2 2xl:row-start-1 2xl:justify-center">
             <CarrierLinesPanel
               key={isMTC ? "mtc" : "alfa"}
               carrier={isMTC ? "mtc" : "alfa"}
@@ -1997,7 +2000,7 @@ export default function MobileRecharge() {
 
         {/* Right zone: today's metrics, then a divider, then actions */}
         {activeConfig && (
-          <div className="col-start-2 row-start-1 xl:col-start-3 flex shrink-0 items-center gap-3">
+          <div className="col-start-2 row-start-1 2xl:col-start-3 flex shrink-0 items-center gap-3">
             <CompactStats
               activeConfig={activeConfig}
               // LIRA-250 follow-up: MTC/Alfa's Count/Profit card is fed by

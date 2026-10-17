@@ -1,1 +1,91 @@
-{}
+{
+  "common": {
+    "failed": "That did not work"
+  },
+  "banner": {
+    "finishing": "Sending the offline work to the server ({{count}} left) — new actions wait until this PC is back on the web app.",
+    "internetBack": "Internet is back.",
+    "workingOffline": "Working offline.",
+    "waiting": "{{count}} actions waiting to send.",
+    "notAvailable": "Settings, users, supplier settlement and catalog changes are not available offline.",
+    "sendNow": "Send now",
+    "backToWeb": "Back to the web app"
+  },
+  "pair": {
+    "title": "Pair this PC with the web app",
+    "intro": "After pairing, the shop works in the web app and this PC keeps a copy of the shop so it can keep selling when the internet is down. An admin of the shop signs in once.",
+    "shop": "Shop (web address name)",
+    "username": "Admin username",
+    "password": "Admin password",
+    "deviceName": "Name for this PC",
+    "pairing": "Pairing...",
+    "submit": "Pair this PC",
+    "failed": "Pairing failed",
+    "done": "Paired as PC {{deviceNo}} of {{shopName}}. The app restarts on the standby screen."
+  },
+  "standby": {
+    "intro": "This is PC {{deviceNo}} of the shop. Work in the web app while the internet works.",
+    "server": "Server",
+    "connected": "Connected",
+    "noInternet": "No internet for {{seconds}} s",
+    "copy": "Copy of the shop",
+    "copyOld": " (older than a day — check the totals after)",
+    "offlineMode": "Offline mode",
+    "ready": "Ready",
+    "notReady": "Not ready",
+    "held": "{{count}} offline item(s) from this PC are held for review on the web app. Do not collect them again:",
+    "openWeb": "Open the web app",
+    "workOffline": "Work offline",
+    "workOfflineHint": "Available after 30 seconds without the internet, with a ready copy",
+    "installUpdate": "Install update",
+    "age": {
+      "none": "no copy yet",
+      "underMinute": "less than a minute old",
+      "minutes": "{{count}} min old",
+      "hours": "{{count}} h old",
+      "days": "{{count}} days old"
+    }
+  },
+  "review": {
+    "title": "Offline work to review",
+    "adminsOnly": "This page is only for admins.",
+    "intro": "Work done on a PC while the internet was down that could not be booked by itself.",
+    "tabOpen": "To review",
+    "tabHistory": "History",
+    "loadFailed": "Could not load the review list",
+    "actionFailed": "The action failed",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "nothing": "Nothing to review.",
+    "pcDataCheck": "PC data check",
+    "pc": "PC",
+    "pcNo": "PC {{deviceNo}}",
+    "matches": "Matches {{table}} #{{id}}",
+    "matchesAt": "Matches {{table}} #{{id}} ({{at}})",
+    "itemAction": "{{action}} item {{id}}",
+    "figuresNote": "The PC could not see the web app's and other PCs' sales. The server's figure (the drawer at the time of the count) is the one that will be booked.",
+    "col": {
+      "drawer": "Drawer",
+      "currency": "Currency",
+      "pcExpected": "PC expected",
+      "serverExpected": "Server expected",
+      "counted": "Counted",
+      "when": "When",
+      "pc": "PC",
+      "what": "What",
+      "outcome": "Outcome",
+      "receipt": "Offline receipt"
+    },
+    "action": {
+      "apply": "Apply",
+      "dismiss": "Dismiss",
+      "reviewed": "Mark reviewed",
+      "book_anyway": "Book anyway"
+    },
+    "confirmText": {
+      "apply": "Book this item now, through the same rules as the web app?",
+      "dismiss": "Drop this item? Nothing will be booked.",
+      "book_anyway": "Book this transfer/recharge as a second, separate one?"
+    }
+  }
+}

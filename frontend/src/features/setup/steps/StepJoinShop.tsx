@@ -6,6 +6,7 @@
  */
 
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useSetup } from "../context/SetupContext";
 import { Plus, Trash2, Loader2 } from "lucide-react";
 import PasswordInput from "@/shared/components/PasswordInput";
@@ -14,6 +15,7 @@ import { validatePasswordComplexity } from "@liratek/core";
 
 export default function StepJoinShop() {
   const { payload, setStep } = useSetup();
+  const { t } = useTranslation("setup");
   const [users, setUsers] = useState<
     Array<{ username: string; password: string; role: string }>
   >([]);
@@ -66,7 +68,7 @@ export default function StepJoinShop() {
       });
 
       if (!result.success) {
-        setError(result.error || "Failed to join shop");
+        setError(result.error || t("join.failed"));
         return;
       }
 
@@ -90,22 +92,19 @@ export default function StepJoinShop() {
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-bold text-white">
-          Join {payload.shop_name}
+          {t("join.title", { shop: payload.shop_name })}
         </h2>
-        <p className="text-slate-400 text-sm mt-1">
-          Optionally add staff users for this laptop, or just join and log in
-          with the shop&apos;s existing accounts.
-        </p>
+        <p className="text-slate-400 text-sm mt-1">{t("join.subtitle")}</p>
       </div>
 
       {/* Shop info (read-only) */}
       <div className="bg-slate-900/50 rounded-xl p-4">
         <div className="flex justify-between text-sm">
-          <span className="text-slate-400">Shop</span>
+          <span className="text-slate-400">{t("join.shop")}</span>
           <span className="text-white font-medium">{payload.shop_name}</span>
         </div>
         <div className="flex justify-between text-sm mt-1">
-          <span className="text-slate-400">Database</span>
+          <span className="text-slate-400">{t("join.database")}</span>
           <span className="text-xs text-slate-500 truncate max-w-[300px]">
             {payload.join_db_path}
           </span>
@@ -114,7 +113,9 @@ export default function StepJoinShop() {
 
       {/* Staff Users */}
       <div className="bg-slate-900/50 rounded-xl p-4 space-y-3">
-        <h3 className="text-sm font-semibold text-slate-300">Staff Users</h3>
+        <h3 className="text-sm font-semibold text-slate-300">
+          {t("users.staffUsers")}
+        </h3>
 
         {users.length > 0 && (
           <div className="space-y-2">
@@ -127,8 +128,10 @@ export default function StepJoinShop() {
                   <span className="text-sm text-white font-medium">
                     {u.username}
                   </span>
-                  <span className="ml-2 text-xs text-slate-400 capitalize">
-                    {u.role}
+                  <span className="ms-2 text-xs text-slate-400">
+                    {u.role === "admin"
+                      ? t("users.roleAdmin")
+                      : t("users.roleStaff")}
                   </span>
                 </div>
                 <button
@@ -147,14 +150,14 @@ export default function StepJoinShop() {
             value={newUser.username}
             onChange={(value) => setNewUser((p) => ({ ...p, username: value }))}
             label=""
-            placeholder="Username"
+            placeholder={t("users.username")}
             compact
           />
           <PasswordInput
             value={newUser.password}
             onChange={(value) => setNewUser((p) => ({ ...p, password: value }))}
             label=""
-            placeholder="Password"
+            placeholder={t("users.password")}
             compact
           />
           <div className="flex gap-2">
@@ -162,8 +165,8 @@ export default function StepJoinShop() {
               value={newUser.role}
               onChange={(v) => setNewUser((p) => ({ ...p, role: v }))}
               options={[
-                { value: "staff", label: "Staff" },
-                { value: "admin", label: "Admin" },
+                { value: "staff", label: t("users.roleStaff") },
+                { value: "admin", label: t("users.roleAdmin") },
               ]}
               buttonClassName={inputCls}
             />
@@ -188,7 +191,7 @@ export default function StepJoinShop() {
           onClick={() => setStep(0)}
           className="px-6 py-2.5 border border-slate-600 text-slate-300 hover:bg-slate-800 rounded-lg transition-colors text-sm"
         >
-          &larr; Back
+          {t("nav.back")}
         </button>
         <button
           onClick={handleJoin}
@@ -198,10 +201,10 @@ export default function StepJoinShop() {
           {loading ? (
             <>
               <Loader2 size={16} className="animate-spin" />
-              Joining...
+              {t("join.joining")}
             </>
           ) : (
-            "Join Shop & Restart"
+            t("join.submit")
           )}
         </button>
       </div>

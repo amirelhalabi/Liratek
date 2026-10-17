@@ -38,6 +38,10 @@ import {
 import { assertValidTenantSlug } from "../utils/tenantSlug.js";
 import { tenantLogger } from "../utils/logger.js";
 import {
+  payingSubscriptionSeed,
+  trialSubscriptionSeed,
+} from "./subscriptionSeed.js";
+import {
   getSigninDirectoryService,
   type SigninDirectoryService,
 } from "./SigninDirectoryService.js";
@@ -80,6 +84,13 @@ export interface ProvisionTenantData {
   googleSignupAt?: string | null;
   adminUsername: string;
   adminPassword: string;
+  /**
+   * LIRA-332: set ONLY by the two public sign-up paths (emailed invite link,
+   * Continue with Google). The shop then starts on a 14-day free trial,
+   * stamped in the same transaction as the tenant. Absent (owner-created
+   * shops, scripts, tests) keeps today's paying row (FR-004).
+   */
+  trial?: { source: "invite_link" | "google" };
 }
 
 // =============================================================================
@@ -92,6 +103,8 @@ export class TenantProvisioningService {
   private subscriptionRepo: SubscriptionRepository;
   private storageProvisioner: TenantStorageProvisioner;
   private directory: Pick<SigninDirectoryService, "syncTenant" | "deleteForTenant">;
+  /** LIRA-332: the clock a trial starts from. Injected for tests. */
+  private now: () => Date;
 
   /**
    * `storageProvisioner` resolution order:
@@ -112,7 +125,9 @@ export class TenantProvisioningService {
     subscriptionRepo?: SubscriptionRepository,
     storageProvisioner?: TenantStorageProvisioner,
     directory?: Pick<SigninDirectoryService, "syncTenant" | "deleteForTenant">,
+    now?: () => Date,
   ) {
+    this.now = now ?? (() => new Date());
     this.directory = directory ?? getSigninDirectoryService();
     this.tenantRepo = tenantRepo ?? getTenantRepository();
     this.userRepo = userRepo ?? getUserRepository();
@@ -183,9 +198,13 @@ export class TenantProvisioningService {
       // half-provisioned shop would silently be unlimited); per-tenant mode
       // builds a brand-new database file this service never needs to know
       // exists. Either way the result is active, with a NULL period end and
-      // NULL entitled_modules for every module: no trial, and no plan
-      // restriction until the owner sets one
-      // (SUBSCRIPTION_MANAGEMENT_PLAN.md D2/D6).
+      // NULL entitled_modules for every module: no plan restriction until
+      // the owner sets one (SUBSCRIPTION_MANAGEMENT_PLAN.md D6). LIRA-332
+      // (supersedes D2 for public sign-ups): a caller that asks for a trial
+      // gets one, chosen ONCE here and handed to whichever provisioner runs.
+      const subscriptionSeed = data.trial
+        ? trialSubscriptionSeed(this.now())
+        : payingSubscriptionSeed();
       const tenant = this.storageProvisioner.createTenant({
         name,
         slug,
@@ -197,10 +216,16 @@ export class TenantProvisioningService {
         googleSignupAt: data.googleSignupAt ?? null,
         adminUsername,
         passwordHash,
+        subscriptionSeed,
       });
 
       tenantLogger.info(
-        { tenantId: tenant.id, slug: tenant.slug, adminUsername },
+        {
+          tenantId: tenant.id,
+          slug: tenant.slug,
+          adminUsername,
+          trial: data.trial?.source ?? null,
+        },
         "Tenant provisioned",
       );
       // LIRA-288: one place for BOTH storage modes (rather than inside each

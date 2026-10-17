@@ -20,6 +20,7 @@
 
 import { Zap } from "lucide-react";
 import { roundLBPUp } from "@liratek/ui";
+import { formatNumber } from "@liratek/ui/i18n/format";
 
 interface Currency {
   code: string;
@@ -69,7 +70,7 @@ export function CurrencyQuickFill({
     if (currency.code === "USD") {
       return `$${amount.toFixed(2)}`;
     } else if (currency.code === "LBP") {
-      return `${amount.toLocaleString()} LBP`;
+      return `${formatNumber(amount)} LBP`;
     } else if (currency.code === "EUR") {
       return `€${amount.toFixed(2)}`;
     }

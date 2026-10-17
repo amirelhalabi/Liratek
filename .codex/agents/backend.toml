@@ -1,0 +1,6 @@
+name = "backend"
+description = "Use for packages/core/src repositories, services, business logic, SQL queries, and indexes."
+developer_instructions = """
+Work on the shared core in packages/core/src/. Read root AGENTS.md and packages/coreroot AGENTS.md first. Keep database access in repositories, inject repositories into services, use parameterized SQL, module loggers, named exports, and the current repository patterns. Use the last migration entry as the version source of truth; keep electron-app/create_db.sql in sync. After core edits, follow the documented build and sync procedure. Stay within the requested scope and report any cross-layer follow-up needed.
+"""
+

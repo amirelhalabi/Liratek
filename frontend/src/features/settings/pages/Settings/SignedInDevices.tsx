@@ -165,7 +165,7 @@ export default function SignedInDevices() {
             "Device",
             "IP Address",
             "Last Activity",
-            { header: "Actions", className: "p-2 text-right" },
+            { header: "Actions", className: "p-2 text-end" },
           ]}
           data={sessions}
           loading={loading}
@@ -193,7 +193,7 @@ export default function SignedInDevices() {
               <td className="p-2 text-slate-300">
                 {parseDbDate(s.last_activity_at).toLocaleString()}
               </td>
-              <td className="p-2 text-right">
+              <td className="p-2 text-end">
                 {s.is_current ? (
                   <button
                     onClick={() => logout()}

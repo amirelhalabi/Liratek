@@ -6,6 +6,9 @@ import { POLL_MS, isTabVisible } from "@/api/pollingCadence";
 import { LogOut, Bell, X, Home, Sun, Moon } from "lucide-react";
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { useFormat } from "@/i18n/useFormat";
+import { i18n } from "@/i18n/setup";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import AccountAvatar from "@/features/account/components/AccountAvatar";
 import { useShopName } from "@/hooks/useShopName";
@@ -30,12 +33,28 @@ import { localDay } from "@/shared/utils/localDay";
  *  each `resale:<id>:<status>:<day>` key is emitted once. */
 const shownLineAlertKeys = new Set<string>();
 
+/** Notification filter codes; the code is the state, the label is translated. */
+const NOTIFICATION_FILTERS = [
+  "all",
+  "success",
+  "info",
+  "warning",
+  "error",
+] as const;
+
+/** Roles that have a translated label; any other value is shown as stored. */
+const KNOWN_ROLES = ["admin", "staff", "super_admin"] as const;
+type KnownRole = (typeof KNOWN_ROLES)[number];
+const isKnownRole = (role: string): role is KnownRole =>
+  (KNOWN_ROLES as readonly string[]).includes(role);
+
 interface TopBarProps {
   showHomeButton?: boolean;
   showShopName?: boolean;
 }
 
 function NotificationHistory() {
+  const { t } = useTranslation("layout");
   const [items, setItems] = useState<UINotification[]>(
     () => window.notificationHistory || [],
   );
@@ -58,19 +77,19 @@ function NotificationHistory() {
   return (
     <div>
       <div className="flex items-center gap-1 p-2 border-b border-slate-700 text-xs">
-        {["all", "success", "info", "warning", "error"].map((f) => (
+        {NOTIFICATION_FILTERS.map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f as UINotification["type"] | "all")}
             className={`px-2 py-1 rounded ${filter === f ? "bg-slate-700 text-white" : "text-slate-300 hover:bg-slate-800"}`}
           >
-            {f}
+            {t(`topBar.filter.${f}`)}
           </button>
         ))}
       </div>
       {filtered.length === 0 ? (
         <div className="p-4 text-center text-slate-400 text-sm">
-          No notifications
+          {t("topBar.noNotifications")}
         </div>
       ) : (
         <ul className="divide-y divide-slate-700">
@@ -98,6 +117,9 @@ export default function TopBar({
   showShopName = false,
 }: TopBarProps) {
   const api = useApi();
+  const { t } = useTranslation("layout");
+  const { t: tc } = useTranslation("common");
+  const { formatNumber } = useFormat();
   // LIRA-309 — read through a ref: the polling effect below runs once ([]).
   const { isModuleEnabled } = useModules();
   const isModuleEnabledRef = useRef(isModuleEnabled);
@@ -243,7 +265,7 @@ export default function TopBar({
         if (warnLow && Array.isArray(low) && low.length > 0)
           appEvents.emit(
             "notification:show",
-            `${low.length} products are low on stock`,
+            i18n.t("layout:topBar.lowStock", { count: low.length }),
             "warning",
           );
         const genLimit = Number(map.get("drawer_limit_general") || 0);
@@ -256,13 +278,19 @@ export default function TopBar({
         if (warnDrawer && genLimit > 0 && genUsd > genLimit)
           appEvents.emit(
             "notification:show",
-            `General Drawer exceeds limit: $${genUsd.toFixed(2)} > $${genLimit.toFixed(2)}`,
+            i18n.t("layout:topBar.generalDrawerLimit", {
+              amount: `$${genUsd.toFixed(2)}`,
+              limit: `$${genLimit.toFixed(2)}`,
+            }),
             "warning",
           );
         if (warnDrawer && omtLimit > 0 && omtUsd > omtLimit)
           appEvents.emit(
             "notification:show",
-            `OMT Drawer exceeds limit: $${omtUsd.toFixed(2)} > $${omtLimit.toFixed(2)}`,
+            i18n.t("layout:topBar.omtDrawerLimit", {
+              amount: `$${omtUsd.toFixed(2)}`,
+              limit: `$${omtLimit.toFixed(2)}`,
+            }),
             "warning",
           );
       } catch {
@@ -321,7 +349,7 @@ export default function TopBar({
           <button
             onClick={() => navigate("/")}
             className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
-            title="Home"
+            title={t("topBar.home")}
           >
             <Home size={20} />
           </button>
@@ -330,7 +358,7 @@ export default function TopBar({
         {/* Shop Name (Page View mode) */}
         {showShopName && shopName && (
           <span
-            className="text-lg font-bold bg-gradient-to-r from-violet-600 to-indigo-600 dark:from-violet-400 dark:to-indigo-400 bg-clip-text whitespace-nowrap mr-2"
+            className="text-lg font-bold bg-gradient-to-r from-violet-600 to-indigo-600 dark:from-violet-400 dark:to-indigo-400 bg-clip-text whitespace-nowrap me-2"
             style={{ WebkitTextFillColor: "transparent" }}
           >
             {shopName}
@@ -354,7 +382,11 @@ export default function TopBar({
             }`}
           >
             <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider whitespace-nowrap">
-              {balMixed ? "Balance" : balHasCredit ? "Credit" : "Debt"}
+              {balMixed
+                ? t("topBar.balance")
+                : balHasCredit
+                  ? t("topBar.credit")
+                  : t("topBar.debt")}
             </span>
             <span
               className={`font-mono text-sm font-bold ${
@@ -377,7 +409,7 @@ export default function TopBar({
                   }`}
                 >
                   {balMixed ? (balLbp < 0 ? "+" : "-") : ""}
-                  {Math.abs(balLbp).toLocaleString()} LBP
+                  {formatNumber(Math.abs(balLbp))} LBP
                 </span>
               </>
             )}
@@ -400,7 +432,7 @@ export default function TopBar({
           <span
             className={`w-2 h-2 rounded-full ${isOnline ? "bg-emerald-500" : "bg-red-500"}`}
           ></span>
-          <span>{isOnline ? "Online" : "Offline"}</span>
+          <span>{isOnline ? t("topBar.online") : t("topBar.offline")}</span>
         </div>
         <div className="relative">
           <button
@@ -409,7 +441,7 @@ export default function TopBar({
           >
             <Bell size={20} />
             {notificationCount > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-0.5 bg-red-500 rounded-full text-[10px] font-bold text-white flex items-center justify-center leading-none">
+              <span className="absolute -top-1 -end-1 min-w-[16px] h-4 px-0.5 bg-red-500 rounded-full text-[10px] font-bold text-white flex items-center justify-center leading-none">
                 {notificationCount > 99 ? "99+" : notificationCount}
               </span>
             )}
@@ -417,9 +449,11 @@ export default function TopBar({
 
           {/* Notification Panel */}
           {isNotificationsOpen && (
-            <div className="absolute right-0 top-full mt-2 w-96 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="absolute end-0 top-full mt-2 w-96 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
               <div className="p-3 border-b border-slate-700 flex items-center justify-between bg-slate-900/50">
-                <h3 className="font-bold text-white text-sm">Notifications</h3>
+                <h3 className="font-bold text-white text-sm">
+                  {t("topBar.notifications")}
+                </h3>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
@@ -428,7 +462,7 @@ export default function TopBar({
                     }}
                     className="text-xs px-2 py-1 bg-slate-700 rounded text-slate-200"
                   >
-                    Clear
+                    {tc("actions.clear")}
                   </button>
                   <button
                     onClick={() => setIsNotificationsOpen(false)}
@@ -450,7 +484,7 @@ export default function TopBar({
           onClick={toggleTheme}
           className="p-1 text-slate-400 hover:text-white transition-colors"
           title={
-            theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+            theme === "dark" ? t("topBar.toLight") : t("topBar.toDark")
           }
         >
           {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
@@ -459,12 +493,16 @@ export default function TopBar({
         <div className="h-6 w-px bg-slate-700"></div>
 
         <div className="flex items-center gap-3">
-          <div className="text-right hidden sm:block">
+          <div className="text-end hidden sm:block">
             <p className="text-sm font-medium text-white">
-              {user?.username || "Admin"}
+              {user?.username || t("topBar.adminFallback")}
             </p>
             <p className="text-xs text-slate-400 capitalize">
-              {user?.role || "Administrator"}
+              {user?.role
+                ? isKnownRole(user.role)
+                  ? t(`topBar.roles.${user.role}`)
+                  : user.role
+                : t("topBar.administrator")}
             </p>
           </div>
 
@@ -474,8 +512,8 @@ export default function TopBar({
           <button
             onClick={() => navigate("/account")}
             className="p-2 text-slate-400 hover:text-white transition-colors"
-            title="My account"
-            aria-label="My account"
+            title={t("topBar.myAccount")}
+            aria-label={t("topBar.myAccount")}
             data-testid="my-account-link"
           >
             {/* LIRA-294: the Google photo when there is one (web). */}
@@ -487,7 +525,7 @@ export default function TopBar({
               logout();
             }}
             className="p-2 text-slate-400 hover:text-red-400 transition-colors"
-            title="Logout"
+            title={t("topBar.logout")}
           >
             <LogOut size={20} />
           </button>

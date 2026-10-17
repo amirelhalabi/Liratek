@@ -13,6 +13,14 @@ import type { SaveMaintenanceJobPayload } from "@liratek/core";
 import type { MaintenanceUpdateMetadataInput } from "@liratek/core";
 import type { SinceLastCountDrawer } from "@liratek/core";
 import type { UnitWarrantyDisplay } from "@liratek/core";
+import type {
+  SubscriptionStatusView as CoreSubscriptionStatusView,
+  ActivateSubscriptionInput,
+  ExtendTrialInput,
+  TrialView,
+  SubscriptionStanding,
+  SubscriptionHistoryEntry,
+} from "@liratek/core";
 import type { DebtLedgerEntity } from "@liratek/ui";
 // LIRA-309 — phone lines held for sale (schema-derived payloads, rule 21).
 import type {
@@ -167,6 +175,12 @@ import type {
 } from "@liratek/core";
 import { messageFrom } from "./apiError";
 import { localDay } from "@/shared/utils/localDay";
+// LIRA-333 — the allow-list for links opened outside LiraTek (rule 21).
+import {
+  openExternalUrlSchema,
+  OPEN_EXTERNAL_URL_NOT_ALLOWED,
+  type OpenExternalUrlInput,
+} from "@liratek/core";
 import type {
   ProductListFilters,
   DatabaseResetPreview,
@@ -391,16 +405,17 @@ export async function signup(input: SignupInput) {
 }
 
 /** What both transports report about a shop's commercial standing. */
-export interface SubscriptionStatusView {
-  status: "active" | "grace" | "read_only";
-  plan: string;
-  /** false ONLY in read_only. Grace is fully functional by design. */
-  canWrite: boolean;
-  currentPeriodEnd: string | null;
-  graceEndsAt: string | null;
-  /** null means every module. */
-  entitledModules: string[] | null;
-}
+/**
+ * What `GET /api/subscription/status` returns: core's view (rule 21 — never a
+ * hand-copied shape) plus the shop's name and address for the WhatsApp
+ * activation link (LIRA-332). `standing` and `trial` are computed on the
+ * server; screens render them and never re-derive them (rule 14, US4-4).
+ * On desktop the view comes from the local licence row: never a trial, and
+ * no `shop`.
+ */
+export type SubscriptionStatusView = CoreSubscriptionStatusView & {
+  shop?: { name: string; address: string } | null;
+};
 
 /**
  * The signed-in shop's subscription standing.
@@ -1474,6 +1489,50 @@ export async function getSaleItems(saleId: number) {
     `/api/sales/${saleId}/items`,
   );
   return res.items;
+}
+
+/**
+ * LIRA-333 (contracts/open-external.md) — open a WhatsApp link OUTSIDE
+ * LiraTek. The only place this transport is branched on.
+ *
+ * Deliberately NOT `ipcOrHttp`: its catch falls back to the HTTP arm, which
+ * here would `window.open` inside Electron and create a LiraTek window
+ * (FR-016). The desktop arm reports its own failure instead.
+ *
+ * NOT async: the web arm must reach `window.open` inside the click's
+ * synchronous call stack or the browser blocks it as a pop-up. No
+ * "noopener" feature string — with it `window.open` always returns null, so
+ * every click would read as blocked; the opener is cut by hand instead.
+ */
+export function openExternalUrl(
+  input: OpenExternalUrlInput,
+): Promise<{ success: boolean; error?: string }> {
+  if (isElectron()) {
+    return (async () => {
+      try {
+        return await getElectronApi().app.openExternal(input);
+      } catch (err) {
+        return {
+          success: false,
+          error: messageFrom(err, "WhatsApp could not be opened"),
+        };
+      }
+    })();
+  }
+  if (!openExternalUrlSchema.safeParse(input).success) {
+    return Promise.resolve({
+      success: false,
+      error: OPEN_EXTERNAL_URL_NOT_ALLOWED,
+    });
+  }
+  const tab = window.open(input.url, "_blank");
+  if (!tab) return Promise.resolve({ success: false, error: "blocked" });
+  try {
+    tab.opener = null;
+  } catch {
+    // cross-origin already: nothing to detach
+  }
+  return Promise.resolve({ success: true });
 }
 
 /** Refund a WHOLE sale (admin only). Was a raw, unguarded
@@ -7481,6 +7540,11 @@ export interface AdminSubscription {
   /** RAW JSON text, or null for "every module". */
   entitled_modules: string | null;
   notes: string | null;
+  /** LIRA-332: derived on the server, the same as the shop's own status. */
+  standing: SubscriptionStanding;
+  trial: TrialView | null;
+  /** When the shop itself was created. */
+  tenant_created_at: string;
 }
 
 export interface AdminSubscriptionsPayload {
@@ -7575,6 +7639,66 @@ export async function adminUpdateSubscription(
   if (!res.success) {
     throw new Error(res.error || "Failed to update the plan");
   }
+}
+
+/**
+ * LIRA-332 — the owner's trial actions. Web-only, like every control-plane
+ * call; payload types come from the core schemas (rule 21). The admin router
+ * answers refusals with 4xx (`requestJson` throws a plain ApiError object),
+ * so the server's own sentence ("Choose a date in the future") is lifted out
+ * with `messageFrom` and thrown as an Error the modal can show.
+ */
+async function adminTrialAction(
+  path: string,
+  body: ActivateSubscriptionInput | ExtendTrialInput,
+  fallback: string,
+): Promise<void> {
+  let res: { success: boolean; error?: unknown };
+  try {
+    res = await requestJson<{ success: boolean; error?: unknown }>(path, {
+      method: "POST",
+      body,
+    });
+  } catch (err) {
+    const details = (err as { details?: { error?: unknown } } | null)?.details;
+    throw new Error(messageFrom(details?.error ?? err, fallback));
+  }
+  if (!res.success) throw new Error(messageFrom(res.error, fallback));
+}
+
+export async function adminActivateSubscription(
+  tenantId: number,
+  body: ActivateSubscriptionInput,
+): Promise<void> {
+  assertWebOnly("Activating a subscription");
+  await adminTrialAction(
+    `/api/admin/subscriptions/${tenantId}/activate`,
+    body,
+    "Failed to activate the subscription",
+  );
+}
+
+export async function adminExtendTrial(
+  tenantId: number,
+  body: ExtendTrialInput,
+): Promise<void> {
+  assertWebOnly("Extending a trial");
+  await adminTrialAction(
+    `/api/admin/subscriptions/${tenantId}/extend-trial`,
+    body,
+    "Failed to extend the trial",
+  );
+}
+
+export async function adminSubscriptionHistory(
+  tenantId: number,
+): Promise<SubscriptionHistoryEntry[]> {
+  assertWebOnly("Reading subscription history");
+  const res = await requestJson<{
+    success: boolean;
+    data?: { entries: SubscriptionHistoryEntry[] };
+  }>(`/api/admin/subscriptions/${tenantId}/history`);
+  return res.success && res.data ? res.data.entries : [];
 }
 
 /**

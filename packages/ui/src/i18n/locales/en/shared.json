@@ -1,1 +1,49 @@
-{}
+{
+  "errorBoundary": {
+    "title": "Something went wrong",
+    "body": "An unexpected error occurred in the application. You can try reloading the current page, or restart the app if the problem persists.",
+    "details": "Error details",
+    "reload": "Reload Page",
+    "restart": "Full Restart"
+  },
+  "editHistory": {
+    "label": "Edit history",
+    "title": "Edit History",
+    "loading": "Loading…",
+    "empty": "No edit history",
+    "loadFailed": "Failed to load edit history.",
+    "unexpected": "Unexpected error."
+  },
+  "password": {
+    "hide": "Hide password",
+    "show": "Show password",
+    "capsLock": "Caps Lock is on",
+    "uppercase": "✓ Uppercase letter",
+    "lowercase": "✓ Lowercase letter",
+    "number": "✓ Number",
+    "minLength": "✓ At least 8 characters",
+    "symbol": "✓ A symbol (for example - _ . @ ! #)"
+  },
+  "priceChange": {
+    "warning": "Price changed: catalog {{catalog}} → {{current}}"
+  },
+  "receiptPreview": {
+    "title": "Receipt Preview"
+  },
+  "saveAsClient": "Save as client",
+  "subscription": {
+    "overdue": "Payment overdue.",
+    "graceUntil": "Everything still works until {{date}}. Please settle the subscription to avoid going read-only.",
+    "grace": "Everything still works. Please settle the subscription to avoid going read-only.",
+    "readOnly": "Read-only.",
+    "readOnlyBody": "You can still view, search and export everything — including what customers owe you — but new entries are paused until the subscription is settled."
+  },
+  "txnTime": {
+    "set": "Set custom time",
+    "label": "Transaction time:",
+    "clear": "✕ Clear"
+  },
+  "totals": {
+    "total": "Total"
+  }
+}

@@ -791,6 +791,31 @@ describe("sign-up with a Google ticket", () => {
     );
   });
 
+  // LIRA-332 (FR-001; rule 24 premise change: a Google-signed-up shop is no
+  // longer unlimited). Failing-first: run before googleSignup.ts passed
+  // `trial`, `input.trial` was undefined.
+  it("starts the new shop on a free trial and audits the sign-up with via: google", async () => {
+    enable();
+    const app = buildApp();
+    const googleTicket = await signupTicket(app);
+    provisionTenant.mockReturnValue({ id: 9, name: "New Shop", slug: "newshop" });
+    auditLog.mockClear();
+
+    const res = await request(app)
+      .post("/api/auth/signup")
+      .send({ ...shopFields, googleTicket });
+    expect(res.status).toBe(201);
+    const input = provisionTenant.mock.calls.at(-1)![0];
+    expect(input.trial).toEqual({ source: "google" });
+    expect(auditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "create",
+        entity_type: "tenant",
+        metadata: expect.objectContaining({ via: "google" }),
+      }),
+    );
+  });
+
   it("still requires a password", async () => {
     enable();
     const app = buildApp();
