@@ -11,6 +11,9 @@ import {
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { useApi } from "@liratek/ui";
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { useFormat } from "@/i18n/useFormat";
 
 interface SessionTransaction {
   id: number;
@@ -54,14 +57,16 @@ const TRANSACTION_ICONS: Record<string, any> = {
   EXCHANGE: DollarSign,
 };
 
-const TRANSACTION_LABELS: Record<string, string> = {
-  SALE: "Sale",
-  FINANCIAL_SERVICE: "Money Transfer",
-  RECHARGE: "Recharge",
-  MAINTENANCE: "Maintenance",
-  CUSTOM_SERVICE: "Custom Service",
-  EXCHANGE: "Exchange",
-};
+// Catalog keys, translated at render (a module-level t() would not follow a
+// language switch). Unknown types fall back to the stored code.
+const TRANSACTION_LABEL_KEYS = {
+  SALE: "sessions.type.SALE",
+  FINANCIAL_SERVICE: "sessions.type.FINANCIAL_SERVICE",
+  RECHARGE: "sessions.type.RECHARGE",
+  MAINTENANCE: "sessions.type.MAINTENANCE",
+  CUSTOM_SERVICE: "sessions.type.CUSTOM_SERVICE",
+  EXCHANGE: "sessions.type.EXCHANGE",
+} as const;
 
 export default function CustomerSessionsView({
   customerName,
@@ -69,6 +74,8 @@ export default function CustomerSessionsView({
   onClose,
 }: CustomerSessionsViewProps) {
   const api = useApi();
+  const { t } = useTranslation("clients");
+  const fmt = useFormat();
   useModalFocusFix(true);
   const [sessions, setSessions] = useState<SessionWithDetails[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,7 +108,7 @@ export default function CustomerSessionsView({
 
   const formatDate = (dateString: string) => {
     const date = parseDbDate(dateString);
-    return date.toLocaleDateString("en-US", {
+    return fmt.formatDate(date, {
       month: "short",
       day: "numeric",
       year: "numeric",
@@ -114,7 +121,7 @@ export default function CustomerSessionsView({
     if (currency === "USD") {
       return `$${amount.toFixed(2)}`;
     }
-    return `${amount.toLocaleString()} LBP`;
+    return `${fmt.formatNumber(amount)} LBP`;
   };
 
   if (loading) {
@@ -122,7 +129,7 @@ export default function CustomerSessionsView({
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
         <div className="bg-slate-900 border border-slate-700 rounded-2xl p-8 max-w-2xl w-full">
           <div className="text-center text-slate-400 animate-pulse">
-            Loading sessions...
+            {t("sessions.loading")}
           </div>
         </div>
       </div>
@@ -143,9 +150,16 @@ export default function CustomerSessionsView({
         {/* Header */}
         <div className="p-6 border-b border-slate-700 flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-bold text-white">Customer Sessions</h2>
+            <h2 className="text-xl font-bold text-white">
+              {t("sessions.title")}
+            </h2>
             <p className="text-sm text-slate-400 mt-1">
-              {customerName} {customerPhone && `• ${customerPhone}`}
+              {customerName}{" "}
+              {customerPhone && (
+                <>
+                  • <Ltr>{customerPhone}</Ltr>
+                </>
+              )}
             </p>
           </div>
           <button
@@ -161,7 +175,7 @@ export default function CustomerSessionsView({
           {sessions.length === 0 ? (
             <div className="text-center text-slate-400 py-12">
               <Clock size={48} className="mx-auto mb-4 opacity-50" />
-              <p>No sessions found for this customer</p>
+              <p>{t("sessions.empty")}</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -186,7 +200,9 @@ export default function CustomerSessionsView({
                         />
                         <div>
                           <p className="text-white font-medium">
-                            Session #{sessionData.session.id}
+                            {t("sessions.sessionNo", {
+                              id: sessionData.session.id,
+                            })}
                           </p>
                           <p className="text-sm text-slate-400">
                             {formatDate(sessionData.session.started_at)}
@@ -200,8 +216,10 @@ export default function CustomerSessionsView({
                         </div>
                       </div>
                       <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          <p className="text-sm text-slate-400">Total Spent</p>
+                        <div className="text-end">
+                          <p className="text-sm text-slate-400">
+                            {t("sessions.totalSpent")}
+                          </p>
                           <p className="text-lg font-bold text-emerald-400">
                             {formatCurrency(sessionData.total_usd, "USD")}
                           </p>
@@ -240,16 +258,22 @@ export default function CustomerSessionsView({
                   {expandedSession === sessionData.session.id && (
                     <div className="border-t border-slate-700 p-4 bg-slate-850">
                       <h4 className="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3">
-                        Transactions ({sessionData.transactions.length})
+                        {t("sessions.transactions", {
+                          n: sessionData.transactions.length,
+                        })}
                       </h4>
                       <div className="space-y-2">
                         {sessionData.transactions.map((txn) => {
                           const Icon =
                             TRANSACTION_ICONS[txn.transaction_type] ||
                             ShoppingCart;
-                          const label =
-                            TRANSACTION_LABELS[txn.transaction_type] ||
-                            txn.transaction_type;
+                          const labelKey =
+                            TRANSACTION_LABEL_KEYS[
+                              txn.transaction_type as keyof typeof TRANSACTION_LABEL_KEYS
+                            ];
+                          const label = labelKey
+                            ? t(labelKey)
+                            : txn.transaction_type;
 
                           return (
                             <div
@@ -262,14 +286,14 @@ export default function CustomerSessionsView({
                                 </div>
                                 <div>
                                   <p className="text-white text-sm font-medium">
-                                    {label} #{txn.transaction_id}
+                                    {label} <Ltr>#{txn.transaction_id}</Ltr>
                                   </p>
                                   <p className="text-xs text-slate-400">
                                     {formatDate(txn.created_at)}
                                   </p>
                                 </div>
                               </div>
-                              <div className="text-right">
+                              <div className="text-end">
                                 <p className="text-white font-medium">
                                   {formatCurrency(
                                     Math.abs(txn.amount_usd),

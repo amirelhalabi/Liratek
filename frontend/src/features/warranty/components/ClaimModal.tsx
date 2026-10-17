@@ -20,6 +20,8 @@ import type {
   WarrantyState,
 } from "@liratek/core";
 import { localDay } from "@/shared/utils/localDay";
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 
 export interface ClaimTarget {
   /** A sale line's warranty — or `maintenanceId` for a repair's own. */
@@ -38,27 +40,21 @@ interface ClaimModalProps {
   onDone: () => void;
 }
 
-const ACTIONS: {
-  value: WarrantyClaimActionInput;
-  label: string;
-  hint: string;
-}[] = [
-  {
-    value: "REPAIR",
-    label: "Repair",
-    hint: "Opens a free repair job for the customer.",
-  },
+// `value` is the claim action code sent to the server; the label and hint
+// are catalog keys, translated at render.
+const ACTIONS = [
+  { value: "REPAIR", labelKey: "action.REPAIR", hintKey: "claim.hint.REPAIR" },
   {
     value: "REPLACE",
-    label: "Replace",
-    hint: "Gives the customer the same item from stock.",
+    labelKey: "action.REPLACE",
+    hintKey: "claim.hint.REPLACE",
   },
-  {
-    value: "REFUND",
-    label: "Refund",
-    hint: "Refunds this item; the faulty one is kept aside.",
-  },
-];
+  { value: "REFUND", labelKey: "action.REFUND", hintKey: "claim.hint.REFUND" },
+] as const satisfies readonly {
+  value: WarrantyClaimActionInput;
+  labelKey: string;
+  hintKey: string;
+}[];
 
 export function ClaimModal({
   target,
@@ -66,6 +62,7 @@ export function ClaimModal({
   onClose,
   onDone,
 }: ClaimModalProps) {
+  const { t } = useTranslation("warranty");
   const api = useApi();
   const apiRef = useRef(api);
   apiRef.current = api;
@@ -132,7 +129,7 @@ export function ClaimModal({
       if (res.success) onDone();
       else setError(res.error);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not start the claim");
+      setError(e instanceof Error ? e.message : t("claim.startFailed"));
     } finally {
       setBusy(false);
     }
@@ -148,16 +145,16 @@ export function ClaimModal({
     >
       <div
         role="dialog"
-        aria-label="Warranty claim"
+        aria-label={t("claim.title")}
         className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl p-6 space-y-4"
       >
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-white flex items-center gap-2">
             <ShieldCheck size={18} className="text-violet-400" />
-            Warranty claim — {target.productName}
+            {t("claim.titleFor", { name: target.productName })}
           </h2>
           <button
-            aria-label="Close"
+            aria-label={t("common:actions.close")}
             onClick={onClose}
             className="text-slate-400 hover:text-white"
           >
@@ -167,21 +164,19 @@ export function ClaimModal({
 
         {target.state === "VOID" && (
           <p className="text-sm text-red-300">
-            This item was refunded — its warranty is void.
+            {t("claim.void")}
           </p>
         )}
         {target.state === "EXPIRED" && (
           <p className="text-sm text-amber-300">
-            This warranty has expired.{" "}
-            {isAdmin
-              ? "Give a reason to honour it anyway."
-              : "Only an admin can honour it."}
+            {t("claim.expired")}{" "}
+            {isAdmin ? t("claim.expiredAdmin") : t("claim.expiredStaff")}
           </p>
         )}
 
         <fieldset className="space-y-2">
           <legend className="text-xs text-slate-400 mb-1">
-            What will the shop do?
+            {t("claim.whatWillShopDo")}
           </legend>
           {ACTIONS.map((a) => {
             const disabled = a.value !== "REPAIR" && (!isAdmin || repairOnly);
@@ -193,7 +188,7 @@ export function ClaimModal({
                 <input
                   type="radio"
                   name="claim-action"
-                  aria-label={a.label}
+                  aria-label={t(a.labelKey)}
                   value={a.value}
                   checked={action === a.value}
                   disabled={disabled}
@@ -201,8 +196,10 @@ export function ClaimModal({
                   className="mt-1 accent-violet-600"
                 />
                 <span>
-                  <span className="font-medium">{a.label}</span>
-                  <span className="block text-xs text-slate-400">{a.hint}</span>
+                  <span className="font-medium">{t(a.labelKey)}</span>
+                  <span className="block text-xs text-slate-400">
+                    {t(a.hintKey)}
+                  </span>
                 </span>
               </label>
             );
@@ -215,7 +212,7 @@ export function ClaimModal({
               htmlFor="claim-unit"
               className="text-xs text-slate-400 block mb-1"
             >
-              Unit
+              {t("claim.unit")}
             </label>
             <select
               id="claim-unit"
@@ -238,7 +235,7 @@ export function ClaimModal({
               htmlFor="claim-replacement"
               className="text-xs text-slate-400 block mb-1"
             >
-              Replacement unit
+              {t("claim.replacement")}
             </label>
             <select
               id="claim-replacement"
@@ -248,7 +245,7 @@ export function ClaimModal({
               }
               className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"
             >
-              <option value="">Pick the unit you hand over…</option>
+              <option value="">{t("claim.pickReplacement")}</option>
               {spares.map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.imei}
@@ -264,7 +261,7 @@ export function ClaimModal({
               htmlFor="claim-reason"
               className="text-xs text-slate-400 block mb-1"
             >
-              Reason for honouring it
+              {t("claim.reason")}
             </label>
             <input
               id="claim-reason"
@@ -281,7 +278,7 @@ export function ClaimModal({
             htmlFor="claim-notes"
             className="text-xs text-slate-400 block mb-1"
           >
-            Notes
+            {t("claim.notes")}
           </label>
           <textarea
             id="claim-notes"
@@ -307,14 +304,14 @@ export function ClaimModal({
             onClick={onClose}
             className="px-4 py-2 text-slate-300 hover:text-white"
           >
-            Cancel
+            {t("common:actions.cancel")}
           </button>
           <button
             onClick={() => void submit()}
             disabled={busy || blocked}
             className="px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold rounded-lg"
           >
-            {busy ? "Saving…" : "Start claim"}
+            {busy ? t("claim.saving") : t("claim.start")}
           </button>
         </div>
       </div>

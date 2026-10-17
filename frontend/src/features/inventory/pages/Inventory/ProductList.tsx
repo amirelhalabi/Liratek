@@ -1024,13 +1024,13 @@ export default function ProductList() {
       <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative flex-1 min-w-[16rem] max-w-md">
-            <Search className="absolute left-3 top-2.5 text-slate-500 h-5 w-5" />
+            <Search className="absolute start-3 top-2.5 text-slate-500 h-5 w-5" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search by name, barcode..."
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg ps-10 pe-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
             />
           </div>
 
@@ -1100,7 +1100,7 @@ export default function ProductList() {
               type="button"
               onClick={() => setFilters(EMPTY_PRODUCT_FILTERS)}
               data-testid="inventory-filters-clear"
-              className="ml-1 rounded-lg px-2 py-1 text-xs text-slate-400 transition-colors hover:bg-slate-700 hover:text-white"
+              className="ms-1 rounded-lg px-2 py-1 text-xs text-slate-400 transition-colors hover:bg-slate-700 hover:text-white"
             >
               Clear all
             </button>
@@ -1217,7 +1217,7 @@ export default function ProductList() {
             },
             {
               header: "Actions",
-              className: "p-4 border-b border-slate-700 text-right",
+              className: "p-4 border-b border-slate-700 text-end",
               width: "90px",
             },
           ]}
@@ -1254,7 +1254,7 @@ export default function ProductList() {
           exportExcel
           exportPdf
           exportFilename="products"
-          className="w-full text-left border-collapse"
+          className="w-full text-start border-collapse"
           theadClassName="bg-slate-800/50 text-slate-400 text-xs uppercase font-semibold"
           tbodyClassName="divide-y divide-slate-700 text-sm"
           renderRow={(product) => {
@@ -1343,7 +1343,7 @@ export default function ProductList() {
                     {product.stock_quantity ?? 0} units
                   </div>
                 </td>
-                <td className="p-4 text-right">
+                <td className="p-4 text-end">
                   <div className="flex items-center justify-end gap-2">
                     <button
                       onClick={(e) => {
@@ -1575,7 +1575,7 @@ export default function ProductList() {
 
       {/* Minimized Products Bar */}
       {minimizedProducts.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-700 shadow-2xl z-40">
+        <div className="fixed bottom-0 start-0 end-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-700 shadow-2xl z-40">
           <div className="flex items-center gap-2 px-4 py-2 overflow-x-auto">
             {minimizedProducts.map((product, index) => {
               const productName = product.formData.name || "New Product";
@@ -1588,7 +1588,7 @@ export default function ProductList() {
                   className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 hover:border-violet-500 rounded-lg transition-all shrink-0 group min-w-[200px]"
                 >
                   <Package size={16} className="text-violet-400" />
-                  <div className="flex-1 text-left min-w-0">
+                  <div className="flex-1 text-start min-w-0">
                     <div className="text-xs font-medium text-white truncate">
                       {productName}
                     </div>
@@ -1601,7 +1601,7 @@ export default function ProductList() {
                   )}
                   <button
                     onClick={(e) => handleCancelMinimizedProduct(product.id, e)}
-                    className="ml-1 p-1 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded transition-colors"
+                    className="ms-1 p-1 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded transition-colors"
                     title="Cancel"
                   >
                     <Trash2 size={14} />

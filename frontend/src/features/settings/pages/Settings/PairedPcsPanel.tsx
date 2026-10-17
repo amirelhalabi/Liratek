@@ -109,7 +109,7 @@ export default function PairedPcsPanel() {
           <thead className="bg-slate-900">
             <tr>
               {["PC", "Name", "Last seen", "State", "Waiting", "Version", ""].map((h) => (
-                <th key={h} className="text-left text-xs text-slate-400 px-4 py-3">
+                <th key={h} className="text-start text-xs text-slate-400 px-4 py-3">
                   {h}
                 </th>
               ))}
@@ -143,7 +143,7 @@ export default function PairedPcsPanel() {
                       type="button"
                       aria-label={`Renumber ${d.name}`}
                       onClick={() => setConfirm({ id: d.id, action: "renumber" })}
-                      className="mr-2 px-3 py-1 rounded-lg bg-violet-700 text-white hover:bg-violet-600"
+                      className="me-2 px-3 py-1 rounded-lg bg-violet-700 text-white hover:bg-violet-600"
                     >
                       Renumber unsent work
                     </button>

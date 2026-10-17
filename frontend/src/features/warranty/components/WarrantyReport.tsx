@@ -10,12 +10,18 @@ import { useEffect, useRef, useState } from "react";
 import { DataTable, useApi } from "@liratek/ui";
 import type { WarrantyReport as Report, WarrantyReportItem } from "@liratek/core";
 import { localDay } from "@/shared/utils/localDay";
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { formatNumber } from "@liratek/ui/i18n/format";
 
 const usd = (n: number) => `$${n.toFixed(2)}`;
 
 type Row = WarrantyReportItem & { category: string };
 
 export function WarrantyReport() {
+  const { t } = useTranslation("warranty");
+  const tRef = useRef(t);
+  tRef.current = t;
   const api = useApi();
   // Rule 25: `api` read through a ref; refreshed in an effect.
   const apiRef = useRef(api);
@@ -39,7 +45,9 @@ export function WarrantyReport() {
       })
       .catch((e: unknown) => {
         if (!live) return;
-        setError(e instanceof Error ? e.message : "Could not load the report");
+        setError(
+          e instanceof Error ? e.message : tRef.current("report.loadFailed"),
+        );
       });
     return () => {
       live = false;
@@ -56,7 +64,7 @@ export function WarrantyReport() {
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3 items-end">
         <label className="text-xs text-slate-400 flex flex-col">
-          From
+          {t("report.from")}
           <input
             type="date"
             value={from}
@@ -66,7 +74,7 @@ export function WarrantyReport() {
           />
         </label>
         <label className="text-xs text-slate-400 flex flex-col">
-          To
+          {t("report.to")}
           <input
             type="date"
             value={to}
@@ -86,7 +94,7 @@ export function WarrantyReport() {
       {claims && (
         <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div className="bg-slate-800 rounded-xl p-4 border border-slate-700/50">
-            <p className="text-xs text-slate-400">Claims in the period</p>
+            <p className="text-xs text-slate-400">{t("report.claimsInPeriod")}</p>
             <p
               className="text-2xl text-white"
               data-testid="report-claims-total"
@@ -94,38 +102,43 @@ export function WarrantyReport() {
               {claims.total}
             </p>
             <p className="text-xs text-slate-400" data-testid="report-by-action">
-              Repair {claims.byAction.REPAIR} · Replace{" "}
-              {claims.byAction.REPLACE} · Refund {claims.byAction.REFUND}
+              {t("report.byAction", {
+                nRepair: claims.byAction.REPAIR,
+                nReplace: claims.byAction.REPLACE,
+                nRefund: claims.byAction.REFUND,
+              })}
             </p>
           </div>
           <div className="bg-slate-800 rounded-xl p-4 border border-slate-700/50">
-            <p className="text-xs text-slate-400">Cost to the shop</p>
+            <p className="text-xs text-slate-400">{t("report.gross")}</p>
             <p className="text-2xl text-red-300" data-testid="report-gross">
-              {usd(claims.grossCostUsd)}
+              <Ltr>{usd(claims.grossCostUsd)}</Ltr>
             </p>
           </div>
           <div className="bg-slate-800 rounded-xl p-4 border border-slate-700/50">
-            <p className="text-xs text-slate-400">Given back by suppliers</p>
+            <p className="text-xs text-slate-400">{t("report.recovered")}</p>
             <p
               className="text-2xl text-emerald-300"
               data-testid="report-recovered"
             >
-              {usd(claims.supplierRecoveredUsd)}
+              <Ltr>{usd(claims.supplierRecoveredUsd)}</Ltr>
             </p>
             {claims.supplierRecoveredLbp !== 0 && (
               <p className="text-xs text-slate-400">
-                + {claims.supplierRecoveredLbp.toLocaleString()} LBP
+                <Ltr>+ {formatNumber(claims.supplierRecoveredLbp)} LBP</Ltr>
               </p>
             )}
           </div>
           <div className="bg-slate-800 rounded-xl p-4 border border-slate-700/50">
-            <p className="text-xs text-slate-400">Net warranty cost</p>
+            <p className="text-xs text-slate-400">{t("report.net")}</p>
             <p className="text-2xl text-white" data-testid="report-net">
-              {usd(claims.netCostUsd)}
+              <Ltr>{usd(claims.netCostUsd)}</Ltr>
             </p>
             {claims.netCostLbp !== 0 && (
               <p className="text-xs text-slate-400">
-                {(-claims.netCostLbp).toLocaleString()} LBP back
+                {t("report.lbpBack", {
+                  amount: `${formatNumber(-claims.netCostLbp)} LBP`,
+                })}
               </p>
             )}
           </div>
@@ -134,7 +147,7 @@ export function WarrantyReport() {
 
       <section className="space-y-2">
         <h2 className="text-sm font-semibold text-white">
-          Under warranty today
+          {t("report.underWarranty")}
         </h2>
         <div className="flex flex-wrap gap-2 text-xs text-slate-300">
           {report?.underWarranty.map((g) => (
@@ -149,18 +162,18 @@ export function WarrantyReport() {
         </div>
         <DataTable<Row>
           columns={[
-            { header: "Category", sortKey: "category" },
-            { header: "Item", sortKey: "productName" },
-            "Receipt",
-            "Customer",
-            { header: "Qty", sortKey: "coveredQuantity" },
-            { header: "Covered until", sortKey: "warrantyUntil" },
+            { header: t("report.col.category"), sortKey: "category" },
+            { header: t("report.col.item"), sortKey: "productName" },
+            t("report.col.receipt"),
+            t("report.col.customer"),
+            { header: t("report.col.qty"), sortKey: "coveredQuantity" },
+            { header: t("report.col.until"), sortKey: "warrantyUntil" },
           ]}
           data={rows}
           exportExcel
           exportPdf
           exportFilename="warranty-report"
-          emptyMessage="Nothing is under warranty today."
+          emptyMessage={t("report.empty")}
           renderRow={(r) => (
             <tr
               key={`${r.source}-${r.saleItemId ?? r.maintenanceId}`}
@@ -169,18 +182,29 @@ export function WarrantyReport() {
               <td className="px-4 py-2 text-sm text-slate-300">{r.category}</td>
               <td className="px-4 py-2 text-sm text-white">{r.productName}</td>
               <td className="px-4 py-2 text-sm text-slate-300">
-                {r.receiptNumber ??
-                  (r.maintenanceId ? `Repair #${r.maintenanceId}` : "—")}
+                <Ltr>
+                  {r.receiptNumber ??
+                    (r.maintenanceId
+                      ? t("report.repairNo", { id: r.maintenanceId })
+                      : "—")}
+                </Ltr>
               </td>
               <td className="px-4 py-2 text-sm text-slate-300">
                 {r.customerName ?? "—"}
-                {r.customerPhone ? ` · ${r.customerPhone}` : ""}
+                {r.customerPhone ? (
+                  <>
+                    {" · "}
+                    <Ltr>{r.customerPhone}</Ltr>
+                  </>
+                ) : (
+                  ""
+                )}
               </td>
               <td className="px-4 py-2 text-sm text-slate-300">
                 {r.coveredQuantity}
               </td>
               <td className="px-4 py-2 text-sm text-slate-300">
-                {r.warrantyUntil.slice(0, 10)}
+                <Ltr>{r.warrantyUntil.slice(0, 10)}</Ltr>
               </td>
             </tr>
           )}

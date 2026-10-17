@@ -4,13 +4,7 @@
  */
 import clsx from "clsx";
 import type { WarrantyState } from "@liratek/core";
-
-const LABEL: Record<WarrantyState, string> = {
-  COVERED: "Covered",
-  EXPIRED: "Expired",
-  VOID: "Void",
-  NONE: "No warranty",
-};
+import { useTranslation } from "react-i18next";
 
 const TONE: Record<WarrantyState, string> = {
   COVERED: "bg-emerald-900/40 text-emerald-300 border-emerald-700/40",
@@ -20,6 +14,7 @@ const TONE: Record<WarrantyState, string> = {
 };
 
 export function WarrantyStateBadge({ state }: { state: WarrantyState }) {
+  const { t } = useTranslation("warranty");
   return (
     <span
       className={clsx(
@@ -27,7 +22,7 @@ export function WarrantyStateBadge({ state }: { state: WarrantyState }) {
         TONE[state],
       )}
     >
-      {LABEL[state]}
+      {t(`state.${state}`)}
     </span>
   );
 }

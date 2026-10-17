@@ -98,7 +98,7 @@ function ModuleMultiSelect({
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 w-full rounded-lg border border-slate-600 bg-slate-800/50 px-2.5 py-1.5 text-left text-sm hover:border-slate-500 transition-colors"
+        className="flex items-center gap-1.5 w-full rounded-lg border border-slate-600 bg-slate-800/50 px-2.5 py-1.5 text-start text-sm hover:border-slate-500 transition-colors"
       >
         <span className="flex-1 flex flex-wrap gap-1 min-h-[22px]">
           {labels.length === 0 ? (
@@ -125,7 +125,7 @@ function ModuleMultiSelect({
         <div
           ref={dropdownRef}
           className="fixed z-[9999] w-56 rounded-lg border border-slate-600 bg-slate-800 shadow-2xl shadow-black/40 max-h-[280px] overflow-y-auto"
-          style={{ top: pos.top, left: pos.left }}
+          style={{ top: pos.top, left: pos.left }} // i18n-exempt: pixel position from getBoundingClientRect, physical by design
         >
           <div className="p-1.5 border-b border-slate-700 flex items-center justify-between px-3">
             <span className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">
