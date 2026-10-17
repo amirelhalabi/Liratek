@@ -1,1 +1,115 @@
-{}
+{
+  "dataTable": {
+    "empty": "لا بيانات",
+    "rows": "سطر",
+    "loading": "جارٍ التحميل…",
+    "showingEntries": "عرض {{shown}} من {{total}}",
+    "pageRange": "عرض {{from}}–{{to}} من {{total}} {{label}}",
+    "chooseColumns": "اختر أعمدة التصدير",
+    "columns": "الأعمدة",
+    "exportColumns": "أعمدة التصدير",
+    "reset": "إعادة الضبط",
+    "selectAll": "تحديد الكل",
+    "selectAllPages": "تحديد الكل (كل الصفحات)",
+    "actionsHeader": "إجراءات"
+  },
+  "exportBar": {
+    "excelTitle": "تصدير إلى Excel",
+    "excel": "Excel",
+    "pdfTitle": "تصدير إلى PDF",
+    "pdf": "PDF"
+  },
+  "dateRange": {
+    "fromColon": "من:",
+    "toColon": "إلى:",
+    "from": "من",
+    "to": "إلى"
+  },
+  "splitToggle": {
+    "active": "التقسيم مفعّل",
+    "off": "تقسيم"
+  },
+  "settle": {
+    "processing": "جارٍ التنفيذ..."
+  },
+  "discountLine": {
+    "modeGroup": "حسم أو إضافة",
+    "discount": "− حسم",
+    "extra": "+ إضافة",
+    "extraLabel": "إضافة",
+    "reasonAria": "سبب {{label}}",
+    "reasonPlaceholder": "السبب (اختياري)"
+  },
+  "notifications": {
+    "moreOne": "+{{count}} إشعار إضافي",
+    "moreOther": "+{{count}} إشعارات إضافية"
+  },
+  "pageAlerts": {
+    "countOne": "أمر واحد يحتاج انتباهك",
+    "countOther": "{{count}} أمور تحتاج انتباهك",
+    "action": "{{label}} ←"
+  },
+  "searchBar": {
+    "placeholder": "بحث...",
+    "noResults": "لا نتائج. اضغط Enter لاستعماله كوصف.",
+    "clear": "مسح البحث"
+  },
+  "select": {
+    "placeholder": "اختر"
+  },
+  "multiSelect": {
+    "collapse": "طيّ {{label}}",
+    "expand": "توسيع {{label}}",
+    "selectAll": "تحديد كل {{label}}",
+    "noOptions": "لا خيارات"
+  },
+  "topUp": {
+    "title": "تعبئة صندوق {{provider}}",
+    "providerFallback": "المزوّد",
+    "invalidAmount": "أدخل مبلغاً صحيحاً أكبر من 0",
+    "selectPartner": "اختر شريكاً",
+    "feeExceedsAlert": "الرسم أكبر من المبلغ المستلم — لا يبقى شيء للدفع",
+    "noPayout": "أدخل مبلغ دفع واحداً على الأقل",
+    "insufficient": "الرصيد غير كافٍ في الصندوق المصدر",
+    "failed": "فشلت التعبئة",
+    "viaPartner": "عبر شريك",
+    "fromClient": "من زبون",
+    "currency": "العملة",
+    "partner": "الشريك",
+    "partnerHint": "اختر الشريك الذي يموّل خط رصيده هذه التعبئة.",
+    "creditsReceived": "الرصيد المستلم من الزبون",
+    "amount": "المبلغ",
+    "feeBreakdown": "تفاصيل الرسم",
+    "feeAmountUsd": "قيمة الرسم (USD)",
+    "autoPlaceholder": "{{fee}} (تلقائي)",
+    "autoFee": "الرسم المحسوب تلقائياً:",
+    "autoFeeNote": "(1% من المبلغ)",
+    "feeKeptByShop": "الرسم الذي يحتفظ به المحل:",
+    "feeIncluded": "الرسم ضمن المبلغ",
+    "clientSends": "يرسل الزبون:",
+    "feeKept": "الرسم المحتفظ به:",
+    "cashPaid": "النقد المدفوع للزبون:",
+    "clientOptional": "الزبون (اختياري)",
+    "payOut": "الدفع",
+    "feeExceeds": "الرسم أكبر من المبلغ المستلم — لا يبقى شيء للدفع.",
+    "payout": "الدفع",
+    "fundingSource": "مصدر التمويل",
+    "onOmtCredit": "على رصيد OMT",
+    "transferFromDrawer": "تحويل من صندوق",
+    "supplierExplainer": "يضيف المورّد الرصيد إلى {{provider}}. لا يخرج أي نقد من أي صندوق — سدّد المبلغ للمورّد من صفحة الموردين.",
+    "amountExceeds": "المبلغ يتجاوز رصيد الصندوق المصدر",
+    "fromDrawer": "من الصندوق",
+    "loadError": "تعذّر تحميل أرصدة الصناديق: {{error}}",
+    "loadingBalances": "جارٍ تحميل أرصدة الصناديق...",
+    "selectedBalance": "رصيد الصندوق المختار:",
+    "infoPartner": "سيزيد رصيد {{provider}} من خط رصيد الشريك المختار. سدّد للشريك من صفحة الشركاء.",
+    "infoClient": "يحوّل الزبون الرصيد إلى خط {{provider}}؛ يحتفظ المحل بالرسم ويدفع الباقي نقداً.",
+    "infoSupplier": "سيزيد رصيد {{provider}}. سيُسجَّل المبلغ لحساب المورّد — سدّد له من صفحة الموردين.",
+    "infoTransfer": "حوّل المبلغ إلى صندوق {{provider}}. بلا رسوم.",
+    "processing": "جارٍ التنفيذ...",
+    "submitPartner": "تعبئة عبر شريك",
+    "submitClient": "شراء رصيد من الزبون",
+    "submitSupplier": "تأكيد رصيد المورّد",
+    "submitTransfer": "تأكيد التعبئة"
+  }
+}

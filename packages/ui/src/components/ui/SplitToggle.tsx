@@ -4,6 +4,8 @@
  * (LIRA-321), so both sections look and behave the same: grey "↗ Split" when
  * off, violet "Split Active" when on.
  */
+import { useTranslation } from "react-i18next";
+
 export interface SplitToggleProps {
   active: boolean;
   onClick: () => void;
@@ -17,6 +19,7 @@ export function SplitToggle({
   testId,
   disabled = false,
 }: SplitToggleProps) {
+  const { t } = useTranslation("ui");
   return (
     <button
       type="button"
@@ -41,7 +44,7 @@ export function SplitToggle({
           >
             <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
           </svg>
-          Split Active
+          {t("splitToggle.active")}
         </>
       ) : (
         <>
@@ -55,7 +58,7 @@ export function SplitToggle({
           >
             <path d="M16 3h5v5M4 20L21 3" />
           </svg>
-          Split
+          {t("splitToggle.off")}
         </>
       )}
     </button>

@@ -1,5 +1,6 @@
 import React, { useCallback } from "react";
 import { FileSpreadsheet, FileText } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import {
   exportToExcel,
   exportToPdf,
@@ -67,6 +68,7 @@ export function ExportBar({
   headerActions,
   countLabel,
 }: ExportBarProps) {
+  const { t } = useTranslation("ui");
   const handleExcel = useCallback(() => {
     const filename = `${exportFilename}-${dateSuffix()}`;
     if (onExcel) {
@@ -112,24 +114,24 @@ export function ExportBar({
             <button
               type="button"
               onClick={handleExcel}
-              title="Export to Excel"
+              title={t("exportBar.excelTitle")}
               data-testid="export-excel-btn"
               className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600/20 px-3 py-1.5 text-xs font-medium text-emerald-400 hover:bg-emerald-600/30 transition-colors cursor-pointer"
             >
               <FileSpreadsheet size={14} />
-              Excel
+              {t("exportBar.excel")}
             </button>
           )}
           {exportPdf && (
             <button
               type="button"
               onClick={handlePdf}
-              title="Export to PDF"
+              title={t("exportBar.pdfTitle")}
               data-testid="export-pdf-btn"
               className="inline-flex items-center gap-1.5 rounded-lg bg-red-600/20 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-600/30 transition-colors cursor-pointer"
             >
               <FileText size={14} />
-              PDF
+              {t("exportBar.pdf")}
             </button>
           )}
         </div>

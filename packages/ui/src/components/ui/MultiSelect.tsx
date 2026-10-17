@@ -18,6 +18,8 @@ import {
 } from "@headlessui/react";
 import { Check, ChevronDown, ChevronRight, Minus } from "lucide-react";
 import { useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import { DirIcon } from "./DirIcon";
 
 export interface MultiSelectProps {
   /** Static button label — the count badge is appended when values is non-empty. */
@@ -59,6 +61,7 @@ export default function MultiSelect({
   getOptionLabel,
   groups,
 }: MultiSelectProps) {
+  const { t } = useTranslation("ui");
   const count = values.length;
   const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -93,10 +96,10 @@ export default function MultiSelect({
     );
     const pad =
       layout === "flat"
-        ? "pl-9 pr-4"
+        ? "ps-9 pe-4"
         : layout === "top"
-          ? "pl-3 pr-10"
-          : "pl-[2.125rem] pr-10";
+          ? "ps-3 pe-10"
+          : "ps-[2.125rem] pe-10";
     return (
       <ListboxOption
         key={option}
@@ -116,7 +119,7 @@ export default function MultiSelect({
           <span>
             <span
               className={`pointer-events-none absolute inset-y-0 flex items-center ${
-                layout === "flat" ? "left-0 pl-2.5" : "right-0 pr-3"
+                layout === "flat" ? "start-0 ps-2.5" : "end-0 pe-3"
               }`}
             >
               {box(selected)}
@@ -157,11 +160,14 @@ export default function MultiSelect({
             );
           return (
             <div key={g.label} role="group" aria-label={g.label}>
-              <div className="sticky top-0 z-10 flex items-center gap-2 bg-slate-900 pl-1.5 pr-3 py-2 border-t border-slate-800 first:border-t-0">
+              <div className="sticky top-0 z-10 flex items-center gap-2 bg-slate-900 ps-1.5 pe-3 py-2 border-t border-slate-800 first:border-t-0">
                 <button
                   type="button"
                   aria-expanded={isOpen}
-                  aria-label={`${isOpen ? "Collapse" : "Expand"} ${g.label}`}
+                  aria-label={t(
+                    isOpen ? "multiSelect.collapse" : "multiSelect.expand",
+                    { label: g.label },
+                  )}
                   data-testid={
                     testId ? `${testId}-group-toggle-${g.label}` : undefined
                   }
@@ -175,7 +181,11 @@ export default function MultiSelect({
                   {isOpen ? (
                     <ChevronDown className="h-4 w-4" aria-hidden="true" />
                   ) : (
-                    <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                    <DirIcon
+                      icon={ChevronRight}
+                      className="h-4 w-4"
+                      aria-hidden="true"
+                    />
                   )}
                 </button>
                 <button
@@ -185,7 +195,7 @@ export default function MultiSelect({
                     e.stopPropagation();
                     toggleGroupOpen(g.label);
                   }}
-                  className="flex flex-1 items-center justify-between gap-2 text-left"
+                  className="flex flex-1 items-center justify-between gap-2 text-start"
                 >
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                     {g.label}
@@ -200,7 +210,7 @@ export default function MultiSelect({
                   type="button"
                   role="checkbox"
                   aria-checked={allOn ? true : someOn ? "mixed" : false}
-                  aria-label={`Select all ${g.label}`}
+                  aria-label={t("multiSelect.selectAll", { label: g.label })}
                   data-testid={
                     testId ? `${testId}-group-${g.label}` : undefined
                   }
@@ -239,7 +249,7 @@ export default function MultiSelect({
           className={`
             relative w-full cursor-pointer rounded-lg
             bg-slate-900 border border-slate-700
-            py-2 pl-3 pr-10 text-left text-white text-sm
+            py-2 ps-3 pe-10 text-start text-white text-sm
             outline-none focus:outline-none focus:border-slate-700
             transition-all disabled:opacity-50 disabled:cursor-not-allowed
             ${buttonClassName}
@@ -251,7 +261,7 @@ export default function MultiSelect({
                 {count > 0 ? (
                   <>
                     <span className="text-slate-300">{label}</span>
-                    <span className="ml-1.5 inline-flex items-center justify-center rounded bg-violet-600/30 px-1.5 py-0.5 text-xs font-medium text-violet-300">
+                    <span className="ms-1.5 inline-flex items-center justify-center rounded bg-violet-600/30 px-1.5 py-0.5 text-xs font-medium text-violet-300">
                       {count}
                     </span>
                   </>
@@ -259,7 +269,7 @@ export default function MultiSelect({
                   <span className="text-slate-400">{label}</span>
                 )}
               </span>
-              <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2.5">
+              <span className="pointer-events-none absolute inset-y-0 end-0 flex items-center pe-2.5">
                 <ChevronDown
                   className={`h-4 w-4 text-slate-400 transition-transform ${
                     open ? "rotate-180" : ""
@@ -283,7 +293,7 @@ export default function MultiSelect({
         >
           {options.length === 0 ? (
             <div className="px-3 py-2 text-xs text-slate-500 select-none">
-              No options
+              {t("multiSelect.noOptions")}
             </div>
           ) : (
             groups ? (

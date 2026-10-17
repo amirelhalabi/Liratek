@@ -28,6 +28,7 @@
 import { Popover, PopoverButton, PopoverPanel } from "@headlessui/react";
 import { AlertTriangle, ChevronDown } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 export interface PageAlertItem {
   id: string;
@@ -48,11 +49,14 @@ export default function PageAlerts({
   alerts,
   className = "",
 }: PageAlertsProps) {
+  const { t } = useTranslation("ui");
   if (alerts.length === 0) return null;
 
   const count = alerts.length;
   const countLabel =
-    count === 1 ? "1 needs attention" : `${count} need attention`;
+    count === 1
+      ? t("pageAlerts.countOne")
+      : t("pageAlerts.countOther", { count });
 
   return (
     <Popover className={className}>
@@ -89,7 +93,7 @@ export default function PageAlerts({
                     close();
                     alert.onAction();
                   }}
-                  className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-left hover:bg-slate-800/60 transition-colors"
+                  className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-start hover:bg-slate-800/60 transition-colors"
                 >
                   <Icon className="w-5 h-5 text-amber-400 shrink-0" />
                   <div className="flex-1 min-w-0">
@@ -99,7 +103,7 @@ export default function PageAlerts({
                     <p className="text-xs text-amber-400/70">{alert.detail}</p>
                   </div>
                   <span className="text-xs text-amber-400 font-medium shrink-0">
-                    {alert.actionLabel} →
+                    {t("pageAlerts.action", { label: alert.actionLabel })}
                   </span>
                 </button>
               );

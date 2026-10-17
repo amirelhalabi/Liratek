@@ -1,5 +1,6 @@
 import React from "react";
 import { X, AlertTriangle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useModalFocusFix } from "../../hooks/useModalFocusFix";
 
 export interface ConfirmModalProps {
@@ -17,8 +18,8 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   isOpen,
   title,
   message,
-  confirmLabel = "Confirm",
-  cancelLabel = "Cancel",
+  confirmLabel,
+  cancelLabel,
   onConfirm,
   onCancel,
   variant = "danger",
@@ -26,6 +27,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   // Electron/Windows focus bug: re-focus inputs while open, and cycle window
   // focus only after the overlay has unmounted (see useModalFocusFix).
   useModalFocusFix(isOpen);
+  const { t } = useTranslation("common");
 
   if (!isOpen) return null;
 
@@ -79,14 +81,14 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             onClick={onCancel}
             className="flex-1 px-4 py-2.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white transition-colors font-medium"
           >
-            {cancelLabel}
+            {cancelLabel ?? t("actions.cancel")}
           </button>
           <button
             data-testid="confirm-modal-confirm-btn"
             onClick={onConfirm}
             className={`flex-1 px-4 py-2.5 rounded-lg text-white font-bold transition-all shadow-lg ${variantClasses[variant]}`}
           >
-            {confirmLabel}
+            {confirmLabel ?? t("actions.confirm")}
           </button>
         </div>
       </div>

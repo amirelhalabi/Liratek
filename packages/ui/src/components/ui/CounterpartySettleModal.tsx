@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import MultiPaymentInput from "./MultiPaymentInput";
 import type { MultiPaymentInputProps } from "./MultiPaymentInput";
 
@@ -116,7 +117,7 @@ export function CounterpartySettleModal({
   discountSlot,
   children,
   onCancel,
-  cancelLabel = "Cancel",
+  cancelLabel,
   onConfirm,
   confirmLabel,
   isSubmitting = false,
@@ -125,6 +126,8 @@ export function CounterpartySettleModal({
   panelClassName = "max-w-xl",
   showCloseButton = false,
 }: CounterpartySettleModalProps) {
+  const { t } = useTranslation("ui");
+  const { t: tc } = useTranslation("common");
   const isModal = variant === "modal";
 
   // Fix Electron/Windows focus bug: nudge window focus when the modal closes
@@ -165,7 +168,7 @@ export function CounterpartySettleModal({
                 : "px-4 py-2.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors font-medium text-sm disabled:opacity-50"
             }
           >
-            {cancelLabel}
+            {cancelLabel ?? tc("actions.cancel")}
           </button>
         )}
         <button
@@ -178,7 +181,7 @@ export function CounterpartySettleModal({
               : `px-6 py-2.5 rounded-lg font-semibold text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${CONFIRM_COLOR_CLASSES[confirmColor]}`
           }
         >
-          {isSubmitting ? "Processing..." : confirmLabel}
+          {isSubmitting ? t("settle.processing") : confirmLabel}
         </button>
       </div>
     </div>
@@ -226,7 +229,7 @@ export function CounterpartySettleModal({
               type="button"
               onClick={onCancel}
               className="text-slate-400 hover:text-white transition-colors"
-              aria-label="Close"
+              aria-label={tc("actions.close")}
             >
               <X className="w-5 h-5" />
             </button>

@@ -18,6 +18,7 @@ import {
   sanitizeDecimal,
   type DecimalConstraints,
 } from "../../utils/number";
+import { normalizeDigits } from "../../i18n/digits";
 
 export interface DecimalInputProps {
   value: number;
@@ -108,10 +109,11 @@ export function DecimalInput({
     const cleaned = sanitizeDecimal(typed, constraints);
     const formatted = formatWithCommas(cleaned);
     // Significant (non-comma) chars to the left of the caret, so it lands in
-    // the same logical spot after commas are re-laid-out.
-    const significantLeft = typed
-      .slice(0, selectionStart)
-      .replace(/[^0-9.-]/g, "").length;
+    // the same logical spot after commas are re-laid-out. Normalised first so
+    // Arabic-Indic digits and `٫` count like 0-9 and `.` (FR-017).
+    const significantLeft = normalizeDigits(
+      typed.slice(0, selectionStart),
+    ).replace(/[^0-9.-]/g, "").length;
     caretRef.current = caretAfterFormat(formatted, significantLeft);
 
     setRaw(cleaned);
@@ -153,13 +155,13 @@ export function DecimalInput({
   return (
     <div className={wrapperClassName}>
       {prefix && (
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">
+        <span className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">
           {prefix}
         </span>
       )}
       {input}
       {suffix && (
-        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">
+        <span className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">
           {suffix}
         </span>
       )}

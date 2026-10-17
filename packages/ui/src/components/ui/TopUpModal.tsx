@@ -1,11 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import type { ReactNode } from "react";
 import { Wallet, X, AlertTriangle, Info, UserRound, Users } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { TopUpFromClientInput } from "@liratek/core";
 import { walletReceiveAmounts, walletReceiveInflow } from "@liratek/core";
 import MultiPaymentInput from "./MultiPaymentInput";
 import { useModalFocusFix } from "../../hooks/useModalFocusFix";
 import type { PaymentLine } from "./MultiPaymentInput";
+import { formatNumber } from "../../i18n/format";
+import { normalizeDigits } from "../../i18n/digits";
 
 function fmtCommas(value: string): string {
   if (!value) return value;
@@ -17,13 +20,6 @@ function fmtCommas(value: string): string {
 function isPartialDecimal(value: string): boolean {
   return /^[0-9]*\.?[0-9]*$/.test(value);
 }
-
-/** Fallback payment method list for the "From Client" payout when the page
- *  doesn't pass `clientPaymentMethods` — a bare CASH leg, always drawer-
- *  affecting and always valid against `RechargeRepository.topUpFromClient`. */
-const DEFAULT_CLIENT_PAYOUT_METHODS: Array<{ code: string; label: string }> = [
-  { code: "CASH", label: "Cash" },
-];
 
 export type TopUpProvider =
   | "MTC"
@@ -158,6 +154,17 @@ export default function TopUpModal({
 }: TopUpModalProps) {
   // Electron/Windows focus bug: the shared hook (one copy, @liratek/ui).
   useModalFocusFix(isOpen);
+  const { t } = useTranslation("ui");
+  const { t: tc } = useTranslation("common");
+
+  /** Fallback payment method list for the "From Client" payout when the page
+   *  doesn't pass `clientPaymentMethods` — a bare CASH leg, always drawer-
+   *  affecting and always valid against `RechargeRepository.topUpFromClient`.
+   *  Only the label is translated; the code stays "CASH". Memoised so
+   *  MultiPaymentInput sees a stable array, as with the old module constant. */
+  const defaultClientPayoutMethods = useMemo<
+    Array<{ code: string; label: string }>
+  >(() => [{ code: "CASH", label: tc("payment.CASH") }], [tc]);
 
   // OMT App: unlike iPick/Katsh (supplier credit is the ONLY option), the
   // owner kept the drawer-to-drawer transfer available as an explicit
@@ -211,6 +218,7 @@ export default function TopUpModal({
     lbp: number;
   } | null>(null);
 
+  // i18n-exempt: brand names, shown as they are
   const providerLabels: Record<TopUpProvider, string> = {
     MTC: "MTC",
     Alfa: "Alfa",
@@ -221,7 +229,7 @@ export default function TopUpModal({
   };
 
   const getProviderLabel = () => {
-    return providerLabels[provider] || "Provider";
+    return providerLabels[provider] || t("topUp.providerFallback");
   };
 
   // Filter out destination drawer from available sources
@@ -276,7 +284,7 @@ export default function TopUpModal({
   const clientPayoutMethods =
     clientPaymentMethods && clientPaymentMethods.length > 0
       ? clientPaymentMethods
-      : DEFAULT_CLIENT_PAYOUT_METHODS;
+      : defaultClientPayoutMethods;
   const clientPayoutPositiveLegs = clientPayoutLines.filter(
     (l) => l.amount > 0,
   );
@@ -302,7 +310,7 @@ export default function TopUpModal({
   const handleSubmit = async () => {
     const amountNum = parseFloat(amount);
     if (isNaN(amountNum) || amountNum <= 0) {
-      alert("Please enter a valid amount greater than 0");
+      alert(t("topUp.invalidAmount"));
       return;
     }
 
@@ -310,7 +318,7 @@ export default function TopUpModal({
       if (whishMode === "partner") {
         if (!onConfirmPartner) return;
         if (!selectedPartnerId) {
-          alert("Please select a partner");
+          alert(t("topUp.selectPartner"));
           return;
         }
         setIsSubmitting(true);
@@ -322,7 +330,7 @@ export default function TopUpModal({
           });
           onClose();
         } catch (error) {
-          alert(error instanceof Error ? error.message : "Top-up failed");
+          alert(error instanceof Error ? error.message : t("topUp.failed"));
         } finally {
           setIsSubmitting(false);
         }
@@ -332,7 +340,7 @@ export default function TopUpModal({
       // whishMode === "client"
       if (!onConfirmClient) return;
       if (clientPayoutTargetInvalid) {
-        alert("The fee exceeds the amount received — nothing left to pay out");
+        alert(t("topUp.feeExceedsAlert"));
         return;
       }
       const payoutLegs = clientPayoutPositiveLegs.map((l) => ({
@@ -341,7 +349,7 @@ export default function TopUpModal({
         amount: l.amount,
       }));
       if (payoutLegs.length === 0) {
-        alert("Enter at least one payout amount");
+        alert(t("topUp.noPayout"));
         return;
       }
       // Only a leg whose currency differs from the credits' currency needs a
@@ -384,7 +392,7 @@ export default function TopUpModal({
         });
         onClose();
       } catch (error) {
-        alert(error instanceof Error ? error.message : "Top-up failed");
+        alert(error instanceof Error ? error.message : t("topUp.failed"));
       } finally {
         setIsSubmitting(false);
       }
@@ -397,7 +405,7 @@ export default function TopUpModal({
         await onConfirmSupplier({ amount: amountNum, currency });
         onClose();
       } catch (error) {
-        alert(error instanceof Error ? error.message : "Top-up failed");
+        alert(error instanceof Error ? error.message : t("topUp.failed"));
       } finally {
         setIsSubmitting(false);
       }
@@ -406,7 +414,7 @@ export default function TopUpModal({
 
     if (drawersNotReady) return;
     if (amountNum > sourceBalance) {
-      alert("Insufficient balance in source drawer");
+      alert(t("topUp.insufficient"));
       return;
     }
 
@@ -415,7 +423,7 @@ export default function TopUpModal({
       await onConfirm({ amount: amountNum, currency, sourceDrawer });
       onClose();
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Top-up failed");
+      alert(error instanceof Error ? error.message : t("topUp.failed"));
     } finally {
       setIsSubmitting(false);
     }
@@ -436,7 +444,7 @@ export default function TopUpModal({
         <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-slate-700/60">
           <h2 className="text-base font-semibold text-white flex items-center gap-2">
             <Wallet className="text-slate-400" size={18} />
-            Top Up {getProviderLabel()} Drawer
+            {t("topUp.title", { provider: getProviderLabel() })}
           </h2>
           <button
             onClick={onClose}
@@ -464,7 +472,7 @@ export default function TopUpModal({
                   } disabled:opacity-50`}
                 >
                   <Users size={14} />
-                  Via Partner
+                  {t("topUp.viaPartner")}
                 </button>
                 <button
                   type="button"
@@ -477,14 +485,14 @@ export default function TopUpModal({
                   } disabled:opacity-50`}
                 >
                   <UserRound size={14} />
-                  From Client
+                  {t("topUp.fromClient")}
                 </button>
               </div>
 
               {/* Currency selector (shared by both whish sub-modes) */}
               <div>
                 <label className="block text-xs font-medium text-slate-400 mb-1.5">
-                  Currency
+                  {t("topUp.currency")}
                 </label>
                 <div className="flex gap-2">
                   <button
@@ -524,12 +532,12 @@ export default function TopUpModal({
               {whishMode === "partner" && (
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-2">
-                    Partner
+                    {t("topUp.partner")}
                   </label>
                   {partnerSelector}
                   {!selectedPartnerId && (
                     <p className="text-xs text-slate-500 mt-1">
-                      Select the partner whose credit line funds this top-up.
+                      {t("topUp.partnerHint")}
                     </p>
                   )}
                 </div>
@@ -539,8 +547,8 @@ export default function TopUpModal({
               <div>
                 <label className="block text-sm font-medium text-slate-400 mb-2">
                   {whishMode === "client"
-                    ? "Credits Received from Client"
-                    : "Amount"}
+                    ? t("topUp.creditsReceived")
+                    : t("topUp.amount")}
                 </label>
                 <div className="relative">
                   <input
@@ -549,7 +557,7 @@ export default function TopUpModal({
                     autoComplete="off"
                     value={fmtCommas(amount)}
                     onChange={(e) => {
-                      const cleaned = e.target.value.replace(/,/g, "");
+                      const cleaned = normalizeDigits(e.target.value).replace(/,/g, "");
                       if (isPartialDecimal(cleaned)) setAmount(cleaned);
                     }}
                     placeholder={currency === "LBP" ? "0" : "0.00"}
@@ -557,7 +565,7 @@ export default function TopUpModal({
                     className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white text-lg font-mono focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 disabled:opacity-50"
                     autoFocus
                   />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
+                  <span className="absolute end-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
                     {currency}
                   </span>
                 </div>
@@ -568,16 +576,16 @@ export default function TopUpModal({
                 <>
                   <div className="rounded-xl bg-slate-900/50 border border-slate-700/50 p-4 space-y-3">
                     <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
-                      Fee Breakdown
+                      {t("topUp.feeBreakdown")}
                     </h3>
 
                     {/* Manual Fee Input */}
                     <div>
                       <label className="block text-xs text-slate-400 mb-1">
-                        Fee Amount (USD)
+                        {t("topUp.feeAmountUsd")}
                       </label>
                       <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
+                        <span className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
                           $
                         </span>
                         <input
@@ -586,33 +594,37 @@ export default function TopUpModal({
                           autoComplete="off"
                           value={fmtCommas(manualFee)}
                           onChange={(e) => {
-                            const cleaned = e.target.value.replace(/,/g, "");
+                            const cleaned = normalizeDigits(e.target.value).replace(/,/g, "");
                             if (isPartialDecimal(cleaned))
                               setManualFee(cleaned);
                           }}
                           disabled={isSubmitting}
                           placeholder={
                             whishAutoFee > 0
-                              ? whishAutoFee.toFixed(2) + " (auto)"
+                              ? t("topUp.autoPlaceholder", {
+                                  fee: whishAutoFee.toFixed(2),
+                                })
                               : "0.00"
                           }
-                          className="w-full bg-slate-800 border border-slate-600 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all disabled:opacity-50"
+                          className="w-full bg-slate-800 border border-slate-600 rounded-lg ps-8 pe-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all disabled:opacity-50"
                         />
                       </div>
                       {whishAutoFee > 0 && !manualFee && (
                         <p className="text-xs text-slate-400 mt-1">
-                          Auto-calculated fee:{" "}
+                          {t("topUp.autoFee")}{" "}
                           <span className="text-white font-medium">
                             ${whishAutoFee.toFixed(2)}
                           </span>{" "}
-                          (1% of amount)
+                          {t("topUp.autoFeeNote")}
                         </p>
                       )}
                     </div>
 
                     {/* Fee kept by shop */}
                     <div className="flex items-center justify-between text-xs">
-                      <span className="text-slate-400">Fee kept by shop:</span>
+                      <span className="text-slate-400">
+                        {t("topUp.feeKeptByShop")}
+                      </span>
                       <span className="text-white font-mono">
                         ${whishProviderFee.toFixed(2)}
                       </span>
@@ -629,30 +641,30 @@ export default function TopUpModal({
                           className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-violet-600 focus:ring-violet-500"
                         />
                         <span className="text-sm font-medium">
-                          Fee included in amount
+                          {t("topUp.feeIncluded")}
                         </span>
                       </label>
                       {whishParsedAmount > 0 && (
-                        <div className="text-xs space-y-0.5 pl-6 border-l border-slate-600 ml-2">
+                        <div className="text-xs space-y-0.5 ps-6 border-s border-slate-600 ms-2">
                           <p className="text-slate-400">
-                            Client sends:{" "}
+                            {t("topUp.clientSends")}{" "}
                             <span className="text-white font-mono font-medium">
                               {currency === "LBP"
-                                ? `${whishCreditsIn.toLocaleString()} LBP`
+                                ? `${formatNumber(whishCreditsIn)} LBP`
                                 : `$${whishCreditsIn.toFixed(2)}`}
                             </span>
                           </p>
                           <p className="text-slate-400">
-                            Fee kept:{" "}
+                            {t("topUp.feeKept")}{" "}
                             <span className="text-amber-400 font-mono font-medium">
                               -${whishProviderFee.toFixed(2)}
                             </span>
                           </p>
                           <p className="text-slate-400">
-                            Cash paid to client:{" "}
+                            {t("topUp.cashPaid")}{" "}
                             <span className="text-emerald-400 font-mono font-medium">
                               {currency === "LBP"
-                                ? `${whishCashPaid.toLocaleString()} LBP`
+                                ? `${formatNumber(whishCashPaid)} LBP`
                                 : `$${whishCashPaid.toFixed(2)}`}
                             </span>
                           </p>
@@ -667,7 +679,7 @@ export default function TopUpModal({
                       reaches the wire. */}
                   <div>
                     <label className="block text-sm font-medium text-slate-400 mb-2">
-                      Client (optional)
+                      {t("topUp.clientOptional")}
                     </label>
                     {clientSelector}
                   </div>
@@ -680,17 +692,16 @@ export default function TopUpModal({
                       repository hard-rejects any OUT leg). */}
                   <div>
                     <label className="block text-sm font-medium text-slate-400 mb-2">
-                      Pay Out
+                      {t("topUp.payOut")}
                     </label>
                     {clientPayoutTargetInvalid ? (
                       <p className="text-xs text-red-400">
-                        The fee exceeds the amount received — nothing left to
-                        pay out.
+                        {t("topUp.feeExceeds")}
                       </p>
                     ) : (
                       <MultiPaymentInput
                         key={currency}
-                        label="Payout"
+                        label={t("topUp.payout")}
                         currency={currency}
                         totalAmountCurrency={currency}
                         totals={[{ amount: whishCashPaid, currency }]}
@@ -723,7 +734,7 @@ export default function TopUpModal({
                drawer-to-drawer path available as an explicit alternative. */
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1.5">
-                Funding Source
+                {t("topUp.fundingSource")}
               </label>
               <div className="flex gap-2">
                 <button
@@ -737,7 +748,7 @@ export default function TopUpModal({
                       : "bg-slate-700 text-slate-300 hover:bg-slate-600"
                   } disabled:opacity-50`}
                 >
-                  On OMT credit
+                  {t("topUp.onOmtCredit")}
                 </button>
                 <button
                   type="button"
@@ -750,7 +761,7 @@ export default function TopUpModal({
                       : "bg-slate-700 text-slate-300 hover:bg-slate-600"
                   } disabled:opacity-50`}
                 >
-                  Transfer from drawer
+                  {t("topUp.transferFromDrawer")}
                 </button>
               </div>
             </div>
@@ -761,9 +772,7 @@ export default function TopUpModal({
             <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
               <Info className="w-4 h-4 flex-shrink-0 text-amber-400" />
               <p className="text-xs leading-snug text-slate-300">
-                The supplier credits your {getProviderLabel()} balance. No cash
-                leaves any drawer — settle the amount with your supplier via the
-                Suppliers page.
+                {t("topUp.supplierExplainer", { provider: getProviderLabel() })}
               </p>
             </div>
           )}
@@ -773,7 +782,7 @@ export default function TopUpModal({
               {/* Currency Selector */}
               <div>
                 <label className="block text-xs font-medium text-slate-400 mb-1.5">
-                  Currency
+                  {t("topUp.currency")}
                 </label>
                 <div className="flex gap-2">
                   <button
@@ -806,7 +815,7 @@ export default function TopUpModal({
               {/* Amount Input */}
               <div>
                 <label className="block text-sm font-medium text-slate-400 mb-2">
-                  Amount
+                  {t("topUp.amount")}
                 </label>
                 <div className="relative">
                   <input
@@ -815,7 +824,7 @@ export default function TopUpModal({
                     autoComplete="off"
                     value={fmtCommas(amount)}
                     onChange={(e) => {
-                      const cleaned = e.target.value.replace(/,/g, "");
+                      const cleaned = normalizeDigits(e.target.value).replace(/,/g, "");
                       if (isPartialDecimal(cleaned)) setAmount(cleaned);
                     }}
                     placeholder={currency === "LBP" ? "0" : "0.00"}
@@ -823,7 +832,7 @@ export default function TopUpModal({
                     className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white text-lg font-mono focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 disabled:opacity-50"
                     autoFocus
                   />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
+                  <span className="absolute end-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
                     {currency}
                   </span>
                 </div>
@@ -833,7 +842,7 @@ export default function TopUpModal({
                   parseFloat(amount) > sourceBalance && (
                     <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
                       <AlertTriangle size={12} />
-                      Amount exceeds source drawer balance
+                      {t("topUp.amountExceeds")}
                     </p>
                   )}
               </div>
@@ -842,7 +851,7 @@ export default function TopUpModal({
               {!isSupplierCredit && (
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-2">
-                    From Drawer
+                    {t("topUp.fromDrawer")}
                   </label>
                   <select
                     value={sourceDrawer}
@@ -863,7 +872,7 @@ export default function TopUpModal({
                     >
                       <span className="flex items-center gap-1">
                         <AlertTriangle size={12} />
-                        Could not load drawer balances: {drawersError}
+                        {t("topUp.loadError", { error: drawersError })}
                       </span>
                       {onRetryDrawers && (
                         <button
@@ -871,7 +880,7 @@ export default function TopUpModal({
                           onClick={onRetryDrawers}
                           className="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200"
                         >
-                          Retry
+                          {tc("actions.retry")}
                         </button>
                       )}
                     </div>
@@ -880,15 +889,15 @@ export default function TopUpModal({
                       data-testid="topup-drawers-loading"
                       className="text-xs text-slate-500 mt-1"
                     >
-                      Loading drawer balances...
+                      {t("topUp.loadingBalances")}
                     </p>
                   ) : (
                     <p className="text-xs text-slate-500 mt-1">
-                      Selected drawer balance:{" "}
+                      {t("topUp.selectedBalance")}{" "}
                       <span className="text-white font-medium">
                         {currency === "USD"
                           ? `$${sourceBalance.toFixed(2)}`
-                          : `${sourceBalance.toLocaleString()} LBP`}
+                          : `${formatNumber(sourceBalance)} LBP`}
                       </span>
                     </p>
                   )}
@@ -905,11 +914,11 @@ export default function TopUpModal({
                 <p className="text-[10px] leading-tight text-slate-400">
                   {isWhishTopUp
                     ? whishMode === "partner"
-                      ? `${getProviderLabel()} balance will be increased from the selected partner's credit line. Settle with the partner via the Partners page.`
-                      : `The client transfers credits to your ${getProviderLabel()} line; the shop keeps the fee and pays out the remainder as cash.`
+                      ? t("topUp.infoPartner", { provider: getProviderLabel() })
+                      : t("topUp.infoClient", { provider: getProviderLabel() })
                     : isSupplierCredit
-                      ? `${getProviderLabel()} balance will be increased. Your supplier will be credited — settle with them via the Suppliers page.`
-                      : `Transfer funds to your ${getProviderLabel()} drawer. No fees.`}
+                      ? t("topUp.infoSupplier", { provider: getProviderLabel() })
+                      : t("topUp.infoTransfer", { provider: getProviderLabel() })}
                 </p>
               </div>
             </div>
@@ -924,7 +933,7 @@ export default function TopUpModal({
             disabled={isSubmitting}
             className="flex-1 px-4 py-2.5 border border-slate-600 text-slate-300 hover:bg-slate-800 rounded-lg transition-colors font-medium text-sm disabled:opacity-50"
           >
-            Cancel
+            {tc("actions.cancel")}
           </button>
           <button
             type="button"
@@ -948,14 +957,14 @@ export default function TopUpModal({
             }`}
           >
             {isSubmitting
-              ? "Processing..."
+              ? t("topUp.processing")
               : isWhishTopUp
                 ? whishMode === "partner"
-                  ? "Top Up via Partner"
-                  : "Buy Credits from Client"
+                  ? t("topUp.submitPartner")
+                  : t("topUp.submitClient")
                 : isSupplierCredit
-                  ? "Confirm Supplier Credit"
-                  : "Confirm Top-Up"}
+                  ? t("topUp.submitSupplier")
+                  : t("topUp.submitTransfer")}
           </button>
         </div>
       </div>

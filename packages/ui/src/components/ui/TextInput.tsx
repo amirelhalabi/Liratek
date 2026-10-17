@@ -47,10 +47,10 @@ export default function TextInput({
   const renderIcon = () => {
     if (icon === "none") return null;
     if (icon === "user") {
-      return <User size={14} className="inline mr-1.5 text-violet-400" />;
+      return <User size={14} className="inline me-1.5 text-violet-400" />;
     }
     if (icon === "store") {
-      return <Store size={14} className="inline mr-1.5 text-violet-400" />;
+      return <Store size={14} className="inline me-1.5 text-violet-400" />;
     }
     return null;
   };

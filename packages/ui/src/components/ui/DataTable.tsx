@@ -6,6 +6,7 @@ import React, {
   useEffect,
 } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import {
   useReactTable,
   getCoreRowModel,
@@ -17,6 +18,7 @@ import {
 } from "@tanstack/react-table";
 import { ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
 import { ExportBar } from "./ExportBar";
+import { DirIcon } from "./DirIcon";
 import type { ExportSheet, TableData } from "../../utils/tableExport";
 import {
   exportTemplateToExcel,
@@ -228,7 +230,7 @@ function DataTableInner<T>({
   exportTemplate,
   headerActions,
   loading = false,
-  emptyMessage = "No data",
+  emptyMessage,
   emptyContent,
   footerContent,
   getSortValue,
@@ -236,11 +238,11 @@ function DataTableInner<T>({
   defaultSortDirection = "asc",
   paginate = false,
   pageSize = 20,
-  pageLabel = "rows",
+  pageLabel,
   resizable = false,
   showRowCount = false,
   totalRowCount,
-  className = "w-full text-left",
+  className = "w-full text-start",
   theadClassName = "bg-slate-900 text-slate-400 text-xs uppercase",
   thClassName = "p-2",
   tbodyClassName,
@@ -248,6 +250,10 @@ function DataTableInner<T>({
   onVisibleRowsChange,
   onAnchorReset,
 }: DataTableProps<T>) {
+  const { t } = useTranslation("ui");
+  // An "Actions" column is never exported. Matched on the header text, so the
+  // translated header counts too (pages translate their own headers).
+  const actionsHeader = t("dataTable.actionsHeader").trim().toLowerCase();
   const tableRef = useRef<HTMLTableElement>(null);
   /**
    * The anchor index (visible-row index) from the last plain click.
@@ -296,6 +302,7 @@ function DataTableInner<T>({
 
       const displayCol: ColumnDef<ProxyRow<unknown>> = {
         id: `col_${i}`,
+        // i18n-exempt: internal TanStack column id, never shown
         header: `col_${i}`,
         enableSorting: false,
         cell: () => null,
@@ -440,17 +447,20 @@ function DataTableInner<T>({
       const headerStr =
         typeof headerLabel === "string" ? headerLabel.trim().toLowerCase() : "";
       const isCheckboxCol = i === 0 && !!selectAll;
-      const isActionCol = headerStr === "actions" || headerStr === "action";
+      const isActionCol =
+        headerStr === "actions" ||
+        headerStr === "action" ||
+        headerStr === actionsHeader;
       const isBlankCol = headerStr === "";
       if (isCheckboxCol || isActionCol || isBlankCol) return;
       const label = typeof headerLabel === "string" ? headerLabel.trim() : "";
       // Stable key: prefer the trimmed header text, fall back to the index for
       // columns with empty/non-string headers so they remain selectable.
-      const key = label !== "" ? label : `col_${i}`;
+      const key = label !== "" ? label : `col_${i}`; // i18n-exempt: internal column id
       out.push({ index: i, key, label });
     });
     return out;
-  }, [colDefs, selectAll]);
+  }, [colDefs, selectAll, actionsHeader]);
 
   /**
    * Compute the default-selected column keys: the caller-supplied
@@ -638,7 +648,10 @@ function DataTableInner<T>({
   );
 
   const countLabel = showRowCount
-    ? `Showing ${data.length} of ${totalRowCount ?? data.length} entries`
+    ? t("dataTable.showingEntries", {
+        shown: data.length,
+        total: totalRowCount ?? data.length,
+      })
     : undefined;
 
   // ── Column-picker visibility ─────────────────────────────────────────
@@ -674,14 +687,14 @@ function DataTableInner<T>({
             setPickerOpen(true);
           }
         }}
-        title="Choose export columns"
+        title={t("dataTable.chooseColumns")}
         aria-haspopup="true"
         aria-expanded={pickerOpen}
         data-testid="export-column-picker-button"
         className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600/20 px-3 py-1.5 text-xs font-medium text-violet-400 hover:bg-violet-600/30 transition-colors cursor-pointer"
       >
         <SlidersHorizontal size={14} />
-        Columns
+        {t("dataTable.columns")}
         <span className="text-slate-400">
           ({selectedCount}/{exportableColumns.length})
         </span>
@@ -697,15 +710,16 @@ function DataTableInner<T>({
             style={{
               position: "fixed",
               top: pickerPos.top,
+              // i18n-exempt: physical viewport coordinate from getBoundingClientRect
               left: pickerPos.left,
               zIndex: 9999,
             }}
             className="w-56 rounded-lg border border-slate-700 bg-slate-800 p-2 shadow-xl"
           >
             <div className="px-1 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-              Export columns
+              {t("dataTable.exportColumns")}
             </div>
-            <div className="max-h-64 overflow-y-auto pr-0.5">
+            <div className="max-h-64 overflow-y-auto pe-0.5">
               {exportableColumns.map((col) => {
                 const checked = selectedColumnKeys.has(col.key);
                 return (
@@ -731,14 +745,14 @@ function DataTableInner<T>({
                 onClick={resetColumnsToDefault}
                 className="rounded px-2 py-1 text-[11px] font-medium text-slate-400 hover:bg-slate-700/60 hover:text-slate-200 transition-colors cursor-pointer"
               >
-                Reset
+                {t("dataTable.reset")}
               </button>
               <button
                 type="button"
                 onClick={selectAllColumns}
                 className="rounded px-2 py-1 text-[11px] font-medium text-violet-400 hover:bg-slate-700/60 transition-colors cursor-pointer"
               >
-                Select all
+                {t("dataTable.selectAll")}
               </button>
             </div>
           </div>,
@@ -799,7 +813,9 @@ function DataTableInner<T>({
                     : "";
                 const isCheckboxCol = isFirstCol && !!selectAll;
                 const isActionCol =
-                  headerStr === "actions" || headerStr === "action";
+                  headerStr === "actions" ||
+                  headerStr === "action" ||
+                  headerStr === actionsHeader;
                 const exportIgnore = isCheckboxCol || isActionCol;
 
                 return (
@@ -825,7 +841,7 @@ function DataTableInner<T>({
                         }}
                         onChange={(e) => selectAll.onChange(e.target.checked)}
                         className="w-4 h-4 rounded border-slate-600 bg-slate-700 accent-violet-600 cursor-pointer"
-                        title="Select all (all pages)"
+                        title={t("dataTable.selectAllPages")}
                         data-testid="select-all-checkbox"
                       />
                     ) : (
@@ -861,7 +877,7 @@ function DataTableInner<T>({
                         onMouseDown={header.getResizeHandler()}
                         onTouchStart={header.getResizeHandler()}
                         onDoubleClick={() => header.column.resetSize()}
-                        className={`absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-500/50 ${
+                        className={`absolute end-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-500/50 ${
                           header.column.getIsResizing() ? "bg-blue-500/50" : ""
                         }`}
                       />
@@ -877,13 +893,13 @@ function DataTableInner<T>({
           {loading ? (
             <tr data-testid="data-table-loading">
               <td colSpan={colCount} className="p-4 text-center text-slate-500">
-                Loading…
+                {t("dataTable.loading")}
               </td>
             </tr>
           ) : visibleRows.length === 0 ? (
             <tr data-testid="data-table-empty">
               <td colSpan={colCount} className="p-4 text-center text-slate-500">
-                {emptyContent ?? emptyMessage}
+                {emptyContent ?? emptyMessage ?? t("dataTable.empty")}
               </td>
             </tr>
           ) : (
@@ -923,12 +939,15 @@ function DataTableInner<T>({
       {paginate && data.length > pageSize && (
         <div className="flex items-center justify-between px-4 py-3 border-t border-slate-700 bg-slate-800/50">
           <span className="text-sm text-slate-400">
-            Showing {table.getState().pagination.pageIndex * pageSize + 1}–
-            {Math.min(
-              (table.getState().pagination.pageIndex + 1) * pageSize,
-              table.getFilteredRowModel().rows.length,
-            )}{" "}
-            of {table.getFilteredRowModel().rows.length} {pageLabel}
+            {t("dataTable.pageRange", {
+              from: table.getState().pagination.pageIndex * pageSize + 1,
+              to: Math.min(
+                (table.getState().pagination.pageIndex + 1) * pageSize,
+                table.getFilteredRowModel().rows.length,
+              ),
+              total: table.getFilteredRowModel().rows.length,
+              label: pageLabel ?? t("dataTable.rows"),
+            })}
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -937,7 +956,7 @@ function DataTableInner<T>({
               disabled={!table.getCanPreviousPage()}
               className="p-1.5 rounded bg-slate-700 border border-slate-600 text-slate-300 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              <ChevronLeft size={16} />
+              <DirIcon icon={ChevronLeft} width={16} height={16} />
             </button>
             <span className="text-sm text-slate-300 min-w-[5rem] text-center">
               {table.getState().pagination.pageIndex + 1} /{" "}
@@ -949,7 +968,7 @@ function DataTableInner<T>({
               disabled={!table.getCanNextPage()}
               className="p-1.5 rounded bg-slate-700 border border-slate-600 text-slate-300 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              <ChevronRight size={16} />
+              <DirIcon icon={ChevronRight} width={16} height={16} />
             </button>
           </div>
         </div>

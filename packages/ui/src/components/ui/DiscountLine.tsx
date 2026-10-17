@@ -17,6 +17,7 @@
  */
 
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 /** Which side of the line is active: lower what is owed, or add to it. */
 export type DiscountLineMode = "discount" | "extra";
@@ -54,7 +55,7 @@ export interface DiscountLineProps {
 
 /** Shared styling for a DiscountLine input (`over` = typed above the cap). */
 export function discountFieldClass(over: boolean): string {
-  return `w-24 bg-emerald-950/30 border rounded-md px-2 py-1 text-emerald-200 text-xs font-mono text-right focus:outline-none focus:border-emerald-500 transition-colors ${
+  return `w-24 bg-emerald-950/30 border rounded-md px-2 py-1 text-emerald-200 text-xs font-mono text-end focus:outline-none focus:border-emerald-500 transition-colors ${
     over ? "border-red-500" : "border-emerald-700/40"
   }`;
 }
@@ -70,9 +71,10 @@ export function DiscountLine({
   onModeChange,
   allowExtra = false,
 }: DiscountLineProps) {
+  const { t } = useTranslation("ui");
   const showSwitch = allowExtra && mode !== undefined && !!onModeChange;
   const isExtra = showSwitch && mode === "extra";
-  const shownLabel = isExtra ? "Extra" : label;
+  const shownLabel = isExtra ? t("discountLine.extraLabel") : label;
   const switchButton = (m: DiscountLineMode, text: string) => (
     <button
       type="button"
@@ -99,11 +101,11 @@ export function DiscountLine({
           <span className="flex items-center gap-1.5">
             <span
               role="group"
-              aria-label="Discount or extra"
+              aria-label={t("discountLine.modeGroup")}
               className="inline-flex rounded-md border border-slate-600/60 overflow-hidden"
             >
-              {switchButton("discount", "− Discount")}
-              {switchButton("extra", "+ Extra")}
+              {switchButton("discount", t("discountLine.discount"))}
+              {switchButton("extra", t("discountLine.extra"))}
             </span>
             <span
               className={`text-xs font-medium ${
@@ -133,10 +135,12 @@ export function DiscountLine({
         <input
           type="text"
           data-testid={reason.testId}
-          aria-label={`${shownLabel} reason`}
+          aria-label={t("discountLine.reasonAria", { label: shownLabel })}
           value={reason.value}
           onChange={(e) => reason.onChange(e.target.value)}
-          placeholder={reason.placeholder ?? "Reason (optional)"}
+          placeholder={
+            reason.placeholder ?? t("discountLine.reasonPlaceholder")
+          }
           className="w-full bg-emerald-950/20 border border-emerald-700/30 rounded-md px-2 py-1 text-emerald-100 text-[11px] focus:outline-none focus:border-emerald-500 placeholder:text-emerald-400/40"
         />
       )}

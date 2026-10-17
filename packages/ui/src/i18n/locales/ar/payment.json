@@ -1,1 +1,101 @@
-{}
+{
+  "title": "الدفع",
+  "row": {
+    "currency": "العملة",
+    "currencyLocked": "العملة مقفلة",
+    "remove": "إزالة"
+  },
+  "rateWarning": {
+    "away": "⚠ السعر يبعد {{pct}}% عن سعر المحل (<ltr>{{rate}}</ltr>)",
+    "awayTypo": "⚠ السعر يبعد {{pct}}% عن سعر المحل (<ltr>{{rate}}</ltr>) — تأكّد من عدم وجود خطأ في الكتابة"
+  },
+  "voucher": {
+    "noneForClient": "لا توجد قسائم متاحة لهذا الزبون.",
+    "noneLeft": "لا توجد قسائم أخرى متاحة.",
+    "creditOnRedemption": "يُضاف رصيد <ltr>+{{amount}}</ltr> عند الاستعمال"
+  },
+  "waive": {
+    "label": "إعفاء",
+    "title": "الإعفاء من النقص المتبقّي (يُضاف إلى الحسم)"
+  },
+  "client": {
+    "debtRequired": "يجب اختيار زبون عند الدفع على الدين",
+    "forStoreCredit": "اختر زبونًا لإرجاع الفكّة كرصيد في المحل.",
+    "forVoucher": "اختر زبونًا لاستعمال قسيمة."
+  },
+  "counterFlow": {
+    "customerPays": "الزبون يدفع",
+    "customerPaysCurrency": "الزبون يدفع — {{currency}}",
+    "stillToSettle": "باقٍ للتسوية:",
+    "pickClient": " — اختر زبونًا لتسجيله على حسابه",
+    "pickClientOrForgive": " — اختر زبونًا لتسجيله على حسابه، أو سامِح به",
+    "pickClientOrAddLine": " — اختر زبونًا لتسجيله على حسابه، أو اضغط + إضافة سطر",
+    "forgive": "مسامحة بـ {{amount}}",
+    "forgivenUndo": "تمّت المسامحة بـ {{amount}} — تراجع",
+    "overpaid": "أكثر مما يدين به الزبون — خفّض أحد الأسطر."
+  },
+  "header": {
+    "shopPays": "المحل يدفع",
+    "chipIn": "وارد",
+    "chipOut": "صادر",
+    "youPay": "أنت تدفع"
+  },
+  "lines": {
+    "addLine": "+ إضافة سطر",
+    "pmFee": "رسم المحفظة"
+  },
+  "summary": {
+    "sendAmount": "المبلغ المُرسَل",
+    "providerFee": "رسم المزوّد",
+    "subtotal": "المجموع الفرعي",
+    "totalAmount": "المبلغ الإجمالي",
+    "afterDiscount": "بعد الحسم",
+    "afterExtra": "بعد الإضافة",
+    "discount": "حسم",
+    "extra": "إضافة",
+    "discountCurrency": "عملة الحسم",
+    "extraCurrency": "عملة الإضافة",
+    "cappedToMax": "محدود بالحد الأقصى ({{amount}})",
+    "paid": "المدفوع",
+    "customerPaid": "دفع الزبون:",
+    "clientWillOwe": "سيبقى على الزبون:",
+    "forgiven": "المُسامَح به:",
+    "changeKeptProfit": "فكّة محتفَظ بها (ربح)",
+    "remainingToPayOut": "المتبقّي للدفع للزبون",
+    "remainingToPay": "المتبقّي للدفع",
+    "remainingDebt": "المتبقّي (دين)",
+    "onTicked": "على المحدَّد",
+    "total": "الإجمالي",
+    "theBalance": "الرصيد",
+    "payoutExcess": "<ltr>{{amount}}</ltr> أكثر من {{account}} — يُضاف إلى حسابه كدين.",
+    "grandTotal": "المجموع الكلّي",
+    "inclWalletFee": "يشمل <ltr>{{amount}}</ltr> رسم المحفظة"
+  },
+  "change": {
+    "notReturnedCost": "فكّة لم تُرجَع (كلفة)",
+    "toGetBack": "فكّة يجب استردادها",
+    "toReturn": "فكّة يجب إرجاعها",
+    "returnChange": "إرجاع / فكّة",
+    "changeDue": "الفكّة المستحقّة",
+    "handBackBy": "الإرجاع عبر",
+    "handedBackUsd": "الفكّة المُرجَعة بالدولار",
+    "handedBackLbp": "الفكّة المُرجَعة بالليرة",
+    "allUsdTitle": "إرجاع كامل الفكّة بالدولار",
+    "allLbpTitle": "إرجاع كامل الفكّة بالليرة",
+    "putOnAccountTitle": "وضع كامل الفكّة على {{account}}",
+    "handNothingBack": "عدم إرجاع شيء",
+    "account": "الحساب",
+    "keep": "احتفاظ",
+    "theirAccount": "حسابه",
+    "customersAccount": "حساب الزبون",
+    "notReturnedAddedToCost": "لم يُرجَع: <ltr>{{amount}}</ltr> — يُضاف إلى الكلفة.",
+    "keepingProfit": "الاحتفاظ بـ <ltr>{{amount}}</ltr> كربح.",
+    "keepingProfitRest": "الاحتفاظ بـ <ltr>{{amount}}</ltr> كربح — والباقي مُرجَع أعلاه.",
+    "unreturnedStaysGivenBack": "<ltr>{{amount}}</ltr> غير المُرجَع يبقى على {{account}}.",
+    "unreturnedStaysReturned": "<ltr>{{amount}}</ltr> غير المُرجَع يبقى على {{account}}.",
+    "unreturnedToCredit": "<ltr>{{amount}}</ltr> غير المُرجَع يذهب إلى {{account}} كرصيد.",
+    "gettingBackMore": "تسترد <ltr>{{amount}}</ltr> أكثر من المبلغ الزائد.",
+    "returningMore": "تُرجِع <ltr>{{amount}}</ltr> أكثر من المبلغ الزائد الذي دفعه الزبون.",
+    "notCovered": "<ltr>{{amount}}</ltr> من الفكّة لم تُغطَّ بعد في هذه الحقول."
+  }
+}

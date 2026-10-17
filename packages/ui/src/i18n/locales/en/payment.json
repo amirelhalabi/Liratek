@@ -1,1 +1,101 @@
-{}
+{
+  "title": "Payment",
+  "row": {
+    "currency": "Currency",
+    "currencyLocked": "Currency locked",
+    "remove": "Remove"
+  },
+  "rateWarning": {
+    "away": "⚠ Rate is {{pct}}% away from the shop rate (<ltr>{{rate}}</ltr>)",
+    "awayTypo": "⚠ Rate is {{pct}}% away from the shop rate (<ltr>{{rate}}</ltr>) — check for a typo"
+  },
+  "voucher": {
+    "noneForClient": "No available vouchers for this client.",
+    "noneLeft": "No more vouchers available.",
+    "creditOnRedemption": "<ltr>+{{amount}}</ltr> credit added on redemption"
+  },
+  "waive": {
+    "label": "Waive",
+    "title": "Waive the remaining shortfall (adds it to the discount)"
+  },
+  "client": {
+    "debtRequired": "Client is required when using DEBT payment method",
+    "forStoreCredit": "Select a client to return change as store credit.",
+    "forVoucher": "Select a client to use a voucher."
+  },
+  "counterFlow": {
+    "customerPays": "Customer pays",
+    "customerPaysCurrency": "Customer pays — {{currency}}",
+    "stillToSettle": "Still to settle:",
+    "pickClient": " — pick a client to put it on their account",
+    "pickClientOrForgive": " — pick a client to put it on their account, or forgive it",
+    "pickClientOrAddLine": " — pick a client to put it on their account, or press + Add line",
+    "forgive": "Forgive {{amount}}",
+    "forgivenUndo": "Forgiven {{amount}} — undo",
+    "overpaid": "More than the customer owes — lower a line."
+  },
+  "header": {
+    "shopPays": "Shop pays",
+    "chipIn": "IN",
+    "chipOut": "OUT",
+    "youPay": "You pay"
+  },
+  "lines": {
+    "addLine": "+ Add line",
+    "pmFee": "PM fee"
+  },
+  "summary": {
+    "sendAmount": "Send Amount",
+    "providerFee": "Provider Fee",
+    "subtotal": "Subtotal",
+    "totalAmount": "Total Amount",
+    "afterDiscount": "After Discount",
+    "afterExtra": "After Extra",
+    "discount": "Discount",
+    "extra": "Extra",
+    "discountCurrency": "Discount currency",
+    "extraCurrency": "Extra currency",
+    "cappedToMax": "Capped to max ({{amount}})",
+    "paid": "Paid",
+    "customerPaid": "Customer paid:",
+    "clientWillOwe": "Client will owe:",
+    "forgiven": "Forgiven:",
+    "changeKeptProfit": "Change kept (profit)",
+    "remainingToPayOut": "Remaining to pay out",
+    "remainingToPay": "Remaining to pay",
+    "remainingDebt": "Remaining (Debt)",
+    "onTicked": "on ticked",
+    "total": "total",
+    "theBalance": "the balance",
+    "payoutExcess": "<ltr>{{amount}}</ltr> more than {{account}} — it is added to their account as debt.",
+    "grandTotal": "Grand Total",
+    "inclWalletFee": "incl. <ltr>{{amount}}</ltr> wallet fee"
+  },
+  "change": {
+    "notReturnedCost": "Change not returned (cost)",
+    "toGetBack": "Change to get back",
+    "toReturn": "Change to return",
+    "returnChange": "Return / Change",
+    "changeDue": "Change due",
+    "handBackBy": "Hand back by",
+    "handedBackUsd": "Change handed back in dollars",
+    "handedBackLbp": "Change handed back in LBP",
+    "allUsdTitle": "Hand back the whole change in dollars",
+    "allLbpTitle": "Hand back the whole change in LBP",
+    "putOnAccountTitle": "Put the whole change on {{account}}",
+    "handNothingBack": "Hand nothing back",
+    "account": "Account",
+    "keep": "Keep",
+    "theirAccount": "their account",
+    "customersAccount": "the customer's account",
+    "notReturnedAddedToCost": "Not returned: <ltr>{{amount}}</ltr> — added to the cost.",
+    "keepingProfit": "Keeping <ltr>{{amount}}</ltr> as profit.",
+    "keepingProfitRest": "Keeping <ltr>{{amount}}</ltr> as profit — the rest is returned above.",
+    "unreturnedStaysGivenBack": "<ltr>{{amount}}</ltr> not given back stays on {{account}}.",
+    "unreturnedStaysReturned": "<ltr>{{amount}}</ltr> not returned stays on {{account}}.",
+    "unreturnedToCredit": "<ltr>{{amount}}</ltr> not returned goes to {{account}} as credit.",
+    "gettingBackMore": "Getting back <ltr>{{amount}}</ltr> more than was overpaid.",
+    "returningMore": "Returning <ltr>{{amount}}</ltr> more than the customer overpaid.",
+    "notCovered": "<ltr>{{amount}}</ltr> of the change is not covered by these fields yet."
+  }
+}

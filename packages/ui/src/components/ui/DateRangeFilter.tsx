@@ -6,6 +6,8 @@
  * single copy used app-wide (import from @liratek/ui).
  */
 
+import { useTranslation } from "react-i18next";
+
 // ---------------------------------------------------------------------------
 // Helpers (exported so consumers can set sensible defaults)
 // ---------------------------------------------------------------------------
@@ -60,21 +62,26 @@ export interface DateRangeFilterProps {
 
 const VARIANT_STYLES: Record<
   DateRangeFilterVariant,
-  { label: string; input: string; fromText: string; toText: string }
+  {
+    labelClass: string;
+    input: string;
+    fromKey: "dateRange.fromColon" | "dateRange.from";
+    toKey: "dateRange.toColon" | "dateRange.to";
+  }
 > = {
   default: {
-    label: "text-xs text-slate-400",
+    labelClass: "text-xs text-slate-400",
     input:
       "bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600",
-    fromText: "From:",
-    toText: "To:",
+    fromKey: "dateRange.fromColon",
+    toKey: "dateRange.toColon",
   },
   compact: {
-    label: "text-xs text-gray-400",
+    labelClass: "text-xs text-gray-400",
     input:
       "bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white",
-    fromText: "From",
-    toText: "To",
+    fromKey: "dateRange.from",
+    toKey: "dateRange.to",
   },
 };
 
@@ -86,10 +93,11 @@ export default function DateRangeFilter({
   className = "",
   variant = "default",
 }: DateRangeFilterProps) {
+  const { t } = useTranslation("ui");
   const styles = VARIANT_STYLES[variant];
   return (
     <div className={`flex items-center gap-2 ${className}`}>
-      <label className={styles.label}>{styles.fromText}</label>
+      <label className={styles.labelClass}>{t(styles.fromKey)}</label>
       <input
         type="date"
         data-testid="date-range-from"
@@ -97,7 +105,7 @@ export default function DateRangeFilter({
         onChange={(e) => onFromChange(e.target.value)}
         className={styles.input}
       />
-      <label className={styles.label}>{styles.toText}</label>
+      <label className={styles.labelClass}>{t(styles.toKey)}</label>
       <input
         type="date"
         data-testid="date-range-to"

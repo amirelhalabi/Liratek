@@ -1,1 +1,115 @@
-{}
+{
+  "dataTable": {
+    "empty": "No data",
+    "rows": "rows",
+    "loading": "Loading…",
+    "showingEntries": "Showing {{shown}} of {{total}} entries",
+    "pageRange": "Showing {{from}}–{{to}} of {{total}} {{label}}",
+    "chooseColumns": "Choose export columns",
+    "columns": "Columns",
+    "exportColumns": "Export columns",
+    "reset": "Reset",
+    "selectAll": "Select all",
+    "selectAllPages": "Select all (all pages)",
+    "actionsHeader": "Actions"
+  },
+  "exportBar": {
+    "excelTitle": "Export to Excel",
+    "excel": "Excel",
+    "pdfTitle": "Export to PDF",
+    "pdf": "PDF"
+  },
+  "dateRange": {
+    "fromColon": "From:",
+    "toColon": "To:",
+    "from": "From",
+    "to": "To"
+  },
+  "splitToggle": {
+    "active": "Split Active",
+    "off": "Split"
+  },
+  "settle": {
+    "processing": "Processing..."
+  },
+  "discountLine": {
+    "modeGroup": "Discount or extra",
+    "discount": "− Discount",
+    "extra": "+ Extra",
+    "extraLabel": "Extra",
+    "reasonAria": "{{label}} reason",
+    "reasonPlaceholder": "Reason (optional)"
+  },
+  "notifications": {
+    "moreOne": "+{{count}} more notification",
+    "moreOther": "+{{count}} more notifications"
+  },
+  "pageAlerts": {
+    "countOne": "1 needs attention",
+    "countOther": "{{count}} need attention",
+    "action": "{{label}} →"
+  },
+  "searchBar": {
+    "placeholder": "Search...",
+    "noResults": "No results found. Press Enter to use as description.",
+    "clear": "Clear search"
+  },
+  "select": {
+    "placeholder": "Select option"
+  },
+  "multiSelect": {
+    "collapse": "Collapse {{label}}",
+    "expand": "Expand {{label}}",
+    "selectAll": "Select all {{label}}",
+    "noOptions": "No options"
+  },
+  "topUp": {
+    "title": "Top Up {{provider}} Drawer",
+    "providerFallback": "Provider",
+    "invalidAmount": "Please enter a valid amount greater than 0",
+    "selectPartner": "Please select a partner",
+    "feeExceedsAlert": "The fee exceeds the amount received — nothing left to pay out",
+    "noPayout": "Enter at least one payout amount",
+    "insufficient": "Insufficient balance in source drawer",
+    "failed": "Top-up failed",
+    "viaPartner": "Via Partner",
+    "fromClient": "From Client",
+    "currency": "Currency",
+    "partner": "Partner",
+    "partnerHint": "Select the partner whose credit line funds this top-up.",
+    "creditsReceived": "Credits Received from Client",
+    "amount": "Amount",
+    "feeBreakdown": "Fee Breakdown",
+    "feeAmountUsd": "Fee Amount (USD)",
+    "autoPlaceholder": "{{fee}} (auto)",
+    "autoFee": "Auto-calculated fee:",
+    "autoFeeNote": "(1% of amount)",
+    "feeKeptByShop": "Fee kept by shop:",
+    "feeIncluded": "Fee included in amount",
+    "clientSends": "Client sends:",
+    "feeKept": "Fee kept:",
+    "cashPaid": "Cash paid to client:",
+    "clientOptional": "Client (optional)",
+    "payOut": "Pay Out",
+    "feeExceeds": "The fee exceeds the amount received — nothing left to pay out.",
+    "payout": "Payout",
+    "fundingSource": "Funding Source",
+    "onOmtCredit": "On OMT credit",
+    "transferFromDrawer": "Transfer from drawer",
+    "supplierExplainer": "The supplier credits your {{provider}} balance. No cash leaves any drawer — settle the amount with your supplier via the Suppliers page.",
+    "amountExceeds": "Amount exceeds source drawer balance",
+    "fromDrawer": "From Drawer",
+    "loadError": "Could not load drawer balances: {{error}}",
+    "loadingBalances": "Loading drawer balances...",
+    "selectedBalance": "Selected drawer balance:",
+    "infoPartner": "{{provider}} balance will be increased from the selected partner's credit line. Settle with the partner via the Partners page.",
+    "infoClient": "The client transfers credits to your {{provider}} line; the shop keeps the fee and pays out the remainder as cash.",
+    "infoSupplier": "{{provider}} balance will be increased. Your supplier will be credited — settle with them via the Suppliers page.",
+    "infoTransfer": "Transfer funds to your {{provider}} drawer. No fees.",
+    "processing": "Processing...",
+    "submitPartner": "Top Up via Partner",
+    "submitClient": "Buy Credits from Client",
+    "submitSupplier": "Confirm Supplier Credit",
+    "submitTransfer": "Confirm Top-Up"
+  }
+}

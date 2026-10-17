@@ -5,6 +5,7 @@ import {
   ListboxOption,
 } from "@headlessui/react";
 import { ChevronDown } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 export interface SelectOption {
   value: string;
@@ -29,13 +30,14 @@ export default function Select({
   value,
   onChange,
   options,
-  placeholder = "Select option",
+  placeholder,
   className = "",
   buttonClassName = "",
   optionsClassName = "",
   ringColor: _ringColor = "ring-violet-500",
   disabled = false,
 }: SelectProps) {
+  const { t } = useTranslation("ui");
   const selectedOption = options.find(
     (opt) => opt.value === value && !opt.disabled,
   );
@@ -47,7 +49,7 @@ export default function Select({
           className={`
             relative w-full cursor-pointer rounded-lg
             bg-slate-900 border border-slate-700
-            py-2.5 pl-3 pr-12 text-left text-white text-sm
+            py-2.5 ps-3 pe-12 text-start text-white text-sm
             outline-none focus:outline-none focus:border-slate-700
             transition-all disabled:opacity-50 disabled:cursor-not-allowed
             ${buttonClassName}
@@ -56,9 +58,11 @@ export default function Select({
           {({ open }) => (
             <>
               <span className="block truncate">
-                {selectedOption ? selectedOption.label : placeholder}
+                {selectedOption
+                  ? selectedOption.label
+                  : (placeholder ?? t("select.placeholder"))}
               </span>
-              <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
+              <span className="pointer-events-none absolute inset-y-0 end-0 flex items-center pe-3">
                 <ChevronDown
                   className={`h-5 w-5 text-slate-400 transition-transform ${
                     open ? "rotate-180" : ""
@@ -207,7 +211,7 @@ export default function Select({
               className={({ focus, selected }) =>
                 option.disabled
                   ? "px-3 pt-2 pb-0.5 text-xs uppercase tracking-wide text-slate-500 cursor-default select-none"
-                  : `relative cursor-pointer select-none py-2 pl-4 pr-4 ${
+                  : `relative cursor-pointer select-none py-2 ps-4 pe-4 ${
                       focus
                         ? "bg-violet-500/20 text-white"
                         : selected

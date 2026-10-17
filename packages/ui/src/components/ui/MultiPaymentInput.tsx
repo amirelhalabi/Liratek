@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
+import { Trans, useTranslation } from "react-i18next";
+import { formatNumber } from "../../i18n/format";
+import { normalizeDigits } from "../../i18n/digits";
+import { Ltr } from "./Ltr";
 import { DecimalInput } from "./DecimalInput";
 import { DiscountLine, discountFieldClass } from "./DiscountLine";
 import { SplitToggle } from "./SplitToggle";
@@ -484,6 +488,10 @@ function parseNum(formatted: string): number {
   return parseFloat(formatted.replace(/,/g, "")) || 0;
 }
 
+/** `<Trans>` slot for `<ltr>…</ltr>` in the payment catalog: keeps an amount
+ *  left-to-right inside an Arabic sentence (Trans supplies the children). */
+const LTR_SLOT = { ltr: <Ltr>{null}</Ltr> };
+
 /** Symbols drawn inside the amount field (others show only in the picker). */
 const INLINE_SYMBOLS = ["$", "€", "£"];
 
@@ -547,6 +555,7 @@ function PaymentLineRow({
       ? "focus:border-emerald-500"
       : "focus:border-violet-500";
   const showSymbol = INLINE_SYMBOLS.includes(symbol);
+  const { t } = useTranslation("payment");
 
   return (
     <div
@@ -585,7 +594,7 @@ function PaymentLineRow({
               strokeWidth="2.5"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-400"
+              className="pointer-events-none absolute start-2 top-1/2 -translate-y-1/2 text-slate-400"
             >
               <rect x="4" y="11" width="16" height="10" rx="2" />
               <path d="M8 11V7a4 4 0 0 1 8 0v4" />
@@ -593,12 +602,12 @@ function PaymentLineRow({
             <input
               type="text"
               data-testid={`${testIdPrefix}-currency-${lineId}`}
-              aria-label="Currency"
+              aria-label={t("row.currency")}
               value={currencyCode}
               readOnly
               disabled
-              title="Currency locked"
-              className={`w-full ${bg} border border-slate-600 rounded-lg pl-6 pr-1 ${py} text-white text-sm cursor-not-allowed`}
+              title={t("row.currencyLocked")}
+              className={`w-full ${bg} border border-slate-600 rounded-lg ps-6 pe-1 ${py} text-white text-sm cursor-not-allowed`}
             />
           </>
         ) : (
@@ -623,7 +632,7 @@ function PaymentLineRow({
       <div className={`relative ${large ? "w-36" : "w-28"}`}>
         {showSymbol && (
           <span
-            className={`absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 ${large ? "text-sm" : "text-xs"}`}
+            className={`absolute start-3 top-1/2 -translate-y-1/2 text-slate-500 ${large ? "text-sm" : "text-xs"}`}
           >
             {symbol}
           </span>
@@ -633,8 +642,8 @@ function PaymentLineRow({
           value={amount}
           decimals={currencyCode === "LBP" ? 0 : 2}
           onChange={onAmountChange}
-          className={`w-full ${bg} border border-slate-600 rounded-lg pr-3 ${py} text-white text-sm font-mono focus:outline-none ${focus} transition-colors ${
-            showSymbol ? "pl-7" : "pl-3"
+          className={`w-full ${bg} border border-slate-600 rounded-lg pe-3 ${py} text-white text-sm font-mono focus:outline-none ${focus} transition-colors ${
+            showSymbol ? "ps-7" : "ps-3"
           }`}
           placeholder="0"
         />
@@ -647,7 +656,7 @@ function PaymentLineRow({
           disabled={removeDisabled}
           onClick={onRemove}
           className="flex-shrink-0 px-0.5 py-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 disabled:opacity-20 disabled:hover:bg-transparent disabled:hover:text-slate-500 transition-all"
-          title="Remove"
+          title={t("row.remove")}
         >
           <X size={14} />
         </button>
@@ -683,7 +692,7 @@ export default function MultiPaymentInput({
   onExtraChange,
   maxExtra,
   label,
-  paidLabel = "Paid",
+  paidLabel: paidLabelProp,
   initialMethod,
   initialLines,
   fillTotals,
@@ -703,7 +712,7 @@ export default function MultiPaymentInput({
   waiveTotals,
   discountRow,
   totalBeforeDiscount,
-  afterDiscountLabel = "After Discount",
+  afterDiscountLabel: afterDiscountLabelProp,
   discountMovesPayment = true,
   owedLabel,
   smartSplitOverpay = false,
@@ -714,6 +723,10 @@ export default function MultiPaymentInput({
   direction = "payment",
   payer: payerProp,
 }: MultiPaymentInputProps) {
+  const { t } = useTranslation("payment");
+  const paidLabel = paidLabelProp ?? t("summary.paid");
+  const afterDiscountLabel =
+    afterDiscountLabelProp ?? t("summary.afterDiscount");
   const payer: MultiPaymentPayer =
     payerProp ?? (direction === "payout" ? "payout" : "customer");
   const isPayout = payer === "payout";
@@ -839,12 +852,8 @@ export default function MultiPaymentInput({
     tenderRateDeviation > TENDER_RATE_BAND_PCT
       ? {
           isTypoLevel: tenderRateDeviation > TENDER_RATE_TYPO_PCT,
-          text:
-            `⚠ Rate is ${Math.round(tenderRateDeviation * 100)}% away from the shop rate ` +
-            `(${fmtNum(Math.round(safeExchangeRate))})` +
-            (tenderRateDeviation > TENDER_RATE_TYPO_PCT
-              ? " — check for a typo"
-              : ""),
+          pct: Math.round(tenderRateDeviation * 100),
+          rate: fmtNum(Math.round(safeExchangeRate)),
         }
       : null;
 
@@ -1360,7 +1369,7 @@ export default function MultiPaymentInput({
     if (clientVouchers.length === 0) {
       return (
         <p className="mt-1 text-[11px] text-amber-400">
-          No available vouchers for this client.
+          {t("voucher.noneForClient")}
         </p>
       );
     }
@@ -1368,7 +1377,7 @@ export default function MultiPaymentInput({
     if (options.length === 0) {
       return (
         <p className="mt-1 text-[11px] text-amber-400">
-          No more vouchers available.
+          {t("voucher.noneLeft")}
         </p>
       );
     }
@@ -1398,7 +1407,12 @@ export default function MultiPaymentInput({
         )}
         {selected && (
           <p className="mt-1 text-[11px] text-emerald-400">
-            +${selected.amount.toFixed(2)} credit added on redemption
+            <Trans
+              t={t}
+              i18nKey="voucher.creditOnRedemption"
+              values={{ amount: `$${selected.amount.toFixed(2)}` }}
+              components={LTR_SLOT}
+            />
           </p>
         )}
       </div>
@@ -1802,9 +1816,9 @@ export default function MultiPaymentInput({
       data-testid="waive-remaining"
       onClick={handleWaive}
       className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-md bg-red-500/20 hover:bg-red-500/30 text-red-300 transition-colors"
-      title="Waive the remaining shortfall (adds it to the discount)"
+      title={t("waive.title")}
     >
-      Waive
+      {t("waive.label")}
     </button>
   );
   // When the shop only has cash as a payment method, the change is obviously cash —
@@ -2503,21 +2517,17 @@ export default function MultiPaymentInput({
   const visibleLines = isSplitMode ? paymentLines : paymentLines.slice(0, 1);
   const clientNeededReasons: string[] = [];
   if (hasDebt && requiresClientForDebt && !hasClient && totalInTarget > 0) {
-    clientNeededReasons.push(
-      "Client is required when using DEBT payment method",
-    );
+    clientNeededReasons.push(t("client.debtRequired"));
   }
   if (isOverpaid && returnNeedsClient) {
-    clientNeededReasons.push(
-      "Select a client to return change as store credit.",
-    );
+    clientNeededReasons.push(t("client.forStoreCredit"));
   }
   if (
     fetchClientVouchers &&
     !clientId &&
     visibleLines.some((l) => l.method === "GIFT_CARD")
   ) {
-    clientNeededReasons.push("Select a client to use a voucher.");
+    clientNeededReasons.push(t("client.forVoucher"));
   }
 
   const cfCurrency = counterFlow?.currency ?? currency;
@@ -2534,15 +2544,17 @@ export default function MultiPaymentInput({
         <span className="text-sm font-semibold text-slate-200 tracking-wide">
           {payoutCounterFlow
             ? counterFlow.lockCurrency
-              ? `Customer pays — ${cfCurrency}`
-              : "Customer pays"
+              ? t("counterFlow.customerPaysCurrency", { currency: cfCurrency })
+              : t("counterFlow.customerPays")
             : counterFlow.label}
         </span>
         <span
           data-testid="direction-chip-customer-pays"
           className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-700/30 text-emerald-300 border border-emerald-600/40"
         >
-          {payoutCounterFlow ? "IN" : "Customer pays"}
+          {payoutCounterFlow
+            ? t("header.chipIn")
+            : t("counterFlow.customerPays")}
         </span>
         <div className="flex-1" />
         <SplitToggle
@@ -2591,7 +2603,7 @@ export default function MultiPaymentInput({
           onClick={cf.addLine}
           className="w-full py-1.5 border-2 border-dashed border-slate-700 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200 hover:border-slate-500 transition-all"
         >
-          + Add line
+          {t("lines.addLine")}
         </button>
       )}
 
@@ -2600,18 +2612,19 @@ export default function MultiPaymentInput({
           data-testid="counter-flow-unaccounted"
           className="text-xs text-amber-300"
         >
-          Still to settle: {fmtCf(cf.state.unaccounted)}
+          {t("counterFlow.stillToSettle")}{" "}
+          <Ltr>{fmtCf(cf.state.unaccounted)}</Ltr>
           {/* No account offered (no client): say how to settle it — the
               section never fills the gap with cash by itself (US1.3). */}
           {!cf.accountOffered &&
             counterFlowAccountPossible &&
-            ` — pick a client to put it on their account${
+            t(
               cf.canForgive
-                ? ", or forgive it"
+                ? "counterFlow.pickClientOrForgive"
                 : cf.isSplit
-                  ? ", or press + Add line"
-                  : ""
-            }`}
+                  ? "counterFlow.pickClientOrAddLine"
+                  : "counterFlow.pickClient",
+            )}
         </div>
       )}
 
@@ -2627,8 +2640,10 @@ export default function MultiPaymentInput({
           }`}
         >
           {cf.forgiveOn
-            ? `Forgiven ${fmtCf(cf.state.forgiven)} — undo`
-            : `Forgive ${fmtCf(cf.shortfall)}`}
+            ? t("counterFlow.forgivenUndo", {
+                amount: fmtCf(cf.state.forgiven),
+              })
+            : t("counterFlow.forgive", { amount: fmtCf(cf.shortfall) })}
         </button>
       )}
 
@@ -2637,7 +2652,7 @@ export default function MultiPaymentInput({
           data-testid="counter-flow-overpaid"
           className="text-xs text-red-400"
         >
-          More than the customer owes — lower a line.
+          {t("counterFlow.overpaid")}
         </div>
       )}
     </div>
@@ -2656,7 +2671,7 @@ export default function MultiPaymentInput({
         <span className="text-sm font-semibold text-slate-200 tracking-wide shrink-0">
           {/* Split state is shown on the Split toggle alone ("Split
               Active") — the title no longer repeats it. */}
-          {payoutCounterFlow ? "Shop pays" : label || "Payment"}
+          {payoutCounterFlow ? t("header.shopPays") : label || t("title")}
         </span>
         {/* Direction chip — only when a counter-flow section is active
             (owner decision #10 area, BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4
@@ -2667,7 +2682,7 @@ export default function MultiPaymentInput({
             data-testid="direction-chip-you-pay"
             className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-700 text-slate-300 border border-slate-600"
           >
-            {payoutCounterFlow ? "OUT" : "You pay"}
+            {payoutCounterFlow ? t("header.chipOut") : t("header.youPay")}
           </span>
         )}
 
@@ -2713,7 +2728,19 @@ export default function MultiPaymentInput({
               : "bg-amber-500/10 text-amber-300"
           }`}
         >
-          {tenderRateWarning.text}
+          <Trans
+            t={t}
+            i18nKey={
+              tenderRateWarning.isTypoLevel
+                ? "rateWarning.awayTypo"
+                : "rateWarning.away"
+            }
+            values={{
+              pct: tenderRateWarning.pct,
+              rate: tenderRateWarning.rate,
+            }}
+            components={LTR_SLOT}
+          />
         </div>
       )}
 
@@ -2763,35 +2790,40 @@ export default function MultiPaymentInput({
                   {fetchClientVouchers &&
                     !!clientId &&
                     line.method === "GIFT_CARD" && (
-                      <div className="pl-3 border-l-2 border-orange-500/30">
+                      <div className="ps-3 border-s-2 border-orange-500/30">
                         {renderVoucherSelector(line)}
                       </div>
                     )}
 
                   {/* PM Fee sub-line */}
                   {showPmFee && !CASH_EQUIVALENT_METHODS.has(line.method) && (
-                    <div className="flex items-center gap-2 pl-3 border-l-2 border-violet-500/30">
+                    <div className="flex items-center gap-2 ps-3 border-s-2 border-violet-500/30">
                       <span className="text-[11px] text-violet-400 whitespace-nowrap">
-                        PM fee
+                        {t("lines.pmFee")}
                       </span>
                       <div className="relative w-24">
-                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-violet-400 text-[10px]">
+                        <span className="absolute start-2 top-1/2 -translate-y-1/2 text-violet-400 text-[10px]">
                           $
                         </span>
                         <input
-                          type="number"
+                          type="text"
+                          inputMode="decimal"
                           value={
                             pmFeeOverrides[line.id] ??
                             (line.amount * pmFeeRate).toFixed(2)
                           }
                           onChange={(e) => {
+                            // LIRA-331: a text field (accepts ١٢٣ digits);
+                            // only what a number field would have taken
+                            // ("", "1", "1.", "1.25") is stored.
+                            const raw = normalizeDigits(e.target.value);
+                            if (raw !== "" && !/^\d*\.?\d*$/.test(raw)) return;
                             const newOverrides = { ...pmFeeOverrides };
-                            newOverrides[line.id] = e.target.value;
+                            newOverrides[line.id] = raw;
                             setPmFeeOverrides(newOverrides);
                           }}
-                          className="w-full bg-violet-950/40 border border-violet-700/40 rounded-md pl-5 pr-2 py-1 text-violet-200 text-xs font-mono focus:outline-none focus:border-violet-500"
+                          className="w-full bg-violet-950/40 border border-violet-700/40 rounded-md ps-5 pe-2 py-1 text-violet-200 text-xs font-mono focus:outline-none focus:border-violet-500"
                           placeholder="0.00"
-                          step="0.01"
                         />
                       </div>
                     </div>
@@ -2807,7 +2839,7 @@ export default function MultiPaymentInput({
               onClick={addPaymentLine}
               className="w-full py-2 border-2 border-dashed border-slate-700 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200 hover:border-slate-500 transition-all"
             >
-              + Add line
+              {t("lines.addLine")}
             </button>
           </>
         ) : (
@@ -2863,19 +2895,25 @@ export default function MultiPaymentInput({
         {providerFee > 0 && (
           <>
             <div className="flex justify-between text-xs">
-              <span className="text-slate-400">Send Amount</span>
+              <span className="text-slate-400">
+                {t("summary.sendAmount")}
+              </span>
               <span className="font-mono text-white">
                 {fmtTarget(toDisplayCurrency(totalInTarget - providerFee))}
               </span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-amber-400">Provider Fee</span>
+              <span className="text-amber-400">
+                {t("summary.providerFee")}
+              </span>
               <span className="font-mono text-amber-300">
                 +{fmtTarget(toDisplayCurrency(providerFee))}
               </span>
             </div>
             <div className="flex justify-between text-xs pt-1 border-t border-slate-700/30">
-              <span className="text-slate-300 font-medium">Subtotal</span>
+              <span className="text-slate-300 font-medium">
+                {t("summary.subtotal")}
+              </span>
               <span className="font-mono text-slate-200 font-medium">
                 {fmtTarget(toDisplayCurrency(totalInTarget))}
               </span>
@@ -2884,7 +2922,9 @@ export default function MultiPaymentInput({
         )}
         {providerFee === 0 && (
           <div className="flex justify-between text-xs">
-            <span className="text-slate-400">Total Amount</span>
+            <span className="text-slate-400">
+              {t("summary.totalAmount")}
+            </span>
             <span className="font-mono text-white">
               {perCurrencyTotals
                 ? pcText(
@@ -2931,7 +2971,9 @@ export default function MultiPaymentInput({
               data-testid="after-page-extra"
               className="flex justify-between text-xs pt-1 border-t border-amber-700/20"
             >
-              <span className="text-amber-300 font-medium">After Extra</span>
+              <span className="text-amber-300 font-medium">
+                {t("summary.afterExtra")}
+              </span>
               <span className="font-mono text-amber-200 font-medium">
                 {fmtTarget(toDisplayCurrency(totalInTarget))}
               </span>
@@ -2942,7 +2984,7 @@ export default function MultiPaymentInput({
             looks the same as the pages' own discount rows. */}
         {lineVisible && !discountRow && (
           <DiscountLine
-            label={isExtraMode ? "Extra" : "Discount"}
+            label={isExtraMode ? t("summary.extra") : t("summary.discount")}
             {...(extraAllowed && showDiscount
               ? {
                   allowExtra: true,
@@ -2953,10 +2995,14 @@ export default function MultiPaymentInput({
             capNote={
               isExtraMode
                 ? discountNormalized > extraCap + 1e-9
-                  ? `Capped to max (${fmtTarget(toDisplayCurrency(extraCap))})`
+                  ? t("summary.cappedToMax", {
+                      amount: fmtTarget(toDisplayCurrency(extraCap)),
+                    })
                   : undefined
                 : maxDiscount !== undefined && discountNormalized > maxDiscount
-                  ? `Capped to max (${fmtTarget(toDisplayCurrency(maxDiscount))})`
+                  ? t("summary.cappedToMax", {
+                      amount: fmtTarget(toDisplayCurrency(maxDiscount)),
+                    })
                   : undefined
             }
           >
@@ -2965,7 +3011,9 @@ export default function MultiPaymentInput({
                 value={discountCurrency}
                 onChange={(e) => setDiscountCurrency(e.target.value)}
                 aria-label={
-                  isExtraMode ? "Extra currency" : "Discount currency"
+                  isExtraMode
+                    ? t("summary.extraCurrency")
+                    : t("summary.discountCurrency")
                 }
                 className="bg-slate-900 border border-emerald-700/40 rounded-md px-1.5 py-0.5 text-emerald-300 text-[11px] focus:outline-none focus:border-emerald-500"
               >
@@ -2983,14 +3031,16 @@ export default function MultiPaymentInput({
             )}
             <div className="relative">
               {["$", "€", "£"].includes(getSymbol(discountCurrency)) && (
-                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-emerald-400 text-xs">
+                <span className="absolute start-2 top-1/2 -translate-y-1/2 text-emerald-400 text-xs">
                   {getSymbol(discountCurrency)}
                 </span>
               )}
               <input
                 type="text"
                 inputMode="decimal"
-                aria-label={isExtraMode ? "Extra" : "Discount"}
+                aria-label={
+                  isExtraMode ? t("summary.extra") : t("summary.discount")
+                }
                 value={discountRaw}
                 onChange={(e) => {
                   const raw = e.target.value.replace(/,/g, "");
@@ -3005,8 +3055,8 @@ export default function MultiPaymentInput({
                         discountNormalized > maxDiscount,
                 )} ${
                   ["$", "€", "£"].includes(getSymbol(discountCurrency))
-                    ? "pl-5"
-                    : "pl-2"
+                    ? "ps-5"
+                    : "ps-2"
                 }`}
                 placeholder="0"
               />
@@ -3028,7 +3078,9 @@ export default function MultiPaymentInput({
           discountLowersTotal &&
           clampedDiscount > 0 && (
           <div className="flex justify-between text-xs pt-1 border-t border-emerald-700/20">
-            <span className="text-emerald-300 font-medium">After Discount</span>
+            <span className="text-emerald-300 font-medium">
+              {t("summary.afterDiscount")}
+            </span>
             <span className="font-mono text-emerald-200 font-medium">
               {fmtTarget(toDisplayCurrency(effectiveTotalInTarget))}
             </span>
@@ -3041,7 +3093,9 @@ export default function MultiPaymentInput({
             data-testid="after-page-extra"
             className="flex justify-between text-xs pt-1 border-t border-amber-700/20"
           >
-            <span className="text-amber-300 font-medium">After Extra</span>
+            <span className="text-amber-300 font-medium">
+                {t("summary.afterExtra")}
+              </span>
             <span className="font-mono text-amber-200 font-medium">
               {fmtTarget(toDisplayCurrency(effectiveTotalInTarget))}
             </span>
@@ -3109,7 +3163,9 @@ export default function MultiPaymentInput({
               data-testid="counter-flow-summary-paid"
               className="flex justify-between text-xs"
             >
-              <span className="text-slate-300 font-medium">Customer paid:</span>
+              <span className="text-slate-300 font-medium">
+                {t("summary.customerPaid")}
+              </span>
               <span className="font-mono text-emerald-400">
                 {fmtCf(cf.state.paid)}
               </span>
@@ -3119,7 +3175,9 @@ export default function MultiPaymentInput({
                 data-testid="counter-flow-summary-owed"
                 className="flex justify-between text-xs text-amber-300"
               >
-                <span className="font-medium">Client will owe:</span>
+                <span className="font-medium">
+                  {t("summary.clientWillOwe")}
+                </span>
                 <span className="font-mono font-semibold">
                   {fmtCf(cf.state.owedToAccount)}
                 </span>
@@ -3130,7 +3188,9 @@ export default function MultiPaymentInput({
                 data-testid="counter-flow-summary-forgiven"
                 className="flex justify-between text-xs"
               >
-                <span className="text-slate-300 font-medium">Forgiven:</span>
+                <span className="text-slate-300 font-medium">
+                  {t("summary.forgiven")}
+                </span>
                 <span className="font-mono text-slate-200">
                   {fmtCf(cf.state.forgiven)}
                 </span>
@@ -3156,11 +3216,11 @@ export default function MultiPaymentInput({
             >
               {isPayout
                 ? payoutKeepActive
-                  ? "Change kept (profit)"
-                  : "Remaining to pay out"
+                  ? t("summary.changeKeptProfit")
+                  : t("summary.remainingToPayOut")
                 : isShopPayer
-                  ? "Remaining to pay"
-                  : (owedLabel ?? "Remaining (Debt)")}
+                  ? t("summary.remainingToPay")
+                  : (owedLabel ?? t("summary.remainingDebt"))}
             </span>
             {/* Owner decision 2026-10-12 — what is left on the TICKED items
                 (`waiveTotals`) when it differs from the whole Remaining;
@@ -3179,7 +3239,9 @@ export default function MultiPaymentInput({
                   >
                     {renderDualAmount(waiveShortfall)}
                   </span>
-                  <span className="text-red-400/80">on ticked</span>
+                  <span className="text-red-400/80">
+                    {t("summary.onTicked")}
+                  </span>
                   {showWaiveButton && waiveButton}
                 </span>
                 <span className="flex items-center gap-1 text-[11px] text-red-400/70">
@@ -3189,7 +3251,7 @@ export default function MultiPaymentInput({
                   >
                     {renderDualAmount(effectiveTotalInTarget - totalPaid)}
                   </span>
-                  total
+                  {t("summary.total")}
                 </span>
               </span>
             ) : (
@@ -3242,9 +3304,15 @@ export default function MultiPaymentInput({
               data-testid="payout-excess-summary"
               className="text-[11px] text-amber-300 px-2"
             >
-              {dualAmountText(overpaidTarget)} more than{" "}
-              {accountLabel ?? "the balance"} — it is added to their account as
-              debt.
+              <Trans
+                t={t}
+                i18nKey="summary.payoutExcess"
+                values={{
+                  amount: dualAmountText(overpaidTarget),
+                  account: accountLabel ?? t("summary.theBalance"),
+                }}
+                components={LTR_SLOT}
+              />
             </p>
           )}
 
@@ -3267,23 +3335,23 @@ export default function MultiPaymentInput({
                 <span className="whitespace-nowrap">
                   {isFullKeepChange
                     ? isShopPayer
-                      ? "Change not returned (cost)"
+                      ? t("change.notReturnedCost")
                       : // Both fields cleared → the whole change is kept. Same
                         // copy as the pre-LIRA-084 all-or-nothing keep
                         // (lira-107's debt-repayment e2e asserts this label).
-                        "Change kept (profit)"
+                        t("summary.changeKeptProfit")
                     : isShopPayer
-                      ? "Change to get back"
+                      ? t("change.toGetBack")
                       : isCashOnlyPayment
-                        ? "Change to return"
-                        : "Return / Change"}
+                        ? t("change.toReturn")
+                        : t("change.returnChange")}
                 </span>
                 {/* LIRA-264 — the change due, always in both currencies. */}
                 <span
                   data-testid="change-due"
                   className="flex items-center gap-1 font-mono font-semibold text-amber-300 text-[11px]"
                 >
-                  <span className="sr-only">Change due</span>
+                  <span className="sr-only">{t("change.changeDue")}</span>
                   {renderDualAmount(overpaidTarget)}
                 </span>
               </span>
@@ -3291,7 +3359,7 @@ export default function MultiPaymentInput({
               {!isCashOnlyPayment && (
                 <select
                   data-testid="return-method"
-                  aria-label="Hand back by"
+                  aria-label={t("change.handBackBy")}
                   value={effectiveReturnMethod}
                   onChange={(e) => setReturnMethod(e.target.value)}
                   className="shrink-0 bg-slate-900 border border-amber-700/40 rounded-md px-1.5 py-0.5 text-amber-200 text-[11px] focus:outline-none focus:border-amber-500"
@@ -3310,21 +3378,21 @@ export default function MultiPaymentInput({
               <div className="flex items-center gap-1.5 flex-wrap">
                 {allowReturnUSD && (
                   <div className="relative flex-1 min-w-[5.5rem]">
-                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none">
+                    <span className="absolute start-2 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none">
                       $
                     </span>
                     <input
                       data-testid="return-usd"
                       type="text"
                       inputMode="decimal"
-                      aria-label="Change handed back in dollars"
+                      aria-label={t("change.handedBackUsd")}
                       value={returnAmountUSD}
                       onChange={(e) => {
                         setChangeToAccount(false);
                         handleReturnUSDChange(e.target.value);
                       }}
                       placeholder="0.00"
-                      className="w-full pl-5 pr-2 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-right focus:outline-none focus:border-amber-500"
+                      className="w-full ps-5 pe-2 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-end focus:outline-none focus:border-amber-500"
                     />
                   </div>
                 )}
@@ -3334,16 +3402,16 @@ export default function MultiPaymentInput({
                       data-testid="return-lbp"
                       type="text"
                       inputMode="numeric"
-                      aria-label="Change handed back in LBP"
+                      aria-label={t("change.handedBackLbp")}
                       value={returnAmountLBP}
                       onChange={(e) => {
                         setChangeToAccount(false);
                         handleReturnLBPChange(e.target.value);
                       }}
                       placeholder="0"
-                      className="w-full pl-2 pr-8 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-right focus:outline-none focus:border-amber-500"
+                      className="w-full ps-2 pe-8 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-end focus:outline-none focus:border-amber-500"
                     />
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none">
+                    <span className="absolute end-2 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none">
                       LBP
                     </span>
                   </div>
@@ -3358,7 +3426,7 @@ export default function MultiPaymentInput({
                         setChangeToAccount(false);
                         handleReturnAllUSD();
                       }}
-                      title="Hand back the whole change in dollars"
+                      title={t("change.allUsdTitle")}
                       className="px-2 py-1 rounded-md text-[11px] font-semibold text-amber-300 bg-slate-900 border border-amber-700/40 hover:border-amber-500 transition-colors"
                     >
                       $
@@ -3372,7 +3440,7 @@ export default function MultiPaymentInput({
                         setChangeToAccount(false);
                         handleReturnAllLBP();
                       }}
-                      title="Hand back the whole change in LBP"
+                      title={t("change.allLbpTitle")}
                       className="px-2 py-1 rounded-md text-[11px] font-semibold text-amber-300 bg-slate-900 border border-amber-700/40 hover:border-amber-500 transition-colors"
                     >
                       LBP
@@ -3393,8 +3461,14 @@ export default function MultiPaymentInput({
                       onClick={handleChangeToAccount}
                       title={
                         creditUnreturned
-                          ? `Put the whole change on ${accountLabel ?? (unreturnedChangeTo === "ACCOUNT_BALANCE" ? "their account" : "the customer's account")}`
-                          : "Hand nothing back"
+                          ? t("change.putOnAccountTitle", {
+                              account:
+                                accountLabel ??
+                                (unreturnedChangeTo === "ACCOUNT_BALANCE"
+                                  ? t("change.theirAccount")
+                                  : t("change.customersAccount")),
+                            })
+                          : t("change.handNothingBack")
                       }
                       className={`px-2 py-1 rounded-md text-[11px] font-semibold border transition-colors ${
                         creditUnreturned
@@ -3404,7 +3478,7 @@ export default function MultiPaymentInput({
                           : "bg-slate-900 border-amber-700/40 text-amber-300 hover:border-amber-500"
                       }`}
                     >
-                      {creditUnreturned ? "Account" : "Keep"}
+                      {creditUnreturned ? t("change.account") : t("change.keep")}
                     </button>
                   )}
                 </div>
@@ -3423,19 +3497,28 @@ export default function MultiPaymentInput({
                   data-testid="keep-change-summary"
                   className="text-[11px] text-amber-300"
                 >
-                  Not returned: {dualAmountText(keptTotalTarget)} — added to the
-                  cost.
+                  <Trans
+                    t={t}
+                    i18nKey="change.notReturnedAddedToCost"
+                    values={{ amount: dualAmountText(keptTotalTarget) }}
+                    components={LTR_SLOT}
+                  />
                 </p>
               ) : (
                 <p
                   data-testid="keep-change-summary"
                   className="text-[11px] text-emerald-400"
                 >
-                  Keeping {dualAmountText(keptTotalTarget)} as profit
-                  {keepChangeReturnUSD > 0.005 || keepChangeReturnLBP > 1
-                    ? " — the rest is returned above"
-                    : ""}
-                  .
+                  <Trans
+                    t={t}
+                    i18nKey={
+                      keepChangeReturnUSD > 0.005 || keepChangeReturnLBP > 1
+                        ? "change.keepingProfitRest"
+                        : "change.keepingProfit"
+                    }
+                    values={{ amount: dualAmountText(keptTotalTarget) }}
+                    components={LTR_SLOT}
+                  />
                 </p>
               ))}
             {/* LIRA-308 answer 1 — the change not handed back goes to the
@@ -3445,12 +3528,28 @@ export default function MultiPaymentInput({
                 data-testid="change-to-account-summary"
                 className="text-[11px] text-emerald-400"
               >
-                {returnCurrency === "LBP"
-                  ? `${unreturnedCreditAmount.toLocaleString()} LBP`
-                  : `$${unreturnedCreditAmount.toFixed(2)}`}{" "}
-                {unreturnedChangeTo === "ACCOUNT_BALANCE"
-                  ? `not ${isShopPayer ? "given back" : "returned"} stays on ${accountLabel ?? "their account"}.`
-                  : `not returned goes to ${accountLabel ?? "the customer's account"} as credit.`}
+                <Trans
+                  t={t}
+                  i18nKey={
+                    unreturnedChangeTo === "ACCOUNT_BALANCE"
+                      ? isShopPayer
+                        ? "change.unreturnedStaysGivenBack"
+                        : "change.unreturnedStaysReturned"
+                      : "change.unreturnedToCredit"
+                  }
+                  values={{
+                    amount:
+                      returnCurrency === "LBP"
+                        ? `${formatNumber(unreturnedCreditAmount)} LBP`
+                        : `$${unreturnedCreditAmount.toFixed(2)}`,
+                    account:
+                      accountLabel ??
+                      (unreturnedChangeTo === "ACCOUNT_BALANCE"
+                        ? t("change.theirAccount")
+                        : t("change.customersAccount")),
+                  }}
+                  components={LTR_SLOT}
+                />
               </p>
             )}
             {/* Fix-round finding #4 (2026-09-24): the two return fields
@@ -3464,11 +3563,28 @@ export default function MultiPaymentInput({
                   data-testid="return-mismatch-warning"
                   className="text-[11px] text-red-400 mt-1"
                 >
-                  {returnMismatch > 0
-                    ? isShopPayer
-                      ? `Getting back ${fmtWithSymbol(convertSafe(returnMismatch, totalAmountCurrency, "USD"), "$", 2)} more than was overpaid.`
-                      : `Returning ${fmtWithSymbol(convertSafe(returnMismatch, totalAmountCurrency, "USD"), "$", 2)} more than the customer overpaid.`
-                    : `${fmtWithSymbol(convertSafe(-returnMismatch, totalAmountCurrency, "USD"), "$", 2)} of the change is not covered by these fields yet.`}
+                  <Trans
+                    t={t}
+                    i18nKey={
+                      returnMismatch > 0
+                        ? isShopPayer
+                          ? "change.gettingBackMore"
+                          : "change.returningMore"
+                        : "change.notCovered"
+                    }
+                    values={{
+                      amount: fmtWithSymbol(
+                        convertSafe(
+                          Math.abs(returnMismatch),
+                          totalAmountCurrency,
+                          "USD",
+                        ),
+                        "$",
+                        2,
+                      ),
+                    }}
+                    components={LTR_SLOT}
+                  />
                 </p>
               )}
             {effectiveReturnMethod !== "CASH" &&
@@ -3494,7 +3610,7 @@ export default function MultiPaymentInput({
                   {!returnCurrencyInChangeDue && (
                     <span className="font-mono font-bold text-amber-300">
                       {/* Same figure as before this row was trimmed. */}
-                      {Math.round(returnAmount).toLocaleString()}
+                      {formatNumber(Math.round(returnAmount))}
                     </span>
                   )}
                 </div>
@@ -3507,13 +3623,22 @@ export default function MultiPaymentInput({
         {showPmFee && totalPmFees > 0 && (
           <div className="pt-1.5 mt-1 border-t border-violet-700/30">
             <div className="flex justify-between items-baseline gap-2 text-sm">
-              <span className="text-white font-semibold">Grand Total</span>
+              <span className="text-white font-semibold">
+                {t("summary.grandTotal")}
+              </span>
               <span className="flex items-baseline gap-1.5">
                 <span className="font-mono text-white font-bold">
                   {fmtTarget(toDisplayCurrency(totalPaid + totalPmFees))}
                 </span>
                 <span className="text-[11px] text-violet-300">
-                  incl. {fmtTarget(toDisplayCurrency(totalPmFees))} wallet fee
+                  <Trans
+                    t={t}
+                    i18nKey="summary.inclWalletFee"
+                    values={{
+                      amount: fmtTarget(toDisplayCurrency(totalPmFees)),
+                    }}
+                    components={LTR_SLOT}
+                  />
                 </span>
               </span>
             </div>
