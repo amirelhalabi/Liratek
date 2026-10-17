@@ -1,5 +1,42 @@
 {
   "page": {
-    "title": "Vouchers"
+    "title": "Vouchers",
+    "loadFailed": "Failed to load vouchers"
+  },
+  "status": {
+    "all": "All",
+    "pending": "Pending",
+    "redeemed": "Redeemed",
+    "expired": "Expired",
+    "cancelled": "Cancelled"
+  },
+  "form": {
+    "title": "Create Voucher",
+    "createdFor": "Voucher created for {{name}}",
+    "client": "Client *",
+    "clientPlaceholder": "Search or enter client name",
+    "phonePlaceholder": "Phone number",
+    "newClientHint": "No match — a new client will be created.",
+    "amount": "Amount *",
+    "expiry": "Expiry date (optional)",
+    "note": "Note (optional)",
+    "notePlaceholder": "e.g. Birthday gift",
+    "creating": "Creating...",
+    "errNameOrClient": "Enter a client name or select a client",
+    "errPhone": "Enter a phone number for the new client",
+    "errCreateClient": "Failed to create client",
+    "errAmount": "Enter a valid amount greater than zero",
+    "errCreate": "Failed to create voucher"
+  },
+  "list": {
+    "heading": "Vouchers ({{n}})",
+    "empty": "No vouchers in this status",
+    "copy": "Copy",
+    "copyCode": "Copy code",
+    "cancelTitle": "Cancel voucher",
+    "cancelConfirm": "Cancel voucher {{code}} ({{amount}})? This cannot be undone.",
+    "cancelFailed": "Failed to cancel voucher",
+    "expires": "expires {{date}}",
+    "noExpiry": "no expiry"
   }
 }
