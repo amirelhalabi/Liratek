@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { useFormat } from "@/i18n/useFormat";
 import {
   appEvents,
   BALANCE_EPS,
@@ -197,11 +202,13 @@ const PROVIDER_DRAWER: Record<string, string> = {
  *  Whish_System are the physical cash drawer at the shop's money-transfer
  *  counter (Primary Cash Drawer plan §1), not a provider float balance — the
  *  badge should read that way, not as the raw internal drawer name. */
-function drawerDisplayLabel(drawerName: string): string {
-  if (drawerName === "OMT_System") return "OMT Cash Drawer";
-  if (drawerName === "Whish_System") return "Whish Cash Drawer";
+function drawerDisplayLabel(drawerName: string, t: SuppliersT): string {
+  if (drawerName === "OMT_System") return t("drawer.omtCash");
+  if (drawerName === "Whish_System") return t("drawer.whishCash");
   return drawerName;
 }
+
+type SuppliersT = TFunction<"suppliers">;
 
 /**
  * Supplier balance is the signed sum of the ledger:
@@ -261,11 +268,24 @@ function ledgerRowDirection(
   return signBucket(amountUsd !== 0 ? amountUsd : amountLbp);
 }
 
-const LEDGER_DIRECTION_HINT: Record<LedgerDirection, string> = {
-  UP: "Increases what we owe this supplier",
-  DOWN: "Decreases what we owe this supplier (or increases what they owe us)",
-  FLAT: "No effect on the balance",
-};
+const LEDGER_DIRECTION_HINT = {
+  UP: "ledger.hintUp",
+  DOWN: "ledger.hintDown",
+  FLAT: "ledger.hintFlat",
+} as const satisfies Record<LedgerDirection, string>;
+
+/** Shown labels for the ledger entry types (the codes stay the data). */
+const ENTRY_TYPE_LABEL_KEYS = {
+  TOP_UP: "entryType.TOP_UP",
+  SALE_COST: "entryType.SALE_COST",
+  PAYMENT: "entryType.PAYMENT",
+  ADJUSTMENT: "entryType.ADJUSTMENT",
+  SETTLEMENT: "entryType.SETTLEMENT",
+  CASH_PRIZE: "entryType.CASH_PRIZE",
+  SUPPLIER_PAYS_US: "entryType.SUPPLIER_PAYS_US",
+  DISCOUNT: "entryType.DISCOUNT",
+  STOCK_INTAKE: "entryType.STOCK_INTAKE",
+} as const;
 
 /**
  * LIRA-129 — the badge USED to color itself purely from `entry_type`
@@ -299,24 +319,20 @@ function EntryTypeBadge({
   type: string;
   direction: LedgerDirection;
 }) {
+  const { t } = useTranslation("suppliers");
   const color =
     direction === "UP"
       ? "bg-green-900/50 text-green-300"
       : direction === "DOWN"
         ? "bg-red-900/50 text-red-300"
         : "bg-slate-700/50 text-slate-300";
-  const label =
-    type === "SALE_COST"
-      ? "SALE COST"
-      : type === "SUPPLIER_PAYS_US"
-        ? "PAID US"
-        : type === "STOCK_INTAKE"
-          ? "Stock Received"
-          : type;
+  const labelKey =
+    ENTRY_TYPE_LABEL_KEYS[type as keyof typeof ENTRY_TYPE_LABEL_KEYS];
+  const label = labelKey ? t(labelKey) : type;
   return (
     <span
       className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${color}`}
-      title={LEDGER_DIRECTION_HINT[direction]}
+      title={t(LEDGER_DIRECTION_HINT[direction])}
     >
       {label}
     </span>
@@ -332,7 +348,7 @@ function EntryTypeBadge({
 function formatMoney(amount: number, currency: "USD" | "LBP"): string {
   return currency === "USD"
     ? `$${amount.toFixed(2)}`
-    : `${Math.round(amount).toLocaleString()} LBP`;
+    : `${formatNumber(Math.round(amount))} LBP`;
 }
 
 /** Owner decision (2026-10-02) — an OMT SEND of $207 + $1 fee was showing
@@ -358,6 +374,7 @@ function formatOwedCell(
   amount: number,
   fee: number | null,
   currency: string,
+  t: SuppliersT,
 ): { main: string; breakdown: string | null } {
   const money: "USD" | "LBP" = currency === "LBP" ? "LBP" : "USD";
   const main = formatMoney(Math.abs(supplierOwed), money);
@@ -372,28 +389,37 @@ function formatOwedCell(
   const op = absOwed > absAmount ? "+" : "−";
   const fmt = (n: number) =>
     money === "LBP"
-      ? Math.round(n).toLocaleString()
+      ? formatNumber(Math.round(n))
       : String(Number(n.toFixed(2)));
-  const breakdown = `${fmt(absAmount)} ${op} ${fmt(absFee)} fee`;
+  const breakdown = t("owedCell.breakdown", {
+    amount: fmt(absAmount),
+    op,
+    fee: fmt(absFee),
+  });
   return { main, breakdown };
 }
 
 /** LIRA-322 (FR-017) — "Partial · $47.00": what was paid so far, in the
  *  row's own currency. Without a per-row figure (an LBP row outside an OMT
  *  account) it stays plain "Partial". */
-function partialLabel(t: {
-  currency: string;
-  fifo_paid_usd: number;
-  fifo_paid_lbp?: number;
-}): string {
-  if (t.currency === "LBP") {
-    return t.fifo_paid_lbp !== undefined && t.fifo_paid_lbp > 0
-      ? `Partial · ${Math.round(t.fifo_paid_lbp).toLocaleString()} LBP`
-      : "Partial";
+function partialLabel(
+  row: {
+    currency: string;
+    fifo_paid_usd: number;
+    fifo_paid_lbp?: number;
+  },
+  t: SuppliersT,
+): string {
+  if (row.currency === "LBP") {
+    return row.fifo_paid_lbp !== undefined && row.fifo_paid_lbp > 0
+      ? t("status.partialPaid", {
+          amount: `${formatNumber(Math.round(row.fifo_paid_lbp))} LBP`,
+        })
+      : t("status.partial");
   }
-  return t.fifo_paid_usd > 0
-    ? `Partial · $${t.fifo_paid_usd.toFixed(2)}`
-    : "Partial";
+  return row.fifo_paid_usd > 0
+    ? t("status.partialPaid", { amount: `$${row.fifo_paid_usd.toFixed(2)}` })
+    : t("status.partial");
 }
 
 /** G40 (LIRA-258): a voided/refunded history row — owes nothing. */
@@ -430,14 +456,15 @@ function sortNewestFirst<T extends { created_at: string; id: number }>(
 function describeBalance(
   amount: number,
   currency: "USD" | "LBP",
+  t: SuppliersT,
 ): { text: string; cls: string } {
   const abs = Math.abs(amount);
   const money = formatMoney(abs, currency);
   const bucket = signBucket(amount);
   const cls = balanceTextColor(amount, BALANCE_EPS);
-  if (bucket === "UP") return { text: `You owe ${money}`, cls };
-  if (bucket === "DOWN") return { text: `They owe you ${money}`, cls };
-  return { text: "Settled", cls };
+  if (bucket === "UP") return { text: t("balance.youOwe", { money }), cls };
+  if (bucket === "DOWN") return { text: t("balance.theyOweYou", { money }), cls };
+  return { text: t("balance.settled"), cls };
 }
 
 /** Compact directional color for a single signed amount (list rows AND,
@@ -490,6 +517,7 @@ function SupplierAccountCard({
    *  §3 W6: "On the OMT account card, the settle button..."). */
   onSettle: (account: AccountBalance) => void;
 }) {
+  const { t } = useTranslation("suppliers");
   const unsettledQuery = useSupplierAccountUnsettledQuery(
     account.account_supplier_id,
   );
@@ -521,7 +549,7 @@ function SupplierAccountCard({
         type="button"
         data-testid={`supplier-tile-${testIdSuffix}`}
         onClick={() => onSelect(account.account_supplier_id)}
-        className="w-full text-left p-3"
+        className="w-full text-start p-3"
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -529,7 +557,7 @@ function SupplierAccountCard({
               {account.account_name}
             </span>
             <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-600/60 text-slate-300 uppercase tracking-wider">
-              Account
+              {t("account.badge")}
             </span>
           </div>
         </div>
@@ -545,7 +573,7 @@ function SupplierAccountCard({
             data-testid="supplier-account-balance-lbp"
             className={balanceColor(account.total_lbp)}
           >
-            {account.total_lbp.toLocaleString()} LBP
+            {formatNumber(account.total_lbp)} LBP
           </span>
         </div>
       </button>
@@ -561,9 +589,9 @@ function SupplierAccountCard({
               onSettle(account);
             }}
             className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold"
-            title="Settle the counter, OMT App and iPick in one payment"
+            title={t("account.settleTitle")}
           >
-            Settle Account
+            {t("account.settle")}
           </button>
         </div>
       )}
@@ -593,17 +621,17 @@ function SupplierAccountCard({
                 <span className="text-slate-300 truncate">{child.name}</span>
                 {child.drawer_name && (
                   <span className="text-[10px] text-slate-500 font-mono shrink-0">
-                    {drawerDisplayLabel(child.drawer_name)}
+                    {drawerDisplayLabel(child.drawer_name, t)}
                   </span>
                 )}
                 <span className="text-[9px] text-slate-500 italic shrink-0">
-                  part of {account.account_name} account
+                  {t("account.partOf", { name: account.account_name })}
                 </span>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {!!unsettledCount && (
                   <span className="text-[10px] text-amber-400">
-                    {unsettledCount} unsettled
+                    {t("account.unsettledCount", { n: unsettledCount })}
                   </span>
                 )}
                 <span
@@ -614,7 +642,7 @@ function SupplierAccountCard({
                 >
                   {child.total_usd !== 0
                     ? `$${child.total_usd.toFixed(2)}`
-                    : `${child.total_lbp.toLocaleString()} LBP`}
+                    : `${formatNumber(child.total_lbp)} LBP`}
                 </span>
               </div>
             </div>
@@ -648,6 +676,8 @@ function AccountLedgerTable({
   onTypeFilterChange: (value: string) => void;
   typeOptions: string[];
 }) {
+  const { t } = useTranslation("suppliers");
+  const { formatDateTime } = useFormat();
   const filtered =
     typeFilter === "ALL"
       ? rows
@@ -663,7 +693,7 @@ function AccountLedgerTable({
           onChange={(e) => onTypeFilterChange(e.target.value)}
           className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-orange-500"
         >
-          <option value="ALL">All types</option>
+          <option value="ALL">{t("ledger.allTypes")}</option>
           {typeOptions.map((name) => (
             <option key={name} value={name}>
               {name}
@@ -677,12 +707,12 @@ function AccountLedgerTable({
         <div
           className={`grid grid-cols-[5.75rem_4.75rem_5.25rem_6.75rem_minmax(0,1fr)_7.5rem] gap-x-3 bg-slate-900/60 text-slate-400 text-xs font-semibold px-3 py-2`}
         >
-          <div>Entry</div>
-          <div>Source</div>
-          <div className="text-right">USD</div>
-          <div className="text-right">LBP</div>
-          <div>Note</div>
-          <div>Date</div>
+          <div>{t("ledger.entry")}</div>
+          <div>{t("ledger.source")}</div>
+          <div className="text-end">USD</div>
+          <div className="text-end">LBP</div>
+          <div>{t("ledger.note")}</div>
+          <div>{t("ledger.date")}</div>
         </div>
         <div className="max-h-[65vh] overflow-y-auto">
           {filtered.map((row) => (
@@ -697,7 +727,7 @@ function AccountLedgerTable({
                 />
                 {!!row.is_refunded && (
                   <span className="text-[9px] px-1 py-0.5 rounded bg-slate-600/50 text-slate-300 font-semibold">
-                    VOIDED
+                    {t("ledger.voided")}
                   </span>
                 )}
               </div>
@@ -727,7 +757,7 @@ function AccountLedgerTable({
                 }`}
               >
                 {row.amount_lbp !== 0
-                  ? `${row.amount_lbp > 0 ? "+" : ""}${row.amount_lbp.toLocaleString()}`
+                  ? `${row.amount_lbp > 0 ? "+" : ""}${formatNumber(row.amount_lbp)}`
                   : "—"}
               </div>
               <div
@@ -737,7 +767,7 @@ function AccountLedgerTable({
                 {row.note || ""}
               </div>
               <div className="text-slate-400 text-xs whitespace-nowrap">
-                {parseDbDate(row.created_at).toLocaleString(undefined, {
+                {formatDateTime(parseDbDate(row.created_at), {
                   // The year only when it is not this year: keeps the column
                   // to one line ("Oct 15, 8:11 PM").
                   year:
@@ -755,7 +785,7 @@ function AccountLedgerTable({
           ))}
           {filtered.length === 0 && (
             <div className="text-slate-500 text-sm p-3">
-              No payment entries yet.
+              {t("ledger.empty")}
             </div>
           )}
         </div>
@@ -765,6 +795,8 @@ function AccountLedgerTable({
 }
 
 export default function SuppliersPage() {
+  const { t } = useTranslation("suppliers");
+  const { formatDateTime } = useFormat();
   const { methods } = usePaymentMethods();
   const { partnerSystem } = useShopBase();
   const { user } = useAuth();
@@ -1284,7 +1316,7 @@ export default function SuppliersPage() {
     if (!selectedSupplierId) return;
     const activeLines = cashflowLines.filter((l) => l.amount > 0);
     if (activeLines.length === 0) {
-      alert("Enter at least one payment amount");
+      alert(t("cashflow.enterAmount"));
       return;
     }
     const trimmedNote = cashflowNote.trim();
@@ -1329,14 +1361,16 @@ export default function SuppliersPage() {
       ...discountFields,
     });
     if (!(res as { success: boolean }).success) {
-      alert((res as { error?: string }).error || "Failed");
+      alert((res as { error?: string }).error || t("errors.failed"));
       return;
     }
     appEvents.emit(
       "notification:show",
       hasDiscount
-        ? `Supplier transaction recorded (discount ${payCurrency === "USD" ? "$" : ""}${cashflowDiscount.toFixed(payCurrency === "USD" ? 2 : 0)}${payCurrency === "LBP" ? " LBP" : ""})`
-        : "Supplier transaction recorded successfully",
+        ? t("cashflow.recordedDiscount", {
+            amount: `${payCurrency === "USD" ? "$" : ""}${cashflowDiscount.toFixed(payCurrency === "USD" ? 2 : 0)}${payCurrency === "LBP" ? " LBP" : ""}`,
+          })
+        : t("cashflow.recorded"),
       "success",
     );
     setCashflowLines([]);
@@ -1365,7 +1399,7 @@ export default function SuppliersPage() {
         note: recordDebtNote.trim() || null,
       });
       if (!result.success) {
-        alert(result.error ?? "Failed to record debt");
+        alert(result.error ?? t("recordDebt.failed"));
         return;
       }
       setShowRecordDebtModal(false);
@@ -1373,7 +1407,7 @@ export default function SuppliersPage() {
       setRecordDebtAmountLbp("");
       setRecordDebtNote("");
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to record debt");
+      alert(err instanceof Error ? err.message : t("recordDebt.failed"));
     }
   };
 
@@ -1395,7 +1429,7 @@ export default function SuppliersPage() {
     if (!selectedSupplierId) return;
     const amount = parseFloat(adjustAmount.replace(/,/g, "")) || 0;
     if (amount <= 0) {
-      alert("Enter an amount greater than 0");
+      alert(t("adjust.enterAmount"));
       return;
     }
     const isCredit = adjustDirection === "CREDIT";
@@ -1429,18 +1463,22 @@ export default function SuppliersPage() {
       if (result.success) {
         appEvents.emit(
           "notification:show",
-          `${isCredit ? "Credit" : "Debit"} recorded${
-            adjustMoveCash ? "" : " (paper, no cash moved)"
-          }.`,
+          isCredit
+            ? adjustMoveCash
+              ? t("adjust.creditRecorded")
+              : t("adjust.creditRecordedPaper")
+            : adjustMoveCash
+              ? t("adjust.debitRecorded")
+              : t("adjust.debitRecordedPaper"),
           "success",
         );
         setShowAdjustModal(false);
         resetAdjustForm();
       } else {
-        alert(result.error || "Failed");
+        alert(result.error || t("errors.failed"));
       }
     } catch {
-      alert("Failed to record entry");
+      alert(t("adjust.failed"));
     } finally {
       setAdjustSubmitting(false);
     }
@@ -1893,16 +1931,28 @@ export default function SuppliersPage() {
         ...(settleCovered ? { covered_omt_service_types: settleCovered } : {}),
       });
       if (!(result as { success: boolean }).success) {
-        alert((result as { error?: string }).error || "Settlement failed");
+        alert((result as { error?: string }).error || t("settle.failed"));
         return;
       }
+      const settledDetail = isBillsOnlyBatch
+        ? t("settle.doneCredited", {
+            name: selectedSupplier?.name ?? t("settle.supplierFallback"),
+            money: formatMoney(
+              settleEnteredCommissionAmount,
+              settleEnteredCommissionCurrency,
+            ),
+          })
+        : t("settle.doneNet", {
+            money: formatMoney(settleNetPayAmount, settleNetPayCurrency),
+          });
       appEvents.emit(
         "notification:show",
-        `Settled ${selectedSettleIds.size} transaction${selectedSettleIds.size !== 1 ? "s" : ""} — ${
-          isBillsOnlyBatch
-            ? `${selectedSupplier?.name ?? "supplier"} credited ${formatMoney(settleEnteredCommissionAmount, settleEnteredCommissionCurrency)}`
-            : `net ${formatMoney(settleNetPayAmount, settleNetPayCurrency)}`
-        }`,
+        selectedSettleIds.size === 1
+          ? t("settle.doneOne", { detail: settledDetail })
+          : t("settle.doneMany", {
+              n: selectedSettleIds.size,
+              detail: settledDetail,
+            }),
         "success",
       );
       setShowSettleConfirm(false);
@@ -1911,7 +1961,7 @@ export default function SuppliersPage() {
       setSettleReturnLegs([]);
       setSettleNote("");
     } catch {
-      alert("Settlement failed");
+      alert(t("settle.failed"));
     } finally {
       setSettleSubmitting(false);
     }
@@ -1926,22 +1976,24 @@ export default function SuppliersPage() {
     label: string;
   }[] = isProductSupplier
     ? [
-        { id: "items", label: "Purchases" },
-        { id: "manual", label: "Pay / Receive" },
+        { id: "items", label: t("tabs.purchases") },
+        { id: "manual", label: t("tabs.payReceive") },
       ]
     : [
-        ...(showSettleTab ? [{ id: "settle" as const, label: "Settle" }] : []),
+        ...(showSettleTab
+          ? [{ id: "settle" as const, label: t("tabs.settle") }]
+          : []),
         // LIRA-322 — account members pay via Settle Account.
         ...(isAccountMember
           ? []
-          : [{ id: "manual" as const, label: "Pay / Receive" }]),
+          : [{ id: "manual" as const, label: t("tabs.payReceive") }]),
       ];
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-auto animate-in fade-in duration-500">
       <PageHeader
-        title="Suppliers"
-        subtitle="Track amounts owed to suppliers. System debts are auto-recorded from transactions."
+        title={t("page.title")}
+        subtitle={t("page.subtitle")}
       />
 
       {/* Balance overview — was a bare `< 0 ? green : red` bypassing this
@@ -1951,7 +2003,9 @@ export default function SuppliersPage() {
           and owner's-rule polarity (positive = we owe = green). */}
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-slate-800 rounded-xl border border-slate-700/50 p-4">
-          <div className="text-xs text-slate-400 mb-1">Total Owed (USD)</div>
+          <div className="text-xs text-slate-400 mb-1">
+            {t("page.totalOwedUsd")}
+          </div>
           <div
             className={`text-2xl font-bold font-mono ${balanceTextColor(totalOwed.usd, BALANCE_EPS)}`}
           >
@@ -1959,11 +2013,13 @@ export default function SuppliersPage() {
           </div>
         </div>
         <div className="bg-slate-800 rounded-xl border border-slate-700/50 p-4">
-          <div className="text-xs text-slate-400 mb-1">Total Owed (LBP)</div>
+          <div className="text-xs text-slate-400 mb-1">
+            {t("page.totalOwedLbp")}
+          </div>
           <div
             className={`text-2xl font-bold font-mono ${balanceTextColor(totalOwed.lbp, BALANCE_EPS)}`}
           >
-            {totalOwed.lbp.toLocaleString()} LBP
+            {formatNumber(totalOwed.lbp)} LBP
           </div>
         </div>
       </div>
@@ -1974,12 +2030,13 @@ export default function SuppliersPage() {
           <div className="flex gap-1 border-b border-slate-700/50 pb-2 mb-3">
             {(
               [
-                { id: "companies" as const, label: "Companies" },
-                { id: "products" as const, label: "Products" },
+                { id: "companies" as const, label: t("category.companies") },
+                { id: "products" as const, label: t("category.products") },
               ] as const
             ).map((cat) => (
               <button
                 key={cat.id}
+                data-testid={`supplier-category-${cat.id}`}
                 onClick={() => {
                   setViewCategory(cat.id);
                   setSelectedSupplierId(null);
@@ -2028,7 +2085,7 @@ export default function SuppliersPage() {
                   key={s.id}
                   data-testid={`supplier-tile-${s.provider ?? s.id}`}
                   onClick={() => selectSupplierFromList(s.id)}
-                  className={`w-full text-left p-3 rounded-lg transition-colors ${
+                  className={`w-full text-start p-3 rounded-lg transition-colors ${
                     active ? "bg-slate-700" : "hover:bg-slate-700/50"
                   } ${s.is_active === 0 ? "opacity-60" : ""}`}
                 >
@@ -2037,14 +2094,14 @@ export default function SuppliersPage() {
                       <span className="font-semibold text-white">{s.name}</span>
                       {s.is_active === 0 && (
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-900/50 text-amber-300">
-                          Inactive
+                          {t("list.inactive")}
                         </span>
                       )}
                     </div>
                     <div className="flex items-center gap-2">
                       {drawer && (
                         <span className="text-[10px] text-slate-500 font-mono">
-                          {drawerDisplayLabel(drawer)}
+                          {drawerDisplayLabel(drawer, t)}
                         </span>
                       )}
                     </div>
@@ -2055,7 +2112,7 @@ export default function SuppliersPage() {
                     </span>
                     <span className="text-slate-600"> | </span>
                     <span className={balanceColor(Number(b?.total_lbp || 0))}>
-                      {Number(b?.total_lbp || 0).toLocaleString()} LBP
+                      {formatNumber(Number(b?.total_lbp || 0))} LBP
                     </span>
                   </div>
                 </button>
@@ -2063,7 +2120,7 @@ export default function SuppliersPage() {
             })}
             {sortedSuppliers.length === 0 && (
               <div className="text-slate-500 text-sm p-3">
-                No suppliers found.
+                {t("list.empty")}
               </div>
             )}
           </div>
@@ -2072,9 +2129,7 @@ export default function SuppliersPage() {
         {/* Right: Tabbed panel */}
         <div className="col-span-8 bg-slate-800 rounded-xl border border-slate-700/50 p-4 overflow-auto">
           {!selectedSupplier ? (
-            <div className="text-slate-400 text-sm">
-              Select a supplier to view ledger.
-            </div>
+            <div className="text-slate-400 text-sm">{t("list.selectPrompt")}</div>
           ) : (
             <>
               {/* Header */}
@@ -2088,17 +2143,17 @@ export default function SuppliersPage() {
                       const bal = activeBalanceMap.get(selectedSupplierId!);
                       const usd = Number(bal?.total_usd ?? 0);
                       const lbp = Number(bal?.total_lbp ?? 0);
-                      const usdInfo = describeBalance(usd, "USD");
-                      const lbpInfo = describeBalance(lbp, "LBP");
+                      const usdInfo = describeBalance(usd, "USD", t);
+                      const lbpInfo = describeBalance(lbp, "LBP", t);
                       const settled =
                         Math.abs(usd) <= BALANCE_EPS &&
                         Math.abs(lbp) <= BALANCE_EPS;
                       return (
                         <>
-                          Balance:{" "}
+                          {t("balance.label")}{" "}
                           {settled ? (
                             <span className="font-semibold text-slate-400">
-                              Settled
+                              {t("balance.settled")}
                             </span>
                           ) : (
                             <>
@@ -2146,15 +2201,16 @@ export default function SuppliersPage() {
                     selectedSupplier.is_active !== 0 &&
                     !isProductSupplier && (
                       <button
+                        data-testid="supplier-adjust-open"
                         onClick={() => {
                           resetAdjustForm();
                           setShowAdjustModal(true);
                         }}
                         className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm"
-                        title="Manually record a credit or debt against this supplier"
+                        title={t("adjust.openTitle")}
                       >
                         <Plus className="w-4 h-4" />
-                        Add Credit / Debt
+                        {t("adjust.open")}
                       </button>
                     )}
                   {/* LIRA-087 (migration v189): "Record Debt" — a product
@@ -2167,12 +2223,13 @@ export default function SuppliersPage() {
                     selectedSupplier.is_active !== 0 &&
                     isProductSupplier && (
                       <button
+                        data-testid="supplier-record-debt-open"
                         onClick={() => setShowRecordDebtModal(true)}
                         className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm"
-                        title="Record a debt for products not yet received, to attach later"
+                        title={t("recordDebt.openTitle")}
                       >
                         <Plus className="w-4 h-4" />
-                        Record Debt
+                        {t("recordDebt.open")}
                       </button>
                     )}
                   {/* SUPPLIER_STOCK_INTAKE_PLAN.md D8: the standalone
@@ -2188,7 +2245,7 @@ export default function SuppliersPage() {
                       onClick={() => setOpenTable("transactions")}
                       className="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm"
                     >
-                      Transactions
+                      {t("header.transactions")}
                       {allTxnsQuery.isLoading ? "" : ` (${allTxns.length})`}
                     </button>
                   )}
@@ -2198,7 +2255,7 @@ export default function SuppliersPage() {
                     onClick={() => setOpenTable("payments")}
                     className="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm"
                   >
-                    Payments
+                    {t("header.payments")}
                     {(
                       isSelectedAccountParent
                         ? accountLedgerQuery.isLoading
@@ -2240,7 +2297,7 @@ export default function SuppliersPage() {
                     }}
                     className="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm"
                   >
-                    Refresh
+                    {t("common:actions.refresh")}
                   </button>
                 </div>
               </div>
@@ -2267,6 +2324,7 @@ export default function SuppliersPage() {
                   {selectedTabs.map((tab) => (
                     <button
                       key={tab.id}
+                      data-testid={`supplier-tab-${tab.id}`}
                       onClick={() => setActiveTab(tab.id)}
                       className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
                         activeTab === tab.id
@@ -2295,10 +2353,10 @@ export default function SuppliersPage() {
                 <div>
                   <div className="flex items-center justify-between mb-3 px-1">
                     <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                      Purchase History
+                      {t("purchases.history")}
                     </h3>
                     <div className="text-xs text-slate-400">
-                      Stock on hand:{" "}
+                      {t("purchases.stockOnHand")}{" "}
                       <span className="font-mono font-semibold text-orange-300">
                         {stockValueQuery.isLoading
                           ? "…"
@@ -2306,26 +2364,29 @@ export default function SuppliersPage() {
                       </span>
                       <span className="text-slate-600">
                         {" "}
-                        (inventory value, not debt)
+                        {t("purchases.stockOnHandHint")}
                       </span>
                     </div>
                   </div>
                   {ledgerQuery.isLoading ? (
                     <div className="text-slate-400 text-sm py-6 text-center">
-                      Loading purchase history…
+                      {t("purchases.loading")}
                     </div>
                   ) : purchaseHistory.length === 0 ? (
                     <div className="text-slate-500 text-sm py-6 text-center">
-                      No deliveries or payments recorded yet for{" "}
-                      {selectedSupplier.name}.
+                      {t("purchases.empty", { name: selectedSupplier.name })}
                     </div>
                   ) : (
                     <div className="border border-slate-700 rounded-xl overflow-hidden">
                       <div className="grid grid-cols-12 bg-slate-900/60 text-slate-300 text-xs font-semibold px-4 py-2">
-                        <div className="col-span-2">Type</div>
-                        <div className="col-span-6">Detail</div>
-                        <div className="col-span-2 text-right">Amount</div>
-                        <div className="col-span-2 text-right">Date</div>
+                        <div className="col-span-2">{t("table.type")}</div>
+                        <div className="col-span-6">{t("table.detail")}</div>
+                        <div className="col-span-2 text-end">
+                          {t("table.amount")}
+                        </div>
+                        <div className="col-span-2 text-end">
+                          {t("table.date")}
+                        </div>
                       </div>
                       <div className="max-h-[45vh] overflow-y-auto divide-y divide-slate-700">
                         {purchaseHistory.map((row) => (
@@ -2342,8 +2403,8 @@ export default function SuppliersPage() {
                                 )}
                               />
                               {!!row.is_refunded && (
-                                <span className="ml-1 text-[9px] px-1 py-0.5 rounded bg-slate-600/50 text-slate-300 font-semibold">
-                                  VOIDED
+                                <span className="ms-1 text-[9px] px-1 py-0.5 rounded bg-slate-600/50 text-slate-300 font-semibold">
+                                  {t("ledger.voided")}
                                 </span>
                               )}
                             </div>
@@ -2353,11 +2414,11 @@ export default function SuppliersPage() {
                                   // formatted "<qty> × <name> @ $<cost>"
                                   // description (rule 14 — reuse it, don't
                                   // re-parse qty/cost back out of it).
-                                  row.note || "Stock received"
-                                : row.note || "Payment"}
+                                  row.note || t("purchases.stockReceived")
+                                : row.note || t("purchases.payment")}
                             </div>
                             <div
-                              className={`col-span-2 text-right font-mono text-xs ${
+                              className={`col-span-2 text-end font-mono text-xs ${
                                 row.is_refunded
                                   ? "line-through text-slate-500"
                                   : balanceColor(
@@ -2370,11 +2431,14 @@ export default function SuppliersPage() {
                               {row.amount_usd !== 0
                                 ? `${row.amount_usd > 0 ? "+" : ""}$${row.amount_usd.toFixed(2)}`
                                 : row.amount_lbp !== 0
-                                  ? `${row.amount_lbp > 0 ? "+" : ""}${row.amount_lbp.toLocaleString()} LBP`
+                                  ? `${row.amount_lbp > 0 ? "+" : ""}${formatNumber(row.amount_lbp)} LBP`
                                   : "—"}
                             </div>
-                            <div className="col-span-2 text-right text-xs text-slate-400">
-                              {parseDbDate(row.created_at).toLocaleString()}
+                            <div className="col-span-2 text-end text-xs text-slate-400">
+                              {formatDateTime(
+                                parseDbDate(row.created_at),
+                                FULL_DATE_TIME,
+                              )}
                             </div>
                           </div>
                         ))}
@@ -2434,6 +2498,7 @@ export default function SuppliersPage() {
                           Select all ({selectableUnsettled.length})
                         </label>
                         <button
+                          data-testid="supplier-settle-open"
                           onClick={handleOpenSettleConfirm}
                           disabled={
                             selectedSettleIds.size === 0 || isMixedModelBatch
@@ -2490,32 +2555,32 @@ export default function SuppliersPage() {
                             <span className="w-36 text-right">Date</span>
                           </div>
                           <div className="max-h-[30vh] overflow-y-auto divide-y divide-slate-700">
-                            {displayUnsettled.map((t) => {
-                              const waiting = isWaitingSettleRow(t);
+                            {displayUnsettled.map((row) => {
+                              const waiting = isWaitingSettleRow(row);
                               return (
                                 <label
-                                  key={t.id}
-                                  data-testid={`settle-row-${t.id}`}
+                                  key={row.id}
+                                  data-testid={`settle-row-${row.id}`}
                                   className="flex items-center gap-2 px-3 py-2 text-xs hover:bg-slate-700/30 cursor-pointer"
                                 >
                                   <input
                                     type="checkbox"
                                     disabled={waiting}
                                     checked={
-                                      !waiting && selectedSettleIds.has(t.id)
+                                      !waiting && selectedSettleIds.has(row.id)
                                     }
                                     onChange={(e) => {
                                       const next = new Set(selectedSettleIds);
-                                      if (e.target.checked) next.add(t.id);
-                                      else next.delete(t.id);
+                                      if (e.target.checked) next.add(row.id);
+                                      else next.delete(row.id);
                                       setSelectedSettleIds(next);
                                     }}
                                     className="w-4 h-4 rounded border-slate-600 bg-slate-900 shrink-0"
                                   />
                                   <span className="flex-1 text-slate-300">
-                                    {t.service_type === "BILL"
+                                    {row.service_type === "BILL"
                                       ? "Bill"
-                                      : t.omt_service_type || t.service_type}
+                                      : row.omt_service_type || row.service_type}
                                     {waiting && (
                                       <span className="ml-2 px-1 py-0.5 rounded bg-slate-700 text-slate-400 text-[9px] font-semibold">
                                         Waiting — not in this statement
@@ -2529,10 +2594,10 @@ export default function SuppliersPage() {
                                     // transfer amount; see `formatOwedCell`'s
                                     // own doc comment.
                                     const cell = formatOwedCell(
-                                      t.supplier_owed,
-                                      t.amount,
-                                      t.omt_fee,
-                                      t.currency,
+                                      row.supplier_owed,
+                                      row.amount,
+                                      row.omt_fee,
+                                      row.currency,
                                     );
                                     return (
                                       <span
@@ -2552,18 +2617,18 @@ export default function SuppliersPage() {
                                     );
                                   })()}
                                   <span className="font-mono text-emerald-400 w-20 text-right">
-                                    {t.service_type === "BILL" ? (
+                                    {row.service_type === "BILL" ? (
                                       // Commission is entered AT settlement (D8) —
                                       // no per-row commission to show for a bill.
                                       <span className="text-slate-600">—</span>
-                                    ) : t.commission > 0 ? (
-                                      `+$${t.commission.toFixed(4)}`
+                                    ) : row.commission > 0 ? (
+                                      `+$${row.commission.toFixed(4)}`
                                     ) : (
                                       "—"
                                     )}
                                   </span>
                                   <span className="text-slate-500 w-36 text-right">
-                                    {parseDbDate(t.created_at).toLocaleString()}
+                                    {parseDbDate(row.created_at).toLocaleString()}
                                   </span>
                                 </label>
                               );
@@ -2631,6 +2696,7 @@ export default function SuppliersPage() {
                         {(["PAY", "RECEIVE"] as const).map((dir) => (
                           <button
                             key={dir}
+                            data-testid={`supplier-cashflow-direction-${dir.toLowerCase()}`}
                             onClick={() => setCashflowDirection(dir)}
                             className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
                               cashflowDirection === dir
@@ -2707,6 +2773,7 @@ export default function SuppliersPage() {
                           Discount reason (optional)
                         </label>
                         <input
+                          data-testid="supplier-cashflow-discount-reason"
                           value={cashflowDiscountReason}
                           onChange={(e) =>
                             setCashflowDiscountReason(e.target.value)
@@ -2722,6 +2789,7 @@ export default function SuppliersPage() {
                         Note (optional)
                       </label>
                       <input
+                        data-testid="supplier-cashflow-note"
                         value={cashflowNote}
                         onChange={(e) => setCashflowNote(e.target.value)}
                         className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
@@ -2779,16 +2847,16 @@ export default function SuppliersPage() {
                     <div className="col-span-2">Date</div>
                   </div>
                   <div className="max-h-[65vh] overflow-y-auto">
-                    {sortedAllTxns.map((t) => (
+                    {sortedAllTxns.map((txn) => (
                       <div
-                        key={t.id}
-                        data-testid={`supplier-txn-row-${t.id}`}
-                        className={`grid grid-cols-12 gap-2 px-3 py-2.5 text-sm border-t border-slate-700 items-center hover:bg-slate-700/30 ${isVoidedTxn(t) ? "opacity-60" : ""}`}
+                        key={txn.id}
+                        data-testid={`supplier-txn-row-${txn.id}`}
+                        className={`grid grid-cols-12 gap-2 px-3 py-2.5 text-sm border-t border-slate-700 items-center hover:bg-slate-700/30 ${isVoidedTxn(txn) ? "opacity-60" : ""}`}
                       >
                         <div
                           className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-xs text-slate-300`}
                         >
-                          {t.omt_service_type || t.service_type}
+                          {txn.omt_service_type || txn.service_type}
                         </div>
                         {(() => {
                           // Owner decision (2026-10-02) — same
@@ -2796,10 +2864,10 @@ export default function SuppliersPage() {
                           // settlement checkbox list above (rule 14, one
                           // `formatOwedCell`).
                           const cell = formatOwedCell(
-                            t.supplier_owed,
-                            t.amount,
-                            t.omt_fee,
-                            t.currency,
+                            txn.supplier_owed,
+                            txn.amount,
+                            txn.omt_fee,
+                            txn.currency,
                           );
                           return (
                             <div
@@ -2820,18 +2888,18 @@ export default function SuppliersPage() {
                         })()}
                         {hasOmtFee && (
                           <div className="col-span-2 text-right font-mono text-amber-400">
-                            {t.omt_fee ? `$${t.omt_fee.toFixed(2)}` : "—"}
+                            {txn.omt_fee ? `$${txn.omt_fee.toFixed(2)}` : "—"}
                           </div>
                         )}
                         <div className="col-span-2 text-right font-mono text-emerald-400">
-                          {t.commission > 0 ? (
-                            t.currency === "LBP" ? (
-                              `${Math.round(t.commission).toLocaleString()} LBP`
+                          {txn.commission > 0 ? (
+                            txn.currency === "LBP" ? (
+                              `${Math.round(txn.commission).toLocaleString()} LBP`
                             ) : (
-                              `$${t.commission.toFixed(4)}`
+                              `$${txn.commission.toFixed(4)}`
                             )
-                          ) : (t.settled_commission_usd ?? 0) > 0 ||
-                            (t.settled_commission_lbp ?? 0) > 0 ? (
+                          ) : (txn.settled_commission_usd ?? 0) > 0 ||
+                            (txn.settled_commission_lbp ?? 0) > 0 ? (
                             // BILL_COMMISSION_SETTLEMENT_PLAN.md follow-up
                             // — a settled BILL row's OWN `commission` is 0
                             // by design (entered AT settlement, not
@@ -2839,11 +2907,11 @@ export default function SuppliersPage() {
                             // settlement_commission_allocations, joined in
                             // by getAllByProvider for display only.
                             [
-                              (t.settled_commission_lbp ?? 0) > 0
-                                ? `${Math.round(t.settled_commission_lbp!).toLocaleString()} LBP`
+                              (txn.settled_commission_lbp ?? 0) > 0
+                                ? `${Math.round(txn.settled_commission_lbp!).toLocaleString()} LBP`
                                 : null,
-                              (t.settled_commission_usd ?? 0) > 0
-                                ? `$${t.settled_commission_usd!.toFixed(2)}`
+                              (txn.settled_commission_usd ?? 0) > 0
+                                ? `$${txn.settled_commission_usd!.toFixed(2)}`
                                 : null,
                             ]
                               .filter(Boolean)
@@ -2853,29 +2921,29 @@ export default function SuppliersPage() {
                           )}
                         </div>
                         <div className="col-span-2 text-right">
-                          {isVoidedTxn(t) ? (
+                          {isVoidedTxn(txn) ? (
                             // G40 — same grey "voided" treatment the
                             // ledger rows above already use.
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-600/50 text-slate-300">
                               Voided
                             </span>
-                          ) : t.supplier_owed === 0 &&
-                            t.settlement_id == null ? (
+                          ) : txn.supplier_owed === 0 &&
+                            txn.settlement_id == null ? (
                             // Wallet-provider transfer (prepaid balance):
                             // nothing is owed to the supplier, so a
                             // paid/unpaid status is meaningless here.
                             <span className="text-slate-600">—</span>
-                          ) : t.settlement_id != null ? (
+                          ) : txn.settlement_id != null ? (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-900/50 text-blue-300">
                               Settled
                             </span>
-                          ) : t.fifo_status === "paid" ? (
+                          ) : txn.fifo_status === "paid" ? (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-900/50 text-green-300">
                               Paid
                             </span>
-                          ) : t.fifo_status === "partial" ? (
+                          ) : txn.fifo_status === "partial" ? (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-900/50 text-amber-300">
-                              {partialLabel(t)}
+                              {partialLabel(txn, t)}
                             </span>
                           ) : (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-900/50 text-red-400">
@@ -2884,7 +2952,7 @@ export default function SuppliersPage() {
                           )}
                         </div>
                         <div className="col-span-2 text-xs text-slate-400">
-                          {parseDbDate(t.created_at).toLocaleString()}
+                          {parseDbDate(txn.created_at).toLocaleString()}
                         </div>
                       </div>
                     ))}
@@ -3133,6 +3201,7 @@ export default function SuppliersPage() {
                 </label>
                 <div className="flex gap-2">
                   <button
+                    data-testid="supplier-adjust-direction-credit"
                     onClick={() => setAdjustDirection("CREDIT")}
                     className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-colors border ${
                       adjustDirection === "CREDIT"
@@ -3144,6 +3213,7 @@ export default function SuppliersPage() {
                     CREDIT (we owe them)
                   </button>
                   <button
+                    data-testid="supplier-adjust-direction-debit"
                     onClick={() => setAdjustDirection("DEBIT")}
                     className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-colors border ${
                       adjustDirection === "DEBIT"
@@ -3166,6 +3236,7 @@ export default function SuppliersPage() {
                   <input
                     type="text"
                     inputMode="decimal"
+                    data-testid="supplier-adjust-amount"
                     value={adjustAmount}
                     onChange={(e) => {
                       const raw = e.target.value.replace(/,/g, "");
@@ -3186,6 +3257,7 @@ export default function SuppliersPage() {
                     {(["USD", "LBP"] as const).map((c) => (
                       <button
                         key={c}
+                        data-testid={`supplier-adjust-currency-${c}`}
                         onClick={() => setAdjustCurrency(c)}
                         className={`px-3 py-2.5 rounded-lg text-sm font-medium border ${
                           adjustCurrency === c
@@ -3207,6 +3279,7 @@ export default function SuppliersPage() {
                 </label>
                 <input
                   type="text"
+                  data-testid="supplier-adjust-note"
                   value={adjustNote}
                   onChange={(e) => setAdjustNote(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500"
@@ -3248,6 +3321,7 @@ export default function SuppliersPage() {
                     adjustSubmitting ||
                     !(parseFloat(adjustAmount.replace(/,/g, "")) > 0)
                   }
+                  data-testid="supplier-adjust-submit"
                   onClick={handleSupplierAdjust}
                   className="flex-1 py-3 rounded-xl font-bold disabled:bg-slate-700 disabled:text-slate-500 text-white shadow-lg active:scale-95 transition-all bg-indigo-600 hover:bg-indigo-500 shadow-indigo-900/20"
                 >
@@ -3268,7 +3342,10 @@ export default function SuppliersPage() {
             if (e.target === e.currentTarget) setShowRecordDebtModal(false);
           }}
         >
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-sm p-5 space-y-4">
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-sm p-5 space-y-4"
+            data-testid="supplier-record-debt-modal"
+          >
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold text-white">
                 Record Debt — {selectedSupplier.name}
@@ -3293,6 +3370,7 @@ export default function SuppliersPage() {
                 <input
                   type="text"
                   inputMode="decimal"
+                  data-testid="supplier-record-debt-usd"
                   value={recordDebtAmountUsd}
                   onChange={(e) => {
                     const raw = e.target.value.replace(/,/g, "");
@@ -3311,6 +3389,7 @@ export default function SuppliersPage() {
                 <input
                   type="text"
                   inputMode="numeric"
+                  data-testid="supplier-record-debt-lbp"
                   value={recordDebtAmountLbp}
                   onChange={(e) => {
                     const raw = e.target.value.replace(/,/g, "");
@@ -3328,6 +3407,7 @@ export default function SuppliersPage() {
                 Note (optional)
               </label>
               <input
+                data-testid="supplier-record-debt-note"
                 value={recordDebtNote}
                 onChange={(e) => setRecordDebtNote(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
@@ -3350,6 +3430,7 @@ export default function SuppliersPage() {
                     (parseFloat(recordDebtAmountLbp.replace(/,/g, "")) || 0) > 0
                   )
                 }
+                data-testid="supplier-record-debt-submit"
                 onClick={handleRecordDebt}
                 className="flex-1 py-3 rounded-xl font-bold disabled:bg-slate-700 disabled:text-slate-500 text-white shadow-lg active:scale-95 transition-all bg-indigo-600 hover:bg-indigo-500 shadow-indigo-900/20"
               >
@@ -3404,6 +3485,7 @@ export default function SuppliersPage() {
                       <button
                         key={mode}
                         type="button"
+                        data-testid={`supplier-settle-mode-${mode.toLowerCase()}`}
                         onClick={() => setSettleEntryMode(mode)}
                         className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                           settleEntryMode === mode
@@ -3425,6 +3507,7 @@ export default function SuppliersPage() {
                         <input
                           type="text"
                           inputMode="decimal"
+                          data-testid="supplier-settle-commission-usd"
                           value={settleCommissionUsdInput}
                           onChange={(e) => {
                             const raw = e.target.value.replace(/,/g, "");
@@ -3443,6 +3526,7 @@ export default function SuppliersPage() {
                         <input
                           type="text"
                           inputMode="numeric"
+                          data-testid="supplier-settle-commission-lbp"
                           value={settleCommissionLbpInput}
                           onChange={(e) => {
                             const raw = e.target.value.replace(/,/g, "");
@@ -3465,6 +3549,7 @@ export default function SuppliersPage() {
                           <input
                             type="text"
                             inputMode="decimal"
+                            data-testid="supplier-settle-rate"
                             value={settleRateInput}
                             onChange={(e) => {
                               const raw = e.target.value.replace(/,/g, "");
@@ -3485,6 +3570,7 @@ export default function SuppliersPage() {
                               <button
                                 key={c}
                                 type="button"
+                                data-testid={`supplier-settle-rate-currency-${c}`}
                                 onClick={() => setSettleRateCurrency(c)}
                                 className={`px-3 py-2 rounded-lg text-sm font-medium border ${
                                   settleRateCurrency === c
@@ -3504,6 +3590,7 @@ export default function SuppliersPage() {
                           <input
                             type="text"
                             inputMode="numeric"
+                            data-testid="supplier-settle-count"
                             value={settleUnitCountInput}
                             onChange={(e) => {
                               const raw = e.target.value.replace(/,/g, "");
@@ -3569,6 +3656,7 @@ export default function SuppliersPage() {
                       <button
                         key={mode}
                         type="button"
+                        data-testid={`supplier-settle-collection-${mode.toLowerCase()}`}
                         onClick={() => {
                           setSettleCommissionCollectionMode(mode);
                           if (mode === "TOP_UP") setSettlePaymentLines([]);
@@ -3700,6 +3788,7 @@ export default function SuppliersPage() {
               Note (optional)
             </label>
             <input
+              data-testid="supplier-settle-note"
               value={settleNote}
               onChange={(e) => setSettleNote(e.target.value)}
               className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"

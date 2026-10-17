@@ -719,6 +719,7 @@ export function AccountSettleSheet({
               Note (optional)
             </label>
             <input
+              data-testid="supplier-account-settle-note"
               value={note}
               onChange={(e) => setNote(e.target.value)}
               className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"

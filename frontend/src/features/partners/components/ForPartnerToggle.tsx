@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Check, Handshake, Info } from "lucide-react";
 import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
 
@@ -76,13 +77,14 @@ export function ForPartnerToggle({
   selectedPartnerId,
   onPartnerChange,
   testId,
-  label = "For Partner",
+  label,
   activeClassName = DEFAULT_ACTIVE_CLASS,
   autoSelectSingle,
   systemFilter,
   selectorClassName = DEFAULT_SELECTOR_CLASS,
   showSelector = true,
 }: ForPartnerToggleProps) {
+  const { t } = useTranslation("partners");
   return (
     <>
       <button
@@ -100,7 +102,7 @@ export function ForPartnerToggle({
         }`}
       >
         <Handshake className="w-4 h-4" aria-hidden="true" />
-        <span>{label}</span>
+        <span>{label ?? t("toggle.forPartner")}</span>
         {checked && <Check className="w-3.5 h-3.5" aria-hidden="true" />}
       </button>
       {checked && showSelector && (

@@ -20,10 +20,13 @@
  * computed ONCE by the caller and passed in, rather than each cell
  * re-parsing `metadata_json` for itself.
  */
+import { useTranslation } from "react-i18next";
 import {
   SESSION_ITEM_REFUNDABLE_TYPES,
   type TransactionType,
 } from "@liratek/core";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import type { EN_RESOURCES } from "@liratek/ui/i18n/resources";
 import { isReceiptableRow } from "../receiptGating";
 import {
   isReversibleRow,
@@ -51,10 +54,12 @@ import {
 } from "../transactionDisplay";
 import { CashFlowBadge } from "./CashFlowBadge";
 import { amountCellText, type RowDerived } from "../rowDerived";
-import { rowBadges } from "../rowBadges";
+import { rowBadges, rowStatus, signedCreditsText } from "../rowBadges";
+import { translateTitle } from "../typeTitleText";
 import {
   clientText,
   methodBrand,
+  methodColumnLegs,
   methodText,
   timeText,
   userText,
@@ -66,10 +71,13 @@ import type { TransactionRow } from "../hooks/useTransactionRows";
 const voidedText = (row: TransactionRow) =>
   row.status === "VOIDED" ? "line-through opacity-60" : "";
 
+type NonReversibleKey = keyof (typeof EN_RESOURCES)["audit"]["nonReversible"];
+
 export function TimeCell({ row }: { row: TransactionRow }) {
+  const { i18n } = useTranslation("audit");
   return (
     <td className="p-2 truncate" style={{ width: 160 }}>
-      {timeText(row)}
+      {timeText(row, i18n.language)}
     </td>
   );
 }
@@ -85,6 +93,7 @@ export function SummaryCell({
   isLegDetailExpanded: boolean;
   onToggleLegDetail: (rowId: number) => void;
 }) {
+  const { t } = useTranslation("audit");
   const { commissionAmount, isGroupHeader } = derived;
   // Production test 2026-10-07: the badge carries the TRANSACTION amount
   // (Sale #99 → $4.25), never the cash handed over ($5) — the cash has its
@@ -103,7 +112,7 @@ export function SummaryCell({
             data-testid={`session-group-header-${row.session_id}`}
             className="self-start text-[10px] font-medium text-sky-400"
           >
-            Session #{row.session_id} — pooled basket total
+            {t("cells.sessionPooledTotal", { id: row.session_id })}
           </span>
         )}
         {(() => {
@@ -119,7 +128,18 @@ export function SummaryCell({
                   data-testid="row-badge"
                   className={b.className}
                 >
-                  {b.label}
+                  {b.key === "status"
+                    ? (() => {
+                        const status = rowStatus(row);
+                        return status === "ACTIVE"
+                          ? b.label
+                          : t(`badges.${status}`);
+                      })()
+                    : b.key === "credits" && row.returned_credits_usd != null
+                      ? t("badges.creditsBack", {
+                          amount: signedCreditsText(row.returned_credits_usd),
+                        })
+                      : b.label}
                 </span>
               ))}
             </span>
@@ -168,7 +188,7 @@ export function SummaryCell({
             const movesNothing = !legs && !row.amount_usd && !row.amount_lbp;
             const rate =
               shownRate && !movesNothing
-                ? `@ ${Math.round(shownRate).toLocaleString()}`
+                ? `@ ${formatNumber(Math.round(shownRate))}`
                 : null;
             const text = [legs, rate].filter(Boolean).join(" · ");
             if (!text) return null;
@@ -201,7 +221,7 @@ export function SummaryCell({
                     data-testid="session-payment-legs"
                     className="text-[11px] font-mono text-sky-500/70 truncate max-w-[480px]"
                   >
-                    Session: {legs}
+                    {t("cells.sessionLegs", { legs })}
                   </span>
                 )}
                 {reversal && (
@@ -224,11 +244,13 @@ export function SummaryCell({
             className="self-start text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
             title={
               isLegDetailExpanded
-                ? "Hide payment detail"
-                : "Show payment detail"
+                ? t("cells.hidePaymentDetail")
+                : t("cells.showPaymentDetail")
             }
           >
-            {isLegDetailExpanded ? "▾ payment detail" : "▸ payment detail"}
+            {isLegDetailExpanded
+              ? t("cells.paymentDetailOpen")
+              : t("cells.paymentDetailClosed")}
           </button>
         )}
       </div>
@@ -237,10 +259,11 @@ export function SummaryCell({
 }
 
 export function TypeCell({ row }: { row: TransactionRow }) {
+  const { t, i18n } = useTranslation("audit");
   return (
     <td className="p-2 truncate" style={{ width: 160 }}>
       <span className={`${getTypeColor(row)} ${voidedText(row)}`}>
-        {getTypeLabel(row)}
+        {translateTitle(getTypeLabel(row), t, i18n.language)}
       </span>
     </td>
   );
@@ -278,9 +301,14 @@ export function MethodCell({
   row: TransactionRow;
   methodLabelByCode: Map<string, string>;
 }) {
+  const { t } = useTranslation("audit");
   // Whish/OMT icon only when every leg the column names is that one wallet
   // (`methodBrand` reads the same legs as `methodText`).
   const brand = methodBrand(row);
+  // `methodText` stays English for the export and the sort; only its
+  // "Session #N" wording is shown in the displayed language here.
+  const sessionId =
+    row.type === "CHECKPOINT" ? null : methodColumnLegs(row).sessionId;
   return (
     <td className="p-2 truncate" style={{ width: 120 }}>
       {brand && (
@@ -288,7 +316,7 @@ export function MethodCell({
           brand={brand}
           variant="icon"
           size={14}
-          className="mr-1 align-middle"
+          className="me-1 align-middle"
         />
       )}
       {/* LIRA-201b fix round (M3): always THIS row's own legs only,
@@ -296,7 +324,9 @@ export function MethodCell({
           method(s) render on their own labelled line/detail section
           instead (SummaryCell's "Session:" line, buildLegDetailTr's
           "Session:" block), never merged in here. */}
-      {methodText(row, methodLabelByCode)}
+      {sessionId !== null
+        ? t("cells.sessionMethod", { id: sessionId })
+        : methodText(row, methodLabelByCode)}
     </td>
   );
 }
@@ -387,6 +417,7 @@ export function ActionsCell({
    *  so every existing caller that doesn't pass it is unaffected. */
   hideBasketActions?: boolean;
 }) {
+  const { t } = useTranslation("audit");
   const { splitGroup } = derived;
   return (
     <td className="p-2" style={{ width: 110 }}>
@@ -396,10 +427,10 @@ export function ActionsCell({
         {handlers.onShowDetails && (
           <button
             onClick={() => handlers.onShowDetails?.(row)}
-            title="Everything saved with this transaction"
+            title={t("actions.detailsTitle")}
             className="px-1.5 py-0.5 text-[10px] rounded bg-slate-700 text-slate-200 hover:bg-slate-600 transition-colors"
           >
-            Details
+            {t("actions.details")}
           </button>
         )}
         {/* Reprint a detailed service receipt (RCP-3) — available on any
@@ -410,10 +441,10 @@ export function ActionsCell({
         {isReceiptableRow(row) && (
           <button
             onClick={() => handlers.onPrintReceipt(row.id)}
-            title="Print receipt"
+            title={t("actions.printTitle")}
             className="px-1.5 py-0.5 text-[10px] rounded bg-slate-700 text-slate-200 hover:bg-slate-600 transition-colors"
           >
-            Print
+            {t("actions.print")}
           </button>
         )}
         {/* LIRA-312 — not a refund: the sale stays as it is (it becomes the
@@ -429,10 +460,10 @@ export function ActionsCell({
                 saleText: row.summary,
               })
             }
-            title="The card went to the wrong number — record the wasted card as a loss and the credits sent back"
+            title={t("actions.wrongNumberTitle")}
             className="px-1.5 py-0.5 text-[10px] rounded bg-violet-900/70 text-violet-200 hover:bg-violet-900/40 hover:text-violet-300 transition-colors"
           >
-            Wrong number…
+            {t("actions.wrongNumber")}
           </button>
         )}
         {(() => {
@@ -440,10 +471,10 @@ export function ActionsCell({
           return target ? (
             <button
               onClick={() => handlers.onWrongNumber(target)}
-              title="Credits sent back for this wrong-number card"
+              title={t("actions.creditsTitle")}
               className="px-1.5 py-0.5 text-[10px] rounded bg-violet-900/70 text-violet-200 hover:bg-violet-900/40 hover:text-violet-300 transition-colors"
             >
-              Credits…
+              {t("actions.credits")}
             </button>
           ) : null;
         })()}
@@ -462,11 +493,12 @@ export function ActionsCell({
                   splitGroup.units,
                 )
               }
-              title="This transaction is part of a multi-unit checkout — void them all together"
+              title={t("actions.voidCheckoutTitle")}
               className="px-1.5 py-0.5 text-[10px] rounded bg-red-900/70 text-red-200 hover:bg-red-900/40 hover:text-red-300 transition-colors"
             >
-              Void entire checkout
-              {splitGroup.units ? ` (${splitGroup.units} units)` : ""}
+              {splitGroup.units
+                ? t("actions.voidCheckoutUnits", { count: splitGroup.units })
+                : t("actions.voidCheckout")}
             </button>
           ) : sessionId != null ? (
             // LIRA-115 → LIRA-201c: this row's customer-cash leg (and/or its
@@ -483,19 +515,19 @@ export function ActionsCell({
               {!hideVoidBasket && !hideBasketActions && (
                 <button
                   onClick={() => handlers.onVoidSessionBasket(sessionId)}
-                  title="Void the entire session basket — every item's money, cost, and profit is reversed together."
+                  title={t("actions.voidBasketTitle")}
                   className="px-1.5 py-0.5 text-[10px] rounded bg-red-900/70 text-red-200 hover:bg-red-900/40 hover:text-red-300 transition-colors"
                 >
-                  Void basket
+                  {t("actions.voidBasket")}
                 </button>
               )}
               {!hideBasketActions && (
                 <button
                   onClick={() => handlers.onRefundSessionBasket(sessionId)}
-                  title="Refund the entire session basket — every item's money, cost, and profit is reversed together."
+                  title={t("actions.refundBasketTitle")}
                   className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/70 text-rose-200 hover:bg-rose-900/40 hover:text-rose-300 transition-colors"
                 >
-                  Refund basket
+                  {t("actions.refundBasket")}
                 </button>
               )}
               {!hideRefundItem &&
@@ -504,10 +536,10 @@ export function ActionsCell({
                 ) && (
                   <button
                     onClick={() => handlers.onRefundSessionItem(row)}
-                    title="Refund just this item — reduces the customer's account first, then hands back any remainder."
+                    title={t("actions.refundItemTitle")}
                     className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/70 text-rose-200 hover:bg-rose-900/40 hover:text-rose-300 transition-colors"
                   >
-                    Refund item
+                    {t("actions.refundItem")}
                   </button>
                 )}
             </>
@@ -517,14 +549,14 @@ export function ActionsCell({
                 onClick={() => handlers.onVoid(row.id)}
                 className="px-1.5 py-0.5 text-[10px] rounded bg-red-900/70 text-red-200 hover:bg-red-900/40 hover:text-red-300 transition-colors"
               >
-                Void
+                {t("actions.void")}
               </button>
               <button
                 onClick={() => handlers.onRefund(row)}
                 disabled={refundLookupRowId === row.id}
                 className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/70 text-rose-200 hover:bg-rose-900/40 hover:text-rose-300 transition-colors disabled:opacity-50"
               >
-                {refundLookupRowId === row.id ? "…" : "Refund"}
+                {refundLookupRowId === row.id ? "…" : t("actions.refund")}
               </button>
             </>
           ) : null
@@ -546,10 +578,10 @@ export function ActionsCell({
           // `alert()` pattern every other action here uses).
           <button
             onClick={() => handlers.onUndoRefund(row)}
-            title="Admin-only — restores the stock, drawer, debt, and profit this refund changed."
+            title={t("actions.undoRefundTitle")}
             className="px-1.5 py-0.5 text-[10px] rounded bg-amber-900/70 text-amber-200 hover:bg-amber-900/40 hover:text-amber-300 transition-colors"
           >
-            Undo refund
+            {t("actions.undoRefund")}
           </button>
         ) : isReceiptableRow(row) ? null : (
           (() => {
@@ -557,10 +589,12 @@ export function ActionsCell({
             return reason ? (
               <span
                 className="text-[10px] text-slate-500 italic cursor-help"
-                title={reason}
+                title={t(`nonReversible.${row.type as NonReversibleKey}`, {
+                  defaultValue: reason,
+                })}
                 data-testid="non-reversible-reason"
               >
-                Can't refund here
+                {t("actions.cantRefund")}
               </span>
             ) : handlers.onShowDetails ? null : (
               // The Details button already fills the cell.

@@ -6,6 +6,8 @@ import {
   Fragment,
   type ReactElement,
 } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { buildPaymentDetailLines } from "../paymentDetailLines";
 import {
   voidTransaction,
@@ -124,12 +126,26 @@ import { messageFrom } from "@/api/apiError";
  * the plain-object throw as unreadable and fall through to a fallback that
  * silently discards the real reason.
  */
-function describeActionFailure(raw: unknown, verb: string): string {
-  const reason = messageFrom(raw, "Unknown error");
+type FailureVerb =
+  | "voidTransaction"
+  | "undoRefund"
+  | "refundTransaction"
+  | "voidCheckout"
+  | "voidBasket"
+  | "refundBasket"
+  | "loadSaleItems";
+
+function describeActionFailure(
+  raw: unknown,
+  verb: FailureVerb,
+  t: TFunction<"audit">,
+): string {
+  // "Forbidden" is compared on the RAW server reason, before any wording.
+  const reason = messageFrom(raw, t("failure.unknownError"));
   if (reason === "Forbidden") {
-    return `Failed: ${verb} is restricted to admins — ask an admin to do this.`;
+    return t("failure.restricted", { verb: t(`failure.verbs.${verb}`) });
   }
-  return `Failed: ${reason}`;
+  return t("failure.generic", { reason });
 }
 
 // ---------------------------------------------------------------------------
@@ -150,56 +166,64 @@ export interface TransactionsViewerProps {
 /**
  * The table's columns (screen header and sort keys). The export does not
  * read them: it is the Transactions export template
- * (`../export/transactionsExportTemplate`), with its own columns.
+ * (`../export/transactionsExportTemplate`), with its own columns. Headers
+ * are shown in the displayed language (`transactionColumns`).
  */
 const TRANSACTION_COLUMNS = [
   {
-    header: "Time",
+    headerKey: "columns.time",
     sortKey: "created_at",
     width: "160px",
     className: "p-2 text-xs font-semibold uppercase text-slate-400",
   },
   {
-    header: "Summary",
+    headerKey: "columns.summary",
     sortKey: "summary",
     className: "p-2 text-xs font-semibold uppercase text-slate-400",
   },
   {
-    header: "Type",
+    headerKey: "columns.type",
     sortKey: "type",
     width: "160px",
     className: "p-2 text-xs font-semibold uppercase text-slate-400",
   },
   {
-    header: "Client",
+    headerKey: "columns.client",
     sortKey: "client_name",
     width: "140px",
     className: "p-2 text-xs font-semibold uppercase text-slate-400",
   },
   {
-    header: "Amount",
+    headerKey: "columns.amount",
     sortKey: "amount_usd",
     width: "160px",
     className: "p-2 text-xs font-semibold uppercase text-slate-400",
   },
   {
-    header: "Method",
+    headerKey: "columns.method",
     sortKey: "payment_method",
     width: "120px",
     className: "p-2 text-xs font-semibold uppercase text-slate-400",
   },
   {
-    header: "User",
+    headerKey: "columns.user",
     sortKey: "username",
     width: "90px",
     className: "p-2 text-xs font-semibold uppercase text-slate-400",
   },
   {
-    header: "Actions",
+    headerKey: "columns.actions",
     width: "80px",
     className: "p-2 text-xs font-semibold uppercase text-slate-400",
   },
-] as const satisfies readonly DataTableColumn[];
+] as const;
+
+function transactionColumns(t: TFunction<"audit">): DataTableColumn[] {
+  return TRANSACTION_COLUMNS.map(({ headerKey, ...rest }) => ({
+    ...rest,
+    header: t(headerKey),
+  }));
+}
 
 export default function TransactionsViewer({
   limit,
@@ -223,6 +247,8 @@ export default function TransactionsViewer({
     from,
     to,
   });
+  const { t } = useTranslation("audit");
+  const columns = useMemo(() => transactionColumns(t), [t]);
   const shopInfo = useShopInfo();
   // LIRA-147 — gates the "Undo refund" button; the backend's own
   // `requireRole(["admin"])` on both transports remains the real
@@ -356,35 +382,33 @@ export default function TransactionsViewer({
 
   const handleVoid = useCallback(
     async (id: number) => {
-      if (!confirm("Void this transaction? This cannot be undone.")) return;
+      if (!confirm(t("confirm.void"))) return;
       try {
         const res = await voidTransaction(id);
         if (res.success) load();
-        else alert(describeActionFailure(res.error, "Voiding a transaction"));
+        else alert(describeActionFailure(res.error, "voidTransaction", t));
       } catch (err) {
-        alert(describeActionFailure(err, "Voiding a transaction"));
+        alert(describeActionFailure(err, "voidTransaction", t));
       }
     },
-    [load],
+    [load, t],
   );
 
   const handleUndoRefund = useCallback(
     async (row: TransactionRow) => {
       if (
-        !confirm(
-          "Undo this refund? It restores the stock, drawer, customer debt, and profit it changed — this cannot be undone again.",
-        )
+        !confirm(t("confirm.undoRefund"))
       )
         return;
       try {
         const res = await undoItemRefund(row.id);
         if (res.success) load();
-        else alert(describeActionFailure(res.error, "Undoing a refund"));
+        else alert(describeActionFailure(res.error, "undoRefund", t));
       } catch (err) {
-        alert(describeActionFailure(err, "Undoing a refund"));
+        alert(describeActionFailure(err, "undoRefund", t));
       }
     },
-    [load],
+    [load, t],
   );
 
   const doRefund = useCallback(
@@ -409,12 +433,12 @@ export default function TransactionsViewer({
               )
             : await refundTransaction(id, refundLegs, unitExtras, exchangeRate);
         if (res.success) load();
-        else alert(describeActionFailure(res.error, "Refunding a transaction"));
+        else alert(describeActionFailure(res.error, "refundTransaction", t));
       } catch (err) {
-        alert(describeActionFailure(err, "Refunding a transaction"));
+        alert(describeActionFailure(err, "refundTransaction", t));
       }
     },
-    [load],
+    [load, t],
   );
 
   // LIRA-078: the modal that lets the operator choose the refund's return
@@ -469,7 +493,7 @@ export default function TransactionsViewer({
       // ticket).
       if (row.session_id != null) {
         if (
-          !confirm("Refund this transaction? A reversal entry will be created.")
+          !confirm(t("confirm.refund"))
         )
           return;
         void doRefund(row.id);
@@ -482,9 +506,7 @@ export default function TransactionsViewer({
       // refundLegs; the server mirrors each leg negated.
       if (isSwapTransactionType(row.type)) {
         if (
-          !confirm(
-            "Refund this exchange? The money is swapped back: the shop returns what it received and the customer returns what they were given.",
-          )
+          !confirm(t("confirm.refundExchange"))
         )
           return;
         void doRefund(row.id);
@@ -521,7 +543,7 @@ export default function TransactionsViewer({
       const hasLegs = !!row.payments && row.payments.length > 0;
       if (!hasLegs && linkedUnits.length === 0) {
         if (
-          !confirm("Refund this transaction? A reversal entry will be created.")
+          !confirm(t("confirm.refund"))
         )
           return;
         void doRefund(row.id);
@@ -597,22 +619,19 @@ export default function TransactionsViewer({
    */
   const handleVoidCheckoutGroup = useCallback(
     async (groupId: string, units: number | null) => {
-      const label = units ? `${units}-unit` : "multi-unit";
-      if (
-        !confirm(
-          `Void the entire ${label} checkout? Every unit's money, cost, and profit will be reversed. This cannot be undone.`,
-        )
-      )
-        return;
+      const question = units
+        ? t("confirm.voidCheckoutUnits", { count: units })
+        : t("confirm.voidCheckoutMulti");
+      if (!confirm(question)) return;
       try {
         const res = await voidCheckoutGroup(groupId);
         if (res.success) load();
-        else alert(describeActionFailure(res.error, "Voiding a checkout"));
+        else alert(describeActionFailure(res.error, "voidCheckout", t));
       } catch (err) {
-        alert(describeActionFailure(err, "Voiding a checkout"));
+        alert(describeActionFailure(err, "voidCheckout", t));
       }
     },
-    [load],
+    [load, t],
   );
 
   /**
@@ -627,21 +646,18 @@ export default function TransactionsViewer({
   const handleVoidSessionBasket = useCallback(
     async (sessionId: number) => {
       if (
-        !confirm(
-          `Void the entire session #${sessionId} basket? Every item's money, cost, and profit will be reversed, including any loto prize or account credit from this basket. This cannot be undone.`,
-        )
+        !confirm(t("confirm.voidBasket", { id: sessionId }))
       )
         return;
       try {
         const res = await voidSessionBasket(sessionId);
         if (res.success) load();
-        else
-          alert(describeActionFailure(res.error, "Voiding a session basket"));
+        else alert(describeActionFailure(res.error, "voidBasket", t));
       } catch (err) {
-        alert(describeActionFailure(err, "Voiding a session basket"));
+        alert(describeActionFailure(err, "voidBasket", t));
       }
     },
-    [load],
+    [load, t],
   );
 
   /** Same shape as {@link handleVoidSessionBasket} (rule 14) but keeps
@@ -649,21 +665,18 @@ export default function TransactionsViewer({
   const handleRefundSessionBasket = useCallback(
     async (sessionId: number) => {
       if (
-        !confirm(
-          `Refund the entire session #${sessionId} basket? Every item's money, cost, and profit will be reversed, including any loto prize or account credit from this basket. This cannot be undone.`,
-        )
+        !confirm(t("confirm.refundBasket", { id: sessionId }))
       )
         return;
       try {
         const res = await refundSessionBasket(sessionId);
         if (res.success) load();
-        else
-          alert(describeActionFailure(res.error, "Refunding a session basket"));
+        else alert(describeActionFailure(res.error, "refundBasket", t));
       } catch (err) {
-        alert(describeActionFailure(err, "Refunding a session basket"));
+        alert(describeActionFailure(err, "refundBasket", t));
       }
     },
-    [load],
+    [load, t],
   );
 
   // LIRA-232 (SESSION_ITEM_REFUND_PLAN.md §4) — refund ONE sold-item session
@@ -740,7 +753,7 @@ export default function TransactionsViewer({
             items: (items ?? []) as SessionSaleLineItem[],
           });
         } catch (err) {
-          alert(describeActionFailure(err, "Loading sale items"));
+          alert(describeActionFailure(err, "loadSaleItems", t));
         }
         return;
       }
@@ -883,7 +896,7 @@ export default function TransactionsViewer({
       >
         <td className="p-2" />
         {/* 1 (indent) + 7 (remaining columns) = 8 total. */}
-        <td className="p-2 pl-5 text-slate-400 font-mono" colSpan={7}>
+        <td className="p-2 ps-5 text-slate-400 font-mono" colSpan={7}>
           <div className="flex flex-col gap-0.5">
             {modeLine && (
               <div data-testid={`commission-mode-${row.id}`}>{modeLine}</div>
@@ -893,12 +906,13 @@ export default function TransactionsViewer({
                 data-testid={`extra-charge-${row.id}`}
                 className="text-amber-400/80"
               >
-                Extra charged: {extraText}
+                {t("cells.extraCharged", { amount: extraText })}
               </div>
             )}
             {ownLines.map((line, i) => (
               <div key={`own-${i}`}>
-                {line.direction === "in" ? "In" : "Out"} — {line.method}:{" "}
+                {line.direction === "in" ? t("cells.legIn") : t("cells.legOut")}{" "}
+                — {line.method}:{" "}
                 {line.amountText}
                 {line.drawersText && (
                   <span className="text-slate-500">
@@ -915,11 +929,14 @@ export default function TransactionsViewer({
                 className="mt-0.5 pt-0.5 border-t border-slate-800/40 text-sky-500/70"
               >
                 <div className="font-semibold">
-                  Session #{row.session_id} pooled:
+                  {t("cells.sessionPooled", { id: row.session_id })}
                 </div>
                 {pooledLines.map((line, i) => (
                   <div key={`pooled-${i}`}>
-                    {line.direction === "in" ? "In" : "Out"} — {line.method}:{" "}
+                    {line.direction === "in"
+                      ? t("cells.legIn")
+                      : t("cells.legOut")}{" "}
+                    — {line.method}:{" "}
                     {line.amountText}
                     {line.drawersText && (
                       <span className="text-sky-600/70">
@@ -932,7 +949,7 @@ export default function TransactionsViewer({
                         legs sit in the same pooled list — mark them so the
                         (always-exported) detail doesn't read them as more
                         checkout money. */}
-                    {line.reversal ? " (basket reversal)" : ""}
+                    {line.reversal ? t("cells.basketReversal") : ""}
                   </div>
                 ))}
               </div>
@@ -1018,10 +1035,10 @@ export default function TransactionsViewer({
   return (
     <>
       <DataTable<TransactionRow>
-        columns={[...TRANSACTION_COLUMNS]}
+        columns={columns}
         data={filteredRows}
         loading={loading}
-        emptyMessage="No transactions found"
+        emptyMessage={t("table.noTransactions")}
         defaultSortKey="created_at"
         defaultSortDirection="desc"
         showRowCount
@@ -1030,7 +1047,7 @@ export default function TransactionsViewer({
         exportPdf
         exportFilename="transactions"
         exportTemplate={exportTemplate}
-        className="w-full text-left"
+        className="w-full text-start"
         theadClassName="bg-slate-900 text-slate-400 text-xs uppercase"
         tbodyClassName=""
         getSortValue={(row, key) => {

@@ -1,6 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import { Shield, ArrowLeftRight, Banknote } from "lucide-react";
 import { PageHeader, Select, MultiSelect, DateRangeFilter } from "@liratek/ui";
+import type { EN_RESOURCES } from "@liratek/ui/i18n/resources";
 import AuditLogViewer from "./AuditLogViewer";
 import TransactionsViewer from "./TransactionsViewer";
 import CashReportModal from "../components/CashReportModal";
@@ -10,6 +13,7 @@ import {
   ALL_FILTER_OPTIONS,
   FILTER_GROUPS,
 } from "../auditConstants";
+import { translateTitle } from "../typeTitleText";
 
 type TabKey = "audit" | "transactions";
 
@@ -20,16 +24,39 @@ const inputClass =
 
 // Flat label list for the Type MultiSelect — stable module-level reference
 // (FILTER_GROUPS never changes at runtime) so it's safe to hand straight to
-// MultiSelect's `options` prop without re-deriving it every render.
+// MultiSelect's `options` prop without re-deriving it every render. These
+// English labels are the option VALUES (the filter matches on them, and the
+// e2e test ids carry them); the shown text comes from `getOptionLabel`.
 const TYPE_FILTER_LABELS = ALL_FILTER_OPTIONS.map((o) => o.label);
-// The same options, in their FILTER_GROUPS sections, for the grouped list.
-const TYPE_FILTER_GROUPS = FILTER_GROUPS.map((g) => ({
-  label: g.group,
-  options: g.options.map((o) => o.label),
-}));
+
+type GroupKey = keyof (typeof EN_RESOURCES)["audit"]["filterGroups"];
+
+/** The Rows field: digits only (Arabic digits accepted), at least 1. */
+function parseRows(raw: string): number | "" {
+  const v = normalizeDigits(raw).replace(/[^0-9]/g, "");
+  return v === "" ? "" : Math.max(1, Number(v));
+}
 
 export default function AuditPage() {
+  const { t, i18n } = useTranslation("audit");
+  const language = i18n.language;
   const [active, setActive] = useState<TabKey>("transactions");
+  // The same options, in their FILTER_GROUPS sections, for the grouped list.
+  // Only the section headings are translated; the options stay the keys.
+  const typeFilterGroups = useMemo(
+    () =>
+      FILTER_GROUPS.map((g) => ({
+        label: t(`filterGroups.${g.group as GroupKey}`, {
+          defaultValue: g.group,
+        }),
+        options: g.options.map((o) => o.label),
+      })),
+    [t],
+  );
+  const typeOptionLabel = useMemo(
+    () => (option: string) => translateTitle(option, t, language),
+    [t, language],
+  );
 
   // Shared row limit across both tabs. Allowed to be "" so the field can be
   // cleared while editing; every consumer coerces "" → 50 (see below).
@@ -54,7 +81,7 @@ export default function AuditPage() {
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-4 overflow-auto animate-in fade-in duration-500">
-      <PageHeader title="Audit & Transactions" />
+      <PageHeader title={t("page.title")} />
 
       {/* Card 1: Tabs + active filters */}
       <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 flex flex-col gap-4 shrink-0">
@@ -69,7 +96,7 @@ export default function AuditPage() {
             }`}
           >
             <ArrowLeftRight size={14} />
-            Transactions
+            {t("tabs.transactions")}
           </button>
           <button
             onClick={() => setActive("audit")}
@@ -80,7 +107,7 @@ export default function AuditPage() {
             }`}
           >
             <Shield size={14} />
-            Audit Log
+            {t("tabs.auditLog")}
           </button>
         </div>
 
@@ -95,17 +122,18 @@ export default function AuditPage() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") setTxSearch(txSearchInput.trim());
                 }}
-                placeholder="Search summary, client, user… (Enter)"
+                placeholder={t("filters.searchTransactions")}
                 className={`${inputClass} w-64`}
               />
               <MultiSelect
-                label="All types"
+                label={t("filters.allTypes")}
                 testId="transactions-type-filter"
                 className="w-56"
                 values={txSelectedFilters}
                 onChange={setTxSelectedFilters}
                 options={TYPE_FILTER_LABELS}
-                groups={TYPE_FILTER_GROUPS}
+                getOptionLabel={typeOptionLabel}
+                groups={typeFilterGroups}
                 optionsClassName="min-w-[18rem] max-h-[70vh]"
               />
               <DateRangeFilter
@@ -119,18 +147,18 @@ export default function AuditPage() {
                 onClick={() => setShowCashReport(true)}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-slate-900 border border-slate-700 text-emerald-300 hover:bg-slate-800 hover:text-emerald-200 transition-colors"
               >
-                <Banknote size={15} /> Cash Report
+                <Banknote size={15} /> {t("filters.cashReport")}
               </button>
             </div>
             <div className="flex items-center gap-2">
-              <label className="text-sm text-slate-400">Rows:</label>
+              <label className="text-sm text-slate-400">
+                {t("filters.rows")}
+              </label>
               <input
-                type="number"
+                type="text"
+                inputMode="numeric"
                 value={rowsLimit}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setRowsLimit(v === "" ? "" : Math.max(1, Number(v)));
-                }}
+                onChange={(e) => setRowsLimit(parseRows(e.target.value))}
                 className={`${inputClass} w-16 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
               />
             </div>
@@ -141,7 +169,7 @@ export default function AuditPage() {
         {active === "audit" && (
           <div className="flex flex-wrap items-center gap-2">
             <input
-              placeholder="Search summary..."
+              placeholder={t("filters.searchAudit")}
               value={auditSearch}
               onChange={(e) => setAuditSearch(e.target.value)}
               className={`${inputClass} w-48`}
@@ -150,7 +178,7 @@ export default function AuditPage() {
               value={auditAction}
               onChange={(v) => setAuditAction(v)}
               options={[
-                { value: "", label: "All actions" },
+                { value: "", label: t("filters.allActions") },
                 ...ACTION_OPTIONS.map((a) => ({
                   value: a,
                   label: a.replace(/_/g, " "),
@@ -162,7 +190,7 @@ export default function AuditPage() {
               value={auditEntityType}
               onChange={(v) => setAuditEntityType(v)}
               options={[
-                { value: "", label: "All entities" },
+                { value: "", label: t("filters.allEntities") },
                 ...ENTITY_TYPE_OPTIONS.map((et) => ({
                   value: et,
                   label: et.replace(/_/g, " "),
@@ -170,29 +198,33 @@ export default function AuditPage() {
               ]}
               buttonClassName={selectClass}
             />
-            <label className="text-xs text-slate-400">From:</label>
+            <label className="text-xs text-slate-400">
+              {t("filters.from")}
+            </label>
             <input
               type="date"
               value={auditFrom}
               onChange={(e) => setAuditFrom(e.target.value)}
               className={inputClass}
             />
-            <label className="text-xs text-slate-400">To:</label>
+            <label className="text-xs text-slate-400">
+              {t("filters.to")}
+            </label>
             <input
               type="date"
               value={auditTo}
               onChange={(e) => setAuditTo(e.target.value)}
               className={inputClass}
             />
-            <div className="flex items-center gap-2 ml-auto">
-              <label className="text-sm text-slate-400">Rows:</label>
+            <div className="flex items-center gap-2 ms-auto">
+              <label className="text-sm text-slate-400">
+                {t("filters.rows")}
+              </label>
               <input
-                type="number"
+                type="text"
+                inputMode="numeric"
                 value={rowsLimit}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setRowsLimit(v === "" ? "" : Math.max(1, Number(v)));
-                }}
+                onChange={(e) => setRowsLimit(parseRows(e.target.value))}
                 className={`${inputClass} w-16 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
               />
             </div>

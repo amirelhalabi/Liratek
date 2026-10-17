@@ -13,6 +13,7 @@
  * legs falls back to its section's direction (PAY = OUT, COLLECT = IN) and
  * the row's stored amount in that currency.
  */
+import { formatNumber } from "@liratek/ui/i18n/format";
 import type { TransactionPaymentLeg } from "./cashFlow";
 
 export interface MixedSettlementPart {
@@ -88,5 +89,5 @@ export function mixedSettlementParts(
 export function formatSettlementPart(part: MixedSettlementPart): string {
   return part.currency === "USD"
     ? `$${part.amount.toFixed(2)}`
-    : `${Math.round(part.amount).toLocaleString()} LBP`;
+    : `${formatNumber(Math.round(part.amount))} LBP`;
 }

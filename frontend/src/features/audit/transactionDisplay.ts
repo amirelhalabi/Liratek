@@ -38,6 +38,7 @@ import {
   transactionSummary,
   transactionTitle,
 } from "@liratek/core";
+import { formatNumber } from "@liratek/ui/i18n/format";
 import { brandOf, type ProviderBrandKey } from "@/shared/brand/providerBrands";
 import {
   formatLegAmount,
@@ -138,8 +139,8 @@ export function formatAmount(
   // "$-4.25". A real minus sign goes before the currency, like
   // ReturnedCreditsCell's "−$73".
   const sign = (n: number) => (n < 0 ? "−" : "");
-  if (usd) parts.push(`${sign(usd)}$${Math.abs(usd).toLocaleString()}`);
-  if (lbp) parts.push(`${sign(lbp)}${Math.abs(lbp).toLocaleString()} LBP`);
+  if (usd) parts.push(`${sign(usd)}$${formatNumber(Math.abs(usd))}`);
+  if (lbp) parts.push(`${sign(lbp)}${formatNumber(Math.abs(lbp))} LBP`);
   // A €100 top-up carries 0/0 in usd/lbp — without this the Amount column and
   // the cash-flow badge both render "—" (owner report 2026-08-28). A MIXED
   // top-up ($50 + €100) appends, so neither side is hidden by the other.

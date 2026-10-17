@@ -12,6 +12,7 @@
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { fallbackMethodLabel } from "@liratek/core";
 import { Collapsible } from "@/shared/components/Collapsible";
 import type { TransactionRow } from "../hooks/useTransactionRows";
@@ -20,8 +21,9 @@ import {
   hasReturnedCredits,
   returnedCreditsText,
   reversedTransactionId,
-  rowStatusText,
+  rowStatus,
 } from "../rowBadges";
+import { translateTitle } from "../typeTitleText";
 import { fullTimeText } from "../transactionCellText";
 import {
   displaySummary,
@@ -77,7 +79,7 @@ function DetailItem({ row }: { row: DetailRow }) {
     return (
       <>
         <dt className="text-slate-400">{row.label}</dt>
-        <dd className="border-l border-slate-700 pl-3">
+        <dd className="border-s border-slate-700 ps-3">
           <FactList rows={value.rows} />
         </dd>
       </>
@@ -99,7 +101,7 @@ function DetailItem({ row }: { row: DetailRow }) {
 function MiniTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
   return (
     <div className="rounded-lg border border-slate-700 overflow-x-auto">
-      <table className="w-full text-xs text-left">
+      <table className="w-full text-xs text-start">
         <thead className="bg-slate-800 text-slate-400">
           <tr>
             {headers.map((h) => (
@@ -126,12 +128,18 @@ function MiniTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
 }
 
 function PaymentSection({ payment }: { payment: PaymentView }) {
+  const { t } = useTranslation("audit");
   return (
     <section>
-      <SectionTitle>Payment</SectionTitle>
+      <SectionTitle>{t("details.payment")}</SectionTitle>
       {payment.lines.length > 0 && (
         <MiniTable
-          headers={["Direction", "Method", "Currency", "Amount"]}
+          headers={[
+            t("details.direction"),
+            t("details.method"),
+            t("details.currency"),
+            t("details.amount"),
+          ]}
           rows={payment.lines.map((l) => [
             l.direction,
             l.note ? `${l.method} (${l.note})` : l.method,
@@ -154,7 +162,9 @@ function PaymentSection({ payment }: { payment: PaymentView }) {
           </p>
         )}
         {payment.sessionId !== null && (
-          <p className="text-sky-400">Paid in session #{payment.sessionId}</p>
+          <p className="text-sky-400">
+            {t("details.paidInSession", { id: payment.sessionId })}
+          </p>
         )}
       </div>
     </section>
@@ -167,6 +177,8 @@ export function TransactionDetailsPanel({
   methodLabelByCode,
   onClose,
 }: TransactionDetailsPanelProps) {
+  const { t, i18n } = useTranslation("audit");
+  const language = i18n.language;
   const view = useMemo(
     () =>
       buildTransactionDetailsView(row.metadata_json, {
@@ -190,26 +202,31 @@ export function TransactionDetailsPanel({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const typeLabel = readableTitle(getTypeLabel(row));
+  // The English title as before; in Arabic the translated title (LIRA-331).
+  const englishTitle = getTypeLabel(row);
+  const shownTitle = translateTitle(englishTitle, t, language);
+  const typeLabel =
+    shownTitle === englishTitle ? readableTitle(englishTitle) : shownTitle;
   const reverses = reversedTransactionId(row);
   const client = [row.client_name, row.client_phone]
     .filter((x): x is string => !!x)
     .join(" · ");
+  // The stored summary is shown as stored, in every language (OD-2).
   const headerFacts: { label: string; value: string }[] = [
-    { label: "Summary", value: displaySummary(row) ?? "" },
-    { label: "Client", value: client },
+    { label: t("details.summary"), value: displaySummary(row) ?? "" },
+    { label: t("details.client"), value: client },
     {
-      label: "Amount",
+      label: t("details.amount"),
       // Exactly what the table's Amount column shows for this row.
       value: amountCellText(row, deriveRow(row)),
     },
-    { label: "Time", value: fullTimeText(row) },
-    { label: "User", value: row.username || `#${row.user_id}` },
+    { label: t("details.time"), value: fullTimeText(row, language) },
+    { label: t("details.user"), value: row.username || `#${row.user_id}` },
     // Always listed — the table only tags the rare cases (rowBadges).
-    { label: "Status", value: rowStatusText(row) },
-    { label: "Reverses", value: reverses ? `#${reverses}` : "" },
+    { label: t("details.status"), value: t(`status.${rowStatus(row)}`) },
+    { label: t("details.reverses"), value: reverses ? `#${reverses}` : "" },
     {
-      label: "Returned credits",
+      label: t("details.returnedCredits"),
       value: hasReturnedCredits(row)
         ? returnedCreditsText(row.returned_credits_usd)
         : "",
@@ -241,12 +258,14 @@ export function TransactionDetailsPanel({
               <span className={getTypeColor(row)}>{typeLabel}</span>{" "}
               <span className="text-slate-400 font-medium">#{row.id}</span>
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">{fullTimeText(row)}</p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {fullTimeText(row, language)}
+            </p>
           </div>
           <button
             onClick={onClose}
-            aria-label="Close"
-            title="Close"
+            aria-label={t("details.close")}
+            title={t("details.close")}
             className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
           >
             <X size={20} />
@@ -266,7 +285,7 @@ export function TransactionDetailsPanel({
           {view.details.length > 0 && (
             <section>
               <SectionTitle>
-                Details
+                {t("details.details")}
                 {view.kindLabel && (
                   <span className="normal-case font-medium text-[11px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
                     {view.kindLabel}
@@ -286,7 +305,7 @@ export function TransactionDetailsPanel({
                 aria-expanded={otherOpen}
                 className="text-xs font-semibold uppercase text-slate-400 hover:text-slate-300 transition-colors"
               >
-                {otherOpen ? "▾" : "▸"} Other saved data
+                {otherOpen ? "▾" : "▸"} {t("details.otherSavedData")}
               </button>
               <Collapsible open={otherOpen}>
                 <div className="pt-2">
@@ -298,7 +317,7 @@ export function TransactionDetailsPanel({
 
           {view.isEmpty && (
             <p className="text-sm text-slate-500 italic">
-              Nothing else was saved for this transaction.
+              {t("details.nothingElse")}
             </p>
           )}
         </div>

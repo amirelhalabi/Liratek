@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { Users } from "lucide-react";
 import type { Partner } from "@/types/electron";
 import logger from "@/utils/logger";
@@ -32,6 +33,7 @@ export function PartnerSelector({
   autoSelectSingle,
   systemFilter,
 }: PartnerSelectorProps): React.ReactElement | null {
+  const { t } = useTranslation("partners");
   const [allPartners, setAllPartners] = useState<Partner[]>([]);
   // Shop-day 2026-10-16: an empty list used to mean three different things —
   // still loading, the request failed, or the shop really has no partners —
@@ -104,7 +106,7 @@ export function PartnerSelector({
     return (
       <div className={`flex items-center gap-2 ${className}`}>
         <Users size={16} className="text-slate-400" />
-        <span className="text-xs text-slate-400">Loading partners…</span>
+        <span className="text-xs text-slate-400">{t("selector.loading")}</span>
       </div>
     );
   }
@@ -114,8 +116,9 @@ export function PartnerSelector({
       <div className={`flex items-center gap-2 ${className}`}>
         <Users size={16} className="text-red-400" />
         <span className="text-xs text-red-400 font-medium">
-          Couldn&apos;t load partners
-          {loadError ? `: ${loadError}` : ""}.
+          {t("selector.loadFailed", {
+            detail: loadError ? `: ${loadError}` : "",
+          })}
         </span>
         <button
           type="button"
@@ -126,19 +129,20 @@ export function PartnerSelector({
           }}
           className="text-xs font-semibold text-orange-400 hover:text-orange-300 underline"
         >
-          Retry
+          {t("common:actions.retry")}
         </button>
       </div>
     );
   }
 
   if (required && partners.length === 0) {
-    const systemLabel = systemFilter ? ` with ${systemFilter} system` : "";
     return (
       <div className={`flex items-center gap-2 ${className}`}>
         <Users size={16} className="text-amber-400" />
         <span className="text-xs text-amber-400 font-medium">
-          No partners available{systemLabel}. Add a partner first.
+          {systemFilter
+            ? t("selector.noneWithSystem", { system: systemFilter })
+            : t("selector.none")}
         </span>
       </div>
     );
@@ -150,7 +154,7 @@ export function PartnerSelector({
       <div className={`flex items-center gap-2 ${className}`}>
         <Users size={16} className="text-violet-400" />
         <span className="text-sm text-violet-300 font-medium">
-          Partner: {partners[0].name}
+          {t("selector.single", { name: partners[0].name })}
         </span>
       </div>
     );
@@ -164,14 +168,16 @@ export function PartnerSelector({
   return (
     <div className={`flex items-center gap-2 ${className}`}>
       <Users size={16} className="text-slate-400" />
-      <p className="text-sm text-slate-300">Partner:</p>
+      <p className="text-sm text-slate-300">{t("selector.label")}</p>
       <Select
         value={selectedPartnerId !== null ? String(selectedPartnerId) : ""}
         onChange={(v) => onSelect(v ? Number(v) : null)}
         options={[
           {
             value: "",
-            label: required ? "Select partner" : "Direct (no partner)",
+            label: required
+              ? t("selector.selectPartner")
+              : t("selector.direct"),
           },
           ...partners.map((p) => ({ value: String(p.id), label: p.name })),
         ]}

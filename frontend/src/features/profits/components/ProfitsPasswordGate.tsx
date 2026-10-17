@@ -1,5 +1,6 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Lock, AlertCircle, ShieldAlert } from "lucide-react";
 import { useApi } from "@liratek/ui";
 import { PROFITS_UNLOCK_TTL_MS } from "@liratek/core";
@@ -21,6 +22,7 @@ export function ProfitsPasswordGate({
   const api = useApi();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { t } = useTranslation(["profits", "common"]);
 
   const [statusLoading, setStatusLoading] = useState(true);
   const [passwordIsSet, setPasswordIsSet] = useState(false);
@@ -94,10 +96,10 @@ export function ProfitsPasswordGate({
         setPassword("");
         startTimer();
       } else {
-        setError(res.error || "Incorrect password");
+        setError(res.error || t("gate.incorrectPassword"));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to unlock");
+      setError(err instanceof Error ? err.message : t("gate.unlockFailed"));
     } finally {
       setSubmitting(false);
     }
@@ -111,7 +113,7 @@ export function ProfitsPasswordGate({
         data-testid="profits-gate-loading"
         className="h-full flex items-center justify-center text-slate-400"
       >
-        Loading...
+        {t("common:state.loading")}
       </div>
     );
   }
@@ -125,18 +127,17 @@ export function ProfitsPasswordGate({
         <div className="max-w-md w-full bg-slate-800/80 border border-slate-700/50 rounded-2xl p-8 text-center backdrop-blur-xl">
           <ShieldAlert className="w-10 h-10 text-orange-400 mx-auto mb-4" />
           <h2 className="text-xl font-bold text-white mb-2">
-            Profits password not set
+            {t("gate.notSetTitle")}
           </h2>
           <p className="text-sm text-slate-400 mb-6">
-            No profits password has been set yet. An admin must set one in
-            Settings &rsaquo; Profits Password before anyone can view this page.
+            {t("gate.notSetBody")}
           </p>
           {user?.role === "admin" && (
             <button
               onClick={() => navigate("/settings?tab=profits")}
               className="w-full py-3 bg-violet-600 hover:bg-violet-500 text-white font-semibold rounded-lg transition-colors"
             >
-              Go to Settings &rsaquo; Profits Password
+              {t("gate.goToSettings")}
             </button>
           )}
         </div>
@@ -154,14 +155,14 @@ export function ProfitsPasswordGate({
           <div className="text-center mb-6">
             <Lock className="w-10 h-10 text-violet-400 mx-auto mb-4" />
             <h2 className="text-xl font-bold text-white mb-1">
-              Profits are locked
+              {t("gate.lockedTitle")}
             </h2>
             <p className="text-sm text-slate-400">
-              Enter the profits password to continue.
+              {t("gate.lockedHint")}
             </p>
             {timedOut && (
               <p className="text-xs text-orange-400 mt-2">
-                Your session timed out. Please unlock again.
+                {t("gate.timedOut")}
               </p>
             )}
           </div>
@@ -183,7 +184,7 @@ export function ProfitsPasswordGate({
               autoFocus
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Profits password"
+              placeholder={t("gate.passwordPlaceholder")}
               className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
             />
 
@@ -193,7 +194,7 @@ export function ProfitsPasswordGate({
               disabled={submitting || password.length === 0}
               className="w-full py-3 bg-violet-600 hover:bg-violet-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold rounded-lg transition-colors"
             >
-              {submitting ? "Unlocking..." : "Unlock"}
+              {submitting ? t("gate.unlocking") : t("gate.unlock")}
             </button>
           </form>
         </div>
@@ -223,7 +224,7 @@ export function ProfitsPasswordGate({
     <Suspense
       fallback={
         <div className="h-full flex items-center justify-center text-slate-400">
-          Loading...
+          {t("common:state.loading")}
         </div>
       }
     >

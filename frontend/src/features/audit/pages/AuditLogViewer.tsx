@@ -1,7 +1,9 @@
 import { useEffect, useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import type { AuditLogEntry, AuditSearchFilters } from "@/types/electron";
-import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { DataTable, useApi } from "@liratek/ui";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { formatCreatedAt } from "../transactionCellText";
 
 const ACTION_COLORS: Record<string, string> = {
   CREATE: "text-green-400",
@@ -20,17 +22,14 @@ const ACTION_COLORS: Record<string, string> = {
   EXPORT: "text-indigo-300",
 };
 
-function formatTime(ts: string): string {
-  try {
-    return parseDbDate(ts).toLocaleString("en-GB", {
-      day: "2-digit",
-      month: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return ts;
-  }
+/** "16 Oct, 09:30" — the Transactions table's Time look, in the displayed
+ *  language (LIRA-331). */
+function formatTime(ts: string, language: string): string {
+  return formatCreatedAt(
+    ts,
+    { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" },
+    language,
+  );
 }
 
 export interface AuditLogViewerProps {
@@ -50,6 +49,7 @@ export default function AuditLogViewer({
   to,
   limit,
 }: AuditLogViewerProps) {
+  const { t, i18n } = useTranslation("audit");
   const api = useApi();
   const [rows, setRows] = useState<AuditLogEntry[]>([]);
   const [total, setTotal] = useState<number | null>(null);
@@ -120,30 +120,30 @@ export default function AuditLogViewer({
       <DataTable<AuditLogEntry>
         columns={[
           {
-            header: "Time",
+            header: t("columns.time"),
             sortKey: "created_at",
             width: "140px",
             className: "p-2 text-xs font-semibold uppercase text-slate-400",
           },
           {
-            header: "Summary",
+            header: t("columns.summary"),
             sortKey: "summary",
             className: "p-2 text-xs font-semibold uppercase text-slate-400",
           },
           {
-            header: "User",
+            header: t("columns.user"),
             sortKey: "username",
             width: "90px",
             className: "p-2 text-xs font-semibold uppercase text-slate-400",
           },
           {
-            header: "Action",
+            header: t("columns.action"),
             sortKey: "action",
             width: "120px",
             className: "p-2 text-xs font-semibold uppercase text-slate-400",
           },
           {
-            header: "Entity",
+            header: t("columns.entity"),
             sortKey: "entity_type",
             width: "160px",
             className: "p-2 text-xs font-semibold uppercase text-slate-400",
@@ -151,7 +151,7 @@ export default function AuditLogViewer({
         ]}
         data={rows}
         loading={loading}
-        emptyMessage="No audit entries found"
+        emptyMessage={t("table.noAuditEntries")}
         defaultSortKey="created_at"
         defaultSortDirection="desc"
         exportExcel
@@ -164,7 +164,7 @@ export default function AuditLogViewer({
             return parseDbDate(row.created_at).getTime();
           return String((row as unknown as Record<string, unknown>)[key] ?? "");
         }}
-        className="w-full text-left"
+        className="w-full text-start"
         theadClassName="bg-slate-900 text-slate-400 text-xs uppercase"
         renderRow={(row) => (
           <tr
@@ -172,7 +172,7 @@ export default function AuditLogViewer({
             className="border-t border-slate-800 text-xs hover:bg-slate-800/50 transition-colors"
           >
             <td className="p-2 truncate" style={{ width: 140 }}>
-              {formatTime(row.created_at)}
+              {formatTime(row.created_at, i18n.language)}
             </td>
             <td className="p-2">
               <span className="text-slate-400 truncate block max-w-[480px]">
@@ -181,7 +181,7 @@ export default function AuditLogViewer({
             </td>
             <td className="p-2 truncate" style={{ width: 90 }}>
               <span className="text-slate-300">{row.username}</span>
-              <span className="text-slate-600 ml-1 text-[10px]">
+              <span className="text-slate-600 ms-1 text-[10px]">
                 {row.role}
               </span>
             </td>
@@ -195,7 +195,7 @@ export default function AuditLogViewer({
                 {row.entity_type.replace(/_/g, " ")}
               </span>
               {row.entity_id && (
-                <span className="text-slate-500 ml-1">#{row.entity_id}</span>
+                <span className="text-slate-500 ms-1">#{row.entity_id}</span>
               )}
             </td>
           </tr>
@@ -208,7 +208,7 @@ export default function AuditLogViewer({
             disabled={loading}
             className="px-4 py-1.5 text-sm rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors disabled:opacity-50"
           >
-            {loading ? "Loading..." : "Load more"}
+            {loading ? t("table.loading") : t("table.loadMore")}
           </button>
         </div>
       )}

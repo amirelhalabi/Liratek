@@ -224,28 +224,28 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
       // leg no longer always posts to the General drawer: a primary-system
       // SEND/RECEIVE CASH leg now resolves to the PCD (OMT_System/
       // Whish_System) instead (plan §1/§2 #4).
-      { label: "Cash only (till)", cash_only: true },
+      { label: "Cash only (till)", cash_only: true }, // i18n-exempt: filter key (option value, test id)
     ],
   },
   {
     group: "Financial — System",
     options: [
-      { label: "OMT System", type: "FINANCIAL_SERVICE", provider: "OMT" },
-      { label: "Whish System", type: "FINANCIAL_SERVICE", provider: "WHISH" },
+      { label: "OMT System", type: "FINANCIAL_SERVICE", provider: "OMT" }, // i18n-exempt: filter key (option value, test id)
+      { label: "Whish System", type: "FINANCIAL_SERVICE", provider: "WHISH" }, // i18n-exempt: filter key (option value, test id)
     ],
   },
   {
     group: "OMT App",
     options: [
       {
-        label: "OMT App Send",
+        label: "OMT App Send", // i18n-exempt: filter key (option value, test id)
         type: "FINANCIAL_SERVICE",
         provider: "OMT_APP",
         service_type: "SEND",
         paid_via_drawer: "OMT_App",
       },
       {
-        label: "OMT App Recv",
+        label: "OMT App Recv", // i18n-exempt: filter key (option value, test id)
         type: "FINANCIAL_SERVICE",
         provider: "OMT_APP",
         service_type: "RECEIVE",
@@ -257,7 +257,7 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
     group: "Whish App",
     options: [
       {
-        label: "Whish App Send",
+        label: "Whish App Send", // i18n-exempt: filter key (option value, test id)
         type: "FINANCIAL_SERVICE",
         provider: "WHISH_APP",
         service_type: "SEND",
@@ -265,7 +265,7 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
         paid_via_drawer: "Whish_App",
       },
       {
-        label: "Whish App Recv",
+        label: "Whish App Recv", // i18n-exempt: filter key (option value, test id)
         type: "FINANCIAL_SERVICE",
         provider: "WHISH_APP",
         service_type: "RECEIVE",
@@ -273,7 +273,7 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
         paid_via_drawer: "Whish_App",
       },
       {
-        label: "Whish App Bills",
+        label: "Whish App Bills", // i18n-exempt: filter key (option value, test id)
         type: "FINANCIAL_SERVICE",
         provider: "WHISH_APP",
         has_item_key: true,
@@ -294,14 +294,14 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
     group: "Binance",
     options: [
       {
-        label: "Binance Send",
+        label: "Binance Send", // i18n-exempt: filter key (option value, test id)
         type: "FINANCIAL_SERVICE",
         provider: "BINANCE",
         service_type: "SEND",
         paid_via_drawer: "Binance",
       },
       {
-        label: "Binance Recv",
+        label: "Binance Recv", // i18n-exempt: filter key (option value, test id)
         type: "FINANCIAL_SERVICE",
         provider: "BINANCE",
         service_type: "RECEIVE",
@@ -318,12 +318,12 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
       // buy-back — a customer hands the shop credits, the shop pays cash
       // out (cashFlow.ts red ↑, the opposite of the two rows above).
       {
-        label: "MTC Buy-back",
+        label: "MTC Buy-back", // i18n-exempt: filter key (option value, test id)
         type: "TELECOM_CREDIT_BUYBACK",
         provider: "MTC",
       },
       {
-        label: "Alfa Buy-back",
+        label: "Alfa Buy-back", // i18n-exempt: filter key (option value, test id)
         type: "TELECOM_CREDIT_BUYBACK",
         provider: "Alfa",
       },
@@ -332,26 +332,26 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
       // both carriers (no `provider` narrowing — the row's own `summary`
       // already names MTC vs Alfa), matching the single-option granularity
       // of "Discount"/"Checkpoint" below.
-      { label: "Line Adjustment", type: "CARRIER_LINE_ADJUSTMENT" },
+      { label: "Line Adjustment", type: "CARRIER_LINE_ADJUSTMENT" }, // i18n-exempt: filter key (option value, test id)
       // LIRA-312 — credits sent back after a wrong-number card recharge.
-      { label: "Credits recovered", type: "WRONG_NUMBER_CREDITS" },
+      { label: "Credits recovered", type: "WRONG_NUMBER_CREDITS" }, // i18n-exempt: filter key (option value, test id)
     ],
   },
   {
     group: "Drawer & Top-ups",
     options: [
-      { label: "MTC Top-up", type: "MTC_TOPUP" },
-      { label: "Alfa Top-up", type: "ALFA_TOPUP" },
-      { label: "iPick Top-up", type: "RECHARGE_TOPUP", provider: "iPick" },
-      { label: "Katsh Top-up", type: "RECHARGE_TOPUP", provider: "Katsh" },
+      { label: "MTC Top-up", type: "MTC_TOPUP" }, // i18n-exempt: filter key (option value, test id)
+      { label: "Alfa Top-up", type: "ALFA_TOPUP" }, // i18n-exempt: filter key (option value, test id)
+      { label: "iPick Top-up", type: "RECHARGE_TOPUP", provider: "iPick" }, // i18n-exempt: filter key (option value, test id)
+      { label: "Katsh Top-up", type: "RECHARGE_TOPUP", provider: "Katsh" }, // i18n-exempt: filter key (option value, test id)
       {
-        label: "Whish App Top-up",
+        label: "Whish App Top-up", // i18n-exempt: filter key (option value, test id)
         type: "RECHARGE_TOPUP",
         provider: "WHISH_APP",
         paid_via_drawer: "Whish_App",
       },
       {
-        label: "OMT App Top-up",
+        label: "OMT App Top-up", // i18n-exempt: filter key (option value, test id)
         type: "RECHARGE_TOPUP",
         provider: "OMT_APP",
         paid_via_drawer: "OMT_App",
@@ -359,21 +359,21 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
       {
         // Primary Cash Drawer plan §1 — OMT_System is the physical cash
         // drawer, not a provider system balance; label follows suit.
-        label: "OMT Cash Drawer Top-up",
+        label: "OMT Cash Drawer Top-up", // i18n-exempt: filter key (option value, test id)
         type: "RECHARGE_TOPUP",
         provider: "OMT_SYSTEM",
       },
       {
-        label: "Whish Cash Drawer Top-up",
+        label: "Whish Cash Drawer Top-up", // i18n-exempt: filter key (option value, test id)
         type: "RECHARGE_TOPUP",
         provider: "WHISH_SYSTEM",
       },
-      { label: "General Top-up", type: "DRAWER_TOPUP" },
-      { label: "General Cash-Out", type: "DRAWER_CASHOUT" },
+      { label: "General Top-up", type: "DRAWER_TOPUP" }, // i18n-exempt: filter key (option value, test id)
+      { label: "General Cash-Out", type: "DRAWER_CASHOUT" }, // i18n-exempt: filter key (option value, test id)
       // LIRA-192: the OMT App wallet's own cash-out (mirror of the OMT App
       // Top-up row above), grouped with the other drawer/top-up types.
       {
-        label: "OMT App Cash-Out",
+        label: "OMT App Cash-Out", // i18n-exempt: filter key (option value, test id)
         type: "WALLET_CASHOUT",
         paid_via_drawer: "OMT_App",
       },
@@ -382,10 +382,10 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
   {
     group: "Loto",
     options: [
-      { label: "Loto", type: "LOTO" },
-      { label: "Loto Prize", type: "LOTO_CASH_PRIZE" },
-      { label: "Loto Monthly Fee", type: "LOTO_MONTHLY_FEE" },
-      { label: "Loto Settlement", type: "LOTO_SETTLEMENT" },
+      { label: "Loto", type: "LOTO" }, // i18n-exempt: filter key (option value, test id)
+      { label: "Loto Prize", type: "LOTO_CASH_PRIZE" }, // i18n-exempt: filter key (option value, test id)
+      { label: "Loto Monthly Fee", type: "LOTO_MONTHLY_FEE" }, // i18n-exempt: filter key (option value, test id)
+      { label: "Loto Settlement", type: "LOTO_SETTLEMENT" }, // i18n-exempt: filter key (option value, test id)
     ],
   },
   {
@@ -398,24 +398,24 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
     // that reveal the auto rows too — see isSupplierPaymentVisible.
     group: "Suppliers",
     options: [
-      { label: "Supplier Settlement", type: "SUPPLIER_SETTLEMENT" },
-      { label: "Supplier Payment", type: "SUPPLIER_PAYMENT" },
+      { label: "Supplier Settlement", type: "SUPPLIER_SETTLEMENT" }, // i18n-exempt: filter key (option value, test id)
+      { label: "Supplier Payment", type: "SUPPLIER_PAYMENT" }, // i18n-exempt: filter key (option value, test id)
       {
-        label: "Supplier Credit",
+        label: "Supplier Credit", // i18n-exempt: filter key (option value, test id)
         type: "SUPPLIER_PAYMENT",
         supplier_credit_only: true,
       },
       // LIRA-080: the paper (no-cash) "Add Credit / Debt" entry — manual, so
       // visible by default (no is_auto flag involved), same as Partner
       // Adjustment.
-      { label: "Supplier Adjustment", type: "SUPPLIER_ADJUSTMENT" },
+      { label: "Supplier Adjustment", type: "SUPPLIER_ADJUSTMENT" }, // i18n-exempt: filter key (option value, test id)
       // SUPPLIER_STOCK_INTAKE_PLAN.md — receiving stock on credit; manual
       // (operator-triggered from Inventory), so visible by default too.
-      { label: "Stock Received", type: "SUPPLIER_STOCK_INTAKE" },
+      { label: "Stock Received", type: "SUPPLIER_STOCK_INTAKE" }, // i18n-exempt: filter key (option value, test id)
       // LIRA-087 (migration v189) — a debt recorded before the products that
       // earned it arrive; manual (operator-triggered from Suppliers), so
       // visible by default too.
-      { label: "Supplier Debt Recorded", type: "SUPPLIER_RECORDED_DEBT" },
+      { label: "Supplier Debt Recorded", type: "SUPPLIER_RECORDED_DEBT" }, // i18n-exempt: filter key (option value, test id)
     ],
   },
   {
@@ -426,45 +426,45 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
     // manual, so it's visible by default too (no is_auto flag involved).
     group: "Partners",
     options: [
-      { label: "Partner Settlement", type: "PARTNER_SETTLEMENT" },
-      { label: "Partner Payment", type: "PARTNER_PAYMENT" },
-      { label: "Partner Adjustment", type: "PARTNER_ADJUSTMENT" },
+      { label: "Partner Settlement", type: "PARTNER_SETTLEMENT" }, // i18n-exempt: filter key (option value, test id)
+      { label: "Partner Payment", type: "PARTNER_PAYMENT" }, // i18n-exempt: filter key (option value, test id)
+      { label: "Partner Adjustment", type: "PARTNER_ADJUSTMENT" }, // i18n-exempt: filter key (option value, test id)
     ],
   },
   {
     group: "Expenses",
     options: [
-      { label: "Expense", type: "EXPENSE" },
+      { label: "Expense", type: "EXPENSE" }, // i18n-exempt: filter key (option value, test id)
       // LIRA-262 — "the shop used its own stock" expenses, one type per
       // source. Manual (never is_auto), so visible by default too.
-      { label: "Expense · Stock", type: "EXPENSE_INVENTORY" },
-      { label: "Expense · Katsh", type: "EXPENSE_KATSH" },
-      { label: "Expense · iPick", type: "EXPENSE_IPICK" },
-      { label: "Expense · Whish App", type: "EXPENSE_WHISH_APP" },
+      { label: "Expense · Stock", type: "EXPENSE_INVENTORY" }, // i18n-exempt: filter key (option value, test id)
+      { label: "Expense · Katsh", type: "EXPENSE_KATSH" }, // i18n-exempt: filter key (option value, test id)
+      { label: "Expense · iPick", type: "EXPENSE_IPICK" }, // i18n-exempt: filter key (option value, test id)
+      { label: "Expense · Whish App", type: "EXPENSE_WHISH_APP" }, // i18n-exempt: filter key (option value, test id)
       // LIRA-296 — reveals the auto WARRANTY_COST rows (hidden by default).
-      { label: "Warranty Cost", type: "WARRANTY_COST" },
+      { label: "Warranty Cost", type: "WARRANTY_COST" }, // i18n-exempt: filter key (option value, test id)
     ],
   },
   {
     group: "Other",
     options: [
-      { label: "Sale", type: "SALE" },
-      { label: "Exchange", type: "EXCHANGE" },
-      { label: "Custom Service", type: "CUSTOM_SERVICE" },
-      { label: "Maintenance", type: "MAINTENANCE" },
-      { label: "Debt Repayment", type: "DEBT_REPAYMENT" },
+      { label: "Sale", type: "SALE" }, // i18n-exempt: filter key (option value, test id)
+      { label: "Exchange", type: "EXCHANGE" }, // i18n-exempt: filter key (option value, test id)
+      { label: "Custom Service", type: "CUSTOM_SERVICE" }, // i18n-exempt: filter key (option value, test id)
+      { label: "Maintenance", type: "MAINTENANCE" }, // i18n-exempt: filter key (option value, test id)
+      { label: "Debt Repayment", type: "DEBT_REPAYMENT" }, // i18n-exempt: filter key (option value, test id)
       // LIRA-080: the paper (no-cash) Accounts-page "Add Credit / Debt" entry.
       // Its cash-moved siblings (CREDIT_CASH_IN/DEBT_CASH_OUT) have no filter
       // entry; the paper rows are the ones an operator most needs to find.
-      { label: "Account Adjustment", type: "ACCOUNT_ADJUSTMENT" },
+      { label: "Account Adjustment", type: "ACCOUNT_ADJUSTMENT" }, // i18n-exempt: filter key (option value, test id)
       // CQ-10: one type spans all three counterparty kinds (debt/supplier/
       // partner) — amounts are always 0 (the value lives in signed
       // profit_usd/lbp), no dedicated group needed for a single filter.
-      { label: "Discount", type: "COUNTERPARTY_DISCOUNT" },
-      { label: "Checkpoint", type: "CHECKPOINT" },
-      { label: "Refund", type: "REFUND" },
-      { label: "Client Updated", type: "CLIENT_UPDATED" },
-      { label: "Client Deleted", type: "CLIENT_DELETED" },
+      { label: "Discount", type: "COUNTERPARTY_DISCOUNT" }, // i18n-exempt: filter key (option value, test id)
+      { label: "Checkpoint", type: "CHECKPOINT" }, // i18n-exempt: filter key (option value, test id)
+      { label: "Refund", type: "REFUND" }, // i18n-exempt: filter key (option value, test id)
+      { label: "Client Updated", type: "CLIENT_UPDATED" }, // i18n-exempt: filter key (option value, test id)
+      { label: "Client Deleted", type: "CLIENT_DELETED" }, // i18n-exempt: filter key (option value, test id)
     ],
   },
 ];

@@ -4,6 +4,11 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { Trans, useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { DirIcon } from "@liratek/ui/components/ui/DirIcon";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { useFormat } from "@/i18n/useFormat";
 import {
   Users,
   Plus,
@@ -69,19 +74,21 @@ import {
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 function fmtUSD(n: number) {
-  return new Intl.NumberFormat("en-US", {
+  return formatNumber(n, {
     style: "currency",
     currency: "USD",
     minimumFractionDigits: 2,
-  }).format(n);
+  });
 }
 
+/** Was `Intl.NumberFormat("en-LB", …)`: en-LB and en-US print the LBP
+ *  currency format identically ("LBP 1,500,000"). */
 function fmtLBP(n: number) {
-  return new Intl.NumberFormat("en-LB", {
+  return formatNumber(n, {
     style: "currency",
     currency: "LBP",
     maximumFractionDigits: 0,
-  }).format(n);
+  });
 }
 
 /**
@@ -114,15 +121,13 @@ function fmtByCurrency(amount: number, currency: string | null): string {
   return fmtLBP(amount);
 }
 
-function fmtDate(iso: string) {
-  return parseDbDate(iso).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+const LEDGER_DATE_OPTIONS: Intl.DateTimeFormatOptions = {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+};
 
 /**
  * `usd`/`lbp` = `SUM(DEBIT) - SUM(CREDIT)` (`PartnerRepository.getBalance`):
@@ -169,12 +174,16 @@ function BalanceIcon({ usd, lbp }: { usd: number; lbp: number }) {
 // legacy-field-only) and can never appear as a split-leg method (core
 // PartnerService.settle rejects it outright). CLIENT_ACCOUNT stays reachable
 // only via the modal's separate "Cash moved" checkbox below (unticked).
-const PARTNER_LEG_METHODS: PaymentMethod[] = [
-  { code: "CASH", label: "Cash" },
-  { code: "OMT", label: "OMT" },
-  { code: "WHISH", label: "Whish" },
-  { code: "BINANCE", label: "Binance" },
-];
+// Labels are resolved at render time (`partnerLegMethods(t)`); the codes
+// are the wire values. OMT / Whish / Binance are brand names.
+function partnerLegMethods(cashLabel: string): PaymentMethod[] {
+  return [
+    { code: "CASH", label: cashLabel },
+    { code: "OMT", label: "OMT" },
+    { code: "WHISH", label: "Whish" },
+    { code: "BINANCE", label: "Binance" },
+  ];
+}
 
 // ─── Modal shell ──────────────────────────────────────────────────────────────
 
@@ -219,6 +228,7 @@ function PartnerFormModal({
   onClose,
   onSaved,
 }: PartnerFormModalProps) {
+  const { t } = useTranslation("partners");
   const { partnerSystem } = useShopBase();
   const [name, setName] = useState(partner?.name ?? "");
   const [phone, setPhone] = useState(partner?.phone ?? "");
@@ -244,7 +254,7 @@ function PartnerFormModal({
 
   async function handleSubmit() {
     if (!name.trim()) {
-      appEvents.emit("notification:show", "Partner name is required.", "error");
+      appEvents.emit("notification:show", t("form.nameRequired"), "error");
       return;
     }
     setSubmitting(true);
@@ -268,7 +278,7 @@ function PartnerFormModal({
       if (result.success) {
         appEvents.emit(
           "notification:show",
-          partner ? "Partner updated." : "Partner created.",
+          partner ? t("form.updated") : t("form.created"),
           "success",
         );
         onSaved();
@@ -276,74 +286,76 @@ function PartnerFormModal({
       } else {
         appEvents.emit(
           "notification:show",
-          result.error ?? "Failed to save partner.",
+          result.error ?? t("form.saveFailed"),
           "error",
         );
       }
     } catch {
-      appEvents.emit(
-        "notification:show",
-        "Unexpected error saving partner.",
-        "error",
-      );
+      appEvents.emit("notification:show", t("form.saveError"), "error");
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <Modal title={partner ? "Edit Partner" : "Add Partner"} onClose={onClose}>
+    <Modal
+      title={partner ? t("form.editTitle") : t("form.addTitle")}
+      onClose={onClose}
+    >
       <div className="space-y-4">
         <div>
           <label className="text-xs text-slate-400 block mb-1">
-            Name <span className="text-red-400">*</span>
+            {t("form.name")} <span className="text-red-400">*</span>
           </label>
           <input
             type="text"
+            data-testid="partner-form-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
-            placeholder="Partner name"
+            placeholder={t("form.namePlaceholder")}
             autoFocus
           />
         </div>
         <div>
-          <label className="text-xs text-slate-400 block mb-1">Phone</label>
+          <label className="text-xs text-slate-400 block mb-1">
+            {t("form.phone")}
+          </label>
           <input
             type="text"
+            data-testid="partner-form-phone"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
-            placeholder="+961 XX XXX XXX"
+            placeholder="+961 XX XXX XXX" // i18n-exempt: phone format sample
           />
         </div>
         <div>
           <label className="text-xs text-slate-400 block mb-1">
-            System Association
+            {t("form.systemAssociation")}
           </label>
           <Select
             value={systemAssociation}
             onChange={(v) => setSystemAssociation(v)}
             options={[
-              { value: "", label: "None" },
+              { value: "", label: t("form.none") },
               ...providers.map((p) => ({ value: p.code, label: p.label })),
             ]}
             buttonClassName="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
           />
-          <p className="text-xs text-slate-500 mt-1">
-            Associate this partner with a provider system. Only OMT and Whish
-            currently gate transactions on their own page — other systems are
-            for record-keeping only.
-          </p>
+          <p className="text-xs text-slate-500 mt-1">{t("form.systemHint")}</p>
         </div>
         <div>
-          <label className="text-xs text-slate-400 block mb-1">Notes</label>
+          <label className="text-xs text-slate-400 block mb-1">
+            {t("common.notes")}
+          </label>
           <textarea
+            data-testid="partner-form-notes"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={3}
             className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500 resize-none"
-            placeholder="Optional notes..."
+            placeholder={t("common.notesPlaceholder")}
           />
         </div>
         <div className="flex gap-3 pt-1">
@@ -351,14 +363,19 @@ function PartnerFormModal({
             onClick={onClose}
             className="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 font-medium rounded-lg transition-colors text-sm"
           >
-            Cancel
+            {t("common:actions.cancel")}
           </button>
           <button
+            data-testid="partner-form-submit"
             onClick={handleSubmit}
             disabled={submitting || !name.trim()}
             className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold rounded-lg transition-colors text-sm"
           >
-            {submitting ? "Saving..." : partner ? "Update" : "Create"}
+            {submitting
+              ? t("form.saving")
+              : partner
+                ? t("form.update")
+                : t("form.create")}
           </button>
         </div>
       </div>
@@ -375,6 +392,7 @@ interface SettleModalProps {
 }
 
 function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
+  const { t } = useTranslation("partners");
   const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
   // CQ-11: split-leg settlement (MultiPaymentInput) is the default path —
   // legs are locked to `currency` (the `currencies` prop below offers only
@@ -490,12 +508,12 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
   const forgiveLine =
     balanceInCurrency > 0 ? (
       <DiscountLine
-        label="Forgive (no cash)"
+        label={t("settle.forgive")}
         testId="partner-settle-forgive"
         // Typed above the room left after the payment: say what applies.
         capNote={
           discountClipped && maxDiscountInCurrency > 0
-            ? `Capped to max (${fmtCur(maxDiscountInCurrency)})`
+            ? t("settle.capped", { amount: fmtCur(maxDiscountInCurrency) })
             : undefined
         }
         // No room at all (the payment covers the balance): the payment is
@@ -503,7 +521,7 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
         hint={
           discountClipped && maxDiscountInCurrency <= 0 ? (
             <span data-testid="partner-settle-discount-room-hint">
-              Lower the payment to forgive part of it.
+              {t("settle.lowerPayment")}
             </span>
           ) : undefined
         }
@@ -512,7 +530,7 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
             ? {
                 value: discountReason,
                 onChange: setDiscountReason,
-                placeholder: "Reason (optional)...",
+                placeholder: t("settle.reasonPlaceholder"),
                 testId: "partner-settle-forgive-reason",
               }
             : undefined
@@ -523,7 +541,7 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
           onChange={(n) => setDiscountAmount(n ? String(n) : "")}
           className={discountFieldClass(discountClipped)}
           placeholder="0"
-          aria-label="Forgive amount"
+          aria-label={t("settle.forgiveAmount")}
           data-testid="partner-settle-forgive-input"
         />
       </DiscountLine>
@@ -531,7 +549,11 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
 
   async function handleSettle() {
     if (!isValid) {
-      appEvents.emit("notification:show", "Enter a valid amount.", "error");
+      appEvents.emit(
+        "notification:show",
+        t("common.enterValidAmount"),
+        "error",
+      );
       return;
     }
     setSubmitting(true);
@@ -591,8 +613,10 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
         appEvents.emit(
           "notification:show",
           parsedDiscount > 0
-            ? `Settlement recorded (discount ${currency === "USD" ? "$" : ""}${parsedDiscount.toFixed(currency === "USD" ? 2 : 0)}${currency === "LBP" ? " LBP" : ""})`
-            : "Settlement recorded.",
+            ? t("settle.recordedDiscount", {
+                amount: `${currency === "USD" ? "$" : ""}${parsedDiscount.toFixed(currency === "USD" ? 2 : 0)}${currency === "LBP" ? " LBP" : ""}`,
+              })
+            : t("settle.recorded"),
           "success",
         );
         onSettled();
@@ -600,16 +624,12 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
       } else {
         appEvents.emit(
           "notification:show",
-          result.error ?? "Failed to settle.",
+          result.error ?? t("settle.failed"),
           "error",
         );
       }
     } catch {
-      appEvents.emit(
-        "notification:show",
-        "Unexpected error during settlement.",
-        "error",
-      );
+      appEvents.emit("notification:show", t("settle.error"), "error");
     } finally {
       setSubmitting(false);
     }
@@ -617,12 +637,12 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
 
   return (
     <CounterpartySettleModal
-      title={`Settle – ${partner.name}`}
+      title={t("settle.title", { name: partner.name })}
       showCloseButton
       panelClassName="max-w-md"
       onCancel={onClose}
       onConfirm={handleSettle}
-      confirmLabel="Confirm Settlement"
+      confirmLabel={t("settle.confirm")}
       confirmColor="emerald"
       confirmDisabled={!isValid}
       isSubmitting={submitting}
@@ -631,13 +651,17 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
           {/* Current balance reference */}
           <div className="bg-slate-900 rounded-lg p-3 flex gap-4 text-sm">
             <div>
-              <span className="text-slate-400 text-xs block">Balance USD</span>
+              <span className="text-slate-400 text-xs block">
+                {t("common.balanceUsd")}
+              </span>
               <span className={`font-semibold ${balanceColor(partner.usd, 0)}`}>
                 {fmtUSD(partner.usd)}
               </span>
             </div>
             <div>
-              <span className="text-slate-400 text-xs block">Balance LBP</span>
+              <span className="text-slate-400 text-xs block">
+                {t("common.balanceLbp")}
+              </span>
               <span className={`font-semibold ${balanceColor(0, partner.lbp)}`}>
                 {fmtLBP(partner.lbp)}
               </span>
@@ -647,7 +671,7 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
           <div className="flex items-end gap-3">
             <div>
               <label className="text-xs text-slate-400 block mb-1">
-                Currency
+                {t("common.currency")}
               </label>
               <Select
                 value={currency}
@@ -675,18 +699,20 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
               className="mt-0.5 w-4 h-4 rounded border-slate-600 bg-slate-900 accent-violet-500"
             />
             <span className="text-xs text-slate-300">
-              <span className="font-medium text-white">Cash moved</span> — this
-              settlement moves the drawer via the payment legs below. Untick for
-              a paper-only settlement (no drawer change).
+              <span className="font-medium text-white">
+                {t("common.cashMoved")}
+              </span>{" "}
+              {t("settle.cashMovedHint")}
             </span>
           </label>
 
           {useClientAccount && (
             <div>
               <label className="text-xs text-slate-400 block mb-1">
-                Amount
+                {t("common.amount")}
               </label>
               <DecimalInput
+                data-testid="partner-settle-paper-amount"
                 value={parseFloat(clientAccountAmount) || 0}
                 onChange={(n) => setClientAccountAmount(n ? String(n) : "")}
                 className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
@@ -715,11 +741,11 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
                     totalBeforeDiscount: [
                       { amount: balanceInCurrency, currency },
                     ],
-                    afterDiscountLabel: "After Forgive",
+                    afterDiscountLabel: t("settle.afterForgive"),
                   }
                 : {}),
               discountMovesPayment: false,
-              owedLabel: "Partner will owe",
+              owedLabel: t("settle.partnerWillOwe"),
               totalAmountCurrency: currency,
               currency,
               onChange: setSettleLines,
@@ -729,7 +755,7 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
               // leg must be in it) and only as cash.
               onReturnChange: setSettleReturnLegs,
               unreturnedChangeTo: "ACCOUNT_BALANCE",
-              accountLabel: "the partner's account",
+              accountLabel: t("settle.partnerAccount"),
               cashOnlyReturn: true,
               returnCurrencies: [currency],
               payer: shopPays ? "shop" : "customer",
@@ -743,7 +769,7 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
               // never build a leg in the OTHER currency (the backend rejects
               // a mixed-currency settle outright; this keeps the constraint
               // visible in the UI itself, not just enforced post-submit).
-              paymentMethods: PARTNER_LEG_METHODS,
+              paymentMethods: partnerLegMethods(t("common:payment.CASH")),
               currencies: [
                 currency === "USD"
                   ? { code: "USD", symbol: "$" }
@@ -777,13 +803,16 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
       }
     >
       <div>
-        <label className="text-xs text-slate-400 block mb-1">Notes</label>
+        <label className="text-xs text-slate-400 block mb-1">
+          {t("common.notes")}
+        </label>
         <input
           type="text"
+          data-testid="partner-settle-notes"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
-          placeholder="Optional notes..."
+          placeholder={t("common.notesPlaceholder")}
         />
       </div>
     </CounterpartySettleModal>
@@ -818,6 +847,7 @@ interface RecordTxModalProps {
  * covers that.
  */
 function RecordTxModal({ partner, onClose, onRecorded }: RecordTxModalProps) {
+  const { t } = useTranslation("partners");
   const txType = "ADJUSTMENT";
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
@@ -836,7 +866,11 @@ function RecordTxModal({ partner, onClose, onRecorded }: RecordTxModalProps) {
 
   async function handleRecord() {
     if (!isValid) {
-      appEvents.emit("notification:show", "Enter a valid amount.", "error");
+      appEvents.emit(
+        "notification:show",
+        t("common.enterValidAmount"),
+        "error",
+      );
       return;
     }
     setSubmitting(true);
@@ -851,34 +885,33 @@ function RecordTxModal({ partner, onClose, onRecorded }: RecordTxModalProps) {
         ...(moveCash ? { moveCash: true } : {}),
       });
       if (result.success) {
-        appEvents.emit("notification:show", "Transaction recorded.", "success");
+        appEvents.emit("notification:show", t("record.recorded"), "success");
         onRecorded();
         onClose();
       } else {
         appEvents.emit(
           "notification:show",
-          result.error ?? "Failed to record transaction.",
+          result.error ?? t("record.failed"),
           "error",
         );
       }
     } catch {
-      appEvents.emit(
-        "notification:show",
-        "Unexpected error recording transaction.",
-        "error",
-      );
+      appEvents.emit("notification:show", t("record.error"), "error");
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <Modal title={`Add Credit / Debt – ${partner.name}`} onClose={onClose}>
+    <Modal title={t("record.title", { name: partner.name })} onClose={onClose}>
       <div className="space-y-4">
         <div className="flex gap-3">
           <div className="flex-1">
-            <label className="text-xs text-slate-400 block mb-1">Amount</label>
+            <label className="text-xs text-slate-400 block mb-1">
+              {t("common.amount")}
+            </label>
             <DecimalInput
+              data-testid="partner-record-amount"
               value={parseFloat(amount) || 0}
               onChange={(n) => setAmount(n ? String(n) : "")}
               className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
@@ -888,7 +921,7 @@ function RecordTxModal({ partner, onClose, onRecorded }: RecordTxModalProps) {
           </div>
           <div>
             <label className="text-xs text-slate-400 block mb-1">
-              Currency
+              {t("common.currency")}
             </label>
             <Select
               value={currency}
@@ -903,12 +936,15 @@ function RecordTxModal({ partner, onClose, onRecorded }: RecordTxModalProps) {
         </div>
 
         <div>
-          <label className="text-xs text-slate-400 block mb-1">Direction</label>
+          <label className="text-xs text-slate-400 block mb-1">
+            {t("common.direction")}
+          </label>
           {/* Colour flipped (owner's rule, 2026-08-11): DEBIT = "they owe
               us" = counterparty owes = RED; CREDIT = "we owe them" = shop
               owes = GREEN. Labels/meaning unchanged. */}
           <div className="flex gap-2">
             <button
+              data-testid="partner-record-direction-debit"
               onClick={() => setDirection("DEBIT")}
               className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-colors border ${
                 direction === "DEBIT"
@@ -917,9 +953,10 @@ function RecordTxModal({ partner, onClose, onRecorded }: RecordTxModalProps) {
               }`}
             >
               <ArrowUpRight className="w-3.5 h-3.5" />
-              DEBIT (they owe us)
+              {t("common.debitTheyOweUs")}
             </button>
             <button
+              data-testid="partner-record-direction-credit"
               onClick={() => setDirection("CREDIT")}
               className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-colors border ${
                 direction === "CREDIT"
@@ -928,7 +965,7 @@ function RecordTxModal({ partner, onClose, onRecorded }: RecordTxModalProps) {
               }`}
             >
               <ArrowDownLeft className="w-3.5 h-3.5" />
-              CREDIT (we owe them)
+              {t("common.creditWeOweThem")}
             </button>
           </div>
         </div>
@@ -944,23 +981,26 @@ function RecordTxModal({ partner, onClose, onRecorded }: RecordTxModalProps) {
             className="mt-0.5 accent-violet-500"
           />
           <span className="text-xs text-slate-300">
-            <span className="font-medium text-white">Cash moved</span> — this
-            entry records physical cash:{" "}
-            {direction === "DEBIT"
-              ? "cash OUT of the drawer to the partner (advance)"
-              : "cash IN from the partner"}
-            . Leave unticked for a paper-style correction (no drawer change).
+            <span className="font-medium text-white">
+              {t("common.cashMoved")}
+            </span>{" "}
+            {t("record.cashMovedHint")}{" "}
+            {direction === "DEBIT" ? t("record.cashOut") : t("record.cashIn")}
+            {t("record.paperHint")}
           </span>
         </label>
 
         <div>
-          <label className="text-xs text-slate-400 block mb-1">Notes</label>
+          <label className="text-xs text-slate-400 block mb-1">
+            {t("common.notes")}
+          </label>
           <input
             type="text"
+            data-testid="partner-record-notes"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
-            placeholder="Optional notes..."
+            placeholder={t("common.notesPlaceholder")}
           />
         </div>
 
@@ -969,14 +1009,15 @@ function RecordTxModal({ partner, onClose, onRecorded }: RecordTxModalProps) {
             onClick={onClose}
             className="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 font-medium rounded-lg transition-colors text-sm"
           >
-            Cancel
+            {t("common:actions.cancel")}
           </button>
           <button
+            data-testid="partner-record-submit"
             onClick={handleRecord}
             disabled={submitting || !isValid}
             className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold rounded-lg transition-colors text-sm"
           >
-            {submitting ? "Recording..." : "Add Credit / Debt"}
+            {submitting ? t("record.recording") : t("record.submit")}
           </button>
         </div>
       </div>
@@ -1006,6 +1047,7 @@ interface WriteOffModalProps {
 }
 
 function WriteOffModal({ partner, onClose, onWrittenOff }: WriteOffModalProps) {
+  const { t } = useTranslation("partners");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
   const [reason, setReason] = useState("");
@@ -1024,7 +1066,11 @@ function WriteOffModal({ partner, onClose, onWrittenOff }: WriteOffModalProps) {
 
   async function handleWriteOff() {
     if (!isValid) {
-      appEvents.emit("notification:show", "Enter a valid amount.", "error");
+      appEvents.emit(
+        "notification:show",
+        t("common.enterValidAmount"),
+        "error",
+      );
       return;
     }
     setSubmitting(true);
@@ -1036,39 +1082,46 @@ function WriteOffModal({ partner, onClose, onWrittenOff }: WriteOffModalProps) {
         ...(reason.trim() ? { reason: reason.trim() } : {}),
       });
       if (result.success) {
-        appEvents.emit("notification:show", "Balance written off.", "success");
+        appEvents.emit("notification:show", t("writeOff.done"), "success");
         onWrittenOff();
         onClose();
       } else {
         appEvents.emit(
           "notification:show",
-          result.error ?? "Failed to write off.",
+          result.error ?? t("writeOff.failed"),
           "error",
         );
       }
     } catch {
-      appEvents.emit("notification:show", "Unexpected error.", "error");
+      appEvents.emit("notification:show", t("common.unexpectedError"), "error");
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <Modal title={`Write off – ${partner.name}`} onClose={onClose}>
+    <Modal
+      title={t("writeOff.title", { name: partner.name })}
+      onClose={onClose}
+    >
       <div className="space-y-4">
         <p className="text-xs text-slate-400">
-          We forgive part of what {partner.name} owes us — no cash movement.
+          {t("writeOff.intro", { name: partner.name })}
         </p>
         {/* Current balance reference (same layout as SettleModal). */}
         <div className="bg-slate-900 rounded-lg p-3 flex gap-4 text-sm">
           <div>
-            <span className="text-slate-400 text-xs block">Balance USD</span>
+            <span className="text-slate-400 text-xs block">
+              {t("common.balanceUsd")}
+            </span>
             <span className={`font-semibold ${balanceColor(partner.usd, 0)}`}>
               {fmtUSD(partner.usd)}
             </span>
           </div>
           <div>
-            <span className="text-slate-400 text-xs block">Balance LBP</span>
+            <span className="text-slate-400 text-xs block">
+              {t("common.balanceLbp")}
+            </span>
             <span className={`font-semibold ${balanceColor(0, partner.lbp)}`}>
               {fmtLBP(partner.lbp)}
             </span>
@@ -1078,12 +1131,15 @@ function WriteOffModal({ partner, onClose, onWrittenOff }: WriteOffModalProps) {
         <div className="flex gap-3">
           <div className="flex-1">
             <label className="text-xs text-slate-400 block mb-1">
-              Amount — owed{" "}
-              {currency === "USD"
-                ? fmtUSD(owedInCurrency)
-                : fmtLBP(owedInCurrency)}
+              {t("writeOff.amountOwed", {
+                amount:
+                  currency === "USD"
+                    ? fmtUSD(owedInCurrency)
+                    : fmtLBP(owedInCurrency),
+              })}
             </label>
             <DecimalInput
+              data-testid="partner-writeoff-amount"
               value={parsedAmount}
               onChange={(n) => setAmount(n ? String(n) : "")}
               className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
@@ -1093,7 +1149,7 @@ function WriteOffModal({ partner, onClose, onWrittenOff }: WriteOffModalProps) {
           </div>
           <div>
             <label className="text-xs text-slate-400 block mb-1">
-              Currency
+              {t("common.currency")}
             </label>
             <Select
               value={currency}
@@ -1111,13 +1167,16 @@ function WriteOffModal({ partner, onClose, onWrittenOff }: WriteOffModalProps) {
         </div>
 
         <div>
-          <label className="text-xs text-slate-400 block mb-1">Reason</label>
+          <label className="text-xs text-slate-400 block mb-1">
+            {t("writeOff.reason")}
+          </label>
           <input
             type="text"
+            data-testid="partner-writeoff-reason"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
-            placeholder="Optional reason..."
+            placeholder={t("writeOff.reasonPlaceholder")}
           />
         </div>
 
@@ -1126,14 +1185,15 @@ function WriteOffModal({ partner, onClose, onWrittenOff }: WriteOffModalProps) {
             onClick={onClose}
             className="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 font-medium rounded-lg transition-colors text-sm"
           >
-            Cancel
+            {t("common:actions.cancel")}
           </button>
           <button
+            data-testid="partner-writeoff-submit"
             onClick={handleWriteOff}
             disabled={submitting || !isValid}
             className="flex-1 py-2.5 bg-orange-600 hover:bg-orange-700 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold rounded-lg transition-colors text-sm"
           >
-            {submitting ? "Processing..." : "Write off"}
+            {submitting ? t("common.processing") : t("writeOff.submit")}
           </button>
         </div>
       </div>
@@ -1152,6 +1212,7 @@ function DeactivateModal({
   onClose: () => void;
   onDeactivated: () => void;
 }) {
+  const { t } = useTranslation("partners");
   const [submitting, setSubmitting] = useState(false);
   const api = useApi();
 
@@ -1160,45 +1221,50 @@ function DeactivateModal({
     try {
       const result = await api.partners.deactivate(partner.id);
       if (result.success) {
-        appEvents.emit("notification:show", "Partner deactivated.", "success");
+        appEvents.emit("notification:show", t("deactivate.done"), "success");
         onDeactivated();
         onClose();
       } else {
         appEvents.emit(
           "notification:show",
-          result.error ?? "Failed to deactivate.",
+          result.error ?? t("deactivate.failed"),
           "error",
         );
       }
     } catch {
-      appEvents.emit("notification:show", "Unexpected error.", "error");
+      appEvents.emit("notification:show", t("common.unexpectedError"), "error");
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <Modal title="Deactivate Partner" onClose={onClose}>
+    <Modal title={t("deactivate.title")} onClose={onClose}>
       <div className="space-y-4">
         <p className="text-slate-300 text-sm">
-          Are you sure you want to deactivate{" "}
-          <span className="text-white font-semibold">{partner.name}</span>? They
-          will be hidden from the active list but their history will be
-          preserved.
+          <Trans
+            t={t}
+            i18nKey="deactivate.confirm"
+            values={{ name: partner.name }}
+            components={{
+              name: <span className="text-white font-semibold" />,
+            }}
+          />
         </p>
         <div className="flex gap-3 pt-1">
           <button
             onClick={onClose}
             className="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 font-medium rounded-lg transition-colors text-sm"
           >
-            Cancel
+            {t("common:actions.cancel")}
           </button>
           <button
+            data-testid="partner-deactivate-confirm"
             onClick={handleDeactivate}
             disabled={submitting}
             className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold rounded-lg transition-colors text-sm"
           >
-            {submitting ? "Deactivating..." : "Deactivate"}
+            {submitting ? t("deactivate.deactivating") : t("deactivate.submit")}
           </button>
         </div>
       </div>
@@ -1232,6 +1298,8 @@ function parseTransactionType(raw: string | null): {
 }
 
 function LedgerRow({ entry }: { entry: PartnerLedgerEntry }) {
+  const { t } = useTranslation("partners");
+  const { formatDateTime } = useFormat();
   const [expanded, setExpanded] = useState(false);
   const isDebit = entry.direction === "DEBIT";
   // `entry.amount` is UNSIGNED (partner_ledger's `direction` enum carries the
@@ -1259,7 +1327,7 @@ function LedgerRow({ entry }: { entry: PartnerLedgerEntry }) {
         onClick={() => hasDetails && setExpanded((v) => !v)}
       >
         <td className="px-4 py-3 text-slate-300 whitespace-nowrap text-xs">
-          {fmtDate(entry.created_at)}
+          {formatDateTime(parseDbDate(entry.created_at), LEDGER_DATE_OPTIONS)}
         </td>
         <td className="px-4 py-3">
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -1275,7 +1343,7 @@ function LedgerRow({ entry }: { entry: PartnerLedgerEntry }) {
             </span>
             {entry.settlement_method && (
               <span className="text-xs text-slate-500">
-                via {entry.settlement_method}
+                {t("ledger.via", { method: entry.settlement_method })}
               </span>
             )}
           </div>
@@ -1286,20 +1354,20 @@ function LedgerRow({ entry }: { entry: PartnerLedgerEntry }) {
               className={`inline-flex items-center gap-1 text-xs font-medium ${amountColor}`}
             >
               <ArrowUpRight className="w-3 h-3" />
-              DEBIT
+              {t("ledger.debit")}
             </span>
           ) : (
             <span
               className={`inline-flex items-center gap-1 text-xs font-medium ${amountColor}`}
             >
               <ArrowDownLeft className="w-3 h-3" />
-              CREDIT
+              {t("ledger.credit")}
             </span>
           )}
         </td>
-        <td className="px-4 py-3 text-right font-mono font-semibold whitespace-nowrap">
+        <td className="px-4 py-3 text-end font-mono font-semibold whitespace-nowrap">
           <span className={amountColor}>
-            {fmtByCurrency(entry.amount, entry.currency)}
+            <Ltr>{fmtByCurrency(entry.amount, entry.currency)}</Ltr>
           </span>
         </td>
         <td className="px-4 py-3 text-slate-400 text-xs max-w-[180px] truncate">
@@ -1321,7 +1389,9 @@ function LedgerRow({ entry }: { entry: PartnerLedgerEntry }) {
             <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-xs">
               {entry.fs_customer && (
                 <div className="flex gap-2">
-                  <span className="text-slate-500 w-20 shrink-0">Customer</span>
+                  <span className="text-slate-500 w-20 shrink-0">
+                    {t("ledger.customer")}
+                  </span>
                   <span className="text-slate-200 font-medium">
                     {entry.fs_customer}
                   </span>
@@ -1329,7 +1399,9 @@ function LedgerRow({ entry }: { entry: PartnerLedgerEntry }) {
               )}
               {entry.fs_reference_number && (
                 <div className="flex gap-2">
-                  <span className="text-slate-500 w-20 shrink-0">Ref #</span>
+                  <span className="text-slate-500 w-20 shrink-0">
+                    {t("ledger.ref")}
+                  </span>
                   <span className="text-slate-200 font-medium">
                     {entry.fs_reference_number}
                   </span>
@@ -1337,15 +1409,19 @@ function LedgerRow({ entry }: { entry: PartnerLedgerEntry }) {
               )}
               {entry.fs_phone_number && (
                 <div className="flex gap-2">
-                  <span className="text-slate-500 w-20 shrink-0">Phone</span>
+                  <span className="text-slate-500 w-20 shrink-0">
+                    {t("ledger.phone")}
+                  </span>
                   <span className="text-slate-200">
-                    {entry.fs_phone_number}
+                    <Ltr>{entry.fs_phone_number}</Ltr>
                   </span>
                 </div>
               )}
               {entry.fs_provider && (
                 <div className="flex gap-2">
-                  <span className="text-slate-500 w-20 shrink-0">Provider</span>
+                  <span className="text-slate-500 w-20 shrink-0">
+                    {t("ledger.provider")}
+                  </span>
                   <span className="text-slate-200">
                     {entry.fs_provider} {entry.fs_service_type}
                   </span>
@@ -1353,19 +1429,25 @@ function LedgerRow({ entry }: { entry: PartnerLedgerEntry }) {
               )}
               {entry.fs_amount != null && (
                 <div className="flex gap-2">
-                  <span className="text-slate-500 w-20 shrink-0">Amount</span>
+                  <span className="text-slate-500 w-20 shrink-0">
+                    {t("ledger.amount")}
+                  </span>
                   <span className="text-slate-200">
-                    {fmtByCurrency(entry.fs_amount, entry.fs_currency)}
+                    <Ltr>
+                      {fmtByCurrency(entry.fs_amount, entry.fs_currency)}
+                    </Ltr>
                     {entry.fs_fee != null && entry.fs_fee > 0 && (
-                      <span className="text-slate-400 ml-1">
-                        + {fmtUSD(entry.fs_fee)} fee
+                      <span className="text-slate-400 ms-1">
+                        {t("ledger.fee", { amount: fmtUSD(entry.fs_fee) })}
                       </span>
                     )}
                   </span>
                 </div>
               )}
               <div className="flex gap-2">
-                <span className="text-slate-500 w-20 shrink-0">Txn ID</span>
+                <span className="text-slate-500 w-20 shrink-0">
+                  {t("ledger.txnId")}
+                </span>
                 <span className="text-slate-400">#{entry.reference_id}</span>
               </div>
             </div>
@@ -1398,6 +1480,7 @@ function DetailPanel({
   onActivate,
   onWriteOff,
 }: DetailPanelProps) {
+  const { t } = useTranslation("partners");
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   // CQ-10 (D4): only when the partner has something left to forgive — a
@@ -1444,7 +1527,7 @@ function DetailPanel({
       setBalance(result.balance);
       setBreakdown(result.breakdown ?? null);
     } catch {
-      setError("Failed to load ledger.");
+      setError(t("ledger.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -1456,6 +1539,7 @@ function DetailPanel({
     filterProvider,
     filterDirection,
     api,
+    t,
   ]);
 
   useEffect(() => {
@@ -1472,7 +1556,7 @@ function DetailPanel({
               <h2 className="text-white text-lg font-bold">{partner.name}</h2>
               {!partner.is_active && (
                 <span className="text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-400 border border-slate-600">
-                  Inactive
+                  {t("detail.inactive")}
                 </span>
               )}
               {partner.system_association && (
@@ -1484,14 +1568,14 @@ function DetailPanel({
                     variant="icon"
                     size={14}
                   />
-                  {partner.system_association} System
+                  {t("detail.system", { system: partner.system_association })}
                 </span>
               )}
             </div>
             {partner.phone && (
               <div className="flex items-center gap-1.5 mt-1 text-slate-400 text-sm">
                 <Phone className="w-3.5 h-3.5" />
-                <span>{partner.phone}</span>
+                <Ltr>{partner.phone}</Ltr>
               </div>
             )}
             {partner.notes && (
@@ -1505,54 +1589,60 @@ function DetailPanel({
           {/* Action Buttons */}
           <div className="flex flex-wrap gap-2">
             <button
+              data-testid="partner-action-edit"
               onClick={onEdit}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg text-xs font-medium transition-colors"
             >
               <Edit2 className="w-3.5 h-3.5" />
-              Edit
+              {t("detail.edit")}
             </button>
             <button
+              data-testid="partner-action-settle"
               onClick={onSettle}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-emerald-100 rounded-lg text-xs font-medium transition-colors"
             >
               <DollarSign className="w-3.5 h-3.5" />
-              Settle
+              {t("detail.settle")}
             </button>
             <button
+              data-testid="partner-action-add-credit"
               onClick={onAddCredit}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-700 hover:bg-amber-600 text-amber-100 rounded-lg text-xs font-medium transition-colors"
             >
               <Wallet className="w-3.5 h-3.5" />
-              Add Credit / Debt
+              {t("detail.addCredit")}
             </button>
             {/* CQ-10 (D4): standalone write-off — admin-only, pure
                 forgiveness with no cash movement. */}
             {isAdmin && canWriteOff && (
               <button
+                data-testid="partner-action-write-off"
                 onClick={onWriteOff}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium transition-colors"
-                title="Forgive part of what the partner owes us"
+                title={t("detail.writeOffTitle")}
               >
                 <Eraser className="w-3.5 h-3.5" />
-                Write off
+                {t("detail.writeOff")}
               </button>
             )}
             {partner.is_active === 1 && (
               <button
+                data-testid="partner-action-deactivate"
                 onClick={onDeactivate}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-red-900/60 hover:bg-red-700 text-red-300 hover:text-red-100 rounded-lg text-xs font-medium transition-colors"
               >
                 <ToggleLeft className="w-3.5 h-3.5" />
-                Deactivate
+                {t("detail.deactivate")}
               </button>
             )}
             {partner.is_active === 0 && (
               <button
+                data-testid="partner-action-activate"
                 onClick={onActivate}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-900/60 hover:bg-emerald-700 text-emerald-300 hover:text-emerald-100 rounded-lg text-xs font-medium transition-colors"
               >
                 <ToggleLeft className="w-3.5 h-3.5" />
-                Activate
+                {t("detail.activate")}
               </button>
             )}
           </div>
@@ -1565,17 +1655,19 @@ function DetailPanel({
           >
             <div className="flex items-center gap-2 mb-1">
               <BalanceIcon usd={balance.usd} lbp={0} />
-              <span className="text-xs text-slate-400">USD Balance</span>
+              <span className="text-xs text-slate-400">
+                {t("detail.usdBalance")}
+              </span>
             </div>
             <p className={`text-xl font-bold ${balanceColor(balance.usd, 0)}`}>
               {fmtUSD(balance.usd)}
             </p>
             <p className="text-xs text-slate-500 mt-0.5">
               {balance.usd > 0
-                ? "They owe us"
+                ? t("detail.theyOweUs")
                 : balance.usd < 0
-                  ? "We owe them"
-                  : "Settled"}
+                  ? t("detail.weOweThem")
+                  : t("detail.settled")}
             </p>
             {breakdown && (
               // Same DEBIT-positive/CREDIT-negative convention as `balance.usd`
@@ -1590,7 +1682,9 @@ function DetailPanel({
               <div className="mt-2 pt-2 border-t border-slate-700/50 space-y-0.5">
                 {breakdown.usd.for !== 0 && (
                   <div className="flex justify-between text-[10px]">
-                    <span className="text-violet-400">FOR (our system)</span>
+                    <span className="text-violet-400">
+                      {t("detail.forOurSystem")}
+                    </span>
                     <span
                       className={balanceTextColor(
                         -breakdown.usd.for,
@@ -1603,7 +1697,9 @@ function DetailPanel({
                 )}
                 {breakdown.usd.through !== 0 && (
                   <div className="flex justify-between text-[10px]">
-                    <span className="text-sky-400">THROUGH (their system)</span>
+                    <span className="text-sky-400">
+                      {t("detail.throughTheirSystem")}
+                    </span>
                     <span
                       className={balanceTextColor(
                         -breakdown.usd.through,
@@ -1616,7 +1712,9 @@ function DetailPanel({
                 )}
                 {breakdown.usd.other !== 0 && (
                   <div className="flex justify-between text-[10px]">
-                    <span className="text-slate-500">Settlements / Adj.</span>
+                    <span className="text-slate-500">
+                      {t("detail.settlementsAdj")}
+                    </span>
                     <span
                       className={balanceTextColor(
                         -breakdown.usd.other,
@@ -1635,24 +1733,28 @@ function DetailPanel({
           >
             <div className="flex items-center gap-2 mb-1">
               <BalanceIcon usd={0} lbp={balance.lbp} />
-              <span className="text-xs text-slate-400">LBP Balance</span>
+              <span className="text-xs text-slate-400">
+                {t("detail.lbpBalance")}
+              </span>
             </div>
             <p className={`text-xl font-bold ${balanceColor(0, balance.lbp)}`}>
               {fmtLBP(balance.lbp)}
             </p>
             <p className="text-xs text-slate-500 mt-0.5">
               {balance.lbp > 0
-                ? "They owe us"
+                ? t("detail.theyOweUs")
                 : balance.lbp < 0
-                  ? "We owe them"
-                  : "Settled"}
+                  ? t("detail.weOweThem")
+                  : t("detail.settled")}
             </p>
             {breakdown && (
               // Same polarity note as the USD breakdown above.
               <div className="mt-2 pt-2 border-t border-slate-700/50 space-y-0.5">
                 {breakdown.lbp.for !== 0 && (
                   <div className="flex justify-between text-[10px]">
-                    <span className="text-violet-400">FOR (our system)</span>
+                    <span className="text-violet-400">
+                      {t("detail.forOurSystem")}
+                    </span>
                     <span
                       className={balanceTextColor(
                         -breakdown.lbp.for,
@@ -1665,7 +1767,9 @@ function DetailPanel({
                 )}
                 {breakdown.lbp.through !== 0 && (
                   <div className="flex justify-between text-[10px]">
-                    <span className="text-sky-400">THROUGH (their system)</span>
+                    <span className="text-sky-400">
+                      {t("detail.throughTheirSystem")}
+                    </span>
                     <span
                       className={balanceTextColor(
                         -breakdown.lbp.through,
@@ -1678,7 +1782,9 @@ function DetailPanel({
                 )}
                 {breakdown.lbp.other !== 0 && (
                   <div className="flex justify-between text-[10px]">
-                    <span className="text-slate-500">Settlements / Adj.</span>
+                    <span className="text-slate-500">
+                      {t("detail.settlementsAdj")}
+                    </span>
                     <span
                       className={balanceTextColor(
                         -breakdown.lbp.other,
@@ -1714,9 +1820,9 @@ function DetailPanel({
           value={filterMode}
           onChange={(v) => setFilterMode(v as "" | "FOR" | "THROUGH")}
           options={[
-            { value: "", label: "All modes" },
-            { value: "FOR", label: "FOR (our system)" },
-            { value: "THROUGH", label: "THROUGH (their system)" },
+            { value: "", label: t("filters.allModes") },
+            { value: "FOR", label: t("detail.forOurSystem") },
+            { value: "THROUGH", label: t("detail.throughTheirSystem") },
           ]}
           buttonClassName="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
         />
@@ -1726,7 +1832,7 @@ function DetailPanel({
             setFilterProvider(v as "" | "OMT" | "WHISH" | "BINANCE")
           }
           options={[
-            { value: "", label: "All providers" },
+            { value: "", label: t("filters.allProviders") },
             { value: "OMT", label: "OMT" },
             { value: "WHISH", label: "Whish" },
             { value: "BINANCE", label: "Binance" },
@@ -1737,9 +1843,9 @@ function DetailPanel({
           value={filterDirection}
           onChange={(v) => setFilterDirection(v as "" | "DEBIT" | "CREDIT")}
           options={[
-            { value: "", label: "All directions" },
-            { value: "DEBIT", label: "Debit (they owe us)" },
-            { value: "CREDIT", label: "Credit (we owe them)" },
+            { value: "", label: t("filters.allDirections") },
+            { value: "DEBIT", label: t("filters.debit") },
+            { value: "CREDIT", label: t("filters.credit") },
           ]}
           buttonClassName="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
         />
@@ -1758,15 +1864,15 @@ function DetailPanel({
             }}
             className="text-xs text-slate-400 hover:text-white transition-colors"
           >
-            Clear all
+            {t("filters.clearAll")}
           </button>
         )}
         <button
           onClick={loadLedger}
-          className="ml-auto flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+          className="ms-auto flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
         >
           <RefreshCw className="w-3.5 h-3.5" />
-          Refresh
+          {t("common:actions.refresh")}
         </button>
       </div>
 
@@ -1775,7 +1881,7 @@ function DetailPanel({
         {loading ? (
           <div className="flex items-center justify-center h-32 text-slate-400 text-sm gap-2">
             <div className="w-5 h-5 border-2 border-slate-600 border-t-violet-500 rounded-full animate-spin" />
-            Loading ledger...
+            {t("ledger.loading")}
           </div>
         ) : error ? (
           <div className="flex items-center justify-center h-32 text-red-400 text-sm gap-2">
@@ -1785,26 +1891,26 @@ function DetailPanel({
         ) : entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-32 text-slate-500 text-sm gap-2">
             <FileText className="w-8 h-8 opacity-30" />
-            No transactions found
+            {t("ledger.empty")}
           </div>
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-slate-900 sticky top-0 z-10">
               <tr>
-                <th className="text-left text-xs text-slate-400 px-4 py-3 font-medium">
-                  Date
+                <th className="text-start text-xs text-slate-400 px-4 py-3 font-medium">
+                  {t("ledger.date")}
                 </th>
-                <th className="text-left text-xs text-slate-400 px-4 py-3 font-medium">
-                  Type
+                <th className="text-start text-xs text-slate-400 px-4 py-3 font-medium">
+                  {t("ledger.type")}
                 </th>
-                <th className="text-left text-xs text-slate-400 px-4 py-3 font-medium">
-                  Direction
+                <th className="text-start text-xs text-slate-400 px-4 py-3 font-medium">
+                  {t("common.direction")}
                 </th>
-                <th className="text-right text-xs text-slate-400 px-4 py-3 font-medium">
-                  Amount
+                <th className="text-end text-xs text-slate-400 px-4 py-3 font-medium">
+                  {t("ledger.amount")}
                 </th>
-                <th className="text-left text-xs text-slate-400 px-4 py-3 font-medium">
-                  Notes
+                <th className="text-start text-xs text-slate-400 px-4 py-3 font-medium">
+                  {t("ledger.notes")}
                 </th>
                 <th className="w-8" />
               </tr>
@@ -1832,10 +1938,11 @@ function PartnerCard({
   isSelected: boolean;
   onToggle: () => void;
 }) {
+  const { t } = useTranslation("partners");
   return (
     <button
       onClick={onToggle}
-      className={`w-full text-left rounded-xl border p-3 transition-all ${
+      className={`w-full text-start rounded-xl border p-3 transition-all ${
         isSelected
           ? "border-violet-500/60 bg-violet-900/20"
           : `${balanceBorderColor(p.usd, p.lbp)} hover:border-slate-600`
@@ -1848,7 +1955,7 @@ function PartnerCard({
           </span>
           {!p.is_active && (
             <span className="text-xs px-1.5 py-0.5 rounded bg-slate-700 text-slate-500">
-              off
+              {t("card.off")}
             </span>
           )}
           {p.system_association && (
@@ -1866,7 +1973,8 @@ function PartnerCard({
         </div>
         <div className="flex items-center gap-1">
           <BalanceIcon usd={p.usd} lbp={p.lbp} />
-          <ChevronRight
+          <DirIcon
+            icon={ChevronRight}
             className={`w-3.5 h-3.5 transition-transform text-slate-500 ${
               isSelected ? "rotate-90 text-violet-400" : ""
             }`}
@@ -1876,7 +1984,7 @@ function PartnerCard({
       {p.phone && (
         <div className="flex items-center gap-1 text-slate-500 text-xs mb-1.5">
           <Phone className="w-3 h-3" />
-          {p.phone}
+          <Ltr>{p.phone}</Ltr>
         </div>
       )}
       {/* Each currency's own text is coloured off ITS OWN sign only — zero-
@@ -1910,6 +2018,7 @@ function PartnerCard({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function PartnersPage() {
+  const { t } = useTranslation("partners");
   const [partners, setPartners] = useState<PartnerWithBalance[]>([]);
   const [loading, setLoading] = useState(true);
   const [includeInactive, setIncludeInactive] = useState(false);
@@ -1944,11 +2053,11 @@ export function PartnersPage() {
         setSelectedId(null);
       }
     } catch {
-      appEvents.emit("notification:show", "Failed to load partners.", "error");
+      appEvents.emit("notification:show", t("page.loadFailed"), "error");
     } finally {
       setLoading(false);
     }
-  }, [includeInactive, api]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [includeInactive, api, t]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     loadPartners();
@@ -1974,24 +2083,26 @@ export function PartnersPage() {
     <div className="h-full flex flex-col gap-6 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 overflow-hidden animate-in fade-in duration-500">
       {/* ── Header ── */}
       <PageHeader
-        title="Partners"
+        title={t("page.title")}
         actions={
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
               <input
                 type="checkbox"
+                data-testid="partner-show-inactive"
                 checked={includeInactive}
                 onChange={(e) => setIncludeInactive(e.target.checked)}
                 className="rounded border-slate-600 bg-slate-700 text-violet-500"
               />
-              Show inactive
+              {t("page.showInactive")}
             </label>
             <button
+              data-testid="partner-add"
               onClick={() => setShowAddModal(true)}
               className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-lg transition-colors"
             >
               <Plus className="w-4 h-4" />
-              Add Partner
+              {t("page.addPartner")}
             </button>
           </div>
         }
@@ -2015,7 +2126,9 @@ export function PartnersPage() {
           <div className="bg-slate-800 border border-red-700/30 rounded-xl p-3">
             <div className="flex items-center gap-2 mb-1.5">
               <TrendingUp className="w-4 h-4 text-red-400" />
-              <span className="text-xs text-slate-400">Partners owe us</span>
+              <span className="text-xs text-slate-400">
+                {t("page.partnersOweUs")}
+              </span>
             </div>
             <div className="flex items-baseline gap-3">
               <div>
@@ -2039,7 +2152,9 @@ export function PartnersPage() {
           <div className="bg-slate-800 border border-emerald-700/30 rounded-xl p-3">
             <div className="flex items-center gap-2 mb-1.5">
               <TrendingDown className="w-4 h-4 text-emerald-400" />
-              <span className="text-xs text-slate-400">We owe partners</span>
+              <span className="text-xs text-slate-400">
+                {t("page.weOwePartners")}
+              </span>
             </div>
             <div className="flex items-baseline gap-3">
               <div>
@@ -2070,12 +2185,12 @@ export function PartnersPage() {
           {loading ? (
             <div className="flex flex-col items-center justify-center h-32 text-slate-400 text-sm gap-2">
               <div className="w-6 h-6 border-2 border-slate-600 border-t-violet-500 rounded-full animate-spin" />
-              Loading...
+              {t("page.loading")}
             </div>
           ) : partners.length === 0 ? (
             <div className="flex flex-col items-center justify-center flex-1 text-slate-500 text-sm gap-2">
               <Users className="w-8 h-8 opacity-30" />
-              No partners yet
+              {t("page.empty")}
             </div>
           ) : (
             partners.map((p) => (
@@ -2107,14 +2222,14 @@ export function PartnersPage() {
                 if (result.success) {
                   appEvents.emit(
                     "notification:show",
-                    "Partner activated.",
+                    t("page.activated"),
                     "success",
                   );
                   loadPartners();
                 } else {
                   appEvents.emit(
                     "notification:show",
-                    result.error ?? "Failed to activate.",
+                    result.error ?? t("page.activateFailed"),
                     "error",
                   );
                 }
@@ -2125,7 +2240,7 @@ export function PartnersPage() {
               <div className="p-4 bg-slate-800 rounded-2xl border border-slate-700">
                 <Users className="w-10 h-10 opacity-30" />
               </div>
-              <p className="text-sm">Select a partner to view details</p>
+              <p className="text-sm">{t("page.selectPrompt")}</p>
             </div>
           )}
         </div>

@@ -11,6 +11,7 @@
  * `<td>`s from these functions instead.
  */
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { formatDateTime } from "@liratek/ui/i18n/format";
 import {
   formatPaymentMethods,
   methodLegsFor,
@@ -23,38 +24,62 @@ import {
 import type { ProviderBrandKey } from "@/shared/brand/providerBrands";
 import type { TransactionRow } from "./hooks/useTransactionRows";
 
-function formatCreatedAt(
+/**
+ * A stored timestamp as shown in this module. English keeps the en-GB look
+ * ("16 Oct, 09:30") that the export and its tests share; Arabic (LIRA-331)
+ * uses the app's date formatter with the same fields. `format.ts` has no
+ * en-GB, so the English branch stays on the platform formatter.
+ */
+export function formatCreatedAt(
   createdAt: string,
   opts: Intl.DateTimeFormatOptions,
+  language: string = "en",
 ): string {
   if (!createdAt) return "";
   try {
-    return parseDbDate(createdAt).toLocaleString("en-GB", opts);
+    const d = parseDbDate(createdAt);
+    if (language === "ar") return formatDateTime(d, "ar", opts);
+    // i18n-exempt: en-GB text shared with the export (format.ts has no en-GB)
+    return d.toLocaleString("en-GB", opts);
   } catch {
     return createdAt;
   }
 }
 
 /** The Time column: "16 Oct, 09:30". */
-export function timeText(row: Pick<TransactionRow, "created_at">): string {
-  return formatCreatedAt(row.created_at, {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+export function timeText(
+  row: Pick<TransactionRow, "created_at">,
+  language: string = "en",
+): string {
+  return formatCreatedAt(
+    row.created_at,
+    {
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    },
+    language,
+  );
 }
 
 /** With the year — the Details panel and the export's extra sheets:
  *  "16 Oct 2026, 09:30". */
-export function fullTimeText(row: Pick<TransactionRow, "created_at">): string {
-  return formatCreatedAt(row.created_at, {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+export function fullTimeText(
+  row: Pick<TransactionRow, "created_at">,
+  language: string = "en",
+): string {
+  return formatCreatedAt(
+    row.created_at,
+    {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    },
+    language,
+  );
 }
 
 export function clientText(row: Pick<TransactionRow, "client_name">): string {

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { X, Banknote } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
 import { DataTable, DateRangeFilter } from "@liratek/ui";
 import { localDay, localMonth } from "@/shared/utils/localDay";
 import { getCashFlowByDate } from "@/api/backendApi";
@@ -59,10 +61,11 @@ function monthStart(): string {
 }
 
 const usd = (v: number) =>
-  `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const lbp = (v: number) => `${Math.round(v).toLocaleString()} LBP`;
+  `$${formatNumber(v, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const lbp = (v: number) => `${formatNumber(Math.round(v))} LBP`;
 
 export default function CashReportModal({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation("audit");
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState(today());
   const [rows, setRows] = useState<ReportRow[]>([]);
@@ -111,13 +114,13 @@ export default function CashReportModal({ onClose }: { onClose: () => void }) {
           <div className="flex items-center gap-2">
             <Banknote className="w-5 h-5 text-emerald-400" />
             <h2 className="text-lg font-bold text-white">
-              Cash Report — In / Out by Date
+              {t("cashReport.title")}
             </h2>
           </div>
           <button
             onClick={onClose}
             className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
-            aria-label="Close"
+            aria-label={t("cashReport.close")}
           >
             <X size={18} />
           </button>
@@ -131,22 +134,28 @@ export default function CashReportModal({ onClose }: { onClose: () => void }) {
             onToChange={setTo}
           />
           <span className="text-xs text-slate-500">
-            Customer cash only — internal &amp; system movements excluded
+            {t("cashReport.note")}
           </span>
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
           {loading ? (
             <div className="text-center text-slate-400 py-10 text-sm">
-              Loading…
+              {t("cashReport.loading")}
             </div>
           ) : rows.length === 0 ? (
             <div className="text-center text-slate-500 py-10 text-sm">
-              No cash movements in this range.
+              {t("cashReport.empty")}
             </div>
           ) : (
             <DataTable<ReportRow>
-              columns={["Date", "USD In", "USD Out", "LBP In", "LBP Out"]}
+              columns={[
+                t("cashReport.date"),
+                t("cashReport.usdIn"),
+                t("cashReport.usdOut"),
+                t("cashReport.lbpIn"),
+                t("cashReport.lbpOut"),
+              ]}
               data={rows}
               renderRow={(r) => (
                 <tr
@@ -180,12 +189,20 @@ export default function CashReportModal({ onClose }: { onClose: () => void }) {
           className="flex items-center justify-end gap-6 px-5 py-3 border-t border-slate-700 text-sm font-mono"
         >
           <span className="text-slate-400 font-sans text-xs uppercase tracking-wider">
-            Totals
+            {t("cashReport.totals")}
           </span>
-          <span className="text-emerald-400">In {usd(totals.usd_in)}</span>
-          <span className="text-red-400">Out {usd(totals.usd_out)}</span>
-          <span className="text-emerald-400">In {lbp(totals.lbp_in)}</span>
-          <span className="text-red-400">Out {lbp(totals.lbp_out)}</span>
+          <span className="text-emerald-400">
+            {t("cashReport.in", { amount: usd(totals.usd_in) })}
+          </span>
+          <span className="text-red-400">
+            {t("cashReport.out", { amount: usd(totals.usd_out) })}
+          </span>
+          <span className="text-emerald-400">
+            {t("cashReport.in", { amount: lbp(totals.lbp_in) })}
+          </span>
+          <span className="text-red-400">
+            {t("cashReport.out", { amount: lbp(totals.lbp_out) })}
+          </span>
         </div>
       </div>
     </div>

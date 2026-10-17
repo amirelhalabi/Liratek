@@ -1,1 +1,156 @@
-{}
+{
+  "page": {
+    "title": "الشركاء",
+    "showInactive": "إظهار غير النشطين",
+    "addPartner": "إضافة شريك",
+    "partnersOweUs": "الشركاء مدينون لنا",
+    "weOwePartners": "نحن مدينون للشركاء",
+    "loading": "جارٍ التحميل...",
+    "empty": "لا يوجد شركاء بعد",
+    "selectPrompt": "اختر شريكاً لعرض التفاصيل",
+    "loadFailed": "تعذّر تحميل الشركاء.",
+    "activated": "تم تفعيل الشريك.",
+    "activateFailed": "تعذّر التفعيل."
+  },
+  "card": {
+    "off": "متوقف"
+  },
+  "common": {
+    "notes": "ملاحظات",
+    "notesPlaceholder": "ملاحظات (اختياري)...",
+    "amount": "المبلغ",
+    "currency": "العملة",
+    "direction": "الاتجاه",
+    "balanceUsd": "الرصيد USD",
+    "balanceLbp": "الرصيد LBP",
+    "enterValidAmount": "أدخل مبلغاً صحيحاً.",
+    "unexpectedError": "حدث خطأ غير متوقع.",
+    "processing": "جارٍ التنفيذ...",
+    "cashMoved": "تحرّك الكاش",
+    "debitTheyOweUs": "مدين (هم مدينون لنا)",
+    "creditWeOweThem": "دائن (نحن مدينون لهم)"
+  },
+  "form": {
+    "addTitle": "إضافة شريك",
+    "editTitle": "تعديل الشريك",
+    "name": "الاسم",
+    "namePlaceholder": "اسم الشريك",
+    "phone": "الهاتف",
+    "systemAssociation": "النظام المرتبط",
+    "none": "لا شيء",
+    "systemHint": "اربط هذا الشريك بنظام مزوّد. حالياً OMT وWhish فقط يتحكّمان بالعمليات على صفحتهما — الأنظمة الأخرى للتسجيل فقط.",
+    "nameRequired": "اسم الشريك مطلوب.",
+    "updated": "تم تعديل الشريك.",
+    "created": "تمت إضافة الشريك.",
+    "saveFailed": "تعذّر حفظ الشريك.",
+    "saveError": "حدث خطأ غير متوقع أثناء حفظ الشريك.",
+    "saving": "جارٍ الحفظ...",
+    "update": "تعديل",
+    "create": "إضافة"
+  },
+  "settle": {
+    "title": "تسوية – {{name}}",
+    "confirm": "تأكيد التسوية",
+    "cashMovedHint": "— هذه التسوية تحرّك الصندوق عبر الدفعات أدناه. أزل العلامة لتسوية على الورق فقط (بدون تغيير في الصندوق).",
+    "forgive": "مسامحة (بدون كاش)",
+    "forgiveAmount": "مبلغ المسامحة",
+    "capped": "محدود بالحد الأقصى ({{amount}})",
+    "lowerPayment": "خفّض الدفعة لتسامح بجزء منها.",
+    "reasonPlaceholder": "السبب (اختياري)...",
+    "afterForgive": "بعد المسامحة",
+    "partnerWillOwe": "سيبقى على الشريك",
+    "partnerAccount": "حساب الشريك",
+    "recordedDiscount": "تم تسجيل التسوية (حسم {{amount}})",
+    "recorded": "تم تسجيل التسوية.",
+    "failed": "تعذّرت التسوية.",
+    "error": "حدث خطأ غير متوقع أثناء التسوية."
+  },
+  "record": {
+    "title": "إضافة دائن / مدين – {{name}}",
+    "cashMovedHint": "— هذا القيد يسجّل كاش فعلياً:",
+    "cashOut": "كاش خارج من الصندوق إلى الشريك (سلفة)",
+    "cashIn": "كاش داخل من الشريك",
+    "paperHint": ". اتركه بدون علامة لتصحيح على الورق (بدون تغيير في الصندوق).",
+    "recording": "جارٍ التسجيل...",
+    "submit": "إضافة دائن / مدين",
+    "recorded": "تم تسجيل العملية.",
+    "failed": "تعذّر تسجيل العملية.",
+    "error": "حدث خطأ غير متوقع أثناء تسجيل العملية."
+  },
+  "writeOff": {
+    "title": "شطب – {{name}}",
+    "intro": "نسامح بجزء مما يدين لنا به {{name}} — بدون حركة كاش.",
+    "amountOwed": "المبلغ — المستحق {{amount}}",
+    "reason": "السبب",
+    "reasonPlaceholder": "السبب (اختياري)...",
+    "submit": "شطب",
+    "done": "تم شطب الرصيد.",
+    "failed": "تعذّر الشطب."
+  },
+  "deactivate": {
+    "title": "إيقاف الشريك",
+    "confirm": "هل أنت متأكد من إيقاف <name>{{name}}</name>؟ سيُخفى من القائمة النشطة ويبقى سجلّه محفوظاً.",
+    "deactivating": "جارٍ الإيقاف...",
+    "submit": "إيقاف",
+    "done": "تم إيقاف الشريك.",
+    "failed": "تعذّر الإيقاف."
+  },
+  "ledger": {
+    "via": "عبر {{method}}",
+    "debit": "مدين",
+    "credit": "دائن",
+    "customer": "الزبون",
+    "ref": "رقم المرجع",
+    "phone": "الهاتف",
+    "provider": "المزوّد",
+    "amount": "المبلغ",
+    "fee": "+ {{amount}} رسم",
+    "txnId": "رقم العملية",
+    "loadFailed": "تعذّر تحميل السجل.",
+    "loading": "جارٍ تحميل السجل...",
+    "empty": "لا توجد عمليات",
+    "date": "التاريخ",
+    "type": "النوع",
+    "notes": "ملاحظات"
+  },
+  "detail": {
+    "inactive": "غير نشط",
+    "system": "نظام {{system}}",
+    "edit": "تعديل",
+    "settle": "تسوية",
+    "addCredit": "إضافة دائن / مدين",
+    "writeOffTitle": "مسامحة بجزء مما يدين لنا به الشريك",
+    "writeOff": "شطب",
+    "deactivate": "إيقاف",
+    "activate": "تفعيل",
+    "usdBalance": "رصيد USD",
+    "lbpBalance": "رصيد LBP",
+    "theyOweUs": "مدينون لنا",
+    "weOweThem": "نحن مدينون لهم",
+    "settled": "مسدَّد",
+    "forOurSystem": "FOR (نظامنا)",
+    "throughTheirSystem": "THROUGH (نظامهم)",
+    "settlementsAdj": "تسويات / تعديلات"
+  },
+  "filters": {
+    "allModes": "كل الأنماط",
+    "allProviders": "كل المزوّدين",
+    "allDirections": "كل الاتجاهات",
+    "debit": "مدين (هم مدينون لنا)",
+    "credit": "دائن (نحن مدينون لهم)",
+    "clearAll": "مسح الكل"
+  },
+  "selector": {
+    "loading": "جارٍ تحميل الشركاء…",
+    "loadFailed": "تعذّر تحميل الشركاء{{detail}}.",
+    "none": "لا يوجد شركاء. أضف شريكاً أولاً.",
+    "noneWithSystem": "لا يوجد شركاء بنظام {{system}}. أضف شريكاً أولاً.",
+    "single": "الشريك: {{name}}",
+    "label": "الشريك:",
+    "selectPartner": "اختر الشريك",
+    "direct": "مباشر (بدون شريك)"
+  },
+  "toggle": {
+    "forPartner": "لشريك"
+  }
+}
