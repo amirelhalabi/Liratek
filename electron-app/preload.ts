@@ -32,6 +32,8 @@ import type {
   CreateCustomServicePayload,
   // LIRA-293 — change your own password (core schema input, rule 21).
   ChangeOwnPasswordInput,
+  // LIRA-331 — a user's own UI language (core schema input, rule 21).
+  SetMyLanguageInput,
   // LIRA-296 — warranty payloads (core schema inputs, rule 21).
   WarrantySearchInput,
   CreateWarrantyClaimInput,
@@ -81,6 +83,13 @@ import type { DesktopPairInput, DesktopUnpairInput } from "@liratek/core" with {
 console.log("[PRELOAD] Starting preload script...");
 
 contextBridge.exposeInMainWorld("api", {
+  // LIRA-331: the CALLER's own preferences (user from the session guard,
+  // never the payload).
+  userPreferences: {
+    get: () => ipcRenderer.invoke("user-preferences:get"),
+    setLanguage: (data: SetMyLanguageInput) =>
+      ipcRenderer.invoke("user-preferences:set-language", data),
+  },
   // Auth & Users
   auth: {
     login: (username: string, password: string, rememberMe?: boolean) =>

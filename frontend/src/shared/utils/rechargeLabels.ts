@@ -1,4 +1,5 @@
 import { RECHARGE_SUBTYPE_LABELS } from "@liratek/core";
+import { formatNumber } from "@liratek/ui/i18n/format";
 
 /** Recharge subtype → human label — core's shared list (LIRA-301), re-exported for this app. */
 export { RECHARGE_SUBTYPE_LABELS };
@@ -12,7 +13,8 @@ export { RECHARGE_SUBTYPE_LABELS };
 function describeRechargeAmount(type: string, amount: number): string {
   if (type === "DAYS") return `${amount} days`;
   if (type === "TOP_UP") return "";
-  return `$${amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  // LIRA-331: en-US pinned, never the machine locale (FR-016, rule 27).
+  return `$${formatNumber(amount, { maximumFractionDigits: 2 })}`;
 }
 
 /** "<subtype label> <face value>", e.g. "Credits $6" — used on receipts. */

@@ -1,6 +1,9 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
+// LIRA-331: the i18next instance, English loaded synchronously before the
+// first render (no flash of keys).
+import "@/i18n/setup";
 import App from "./app/App";
 import { bootstrapImpersonationSession } from "@/features/admin/utils/impersonation";
 import { normalizeSignupLink } from "@/features/auth/utils/normalizeSignupLink";

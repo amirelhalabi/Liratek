@@ -1,0 +1,129 @@
+{
+  "$comment": "LIRA-331: which source files each namespace covers. The most specific (longest) matching path wins. A namespace counts as converted once locales/en/<ns>.json holds a key; from then on scripts/check-i18n.mjs guards its files. whatsNew is deliberately absent (FR-012).",
+  "scopes": {
+    "common": [],
+    "layout": [
+      "frontend/src/app",
+      "frontend/src/components",
+      "frontend/src/shared/components/layouts"
+    ],
+    "ui": [
+      "packages/ui/src/components/ui"
+    ],
+    "payment": [
+      "packages/ui/src/components/ui/MultiPaymentInput.tsx"
+    ],
+    "shared": [
+      "frontend/src/shared",
+      "frontend/src/hooks",
+      "frontend/src/contexts"
+    ],
+    "auth": [
+      "frontend/src/features/auth"
+    ],
+    "account": [
+      "frontend/src/features/account"
+    ],
+    "admin": [
+      "frontend/src/features/admin"
+    ],
+    "audit": [
+      "frontend/src/features/audit"
+    ],
+    "clients": [
+      "frontend/src/features/clients"
+    ],
+    "closing": [
+      "frontend/src/features/closing"
+    ],
+    "customServices": [
+      "frontend/src/features/custom-services"
+    ],
+    "dashboard": [
+      "frontend/src/features/dashboard"
+    ],
+    "debts": [
+      "frontend/src/features/debts"
+    ],
+    "exchange": [
+      "frontend/src/features/exchange"
+    ],
+    "expenses": [
+      "frontend/src/features/expenses"
+    ],
+    "inventory": [
+      "frontend/src/features/inventory"
+    ],
+    "loto": [
+      "frontend/src/features/loto"
+    ],
+    "maintenance": [
+      "frontend/src/features/maintenance"
+    ],
+    "offline": [
+      "frontend/src/features/offline"
+    ],
+    "partners": [
+      "frontend/src/features/partners"
+    ],
+    "phoneLines": [
+      "frontend/src/features/phoneLines"
+    ],
+    "profits": [
+      "frontend/src/features/profits"
+    ],
+    "recharge": [
+      "frontend/src/features/recharge"
+    ],
+    "rechargeFinancial": [
+      "frontend/src/features/recharge/components/FinancialForm.tsx",
+      "frontend/src/features/recharge/components/OmtWhishAppTransferForm.tsx",
+      "frontend/src/features/recharge/components/CryptoForm.tsx",
+      "frontend/src/features/recharge/components/PaymentSheet.tsx",
+      "frontend/src/features/recharge/components/HistoryModal.tsx",
+      "frontend/src/features/recharge/components/OmtAppCashoutModal.tsx",
+      "frontend/src/features/recharge/components/WalletExchangePanel.tsx",
+      "frontend/src/features/recharge/components/WhishCurrencySwitch.tsx",
+      "frontend/src/features/recharge/components/NewServiceItemInlineForm.tsx"
+    ],
+    "sales": [
+      "frontend/src/features/sales"
+    ],
+    "services": [
+      "frontend/src/features/services"
+    ],
+    "sessions": [
+      "frontend/src/features/sessions"
+    ],
+    "settings": [
+      "frontend/src/features/settings"
+    ],
+    "settingsCatalog": [
+      "frontend/src/features/settings/pages/Settings/MobileServicesManager.tsx",
+      "frontend/src/features/settings/pages/Settings/CategoriesManager.tsx"
+    ],
+    "setup": [
+      "frontend/src/features/setup"
+    ],
+    "suppliers": [
+      "frontend/src/features/suppliers"
+    ],
+    "vouchers": [
+      "frontend/src/features/vouchers"
+    ],
+    "warranty": [
+      "frontend/src/features/warranty"
+    ],
+    "wrongNumbers": [
+      "frontend/src/features/wrongNumbers"
+    ],
+    "receipts": [
+      "frontend/src/shared/utils/printReceipt.ts",
+      "frontend/src/shared/utils/serviceReceipt.ts",
+      "frontend/src/shared/utils/receiptWrap.ts",
+      "frontend/src/features/sales/utils/receiptFormatter.ts"
+    ],
+    "reports": [],
+    "mobile": []
+  }
+}

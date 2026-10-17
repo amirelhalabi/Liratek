@@ -1,0 +1,51 @@
+{
+  "actions": {
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "close": "إغلاق",
+    "delete": "حذف",
+    "edit": "تعديل",
+    "confirm": "تأكيد",
+    "search": "بحث",
+    "print": "طباعة",
+    "add": "إضافة",
+    "back": "رجوع",
+    "next": "التالي",
+    "retry": "إعادة المحاولة",
+    "refresh": "تحديث",
+    "clear": "مسح",
+    "apply": "تطبيق",
+    "submit": "إرسال",
+    "export": "تصدير",
+    "view": "عرض"
+  },
+  "currency": {
+    "USD": "USD",
+    "LBP": "LBP",
+    "EUR": "EUR",
+    "usdName": "الدولار الأميركي",
+    "lbpName": "الليرة اللبنانية"
+  },
+  "payment": {
+    "CASH": "كاش",
+    "OMT": "محفظة OMT",
+    "WHISH": "محفظة Whish",
+    "BINANCE": "Binance",
+    "CUSTOMER_ACCOUNT": "حساب الزبون",
+    "GIFT_CARD": "بطاقة هدية / قسيمة"
+  },
+  "yes": "نعم",
+  "no": "لا",
+  "state": {
+    "loading": "جارٍ التحميل...",
+    "saving": "جارٍ الحفظ...",
+    "empty": "لا شيء لعرضه",
+    "noResults": "لا نتائج",
+    "error": "حدث خطأ ما",
+    "required": "مطلوب"
+  },
+  "language": {
+    "en": "English",
+    "ar": "العربية"
+  }
+}

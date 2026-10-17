@@ -3,6 +3,7 @@
  */
 
 import { PAYMENT_TOLERANCE } from "@/constants/checkout";
+import { formatNumber } from "@liratek/ui/i18n/format";
 import type { PaymentLine } from "@liratek/ui";
 import {
   HOLD_MONEY_METHODS,
@@ -174,7 +175,8 @@ export function formatCurrency(
   if (currency === "USD") {
     return `$${amount.toFixed(2)}`;
   }
-  return `${amount.toLocaleString()} LBP`;
+  // LIRA-331: en-US pinned, never the machine locale (FR-016, rule 27).
+  return `${formatNumber(amount)} LBP`;
 }
 
 /**

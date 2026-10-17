@@ -8,6 +8,8 @@
 
 import type { ApiAdapter } from "@liratek/ui";
 import type {
+  // LIRA-331 — a user's own UI language (rule 21).
+  SetMyLanguageInput,
   // LIRA-309 — phone lines held for sale.
   ListResaleLinesQueryInput,
   SaveResaleLineInput,
@@ -195,6 +197,9 @@ export class ElectronApiAdapter implements ApiAdapter {
   listUserSessions = () => api.listUserSessions();
   revokeSession = (id: number) => api.revokeSession(id);
   revokeOtherSessions = () => api.revokeOtherSessions();
+  // LIRA-331: the caller's own UI language.
+  getMyPreferences = () => api.getMyPreferences();
+  setMyLanguage = (payload: SetMyLanguageInput) => api.setMyLanguage(payload);
 
   // ---------------------------------------------------------------------------
   // Clients

@@ -668,6 +668,9 @@ async function registerHandlers() {
     const databaseResetHandlers =
       await import("./handlers/databaseResetHandlers.js");
     const offlineHandlers = await import("./handlers/offlineHandlers.js");
+    // LIRA-331: a user's own UI language.
+    const userPreferencesHandlers =
+      await import("./handlers/userPreferencesHandlers.js");
 
     // Register all handlers
     authHandlers.registerAuthHandlers();
@@ -719,6 +722,7 @@ async function registerHandlers() {
     licenseHandlers.registerLicenseHandlers();
     databaseResetHandlers.registerDatabaseResetHandlers();
     offlineHandlers.registerOfflineHandlers();
+    userPreferencesHandlers.registerUserPreferencesHandlers();
 
     // Windows focus fix handler
     ipcMain.on("display:fix-focus", (event) => {

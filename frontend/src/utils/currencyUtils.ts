@@ -4,6 +4,7 @@
  * Shared utilities for currency-related calculations and display.
  * Schema (v59): (to_code, market_rate, buy_rate, sell_rate, is_stronger)
  */
+import { formatNumber } from "@liratek/ui/i18n/format";
 
 export interface ExchangeRate {
   id?: number;
@@ -67,7 +68,8 @@ export function formatCurrencyAmount(
   decimals?: number,
 ): string {
   const places = decimals ?? (currency === "LBP" ? 0 : 2);
-  return amount.toLocaleString(undefined, {
+  // LIRA-331: en-US pinned, never the machine locale (FR-016, rule 27).
+  return formatNumber(amount, {
     minimumFractionDigits: places,
     maximumFractionDigits: places,
   });

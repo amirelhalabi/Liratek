@@ -3,6 +3,7 @@ import { lazyWithReload } from "@/shared/utils/lazyWithReload";
 import { Suspense, useEffect } from "react";
 import { AuthProvider, useAuth } from "@/features/auth/context/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
+import { LanguageProvider } from "@/contexts/LanguageContext";
 import {
   SessionProvider,
   useSession,
@@ -560,6 +561,9 @@ function App() {
                     Timeline, one drawer card of ten — that a reload fixed.
                     They ALSO need to be here for their auth gate to work at
                     all: useAuth() throws outside AuthProvider. */}
+                    {/* LIRA-331: below AuthProvider (it reads the signed-in
+                    user's language) and above every page. */}
+                    <LanguageProvider>
                     <ModuleProvider>
                       <FeatureFlagProvider>
                         {/* Mounted below AuthProvider so the currency load runs
@@ -587,6 +591,7 @@ function App() {
                         </CurrencyProvider>
                       </FeatureFlagProvider>
                     </ModuleProvider>
+                    </LanguageProvider>
                   </AuthProvider>
                 </ActiveModuleProvider>
               </HashRouter>

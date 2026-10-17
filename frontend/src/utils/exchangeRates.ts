@@ -6,6 +6,7 @@
  */
 
 import { readUsdLbpRates } from "@liratek/core";
+import { formatNumber } from "@liratek/ui/i18n/format";
 
 export type RateType = "BUY" | "SELL" | "N/A";
 
@@ -161,7 +162,8 @@ export function getRateLabel(rateType: RateType): string {
  * Format rate for display
  */
 export function formatRate(rate: number): string {
-  return `1 USD = ${rate.toLocaleString()} LBP`;
+  // LIRA-331: en-US pinned, never the machine locale (FR-016, rule 27).
+  return `1 USD = ${formatNumber(rate)} LBP`;
 }
 
 // ============================================================================

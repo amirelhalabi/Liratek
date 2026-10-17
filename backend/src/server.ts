@@ -178,6 +178,8 @@ import whatsappRoutes from "./api/whatsapp.js";
 // "Contracts"). Mounted up front so each feature edits only its own file.
 import userInvitationsRoutes from "./api/userInvitations.js";
 import userEmailRoutes from "./api/userEmail.js";
+// LIRA-331: a user's own UI language.
+import userPreferencesRoutes from "./api/userPreferences.js";
 import offlineRoutes from "./api/offline.js";
 import { startOfflineProcessorTimer } from "./offline/processorTimer.js";
 import passwordResetRoutes from "./api/passwordReset.js";
@@ -271,6 +273,7 @@ app.use("/api/whatsapp", whatsappRoutes);
 // routes and applies authenticateJWT + requireRole per route.
 app.use("/api/user-invitations", userInvitationsRoutes);
 app.use("/api/user-email", userEmailRoutes);
+app.use("/api/user-preferences", userPreferencesRoutes);
 app.use("/api/password-reset", passwordResetRoutes);
 // LIRA-306 offline desktop fallback: PC device-key routes (review routes: US3).
 app.use("/api/offline", offlineRoutes);

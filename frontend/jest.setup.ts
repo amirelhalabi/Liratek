@@ -1,5 +1,9 @@
 import "@testing-library/jest-dom";
 import { TextEncoder, TextDecoder } from "util";
+// LIRA-331 (research R8): the app's i18next instance, initialised
+// synchronously in English, so every component using useTranslation renders
+// the same English text existing assertions expect.
+import "@/i18n/setup";
 
 // Polyfill TextEncoder/TextDecoder for jsdom (needed by jsPDF / iobuffer)
 if (typeof globalThis.TextEncoder === "undefined") {

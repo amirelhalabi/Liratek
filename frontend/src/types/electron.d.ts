@@ -40,6 +40,9 @@ import type {
   // LIRA-293 — change your own password (core schema input + answer).
   ChangeOwnPasswordInput,
   ChangeOwnPasswordResult,
+  // LIRA-331 — a user's own UI language (core schema input + answer).
+  SetMyLanguageInput,
+  MyPreferences,
   // LIRA-296 — warranty search (core schema input + row) and the category
   // update payload (incl. warranty_months).
   WarrantySearchInput,
@@ -784,6 +787,21 @@ export interface SafeSession {
 }
 
 export interface ElectronAPI {
+  // LIRA-331: the caller's own preferences (user from the session guard).
+  userPreferences: {
+    get: () => Promise<{
+      success: boolean;
+      data?: MyPreferences;
+      error?: string;
+      code?: string;
+    }>;
+    setLanguage: (data: SetMyLanguageInput) => Promise<{
+      success: boolean;
+      data?: MyPreferences;
+      error?: string;
+      code?: string;
+    }>;
+  };
   // Auth & Users
   auth: {
     login: (

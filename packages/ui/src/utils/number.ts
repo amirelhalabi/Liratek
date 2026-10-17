@@ -6,6 +6,7 @@
  * typed string as state, render it through `formatWithCommas`, and sanitize
  * keystrokes with `sanitizeDecimal`.
  */
+import { normalizeDigits } from "../i18n/digits";
 
 export interface DecimalConstraints {
   /** Allow a leading minus sign. Default false. */
@@ -55,7 +56,9 @@ export function sanitizeDecimal(
   input: string,
   { allowNegative = false, decimals }: DecimalConstraints = {},
 ): string {
-  let s = input.replace(/,/g, "");
+  // LIRA-331 (FR-017): Arabic-Indic digits typed by a cashier become the same
+  // Western number before anything else, so the saved value never differs.
+  let s = normalizeDigits(input).replace(/,/g, "");
   const negative = allowNegative && s.trimStart().startsWith("-");
   s = s.replace(/[^0-9.]/g, "");
   const firstDot = s.indexOf(".");

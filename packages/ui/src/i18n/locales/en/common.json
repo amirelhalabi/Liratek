@@ -1,0 +1,51 @@
+{
+  "actions": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "close": "Close",
+    "delete": "Delete",
+    "edit": "Edit",
+    "confirm": "Confirm",
+    "search": "Search",
+    "print": "Print",
+    "add": "Add",
+    "back": "Back",
+    "next": "Next",
+    "retry": "Retry",
+    "refresh": "Refresh",
+    "clear": "Clear",
+    "apply": "Apply",
+    "submit": "Submit",
+    "export": "Export",
+    "view": "View"
+  },
+  "currency": {
+    "USD": "USD",
+    "LBP": "LBP",
+    "EUR": "EUR",
+    "usdName": "US dollar",
+    "lbpName": "Lebanese lira"
+  },
+  "payment": {
+    "CASH": "Cash",
+    "OMT": "OMT Wallet",
+    "WHISH": "Whish Wallet",
+    "BINANCE": "Binance",
+    "CUSTOMER_ACCOUNT": "Customer Account",
+    "GIFT_CARD": "Gift Card / Voucher"
+  },
+  "yes": "Yes",
+  "no": "No",
+  "state": {
+    "loading": "Loading...",
+    "saving": "Saving...",
+    "empty": "Nothing to show",
+    "noResults": "No results",
+    "error": "Something went wrong",
+    "required": "Required"
+  },
+  "language": {
+    "en": "English",
+    "ar": "العربية"
+  }
+}

@@ -7,6 +7,8 @@
 
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
+// LIRA-331 — a user's own UI language (schema-derived, rule 21).
+import type { MyPreferences, SetMyLanguageInput } from "@liratek/core";
 // LIRA-309 — phone lines held for sale (schema-derived payload types, rule 21).
 import type {
   ListResaleLinesQueryInput,
@@ -1156,6 +1158,20 @@ export type ApiAdapter = {
     success: boolean;
     data?: { revoked: number };
     error?: string;
+  }>;
+  /**
+   * LIRA-331: the caller's own preferences (UI language). A read: returns
+   * the raw shape and THROWS when the server refuses or is unreachable, so
+   * the caller keeps its cached language.
+   */
+  getMyPreferences: () => Promise<MyPreferences>;
+  /** LIRA-331: set the caller's own UI language (the user comes from the
+   * session/JWT, never the payload). A write: returns the envelope. */
+  setMyLanguage: (payload: SetMyLanguageInput) => Promise<{
+    success: boolean;
+    data?: MyPreferences;
+    error?: string;
+    code?: string;
   }>;
 
   // ---------------------------------------------------------------------------

@@ -9085,3 +9085,56 @@ export async function resolveDefectiveItem(
       ),
   );
 }
+
+// ---------------------------------------------------------------------------
+// LIRA-331 — a user's own UI language (contracts/user-preferences-api.md).
+// IPC `user-preferences:*` on desktop, `/api/user-preferences/me*` on the web,
+// ONE payload typed from core's schema (rules 21/22). The user is always the
+// signed-in one (session / JWT), never a payload field.
+// ---------------------------------------------------------------------------
+import type { MyPreferences, SetMyLanguageInput } from "@liratek/core";
+
+type PreferencesEnvelope = {
+  success: boolean;
+  data?: MyPreferences;
+  error?: string;
+  code?: string;
+};
+
+/** Read: the raw preferences. Throws when the server refuses or is
+ * unreachable, so the caller keeps its cached language. */
+export async function getMyPreferences(): Promise<MyPreferences> {
+  const res = await ipcOrHttp<PreferencesEnvelope>(
+    async () => getElectronApi().userPreferences.get(),
+    async () =>
+      requestJson<PreferencesEnvelope>("/api/user-preferences/me", {
+        method: "GET",
+      }),
+  );
+  if (!res.success || !res.data) {
+    throw new Error(res.error ?? "Could not load your preferences");
+  }
+  return res.data;
+}
+
+/** Write: the envelope (never throws on a refusal). */
+export async function setMyLanguage(
+  payload: SetMyLanguageInput,
+): Promise<PreferencesEnvelope> {
+  return ipcOrHttp<PreferencesEnvelope>(
+    async () => getElectronApi().userPreferences.setLanguage(payload),
+    async () => {
+      try {
+        return await requestJson<PreferencesEnvelope>(
+          "/api/user-preferences/me/language",
+          { method: "PUT", body: payload },
+        );
+      } catch (err) {
+        return {
+          success: false,
+          error: messageFrom(err, "Could not save your language"),
+        };
+      }
+    },
+  );
+}
