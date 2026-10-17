@@ -70,7 +70,7 @@ function cells(name: string): HTMLElement[] {
   return Array.from(row.querySelectorAll("td")) as HTMLElement[];
 }
 
-async function runFlow(): Promise<unknown[][]> {
+async function runFlow(sixMonths = "6"): Promise<unknown[][]> {
   jest.clearAllMocks();
   mockGetCategoriesFull.mockResolvedValue([LAPTOPS, CABLES]);
   mockApi.getProductSuppliersFull.mockResolvedValue([]);
@@ -122,7 +122,7 @@ async function runFlow(): Promise<unknown[][]> {
 
   // 6. Default warranty: set Cables to 6, clear Laptops (→ null).
   const cablesWarranty = cells("Cables")[3].querySelector("input")!;
-  fireEvent.change(cablesWarranty, { target: { value: "6" } });
+  fireEvent.change(cablesWarranty, { target: { value: sixMonths } });
   fireEvent.blur(cablesWarranty);
   await waitFor(() => expect(mockUpdateCategory).toHaveBeenCalledTimes(5));
   await screen.findByText("Laptops");
@@ -139,10 +139,10 @@ async function runFlow(): Promise<unknown[][]> {
   return calls;
 }
 
-async function inLanguage(lang: "en" | "ar") {
+async function inLanguage(lang: "en" | "ar", sixMonths = "6") {
   await loadLanguage(lang);
   await i18n.changeLanguage(lang);
-  return runFlow();
+  return runFlow(sixMonths);
 }
 
 afterEach(async () => {
@@ -164,5 +164,14 @@ describe("CategoriesManager — category payloads are identical in English and A
       ["update", 2, { warranty_months: 6 }],
       ["update", 1, { warranty_months: null }],
     ]);
+  });
+
+  // LIRA-331: added with the conversion; NOT RUN when written (owner paused
+  // test runs until every LIRA-331 agent finishes). The old number field
+  // would have dropped "٦"; the converted one normalises it.
+  it("a warranty typed in Arabic-Indic digits saves as the same number", async () => {
+    const en = await inLanguage("en", "6");
+    const ar = await inLanguage("ar", "٦");
+    expect(ar).toEqual(en);
   });
 });

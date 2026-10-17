@@ -1,4 +1,7 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
+import { categoryLabel } from "@/features/inventory/categoryLabel";
 import { Plus, Pencil, Trash2, Check, X, Tag, Truck } from "lucide-react";
 import { DataTable, useApi } from "@liratek/ui";
 import {
@@ -23,8 +26,6 @@ interface Category {
   serial_required?: string | null;
 }
 
-const WARRANTY_RANGE_MESSAGE = "Warranty must be 0 to 60 whole months.";
-
 /**
  * LIRA-296 — one category's "Default warranty (months)" box. Empty means
  * "No warranty". Saves on blur or Enter, only when the value changed; the
@@ -39,15 +40,16 @@ function CategoryWarrantyInput({
   onSave: (months: number | null) => void;
   onInvalid: (message: string) => void;
 }) {
+  const { t, i18n } = useTranslation("settingsCatalog");
   // The parent keys this box by the saved value, so a reload re-seeds it.
   const current = category.warranty_months ?? null;
   const [value, setValue] = useState(current === null ? "" : String(current));
 
   const commit = () => {
-    const trimmed = value.trim();
+    const trimmed = normalizeDigits(value).trim();
     const next = trimmed === "" ? null : Number(trimmed);
     if (next !== null && !warrantyMonthsSchema.safeParse(next).success) {
-      onInvalid(WARRANTY_RANGE_MESSAGE);
+      onInvalid(t("categories.warrantyRange"));
       return;
     }
     if (next !== current) onSave(next);
@@ -55,14 +57,13 @@ function CategoryWarrantyInput({
 
   return (
     <input
-      type="number"
-      min={0}
-      max={60}
-      step={1}
+      type="text"
       inputMode="numeric"
       value={value}
-      placeholder="No warranty"
-      aria-label={`Default warranty (months) for ${category.name}`}
+      placeholder={t("categories.noWarranty")}
+      aria-label={t("categories.warrantyAria", {
+        name: categoryLabel(category.name, i18n.language),
+      })}
       onChange={(e) => setValue(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => {
@@ -83,6 +84,9 @@ interface ProductSupplier {
 
 export default function CategoriesManager() {
   const api = useApi();
+  const { t, i18n } = useTranslation("settingsCatalog");
+  /** OD-3: a seeded category name shows translated; the stored name is data. */
+  const shown = (name: string) => categoryLabel(name, i18n.language);
 
   // ── Categories state ───────────────────────────────────────────────
   const [categories, setCategories] = useState<Category[]>([]);
@@ -176,7 +180,7 @@ export default function CategoriesManager() {
     if (res?.success) {
       setNewName("");
       load();
-    } else setError(res?.error ?? "Failed to create category");
+    } else setError(res?.error ?? t("categories.createFailed"));
   };
 
   const handleUpdate = async (id: number) => {
@@ -186,7 +190,7 @@ export default function CategoriesManager() {
     if (res?.success) {
       setEditingId(null);
       load();
-    } else setError(res?.error ?? "Failed to update");
+    } else setError(res?.error ?? t("categories.updateFailed"));
   };
 
   // LIRA-143 Phase 6b — decision #9's per-category IMEI-tracking toggle.
@@ -197,7 +201,7 @@ export default function CategoriesManager() {
       tracks_imei_units: nextValue,
     });
     if (res?.success) load();
-    else setError(res?.error ?? "Failed to update");
+    else setError(res?.error ?? t("categories.updateFailed"));
   };
 
   // LIRA-296 — the category's default warranty (null = no warranty).
@@ -205,7 +209,7 @@ export default function CategoriesManager() {
     setError("");
     const res = await api.updateCategory(cat.id, { warranty_months: months });
     if (res?.success) load();
-    else setError(res?.error ?? "Failed to update");
+    else setError(res?.error ?? t("categories.updateFailed"));
   };
 
   // LIRA-296 P3 — the serial name and the sale-without-serial rule.
@@ -216,26 +220,24 @@ export default function CategoriesManager() {
     setError("");
     const res = await api.updateCategory(cat.id, patch);
     if (res?.success) load();
-    else setError(res?.error ?? "Failed to update");
+    else setError(res?.error ?? t("categories.updateFailed"));
   };
 
   const handleDelete = async (id: number, name: string) => {
     if (
-      !confirm(
-        `Delete category "${name}"? Products in this category will keep their current label.`,
-      )
+      !confirm(t("categories.deleteConfirm", { name: shown(name) }))
     )
       return;
     const res = await api.deleteCategory(id);
     if (res?.success) load();
-    else setError(res?.error ?? "Failed to delete");
+    else setError(res?.error ?? t("categories.deleteFailed"));
   };
 
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return;
     if (
       !confirm(
-        `Delete ${selectedIds.size} selected categor${selectedIds.size === 1 ? "y" : "ies"}? Products will keep their current labels.`,
+        t("categories.batchDeleteConfirm", { count: selectedIds.size }),
       )
     )
       return;
@@ -246,9 +248,7 @@ export default function CategoriesManager() {
       if (!res?.success) failed++;
     }
     if (failed > 0)
-      setError(
-        `${failed} categor${failed === 1 ? "y" : "ies"} failed to delete.`,
-      );
+      setError(t("categories.batchFailed", { count: failed }));
     load();
   };
 
@@ -264,7 +264,7 @@ export default function CategoriesManager() {
     if (res?.success) {
       setNewSuppName("");
       loadSuppliers();
-    } else setSuppError(res?.error ?? "Failed to create supplier");
+    } else setSuppError(res?.error ?? t("suppliers.createFailed"));
   };
 
   const handleUpdateSupplier = async (id: number) => {
@@ -278,14 +278,12 @@ export default function CategoriesManager() {
     if (res?.success) {
       setSuppEditingId(null);
       loadSuppliers();
-    } else setSuppError(res?.error ?? "Failed to update");
+    } else setSuppError(res?.error ?? t("categories.updateFailed"));
   };
 
   const handleDeleteSupplier = async (id: number, name: string) => {
     if (
-      !confirm(
-        `Delete supplier "${name}"? Products will keep their current supplier label.`,
-      )
+      !confirm(t("suppliers.deleteConfirm", { name }))
     )
       return;
     // Rule 19: was a raw, optional-chained
@@ -294,14 +292,14 @@ export default function CategoriesManager() {
     // transports.
     const res = await api.deleteProductSupplier(id);
     if (res?.success) loadSuppliers();
-    else setSuppError(res?.error ?? "Failed to delete");
+    else setSuppError(res?.error ?? t("categories.deleteFailed"));
   };
 
   const handleBatchDeleteSuppliers = async () => {
     if (suppSelectedIds.size === 0) return;
     if (
       !confirm(
-        `Delete ${suppSelectedIds.size} selected supplier${suppSelectedIds.size !== 1 ? "s" : ""}? Products will keep their current labels.`,
+        t("suppliers.batchDeleteConfirm", { count: suppSelectedIds.size }),
       )
     )
       return;
@@ -318,9 +316,7 @@ export default function CategoriesManager() {
       if (!res?.success) failed++;
     }
     if (failed > 0)
-      setSuppError(
-        `${failed} supplier${failed === 1 ? "" : "s"} failed to delete.`,
-      );
+      setSuppError(t("suppliers.batchFailed", { count: failed }));
     loadSuppliers();
   };
 
@@ -331,10 +327,10 @@ export default function CategoriesManager() {
         <div className="flex items-center gap-2">
           <Tag size={16} className="text-violet-400" />
           <span className="text-sm font-semibold text-white">
-            Product Categories
+            {t("categories.title")}
           </span>
           <span className="text-xs text-slate-500 ms-1">
-            ({categories.length} categories)
+            {t("categories.count", { count: categories.length })}
           </span>
         </div>
 
@@ -351,7 +347,7 @@ export default function CategoriesManager() {
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-            placeholder="New category name..."
+            placeholder={t("categories.newPlaceholder")}
             className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
           />
           <button
@@ -359,7 +355,7 @@ export default function CategoriesManager() {
             disabled={!newName.trim()}
             className="flex items-center gap-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors"
           >
-            <Plus size={15} /> Add
+            <Plus size={15} /> {t("categories.add")}
           </button>
         </div>
 
@@ -372,7 +368,7 @@ export default function CategoriesManager() {
                   <button
                     onClick={() => setSelectedIds(new Set())}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-slate-700/50 px-2 py-1.5 text-xs text-slate-400 hover:bg-slate-700 hover:text-white transition-colors cursor-pointer"
-                    title="Clear selection"
+                    title={t("categories.clearSelection")}
                   >
                     <X size={14} />
                   </button>
@@ -381,7 +377,7 @@ export default function CategoriesManager() {
                     className="inline-flex items-center gap-1.5 rounded-lg bg-red-600/20 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-600/30 transition-colors cursor-pointer"
                   >
                     <Trash2 size={14} />
-                    Delete Selected ({selectedIds.size})
+                    {t("categories.deleteSelected", { n: selectedIds.size })}
                   </button>
                 </div>
               ) : undefined
@@ -393,32 +389,32 @@ export default function CategoriesManager() {
                 width: "44px",
               },
               {
-                header: "Category Name",
+                header: t("categories.col.name"),
                 sortKey: "name",
                 className: "p-3 border-b border-slate-700",
               },
               {
-                header: "Tracks serials (IMEI)",
+                header: t("categories.col.tracks"),
                 className: "p-3 border-b border-slate-700 text-center",
                 width: "190px",
               },
               {
-                header: "Default warranty (months)",
+                header: t("categories.col.warranty"),
                 className: "p-3 border-b border-slate-700 text-center",
                 width: "170px",
               },
               {
-                header: "Actions",
+                header: t("categories.col.actions"),
                 className: "p-3 border-b border-slate-700 text-end",
                 width: "100px",
               },
             ]}
             data={categories}
             loading={loading}
-            emptyMessage="No categories yet. Add one above."
+            emptyMessage={t("categories.empty")}
             paginate
             pageSize={10}
-            pageLabel="categories"
+            pageLabel={t("categories.pageLabel")}
             exportExcel
             exportPdf
             exportFilename="categories"
@@ -467,7 +463,7 @@ export default function CategoriesManager() {
                         className="w-full bg-slate-800 border border-violet-500 rounded px-2 py-1 text-white text-sm focus:outline-none"
                       />
                     ) : (
-                      <span className="text-sm text-slate-200">{cat.name}</span>
+                      <span className="text-sm text-slate-200">{shown(cat.name)}</span>
                     )}
                   </td>
 
@@ -481,7 +477,7 @@ export default function CategoriesManager() {
                       role="switch"
                       aria-checked={cat.tracks_imei_units === 1}
                       onClick={() => handleToggleTracksImei(cat)}
-                      title="Toggle whether products in this category track a serial (or IMEI) per unit"
+                      title={t("categories.tracksTitle")}
                       className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer ${
                         cat.tracks_imei_units === 1
                           ? "bg-violet-600"
@@ -500,7 +496,9 @@ export default function CategoriesManager() {
                     {cat.tracks_imei_units === 1 && (
                       <div className="mt-2 flex flex-col gap-1 items-center">
                         <select
-                          aria-label={`Serial name for ${cat.name}`}
+                          aria-label={t("categories.serialNameAria", {
+                            name: shown(cat.name),
+                          })}
                           value={serialLabelFor(cat)}
                           onChange={(e) =>
                             void handleSerial(cat, {
@@ -509,11 +507,15 @@ export default function CategoriesManager() {
                           }
                           className="bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-xs text-white"
                         >
-                          <option value="IMEI">Called IMEI</option>
-                          <option value="Serial">Called Serial</option>
+                          <option value="IMEI">{t("categories.calledImei")}</option>
+                          <option value="Serial">
+                            {t("categories.calledSerial")}
+                          </option>
                         </select>
                         <select
-                          aria-label={`Sold without a serial — ${cat.name}`}
+                          aria-label={t("categories.noSerialAria", {
+                            name: shown(cat.name),
+                          })}
                           value={
                             cat.serial_required === "WARN" ? "WARN" : "BLOCK"
                           }
@@ -525,8 +527,12 @@ export default function CategoriesManager() {
                           }
                           className="bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-xs text-white"
                         >
-                          <option value="BLOCK">No serial: block sale</option>
-                          <option value="WARN">No serial: warn only</option>
+                          <option value="BLOCK">
+                            {t("categories.noSerialBlock")}
+                          </option>
+                          <option value="WARN">
+                            {t("categories.noSerialWarn")}
+                          </option>
                         </select>
                       </div>
                     )}
@@ -596,10 +602,10 @@ export default function CategoriesManager() {
         <div className="flex items-center gap-2">
           <Truck size={16} className="text-sky-400" />
           <span className="text-sm font-semibold text-white">
-            Product Suppliers
+            {t("suppliers.title")}
           </span>
           <span className="text-xs text-slate-500 ms-1">
-            ({suppliers.length} suppliers)
+            {t("suppliers.count", { count: suppliers.length })}
           </span>
         </div>
 
@@ -616,7 +622,7 @@ export default function CategoriesManager() {
             value={newSuppName}
             onChange={(e) => setNewSuppName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleAddSupplier()}
-            placeholder="New supplier name..."
+            placeholder={t("suppliers.newPlaceholder")}
             className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-sky-500"
           />
           <button
@@ -624,7 +630,7 @@ export default function CategoriesManager() {
             disabled={!newSuppName.trim()}
             className="flex items-center gap-1.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors"
           >
-            <Plus size={15} /> Add
+            <Plus size={15} /> {t("categories.add")}
           </button>
         </div>
 
@@ -637,7 +643,7 @@ export default function CategoriesManager() {
                   <button
                     onClick={() => setSuppSelectedIds(new Set())}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-slate-700/50 px-2 py-1.5 text-xs text-slate-400 hover:bg-slate-700 hover:text-white transition-colors cursor-pointer"
-                    title="Clear selection"
+                    title={t("categories.clearSelection")}
                   >
                     <X size={14} />
                   </button>
@@ -646,7 +652,7 @@ export default function CategoriesManager() {
                     className="inline-flex items-center gap-1.5 rounded-lg bg-red-600/20 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-600/30 transition-colors cursor-pointer"
                   >
                     <Trash2 size={14} />
-                    Delete Selected ({suppSelectedIds.size})
+                    {t("categories.deleteSelected", { n: suppSelectedIds.size })}
                   </button>
                 </div>
               ) : undefined
@@ -658,28 +664,28 @@ export default function CategoriesManager() {
                 width: "44px",
               },
               {
-                header: "Supplier Name",
+                header: t("suppliers.col.name"),
                 sortKey: "name",
                 className: "p-3 border-b border-slate-700",
               },
               {
-                header: "Products",
+                header: t("suppliers.col.products"),
                 sortKey: "product_count",
                 className: "p-3 border-b border-slate-700",
                 width: "100px",
               },
               {
-                header: "Actions",
+                header: t("categories.col.actions"),
                 className: "p-3 border-b border-slate-700 text-end",
                 width: "100px",
               },
             ]}
             data={suppliers}
             loading={suppLoading}
-            emptyMessage="No product suppliers yet. Add one above or import from a .toon file."
+            emptyMessage={t("suppliers.empty")}
             paginate
             pageSize={10}
-            pageLabel="suppliers"
+            pageLabel={t("suppliers.pageLabel")}
             exportExcel
             exportPdf
             exportFilename="product-suppliers"

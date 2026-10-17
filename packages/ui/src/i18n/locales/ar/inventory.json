@@ -360,5 +360,13 @@
     "exportedCapped": "تم تصدير أول {{cap}} من أصل {{total}} وحدة مطابقة.",
     "exportFailed": "تعذّر تصدير الوحدات",
     "exportCapConfirm": "{{total}} وحدة تطابق هذه الفلاتر، لكن التصدير محدود بـ {{cap}} صف.\n\nتصدير أول {{cap}}؟ اضغط إلغاء لتضييق الفلاتر أولًا."
+  },
+  "categorySeed": {
+    "Accessories": "إكسسوارات",
+    "Phones": "هواتف",
+    "Chargers": "شواحن",
+    "Audio": "صوتيات",
+    "Parts": "قطع",
+    "Services": "خدمات"
   }
 }

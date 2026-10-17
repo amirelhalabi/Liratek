@@ -316,5 +316,13 @@
     "exportedCapped": "Exported the first {{cap}} of {{total}} matching units.",
     "exportFailed": "Failed to export units",
     "exportCapConfirm": "{{total}} units match these filters, but an export is limited to {{cap}} rows.\n\nExport the first {{cap}}? Cancel to narrow the filters first."
+  },
+  "categorySeed": {
+    "Accessories": "Accessories",
+    "Phones": "Phones",
+    "Chargers": "Chargers",
+    "Audio": "Audio",
+    "Parts": "Parts",
+    "Services": "Services"
   }
 }

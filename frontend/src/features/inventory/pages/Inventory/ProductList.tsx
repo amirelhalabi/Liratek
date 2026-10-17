@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useFormat } from "@/i18n/useFormat";
+import { categoryLabel } from "../../categoryLabel";
 import logger from "@/utils/logger";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
@@ -191,7 +192,7 @@ function parseToonFile(text: string): ToonRecord[] {
 export default function ProductList() {
   const api = useApi();
   const navigate = useNavigate();
-  const { t } = useTranslation(["inventory", "common"]);
+  const { t, i18n } = useTranslation(["inventory", "common"]);
   const { formatDate } = useFormat();
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [search, setSearch] = useState("");
@@ -1308,7 +1309,7 @@ export default function ProductList() {
                 </td>
                 <td className="p-4 text-slate-300">
                   <span className="px-2 py-1 rounded bg-slate-700 border border-slate-600 text-xs">
-                    {product.category}
+                    {categoryLabel(product.category, i18n.language)}
                   </span>
                 </td>
                 <td className="p-4 text-slate-400 text-xs">
