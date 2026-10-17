@@ -79,7 +79,7 @@ export interface SessionReceiptInput {
 function fmtMoney(amount: number, currency: string): string {
   const abs = Math.abs(amount);
   return currency === "LBP" || currency === "USDT"
-    ? `${Math.round(abs).toLocaleString()} ${currency}`
+    ? `${Math.round(abs).toLocaleString()} ${currency}` // i18n-exempt: receipt text, Phase 6 (T086-T088)
     : `$${abs.toFixed(2)}`;
 }
 
@@ -116,6 +116,7 @@ export function buildSessionCheckoutReceiptText(
 
   const dt = new Date(createdAt);
   r += `Session #${sessionId}\n`;
+  // i18n-exempt: receipt text, Phase 6 (T086-T088)
   r += `${dt.toLocaleDateString()} ${dt.toLocaleTimeString()}\n`;
 
   if (customerName?.trim()) {

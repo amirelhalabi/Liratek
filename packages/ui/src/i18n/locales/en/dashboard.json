@@ -1,1 +1,178 @@
-{}
+{
+  "page": {
+    "title": "Dashboard"
+  },
+  "drawer": {
+    "amountRequired": "Please enter at least one amount greater than 0.",
+    "unexpectedError": "Unexpected error.",
+    "usdAmount": "USD Amount",
+    "lbpAmount": "LBP Amount",
+    "currencyAmount": "{{code}} Amount",
+    "processing": "Processing...",
+    "notes": "Notes",
+    "optional": "(optional)",
+    "addNote": "Add a note...",
+    "primaryLabel": "{{brand}} Cash Drawer",
+    "generalName": "General"
+  },
+  "cashout": {
+    "title": "Cash Out — General Drawer",
+    "reasonRequired": "Please enter a reason for this cash-out.",
+    "success": "Cash removed from drawer.",
+    "failed": "Failed to cash out drawer.",
+    "removeCurrency": "Remove {{code}}",
+    "addCurrency": "Add another currency",
+    "reason": "Reason *",
+    "reasonPlaceholder": "Why is this cash being taken out?",
+    "submit": "Cash Out"
+  },
+  "topup": {
+    "noMarketRate": "No market rate available for {{code}} — click \"edit\" to enter one manually.",
+    "selectSource": "Please select a source drawer.",
+    "success": "Drawer topped up successfully.",
+    "failed": "Failed to top up drawer.",
+    "title": "Top Up General Drawer",
+    "modeExternal": "External (Cash In)",
+    "modeFromDrawer": "From Drawer",
+    "modeTransfer": "Transfer",
+    "submit": "Top Up",
+    "otherCurrencies": "Other Currencies",
+    "noOtherCurrencies": "No other currencies available — add one in Settings → Currencies, or check the connection for the live list.",
+    "removeCurrency": "Remove currency",
+    "basisLine": "Cost basis: market rate {{rate}} USD/{{code}}",
+    "basisMissing": "No market rate found for {{code}} — enter one manually.",
+    "unit": "unit",
+    "thisCurrency": "this currency",
+    "edit": "edit",
+    "acquisitionRate": "Acquisition rate (USD per {{code}})",
+    "acquisitionHint": "What one {{code}} cost you in USD — sets the cost basis for exchange profit.",
+    "addCurrency": "Add currency"
+  },
+  "transfer": {
+    "success": "{{amounts}} moved from {{from}} into {{to}}.",
+    "failed": "Failed to transfer funds.",
+    "title": "Transfer Drawer Cash",
+    "intro": "Move physical cash between General and the {{label}}— the shop's own till at the money-transfer counter. This moves cash between two of the shop's own drawers; it earns no profit.",
+    "negativeOne": "A drawer is in the red",
+    "negativeMany": "{{n}} drawer balances are in the red",
+    "negativeHint": "Cash was paid out that the drawer did not hold — record the move that covers it.",
+    "coverIt": "Cover it",
+    "direction": "Direction",
+    "directionArrow": "{{from}} → {{to}}",
+    "balanceLabel": "{{drawer}} balance:",
+    "insufficient": "{{drawer}} does not have enough funds for this transfer.",
+    "from": "from",
+    "into": "into"
+  },
+  "fromDrawer": {
+    "source": "Source Drawer",
+    "none": "No drawers available",
+    "balance": "Balance:"
+  },
+  "chart": {
+    "seriesSalesUsd": "Product & Telecom Sales (USD)",
+    "seriesSalesLbp": "Product & Telecom Sales (LBP)",
+    "seriesProfitUsd": "Profit (USD)",
+    "seriesProfitLbp": "Profit (LBP)",
+    "typeSales": "Product & Telecom Sales",
+    "typeProfit": "Profit",
+    "trendTitle": "{{type}} Trend (Last 30 Days)",
+    "usdNote": "The USD line is the USD VALUE of what was sold, not cash collected in USD."
+  },
+  "commissions": {
+    "empty": "No commission data",
+    "pendingName": "{{name}} (Pending)"
+  },
+  "carrierLines": {
+    "missing": "{{carrier}} has no active line",
+    "deadlineWithin": "recharge within {{n}}d to deliver them",
+    "deadlineNow": "recharge NOW to deliver them",
+    "soldAhead": "{{carrier}} — {{line}} has {{n}} days sold ahead — {{deadline}}",
+    "expiredAgo": "expired {{n}}d ago",
+    "expiresToday": "expires today",
+    "expiresIn": "expires in {{n}}d",
+    "expiring": "{{carrier}} — {{line}} {{status}}"
+  },
+  "alerts": {
+    "initialTitle": "Starting drawer amounts not set",
+    "initialDetail": "Set the opening cash for each active drawer so balances are accurate from day one.",
+    "initialAction": "Set now",
+    "checkpointTitle": "No starting checkpoint recorded",
+    "checkpointDetail": "Record an opening checkpoint so the timeline has a baseline to reconcile against.",
+    "checkpointAction": "Record now",
+    "carrierTitleMany": "Carrier lines need attention",
+    "carrierTitleOne": "Carrier line needs attention",
+    "review": "Review",
+    "resaleTitleMany": "Lines for sale need attention",
+    "resaleTitleOne": "Line for sale needs attention",
+    "resaleAction": "Open Phone Lines",
+    "widgetsFailedOne": "1 dashboard widget failed to load",
+    "widgetsFailedMany": "{{n}} dashboard widgets failed to load",
+    "widgetsFailedDetail": "{{names}} — showing the last known values.",
+    "retry": "Retry now"
+  },
+  "widgets": {
+    "salesStats": "Sales stats",
+    "chart": "Sales/Profit chart",
+    "todaysSales": "Today's sales",
+    "drawerBalances": "Drawer balances",
+    "debtSummary": "Debt summary",
+    "inventoryStock": "Inventory stock",
+    "netProfit": "Net profit (30d)",
+    "topDebtors": "Top debtors"
+  },
+  "cards": {
+    "salesRevenue": "Sales Revenue (Today)",
+    "cashCollected": "Cash Collected (Today)",
+    "ordersProcessed": "Orders Processed",
+    "totalDebt": "Total Debt",
+    "stockBudget": "Stock Budget",
+    "stockCount": "Stock Count",
+    "stockItems": "{{n}} items",
+    "netProfit": "Net Profit — Last 30 Days"
+  },
+  "cashOnHand": {
+    "title": "Cash on Hand"
+  },
+  "drawers": {
+    "title": "Drawer Balances",
+    "topUp": "Top Up",
+    "cashOut": "Cash Out",
+    "checkpoint": "Checkpoint",
+    "never": "Never",
+    "varianceTitle": "Last checkpoint was off by ~{{amount}} from expected",
+    "noBalance": "No balance"
+  },
+  "stock": {
+    "title": "Credits & Stock"
+  },
+  "holds": {
+    "holdingFor": "Holding for {{name}}",
+    "collect": "Collect"
+  },
+  "pending": {
+    "title": "Pending Settlement",
+    "transactionsOne": "— {{n}} transaction",
+    "transactionsMany": "— {{n}} transactions",
+    "commission": "commission",
+    "awaiting": "{{n}} awaiting settlement",
+    "owed": "owed",
+    "txns": "({{n}} txns)",
+    "total": "Total pending:",
+    "settleSuppliers": "— settle via Settings → Supplier Ledger",
+    "partnerName": "{{name}} (partner):",
+    "youOwe": "you owe",
+    "owesYou": "owes you",
+    "settlePartners": "Settle partner balances via Partners"
+  },
+  "insights": {
+    "tabTrend": "Sales Trend",
+    "tabSales": "Today's Sales",
+    "tabDebtors": "Top Debtors",
+    "rows": "Rows:",
+    "colName": "Name",
+    "walkIn": "Walk-in Client",
+    "noSales": "No sales yet today.",
+    "noDebtors": "No debtors"
+  }
+}

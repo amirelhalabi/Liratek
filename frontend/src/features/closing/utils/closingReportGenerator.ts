@@ -142,8 +142,13 @@ export function generateClosingReport(
     return `${varianceSign}${Math.abs(variance).toFixed(2)} ${currency} (${variance < 0 ? "-" : ""}${percentage.toFixed(2)}%) - ${status}`;
   };
 
+  // The report keeps its own number text, unchanged by the screen language.
+  const reportNumber = (n: number): string =>
+    // i18n-exempt: closing report text (FR-024 deferred, monospace layout)
+    n.toLocaleString();
+
   const formatAmount = (amount: number, currency: string) => {
-    if (currency === "LBP") return amount.toLocaleString();
+    if (currency === "LBP") return reportNumber(amount);
     return amount.toFixed(2);
   };
 
@@ -174,11 +179,11 @@ ${currencySummary}
 --- Daily Statistics Snapshot ---
   Sales Count: ${dailyStats.salesCount}
   Total Sales (USD): ${dailyStats.totalSalesUSD.toFixed(2)}
-  Total Sales (LBP): ${dailyStats.totalSalesLBP.toLocaleString()}
+  Total Sales (LBP): ${reportNumber(dailyStats.totalSalesLBP)}
   Debt Payments (USD): ${dailyStats.debtPaymentsUSD.toFixed(2)}
-  Debt Payments (LBP): ${dailyStats.debtPaymentsLBP.toLocaleString()}
+  Debt Payments (LBP): ${reportNumber(dailyStats.debtPaymentsLBP)}
   Total Expenses (USD): ${dailyStats.totalExpensesUSD.toFixed(2)}
-  Total Expenses (LBP): ${dailyStats.totalExpensesLBP.toLocaleString()}
+  Total Expenses (LBP): ${reportNumber(dailyStats.totalExpensesLBP)}
 
 ${profitBlock}
 `;

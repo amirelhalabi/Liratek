@@ -1,12 +1,15 @@
 import { useState, useEffect } from "react";
 import { X, Wallet, Plus } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { translateServerError } from "@liratek/ui/i18n/serverMessage";
 import { DecimalInput, useApi } from "@liratek/ui";
 import { useModules } from "@/contexts/ModuleContext";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import logger from "@/utils/logger";
-import { DRAWER_ORDER, DRAWER_CONFIGS } from "../config/drawers";
+import { DRAWER_ORDER } from "../config/drawers";
+import { useDrawerText } from "../hooks/useDrawerText";
 import { isDrawerVisible, isUnrestrictedDrawer } from "@liratek/core";
 
 // Tailwind accent colors for each drawer
@@ -33,6 +36,8 @@ export function InitialDrawerAmountsModal({
   onSaved,
 }: InitialDrawerAmountsModalProps) {
   useModalFocusFix(true);
+  const { t } = useTranslation("closing");
+  const drawerText = useDrawerText();
   const api = useApi();
   const { isModuleEnabled } = useModules();
   const { activeCurrencies, getDecimals } = useCurrencyContext();
@@ -96,7 +101,7 @@ export function InitialDrawerAmountsModal({
       })
       .catch((err: unknown) => {
         logger.error("[InitialDrawerAmounts] Load error:", err);
-        setLoadError(getApiErrorMessage(err, "Failed to load the drawers"));
+        setLoadError(getApiErrorMessage(err, t("initial.loadFailedFallback")));
       });
   };
   useEffect(() => {
@@ -151,7 +156,15 @@ export function InitialDrawerAmountsModal({
       if (grew) {
         const res = await api.setDrawerCurrencies(drawer, current);
         if (!res.success) {
-          setError(res.error ?? `Failed to add currency to ${drawer}`);
+          setError(
+            translateServerError(
+              res,
+              t,
+              t("initial.addCurrencyFailed", {
+                drawer: drawerText.label(drawer),
+              }),
+            ),
+          );
           return;
         }
       }
@@ -180,12 +193,13 @@ export function InitialDrawerAmountsModal({
     // on both transports (LIRA-297).
     const result = await api.createCheckpoint({
       drawer_name: "AGGREGATED",
+      // i18n-exempt: stored text sent to server
       notes: "Initial drawer amounts setup",
       amounts: amountRows,
     });
 
     if (!result.success) {
-      setError(result.error ?? "Failed to save drawer amounts");
+      setError(translateServerError(result, t, t("initial.saveFailed")));
       return;
     }
 
@@ -204,11 +218,9 @@ export function InitialDrawerAmountsModal({
             </div>
             <div>
               <h2 className="text-lg font-bold text-white">
-                Initial Drawer Amounts
+                {t("initial.title")}
               </h2>
-              <p className="text-xs text-slate-400">
-                Set the starting cash for each active drawer
-              </p>
+              <p className="text-xs text-slate-400">{t("initial.subtitle")}</p>
             </div>
           </div>
           <button
@@ -224,21 +236,19 @@ export function InitialDrawerAmountsModal({
           {loadError && (
             <div className="mb-3 bg-red-500/10 border border-red-500/30 rounded-lg p-3 flex items-center justify-between gap-3">
               <p className="text-red-200 text-sm">
-                Couldn't load the drawers: {loadError}
+                {t("initial.loadFailed", { error: loadError })}
               </p>
               <button
                 type="button"
                 onClick={loadDrawers}
                 className="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-slate-700 hover:bg-slate-600 transition-colors"
               >
-                Retry
+                {t("common:actions.retry")}
               </button>
             </div>
           )}
           <div className="grid grid-cols-2 gap-3">
             {visibleDrawers.map((drawer) => {
-              const config =
-                DRAWER_CONFIGS[drawer as keyof typeof DRAWER_CONFIGS];
               const currencies = drawerCurrencies[drawer] ?? [];
               const accent = DRAWER_ACCENT[drawer] ?? "slate";
               const addable = activeCurrencies.filter(
@@ -248,12 +258,12 @@ export function InitialDrawerAmountsModal({
               return (
                 <div
                   key={drawer}
-                  className={`bg-slate-800/60 rounded-xl border border-slate-700/40 border-l-4 border-l-${accent}-500 px-3 py-3`}
+                  className={`bg-slate-800/60 rounded-xl border border-slate-700/40 border-s-4 border-s-${accent}-500 px-3 py-3`}
                 >
                   <span
                     className={`text-xs font-semibold text-${accent}-400 block mb-2`}
                   >
-                    {config?.label ?? drawer}
+                    {drawerText.label(drawer)}
                   </span>
                   <div
                     className={`grid gap-2 ${currencies.length <= 1 ? "grid-cols-1" : "grid-cols-2"}`}
@@ -279,16 +289,16 @@ export function InitialDrawerAmountsModal({
                       their fixed business currency). */}
                   {drawer === "General" && addable.length > 0 && (
                     <div className="relative mt-2">
-                      <Plus className="w-3 h-3 text-slate-500 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <Plus className="w-3 h-3 text-slate-500 absolute start-2 top-1/2 -translate-y-1/2 pointer-events-none" />
                       <select
                         value=""
                         data-testid={`initial-drawer-add-currency-${drawer}`}
                         onChange={(e) =>
                           handleAddCurrency(drawer, e.target.value)
                         }
-                        className="w-full bg-slate-900/60 border border-dashed border-slate-600 rounded-lg pl-6 pr-2 py-1.5 text-xs text-slate-400 focus:outline-none focus:border-orange-500 cursor-pointer"
+                        className="w-full bg-slate-900/60 border border-dashed border-slate-600 rounded-lg ps-6 pe-2 py-1.5 text-xs text-slate-400 focus:outline-none focus:border-orange-500 cursor-pointer"
                       >
-                        <option value="">Add currency</option>
+                        <option value="">{t("initial.addCurrency")}</option>
                         {addable.map((c) => (
                           <option key={c.code} value={c.code}>
                             {c.code}
@@ -304,7 +314,7 @@ export function InitialDrawerAmountsModal({
           </div>
           {loaded && visibleDrawers.length === 0 && (
             <p className="text-sm text-slate-400 text-center py-6">
-              No drawers to configure.
+              {t("initial.noDrawers")}
             </p>
           )}
         </div>
@@ -317,14 +327,15 @@ export function InitialDrawerAmountsModal({
               onClick={onClose}
               className="px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
             >
-              Skip for now
+              {t("initial.skip")}
             </button>
             <button
+              data-testid="initial-drawer-save"
               onClick={handleSave}
               disabled={saving || !loaded}
               className="px-6 py-2 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-semibold rounded-lg transition-colors"
             >
-              {saving ? "Saving…" : "Save Amounts"}
+              {saving ? t("initial.saving") : t("initial.save")}
             </button>
           </div>
         </div>

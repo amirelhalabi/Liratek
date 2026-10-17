@@ -93,7 +93,12 @@ jest.mock("@liratek/ui", () => ({
     React.useEffect(() => {
       mountCount += 1;
       onChange([
-        { id: "l1", method: props.initialMethod as string, currencyCode: "USD", amount: total },
+        {
+          id: "l1",
+          method: props.initialMethod as string,
+          currencyCode: "USD",
+          amount: total,
+        },
       ]);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -103,7 +108,9 @@ jest.mock("@liratek/ui", () => ({
           type="button"
           data-testid="pick-cash"
           onClick={() =>
-            onChange([{ id: "l1", method: "CASH", currencyCode: "USD", amount: total }])
+            onChange([
+              { id: "l1", method: "CASH", currencyCode: "USD", amount: total },
+            ])
           }
         >
           cash
@@ -112,7 +119,9 @@ jest.mock("@liratek/ui", () => ({
           type="button"
           data-testid="pick-cash-50"
           onClick={() =>
-            onChange([{ id: "l1", method: "CASH", currencyCode: "USD", amount: 50 }])
+            onChange([
+              { id: "l1", method: "CASH", currencyCode: "USD", amount: 50 },
+            ])
           }
         >
           cash 50
@@ -237,7 +246,9 @@ describe("SessionCheckoutModal — Goes to (LIRA-304)", () => {
     await screen.findByTestId("checkout-goes-to");
     fireEvent.click(screen.getByTestId("pick-cash-50"));
     await waitFor(() =>
-      expect(screen.getByTestId("checkout-goes-to").textContent).toContain("$50"),
+      expect(screen.getByTestId("checkout-goes-to").textContent).toContain(
+        "$50",
+      ),
     );
     const goes = await screen.findByTestId("checkout-goes-to");
     expect(goes.textContent).toContain("$50");

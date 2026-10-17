@@ -16,11 +16,14 @@ import {
   AlertTriangle,
   RotateCcw,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { DecimalInput } from "@liratek/ui";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { BrandedLabel } from "@/shared/components/BrandedLabel";
 import { PROVIDER_BRANDS, brandOf } from "@/shared/brand/providerBrands";
 import type { DrawerType, Currency } from "../types";
 import { DRAWER_CONFIGS } from "../config/drawers";
+import { useDrawerText } from "../hooks/useDrawerText";
 import {
   getVarianceStatus,
   getDateVarianceStatus,
@@ -102,6 +105,8 @@ export function DrawerCard({
   carrierLines,
   usdTotal,
 }: DrawerCardProps) {
+  const { t } = useTranslation("closing");
+  const drawerText = useDrawerText();
   const config = DRAWER_CONFIGS[drawer];
   // Branded drawers take their frame and title colour from the provider
   // brand (same as the Dashboard cards); General keeps its config colours.
@@ -159,11 +164,11 @@ export function DrawerCard({
           />
           {info && (
             <div
-              className={`w-28 flex-shrink-0 text-right text-xs font-bold ${styles!.text}`}
+              className={`w-28 flex-shrink-0 text-end text-xs font-bold ${styles!.text}`}
             >
               {info.status === "match" ? (
                 <span className="inline-flex items-center gap-1 justify-end">
-                  <Check className="w-3.5 h-3.5" /> Match
+                  <Check className="w-3.5 h-3.5" /> {t("card.match")}
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1 justify-end">
@@ -176,9 +181,11 @@ export function DrawerCard({
           )}
         </div>
         {showStatus && (
-          <div className="flex items-center gap-2 pl-[4.75rem] text-[11px] text-slate-500">
+          <div className="flex items-center gap-2 ps-[4.75rem] text-[11px] text-slate-500">
             <span>
-              Expected: {formatCurrencyAmount(expected, currency.code)}
+              {t("card.expected", {
+                value: formatCurrencyAmount(expected, currency.code),
+              })}
             </span>
             {isDirty && onResetToExpected && (
               <button
@@ -186,9 +193,9 @@ export function DrawerCard({
                 onClick={() => onResetToExpected(drawer, currency.code)}
                 disabled={disabled}
                 className="inline-flex items-center gap-0.5 text-slate-400 hover:text-white transition-colors disabled:opacity-50"
-                title="Reset to expected"
+                title={t("card.resetToExpected")}
               >
-                <RotateCcw className="w-3 h-3" /> reset
+                <RotateCcw className="w-3 h-3" /> {t("card.reset")}
               </button>
             )}
           </div>
@@ -216,7 +223,7 @@ export function DrawerCard({
             htmlFor={fieldKey}
             className="text-sm font-semibold text-slate-300 w-16 flex-shrink-0"
           >
-            Credits
+            {t("card.credits")}
           </label>
           <DecimalInput
             id={fieldKey}
@@ -231,11 +238,11 @@ export function DrawerCard({
             className={`flex-1 min-w-0 bg-slate-900 border-2 ${styles.border} rounded-lg px-4 py-2.5 text-lg text-white font-mono placeholder-slate-500 focus:outline-none focus:ring-2 ${styles.ring} transition cursor-text disabled:opacity-50 disabled:cursor-not-allowed`}
           />
           <div
-            className={`w-28 flex-shrink-0 text-right text-xs font-bold ${styles.text}`}
+            className={`w-28 flex-shrink-0 text-end text-xs font-bold ${styles.text}`}
           >
             {info.status === "match" ? (
               <span className="inline-flex items-center gap-1 justify-end">
-                <Check className="w-3.5 h-3.5" /> Match
+                <Check className="w-3.5 h-3.5" /> {t("card.match")}
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 justify-end">
@@ -246,9 +253,11 @@ export function DrawerCard({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2 pl-[4.75rem] text-[11px] text-slate-500">
+        <div className="flex items-center gap-2 ps-[4.75rem] text-[11px] text-slate-500">
           <span>
-            Expected: {formatCurrencyAmount(line.expectedCredits, "USD")}
+            {t("card.expected", {
+              value: formatCurrencyAmount(line.expectedCredits, "USD"),
+            })}
           </span>
           {isDirty && (
             <button
@@ -256,9 +265,9 @@ export function DrawerCard({
               onClick={() => line.onCreditsChange(String(line.expectedCredits))}
               disabled={disabled}
               className="inline-flex items-center gap-0.5 text-slate-400 hover:text-white transition-colors disabled:opacity-50"
-              title="Reset to expected"
+              title={t("card.resetToExpected")}
             >
-              <RotateCcw className="w-3 h-3" /> reset
+              <RotateCcw className="w-3 h-3" /> {t("card.reset")}
             </button>
           )}
         </div>
@@ -288,7 +297,7 @@ export function DrawerCard({
             htmlFor={fieldKey}
             className="text-sm font-semibold text-slate-300 w-16 flex-shrink-0"
           >
-            Validity
+            {t("card.validity")}
           </label>
           <input
             id={fieldKey}
@@ -299,11 +308,11 @@ export function DrawerCard({
             className={`flex-1 min-w-0 bg-slate-900 border-2 ${styles.border} rounded-lg px-4 py-2.5 text-lg text-white font-mono placeholder-slate-500 focus:outline-none focus:ring-2 ${styles.ring} transition cursor-text disabled:opacity-50 disabled:cursor-not-allowed`}
           />
           <div
-            className={`w-28 flex-shrink-0 text-right text-xs font-bold ${styles.text}`}
+            className={`w-28 flex-shrink-0 text-end text-xs font-bold ${styles.text}`}
           >
             {info.status === "match" ? (
               <span className="inline-flex items-center gap-1 justify-end">
-                <Check className="w-3.5 h-3.5" /> Match
+                <Check className="w-3.5 h-3.5" /> {t("card.match")}
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 justify-end">
@@ -313,17 +322,21 @@ export function DrawerCard({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2 pl-[4.75rem] text-[11px] text-slate-500">
-          <span>Expected: {line.expectedExpiresAt ?? "not set"}</span>
+        <div className="flex items-center gap-2 ps-[4.75rem] text-[11px] text-slate-500">
+          <span>
+            {t("card.expected", {
+              value: line.expectedExpiresAt ?? t("details.notSet"),
+            })}
+          </span>
           {isDirty && (
             <button
               type="button"
               onClick={line.onResetExpiry}
               disabled={disabled}
               className="inline-flex items-center gap-0.5 text-slate-400 hover:text-white transition-colors disabled:opacity-50"
-              title="Reset to expected"
+              title={t("card.resetToExpected")}
             >
-              <RotateCcw className="w-3 h-3" /> reset
+              <RotateCcw className="w-3 h-3" /> {t("card.reset")}
             </button>
           )}
         </div>
@@ -340,20 +353,27 @@ export function DrawerCard({
         <div className="bg-white/10 p-2 rounded-lg text-white">{getIcon()}</div>
         <div className="flex-1">
           <h3 className={`font-bold text-lg ${titleClass}`}>
-            <BrandedLabel code={drawer} label={config.label} size={16} />
+            <BrandedLabel
+              code={drawer}
+              label={drawerText.label(drawer)}
+              size={16}
+            />
           </h3>
           <p className="text-xs text-slate-400">
             {carrierLines && carrierLines.length > 0
-              ? `${carrierLines.length} active line${carrierLines.length > 1 ? "s" : ""}`
-              : config.description}
+              ? t(
+                  carrierLines.length > 1 ? "card.activeLines" : "card.activeLine",
+                  { n: carrierLines.length },
+                )
+              : drawerText.description(drawer)}
           </p>
         </div>
         {carrierLines && carrierLines.length > 0 && (
-          <div className="text-right">
+          <div className="text-end">
             <p className="text-[11px] text-slate-400 uppercase tracking-wide">
-              Drawer (sum)
+              {t("card.drawerSum")}
             </p>
-            <p className="text-lg font-mono font-bold text-white">
+            <Ltr className="block text-lg font-mono font-bold text-white">
               {formatCurrencyAmount(
                 carrierLines.reduce(
                   (sum, l) => sum + (parseFloat(l.creditsValue) || 0),
@@ -361,7 +381,7 @@ export function DrawerCard({
                 ),
                 "USD",
               )}
-            </p>
+            </Ltr>
           </div>
         )}
       </div>
@@ -371,10 +391,12 @@ export function DrawerCard({
           data-testid="drawer-usd-total"
           className="flex items-center justify-between text-xs text-slate-400 -mt-2 mb-3"
         >
-          <span>Total ≈ (info only)</span>
+          <span>{t("card.totalInfo")}</span>
           <span className="font-mono">
-            expected {formatCurrencyAmount(usdTotal.expected, "USD")} · counted{" "}
-            {formatCurrencyAmount(usdTotal.counted, "USD")}
+            {t("card.totalLine", {
+              expected: formatCurrencyAmount(usdTotal.expected, "USD"),
+              counted: formatCurrencyAmount(usdTotal.counted, "USD"),
+            })}
           </span>
         </div>
       )}
@@ -382,7 +404,9 @@ export function DrawerCard({
       {/* Currency Inputs / Carrier-line rows */}
       <div className="space-y-4">
         {currencies.length === 0 && !carrierLines ? (
-          <p className="text-sm text-slate-300/80">No currencies to display.</p>
+          <p className="text-sm text-slate-300/80">
+            {t("card.noCurrencies")}
+          </p>
         ) : (
           currencies.map((currency) =>
             renderField(currency, `${drawer}-${currency.code}`),

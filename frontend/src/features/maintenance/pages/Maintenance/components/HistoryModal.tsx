@@ -12,6 +12,17 @@ import { printServiceReceiptByTransaction } from "@/shared/utils/serviceReceipt"
 import { isReceiptableTransaction } from "@/features/audit/receiptGating";
 import { getLabourAmounts } from "./jobAmounts";
 import { ListVsCharged } from "./ListVsChargedAmount";
+import { useTranslation } from "react-i18next";
+import { useFormat } from "@/i18n/useFormat";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { statusLabel } from "./statusLabel";
+
+/** Two-decimal USD amounts, as `toLocaleString(undefined, …)` printed them. */
+const USD_DECIMALS: Intl.NumberFormatOptions = {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+};
 
 type MaintenanceJob = {
   id: number;
@@ -71,6 +82,9 @@ export function HistoryModal({
   onEdit,
 }: HistoryModalProps) {
   useModalFocusFix(true);
+  const { t } = useTranslation("maintenance");
+  const { t: tc } = useTranslation("common");
+  const { formatDate } = useFormat();
   const { filteredData, from, to, setFrom, setTo } = useDateRangeFilter(
     jobs,
     "created_at",
@@ -109,9 +123,9 @@ export function HistoryModal({
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700/60">
           <h2 className="text-base font-semibold text-white flex items-center gap-2">
             <Wrench className="text-slate-400" size={18} />
-            Maintenance History
-            <span className="text-xs text-slate-500 font-normal ml-1">
-              ({filteredData.length} records)
+            {t("history.title")}
+            <span className="text-xs text-slate-500 font-normal ms-1">
+              {t("history.records", { total: filteredData.length })}
             </span>
           </h2>
           <div className="flex items-center gap-2">
@@ -125,14 +139,14 @@ export function HistoryModal({
             <button
               onClick={onRefresh}
               className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-              title="Refresh"
+              title={tc("actions.refresh")}
             >
               <RefreshCw size={14} />
             </button>
             <button
               onClick={onClose}
               className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-              title="Close"
+              title={tc("actions.close")}
             >
               <X size={18} />
             </button>
@@ -141,48 +155,54 @@ export function HistoryModal({
         <div className="flex-1 min-h-0 overflow-auto p-4">
           {loading ? (
             <div className="flex items-center justify-center py-12 text-slate-500">
-              <RefreshCw size={20} className="animate-spin mr-2" />
-              Loading...
+              <RefreshCw size={20} className="animate-spin me-2" />
+              {tc("state.loading")}
             </div>
           ) : (
             <DataTable<MaintenanceJob>
               columns={[
                 {
-                  header: "Date",
+                  header: t("history.date"),
                   className: "px-6 py-3",
                   sortKey: "created_at",
                 },
                 {
-                  header: "Client",
+                  header: t("history.client"),
                   className: "px-6 py-3",
                   sortKey: "client_name",
                 },
                 {
-                  header: "Device / Issue",
+                  header: t("history.deviceIssue"),
                   className: "px-6 py-3",
                   sortKey: "device_name",
                 },
                 {
-                  header: "Status",
+                  header: t("history.status"),
                   className: "px-6 py-3",
                   sortKey: "status",
                 },
                 {
-                  header: "Price",
-                  className: "px-6 py-3 text-right",
+                  header: t("history.price"),
+                  className: "px-6 py-3 text-end",
                   sortKey: "price_usd",
                 },
-                { header: "Paid", className: "px-6 py-3 text-right" },
-                { header: "Actions", className: "px-6 py-3 text-right" },
+                {
+                  header: t("history.paid"),
+                  className: "px-6 py-3 text-end",
+                },
+                {
+                  header: t("history.actions"),
+                  className: "px-6 py-3 text-end",
+                },
               ]}
               data={filteredData}
               exportExcel
               exportPdf
               exportFilename="maintenance-history"
               className="w-full"
-              theadClassName="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
+              theadClassName="bg-slate-900/50 text-start text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
               tbodyClassName="divide-y divide-slate-700/50"
-              emptyMessage="No maintenance jobs found."
+              emptyMessage={t("history.empty")}
               renderRow={(job) => {
                 const isRefunded = Boolean(job.is_refunded);
                 const labour = getLabourAmounts(job);
@@ -193,15 +213,19 @@ export function HistoryModal({
                   >
                     <td className="px-6 py-4 text-sm text-slate-400 whitespace-nowrap">
                       {job.created_at
-                        ? parseDbDate(job.created_at).toLocaleDateString()
+                        ? formatDate(parseDbDate(job.created_at), {
+                            year: "numeric",
+                            month: "numeric",
+                            day: "numeric",
+                          })
                         : ""}
                     </td>
                     <td className="px-6 py-4">
                       <div className="text-sm font-medium text-white flex items-center gap-1">
-                        {job.client_name || "Unknown"}
+                        {job.client_name || t("history.unknown")}
                         {isRefunded && (
-                          <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                            Refunded
+                          <span className="ms-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                            {t("history.refunded")}
                           </span>
                         )}
                         {job.edited_by && (
@@ -209,9 +233,9 @@ export function HistoryModal({
                             entityType="maintenance"
                             entityId={job.id}
                             trigger={
-                              <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400 cursor-pointer hover:bg-yellow-500/20 transition-colors">
+                              <span className="ms-2 inline-flex items-center gap-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400 cursor-pointer hover:bg-yellow-500/20 transition-colors">
                                 <Pencil size={8} />
-                                Edited
+                                {t("history.edited")}
                               </span>
                             }
                           />
@@ -219,7 +243,7 @@ export function HistoryModal({
                       </div>
                       {job.client_phone && (
                         <div className="text-xs text-slate-500">
-                          {job.client_phone}
+                          <Ltr>{job.client_phone}</Ltr>
                         </div>
                       )}
                     </td>
@@ -228,8 +252,8 @@ export function HistoryModal({
                         <span className="inline-flex items-center gap-0.5 text-[11px] font-mono text-emerald-400 shrink-0">
                           ↑{" "}
                           {job.currency === "LBP"
-                            ? `${(job.price_lbp ?? 0).toLocaleString()} LBP`
-                            : `$${(job.price_usd ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                            ? `${formatNumber(job.price_lbp ?? 0)} LBP`
+                            : `$${formatNumber(job.price_usd ?? 0, USD_DECIMALS)}`}
                         </span>
                         <span className="text-sm font-bold text-white">
                           {job.device_name}
@@ -243,40 +267,34 @@ export function HistoryModal({
                       <span
                         className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(job.status || "")}`}
                       >
-                        {(job.status || "").replace("_", " ")}
+                        {statusLabel(job.status || "", t)}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-sm font-bold text-white text-right whitespace-nowrap">
+                    <td className="px-6 py-4 text-sm font-bold text-white text-end whitespace-nowrap">
                       {/* LIRA-185 D6: list price struck through next to the
                           labour amount actually charged, when they differ. */}
                       <ListVsCharged
                         {...labour}
                         format={(n) =>
                           labour.currency === "LBP"
-                            ? `${n.toLocaleString()} LBP`
-                            : `$${n.toLocaleString(undefined, {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}`
+                            ? `${formatNumber(n)} LBP`
+                            : `$${formatNumber(n, USD_DECIMALS)}`
                         }
                       />
                     </td>
-                    <td className="px-6 py-4 text-sm text-emerald-400 text-right">
+                    <td className="px-6 py-4 text-sm text-emerald-400 text-end">
                       {(job.paid_lbp ?? 0) > 0 && (
-                        <div>{(job.paid_lbp ?? 0).toLocaleString()} LBP</div>
+                        <div>{formatNumber(job.paid_lbp ?? 0)} LBP</div>
                       )}
                       {((job.paid_usd ?? 0) > 0 ||
                         (job.paid_lbp ?? 0) === 0) && (
                         <div>
                           $
-                          {(job.paid_usd ?? 0).toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
+                          {formatNumber(job.paid_usd ?? 0, USD_DECIMALS)}
                         </div>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-6 py-4 text-end">
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => onEdit(job)}
@@ -287,7 +305,7 @@ export function HistoryModal({
                         <button
                           onClick={() => onVoid(job.id)}
                           className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded"
-                          title="Void job"
+                          title={t("history.void")}
                         >
                           <Ban size={16} />
                         </button>
@@ -295,7 +313,7 @@ export function HistoryModal({
                           <button
                             onClick={() => handlePrint(job)}
                             className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded"
-                            title="Print receipt"
+                            title={t("history.print")}
                           >
                             <Printer size={16} />
                           </button>

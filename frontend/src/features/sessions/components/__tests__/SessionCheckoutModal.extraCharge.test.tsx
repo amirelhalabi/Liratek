@@ -109,7 +109,10 @@ jest.mock("@liratek/ui", () => ({
           onClick={() =>
             (
               props.onWaiveRemaining as
-                | ((a: number, m: Array<{ currency: string; amount: number }>) => void)
+                | ((
+                    a: number,
+                    m: Array<{ currency: string; amount: number }>,
+                  ) => void)
                 | undefined
             )?.(3, [{ currency: "USD", amount: 3 }])
           }

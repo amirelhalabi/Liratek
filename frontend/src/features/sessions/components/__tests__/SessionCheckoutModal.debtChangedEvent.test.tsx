@@ -131,7 +131,12 @@ jest.mock("@/shared/utils/printReceipt", () => ({
 
 jest.mock("@/utils/logger", () => ({
   __esModule: true,
-  default: { error: jest.fn(), info: jest.fn(), warn: jest.fn(), debug: jest.fn() },
+  default: {
+    error: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+  },
 }));
 
 describe("SessionCheckoutModal — 'debt:changed' on checkout success (LIRA-212 Tier A)", () => {

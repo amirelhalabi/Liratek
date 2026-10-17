@@ -192,6 +192,7 @@ export function buildRateStampedProfitLines(
 
 const formatUsd = (n: number): string => `$${n.toFixed(2)}`;
 const formatLbp = (n: number): string =>
+  // i18n-exempt: closing report text (FR-024 deferred, monospace layout)
   `${Math.round(n).toLocaleString()} LBP`;
 
 // LIRA-219 C.6 — exported so the test suite (and closingReportGenerator.ts)
@@ -210,8 +211,10 @@ export const GROSS_PROFIT_TOTAL_LBP_LABEL = "Gross profit - Total (LBP)";
 export function formatRateStampedProfitBlock(
   lines: RateStampedProfitLines,
 ): string {
+  // i18n-exempt: closing report text (FR-024 deferred, monospace layout)
+  const rateText = lines.rateAvailable ? lines.rate.toLocaleString() : "";
   const rateLabel = lines.rateAvailable
-    ? `@ ${lines.rate.toLocaleString()} (sell rate)`
+    ? `@ ${rateText} (sell rate)`
     : "(rate unavailable)";
 
   return [

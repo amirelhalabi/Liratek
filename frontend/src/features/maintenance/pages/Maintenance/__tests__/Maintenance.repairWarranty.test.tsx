@@ -107,7 +107,8 @@ describe("Maintenance — repair warranty (LIRA-296)", () => {
     await loadJobAndOpenCheckout("Warranty Job");
     // Re-open the form behind the modal: the field kept the job's value.
     const field = screen.getByLabelText("Repair warranty (months)");
-    expect(field).toHaveValue(2);
+    // LIRA-331: a text field (inputMode="numeric") so Arabic digits work.
+    expect(field).toHaveValue("2");
     fireEvent.change(field, { target: { value: "3" } });
     fireEvent.click(screen.getByText("Mock Complete"));
     await waitFor(() =>
@@ -117,6 +118,18 @@ describe("Maintenance — repair warranty (LIRA-296)", () => {
     expect(payload.warranty_months).toBe(3);
     expect(payload.client_day).toBe(localDay());
     expect(payload.status).toBe("Delivered_Paid");
+  });
+
+  it("Arabic digits typed in the field are sent as the same number (LIRA-331)", async () => {
+    await loadJobAndOpenCheckout("Warranty Job");
+    const field = screen.getByLabelText("Repair warranty (months)");
+    fireEvent.change(field, { target: { value: "١٢" } });
+    expect(field).toHaveValue("12");
+    fireEvent.click(screen.getByText("Mock Complete"));
+    await waitFor(() =>
+      expect(mockSaveMaintenanceJob).toHaveBeenCalledTimes(1),
+    );
+    expect(mockSaveMaintenanceJob.mock.calls[0][0].warranty_months).toBe(12);
   });
 
   it("an empty field means no warranty (null)", async () => {

@@ -3,6 +3,8 @@
  * through next to it when the job was discounted (LIRA-185 D6). Which figure
  * is which is decided by `getLabourAmounts` in `./jobAmounts`.
  */
+import { useTranslation } from "react-i18next";
+
 interface ListVsChargedProps {
   list: number;
   charged: number;
@@ -16,9 +18,16 @@ export function ListVsCharged({
   discounted,
   format,
 }: ListVsChargedProps) {
+  const { t } = useTranslation("maintenance");
   if (!discounted) return <>{format(charged)}</>;
   return (
-    <span title={`List price ${format(list)}, charged ${format(charged)}`}>
+    <span
+      dir="ltr"
+      title={t("amount.listVsCharged", {
+        list: format(list),
+        charged: format(charged),
+      })}
+    >
       <s className="text-slate-500 font-normal">{format(list)}</s>
       <span aria-hidden="true" className="mx-1 text-slate-500">
         →

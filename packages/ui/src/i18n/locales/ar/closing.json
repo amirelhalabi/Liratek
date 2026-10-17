@@ -1,1 +1,146 @@
-{}
+{
+  "timeline": {
+    "title": "عمليات العدّ",
+    "initialSetup": "الإعداد الأوّلي",
+    "drawersCount": "{{n}} صناديق",
+    "short": "ناقص {{amount}}",
+    "over": "زائد {{amount}}",
+    "lineEdit": "تعديل خط",
+    "allDrawersBadge": "كل الصناديق",
+    "balanced": "مطابق",
+    "viewDetails": "عرض التفاصيل",
+    "searchPlaceholder": "ابحث عن صندوق، مستخدم، ملاحظات…",
+    "allDrawersOption": "كل الصناديق",
+    "rows": "عدد الأسطر:",
+    "setupHintBefore": "تمّ تسجيل المبالغ الأوّلية للصناديق بتاريخ",
+    "setupHintAfter": "— قبل الفترة المختارة، لذلك لا تظهر أدناه.",
+    "showFromSetup": "اعرض من تاريخ الإعداد ←",
+    "loading": "جارٍ تحميل عمليات العدّ...",
+    "noneFor": "لا توجد عمليات عدّ في {{range}}",
+    "empty": "لا توجد عمليات عدّ",
+    "today": "اليوم",
+    "colTime": "الوقت",
+    "colDrawer": "الصندوق",
+    "colCounted": "المعدود",
+    "colUser": "المستخدم",
+    "colNotes": "ملاحظات"
+  },
+  "details": {
+    "title": "تفاصيل العدّ — {{drawer}}",
+    "titleAll": "تفاصيل العدّ — {{drawer}} (كل الصناديق)",
+    "closeAria": "إغلاق التفاصيل",
+    "amounts": "المبالغ",
+    "expectedToCounted": "المتوقّع ← المعدود",
+    "noAmounts": "لا توجد مبالغ مسجّلة",
+    "matched": "مطابق",
+    "carrierLines": "خطوط الشركات",
+    "notSet": "غير محدّد",
+    "notCounted": "لم يُعدّ"
+  },
+  "variance": {
+    "inCurrencies": "فرق في {{n}} عملات",
+    "creditsOnLines": "فرق في الرصيد على {{n}} خطوط",
+    "validityOnLines": "فرق في الصلاحية على {{n}} خطوط",
+    "validity": "الصلاحية {{days}}",
+    "listSeparator": "، "
+  },
+  "drawers": {
+    "General": { "label": "الصندوق العام", "description": "صندوق الكاش الرئيسي" },
+    "OMT_System": {
+      "label": "صندوق كاش OMT",
+      "description": "صندوق الكاش الفعلي على كاونتر OMT"
+    },
+    "OMT_App": { "label": "تطبيق OMT", "description": "محفظة تطبيق OMT" },
+    "Whish_App": { "label": "تطبيق Whish", "description": "تطبيق Whish" },
+    "Binance": { "label": "Binance", "description": "محفظة Binance" },
+    "MTC": { "label": "MTC", "description": "تشريج MTC" },
+    "Alfa": { "label": "Alfa", "description": "تشريج Alfa" },
+    "iPick": { "label": "iPick", "description": "خدمات iPick" },
+    "Katsh": { "label": "Katsh", "description": "خدمات Katsh" },
+    "Whish_System": {
+      "label": "صندوق كاش Whish",
+      "description": "صندوق الكاش الفعلي على كاونتر Whish"
+    }
+  },
+  "card": {
+    "match": "مطابق",
+    "expected": "المتوقّع: {{value}}",
+    "resetToExpected": "إرجاع إلى المتوقّع",
+    "reset": "إرجاع",
+    "credits": "الرصيد",
+    "validity": "الصلاحية",
+    "activeLine": "{{n}} خط فعّال",
+    "activeLines": "{{n}} خطوط فعّالة",
+    "drawerSum": "الصندوق (المجموع)",
+    "totalInfo": "المجموع ≈ (للعلم فقط)",
+    "totalLine": "المتوقّع {{expected}} · المعدود {{counted}}",
+    "noCurrencies": "لا توجد عملات للعرض."
+  },
+  "body": {
+    "loadingCurrencies": "جارٍ تحميل العملات...",
+    "loadFailed": "تعذّر تحميل هذا الصندوق: {{error}}. الحفظ متوقّف حتى يكتمل التحميل.",
+    "noActiveCurrencies": "لا توجد عملات فعّالة. يرجى تفعيل عملة واحدة على الأقل من الإعدادات ← إدارة العملات.",
+    "loadingLines": "جارٍ تحميل الخطوط…",
+    "noActiveLine": "لا يوجد خط {{drawer}} فعّال",
+    "noActiveLineHint": "رصيد هذا الصندوق يساوي دائماً مجموع رصيد خطوط الـSIM الفعّالة. أضف خط {{drawer}} الخاص بالمحل قبل عدّ هذا الصندوق.",
+    "phoneNumber": "رقم الهاتف",
+    "phonePlaceholder": "مثلاً 03123456",
+    "startingCredits": "الرصيد الأوّلي ($)",
+    "adding": "جارٍ الإضافة…",
+    "addLine": "إضافة خط",
+    "manageLinesHint": "أو أدِر الخطوط من الإعدادات ← خطوط الشركات.",
+    "noDrawerCurrencies": "لا توجد عملات محدّدة لهذا الصندوق.",
+    "inactive": "غير فعّال",
+    "partnerDebt": "دين نظام {{system}} يُتابَع عبر الشركاء.",
+    "noActivePartner": "لا يوجد شريك فعّال — الصندوق للقراءة فقط.",
+    "notesLabel": "ملاحظات (اختياري)",
+    "notesPlaceholder": "اشرح أي فرق أو مشكلة..."
+  },
+  "save": {
+    "balanced": "حفظ العدّ — مطابق",
+    "withVariance": "حفظ — {{parts}}",
+    "enterPhone": "أدخل رقم هاتف لإضافة خط.",
+    "addLineFailed": "تعذّرت إضافة الخط",
+    "failed": "تعذّر حفظ العدّ",
+    "unexpected": "حدث خطأ غير متوقّع",
+    "loadCurrenciesFailed": "تعذّر تحميل عملات هذا الصندوق",
+    "currenciesFailed": "تعذّر تحميل العملات",
+    "expectedFailed": "تعذّر جلب الأرصدة المتوقّعة"
+  },
+  "checkpoint": {
+    "title": "عدّ الصندوق — {{drawer}}",
+    "subtitle": "عدّل أي مبلغ يختلف عن الرصيد المتوقّع، ثم احفظ.",
+    "unsavedConfirm": "لديك تغييرات غير محفوظة. هل تريد إغلاق النافذة فعلاً؟"
+  },
+  "allDrawers": {
+    "title": "عدّ الصندوق — كل الصناديق",
+    "subtitle": "عُدّ كل صندوق واحفظه وحده. عدّل أي مبلغ يختلف عن الرصيد المتوقّع.",
+    "progress": "{{counted}} من {{total}} صناديق عُدّت اليوم",
+    "done": "تمّ",
+    "countedToday": "عُدّ اليوم",
+    "recount": "إعادة العدّ",
+    "countingAgain": "يُعاد عدّه",
+    "notCounted": "لم يُعدّ بعد"
+  },
+  "initial": {
+    "title": "المبالغ الأوّلية في الصناديق",
+    "subtitle": "حدّد الكاش الأوّلي لكل صندوق فعّال",
+    "loadFailed": "تعذّر تحميل الصناديق: {{error}}",
+    "loadFailedFallback": "تعذّر تحميل الصناديق",
+    "addCurrency": "إضافة عملة",
+    "noDrawers": "لا توجد صناديق لإعدادها.",
+    "skip": "تخطَّ الآن",
+    "saving": "جارٍ الحفظ…",
+    "save": "حفظ المبالغ",
+    "addCurrencyFailed": "تعذّرت إضافة عملة إلى {{drawer}}",
+    "saveFailed": "تعذّر حفظ مبالغ الصناديق"
+  },
+  "since": {
+    "none": "لا حركات منذ آخر عدّ",
+    "one": "{{n}} حركة منذ آخر عدّ",
+    "many": "{{n}} حركات منذ آخر عدّ"
+  },
+  "modalHeader": {
+    "close": "إغلاق النافذة"
+  }
+}

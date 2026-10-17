@@ -26,6 +26,28 @@ import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOver
 import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
+import { useTranslation } from "react-i18next";
+import { useFormat } from "@/i18n/useFormat";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { translateServerError } from "@liratek/ui/i18n/serverMessage";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { DirIcon } from "@liratek/ui/components/ui/DirIcon";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
+import { statusLabel } from "./components/statusLabel";
+
+/** Numeric date, as `toLocaleDateString()` printed it in en-US. */
+const NUMERIC_DATE: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+};
+/** Numeric date + time, as `toLocaleString()` printed it in en-US. */
+const NUMERIC_DATE_TIME: Intl.DateTimeFormatOptions = {
+  ...NUMERIC_DATE,
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+};
 
 // LIRA-176 phase 6 — a job's attached part line, as returned by getJobs.
 type JobPart = {
@@ -85,62 +107,45 @@ type MaintenanceJob = {
   warranty_until?: string | null;
 };
 
-/** Status tabs for the jobs list (client-side filtered). */
+/** Status tabs for the jobs list (client-side filtered). `key` is the status
+ *  code; its label is translated at render time (`statusLabel`). */
 const STATUS_TABS: {
   key: string;
-  label: string;
   match: (status: string) => boolean;
 }[] = [
-  { key: "All", label: "All", match: () => true },
-  { key: "Received", label: "Received", match: (s) => s === "Received" },
-  {
-    key: "In_Progress",
-    label: "In Progress",
-    match: (s) => s === "In_Progress",
-  },
-  { key: "Ready", label: "Ready", match: (s) => s === "Ready" },
+  { key: "All", match: () => true },
+  { key: "Received", match: (s) => s === "Received" },
+  { key: "In_Progress", match: (s) => s === "In_Progress" },
+  { key: "Ready", match: (s) => s === "Ready" },
   {
     key: "Delivered",
-    label: "Delivered",
     match: (s) => s === "Delivered" || s === "Delivered_Paid",
   },
 ];
 
-/** Display label + badge styling for a maintenance status. */
-function statusBadge(status: string): { label: string; className: string } {
+/** Badge styling for a maintenance status code. */
+function statusBadgeClass(status: string): string {
   switch (status) {
     case "Received":
-      return { label: "Received", className: "bg-blue-500/20 text-blue-400" };
+      return "bg-blue-500/20 text-blue-400";
     case "In_Progress":
-      return {
-        label: "In Progress",
-        className: "bg-amber-500/20 text-amber-400",
-      };
+      return "bg-amber-500/20 text-amber-400";
     case "Ready":
-      return {
-        label: "Ready",
-        className: "bg-emerald-500/20 text-emerald-400",
-      };
+      return "bg-emerald-500/20 text-emerald-400";
     case "Delivered":
-      return {
-        label: "Delivered",
-        className: "bg-slate-500/20 text-slate-300",
-      };
+      return "bg-slate-500/20 text-slate-300";
     case "Delivered_Paid":
-      return {
-        label: "Delivered & Paid",
-        className: "bg-violet-500/20 text-violet-300",
-      };
+      return "bg-violet-500/20 text-violet-300";
     default:
-      return {
-        label: status.replace("_", " "),
-        className: "bg-slate-500/20 text-slate-400",
-      };
+      return "bg-slate-500/20 text-slate-400";
   }
 }
 
 export default function Maintenance() {
   const api = useApi();
+  const { t } = useTranslation("maintenance");
+  const { t: tc } = useTranslation("common");
+  const { formatDate, formatDateTime } = useFormat();
   const { activeSession, addToCart: addToSessionCart } = useSession();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
@@ -578,20 +583,32 @@ export default function Maintenance() {
         const data = await api.getMaintenanceJobs(filter);
         setJobs(data);
       } else {
-        alert("Error: " + (result.error || "Failed to update status"));
+        alert(
+          t("alerts.error", {
+            message: translateServerError(
+              result,
+              t,
+              t("alerts.statusFailed"),
+            ),
+          }),
+        );
       }
     } catch (err) {
       logger.error("Failed to change job status:", err);
-      alert("Error: " + getApiErrorMessage(err, "Failed to update status"));
+      alert(
+        t("alerts.error", {
+          message: getApiErrorMessage(err, t("alerts.statusFailed")),
+        }),
+      );
     }
   };
 
   const handleVoid = async (id: number) => {
-    if (confirm("Delete this job?")) {
+    if (confirm(t("alerts.confirmDelete"))) {
       const res = await api.deleteMaintenanceJob(id);
       if (!res.success) {
         // Paid jobs are money history — deletion is blocked backend-side.
-        alert(res.error || "Failed to delete job");
+        alert(translateServerError(res, t, t("alerts.deleteFailed")));
         return;
       }
       const data = await api.getMaintenanceJobs(filter);
@@ -659,11 +676,19 @@ export default function Maintenance() {
         const data = await api.getMaintenanceJobs(filter);
         setJobs(data);
       } else {
-        alert("Error: " + result.error);
+        alert(
+          t("alerts.error", {
+            message: translateServerError(result, t, t("alerts.saveFailed")),
+          }),
+        );
       }
     } catch (err) {
       logger.error("Failed to save maintenance draft:", err);
-      alert("Error: " + getApiErrorMessage(err, "Failed to save job"));
+      alert(
+        t("alerts.error", {
+          message: getApiErrorMessage(err, t("alerts.saveFailed")),
+        }),
+      );
     }
   };
 
@@ -752,8 +777,9 @@ export default function Maintenance() {
       const finalAmt = paymentData.final_amount || parseFloat(price) || 0;
       const amountLabel =
         cur === "LBP"
-          ? `${Math.round(finalAmt).toLocaleString()} LBP`
+          ? `${formatNumber(Math.round(finalAmt))} LBP`
           : `$${finalAmt.toFixed(2)}`;
+      // i18n-exempt: stored text sent to server (session basket item label)
       const label = `Maintenance: ${deviceName || "Device"} - ${amountLabel}`;
 
       addToSessionCart({
@@ -778,7 +804,7 @@ export default function Maintenance() {
       if (result.success) {
         appEvents.emit(
           "notification:show",
-          "Maintenance payment processed successfully",
+          t("alerts.paymentDone"),
           "success",
         );
         void autoPrintReceipt({
@@ -792,11 +818,23 @@ export default function Maintenance() {
         const data = await api.getMaintenanceJobs(filter);
         setJobs(data);
       } else {
-        alert("Error: " + result.error);
+        alert(
+          t("alerts.error", {
+            message: translateServerError(
+              result,
+              t,
+              t("alerts.paymentFailed"),
+            ),
+          }),
+        );
       }
     } catch (err) {
       logger.error("Failed to process maintenance checkout:", err);
-      alert("Error: " + getApiErrorMessage(err, "Failed to process payment"));
+      alert(
+        t("alerts.error", {
+          message: getApiErrorMessage(err, t("alerts.paymentFailed")),
+        }),
+      );
     }
   };
 
@@ -832,7 +870,7 @@ export default function Maintenance() {
   const labourFinalDisplay = computeFinalAmount(editingJob, price, currency);
   const fmtCurrency = (v: number) =>
     currency === "LBP"
-      ? `${Math.round(v).toLocaleString()} LBP`
+      ? `${formatNumber(Math.round(v))} LBP`
       : `$${v.toFixed(2)}`;
 
   const isFormDirty = Boolean(
@@ -846,34 +884,34 @@ export default function Maintenance() {
   );
 
   const handleCancelForm = () => {
-    if (isFormDirty && !confirm("Discard unsaved changes?")) return;
+    if (isFormDirty && !confirm(t("alerts.confirmDiscard"))) return;
     handleNewJob();
   };
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 min-h-0 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
       <PageHeader
-        title="Maintenance"
+        title={t("page.title")}
         actions={
           <button
             onClick={() => setShowHistoryModal(true)}
             className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white"
           >
             <History size={16} />
-            <span className="font-medium">History</span>
+            <span className="font-medium">{t("page.history")}</span>
           </button>
         }
       />
 
       {/* Main Content: form (left) + jobs/status (right) */}
-      <div className="flex-1 min-h-0 overflow-y-auto -mr-6 pr-6 pb-6">
+      <div className="flex-1 min-h-0 overflow-y-auto -me-6 pe-6 pb-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
           {/* Right: Jobs list with status tabs */}
           <div className="order-2 lg:col-span-2">
             <div className="bg-slate-800/60 rounded-xl border border-slate-700/50 p-4">
               <h3 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
                 <Clock size={14} className="text-amber-400" />
-                Jobs ({filteredJobs.length})
+                {t("jobs.heading", { total: filteredJobs.length })}
               </h3>
 
               {/* Status tabs */}
@@ -890,8 +928,8 @@ export default function Maintenance() {
                           : "bg-slate-900/60 text-slate-400 border border-slate-700 hover:text-slate-200 hover:border-slate-600"
                       }`}
                     >
-                      {tab.label}
-                      <span className="ml-1.5 opacity-70">{count}</span>
+                      {statusLabel(tab.key, t)}
+                      <span className="ms-1.5 opacity-70">{count}</span>
                     </button>
                   );
                 })}
@@ -900,12 +938,11 @@ export default function Maintenance() {
               {/* Jobs list */}
               {filteredJobs.length === 0 ? (
                 <div className="py-8 text-center text-sm text-slate-500">
-                  No jobs in this status
+                  {t("jobs.empty")}
                 </div>
               ) : (
                 <div className="space-y-2 max-h-64 overflow-auto custom-scrollbar">
                   {filteredJobs.map((job) => {
-                    const badge = statusBadge(job.status);
                     const isRefunded = Boolean(job.is_refunded);
                     const canTransition =
                       job.status === "Received" || job.status === "In_Progress";
@@ -942,7 +979,7 @@ export default function Maintenance() {
                           discounted={labour.discounted}
                           format={(n) =>
                             isLbpJob
-                              ? `${Math.round(n).toLocaleString()} LBP`
+                              ? `${formatNumber(Math.round(n))} LBP`
                               : `$${n.toFixed(2)}`
                           }
                         />
@@ -955,7 +992,7 @@ export default function Maintenance() {
                       <button
                         key={job.id}
                         onClick={() => handleEdit(job)}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all hover:bg-slate-700/70 ${
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-start transition-all hover:bg-slate-700/70 ${
                           editingJob?.id === job.id
                             ? "bg-violet-600/20 border border-violet-500/50"
                             : "bg-slate-900/50 border border-slate-700/40"
@@ -967,13 +1004,13 @@ export default function Maintenance() {
                               {job.device_name}
                             </span>
                             <span
-                              className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${badge.className}`}
+                              className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${statusBadgeClass(job.status)}`}
                             >
-                              {badge.label}
+                              {statusLabel(job.status, t)}
                             </span>
                             {isRefunded && (
-                              <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                                Refunded
+                              <span className="ms-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                                {t("jobs.refunded")}
                               </span>
                             )}
                           </div>
@@ -985,9 +1022,10 @@ export default function Maintenance() {
                             )}
                             {job.created_at && (
                               <span className="text-[10px] text-slate-600">
-                                {parseDbDate(
-                                  job.created_at,
-                                ).toLocaleDateString()}
+                                {formatDate(
+                                  parseDbDate(job.created_at),
+                                  NUMERIC_DATE,
+                                )}
                               </span>
                             )}
                           </div>
@@ -1013,11 +1051,13 @@ export default function Maintenance() {
                             className="text-[10px] px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors whitespace-nowrap"
                             title={
                               job.status === "Received"
-                                ? "Mark In Progress"
-                                : "Mark Ready"
+                                ? t("jobs.markInProgress")
+                                : t("jobs.markReady")
                             }
                           >
-                            {job.status === "Received" ? "Start" : "Ready"}
+                            {job.status === "Received"
+                              ? t("jobs.start")
+                              : t("jobs.ready")}
                           </button>
                         )}
                         {hasAmount && (
@@ -1031,11 +1071,16 @@ export default function Maintenance() {
                             handleVoid(job.id);
                           }}
                           className="text-[10px] px-2 py-1 rounded bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors"
-                          title="Delete job"
+                          title={t("jobs.delete")}
                         >
                           <Trash2 size={12} />
                         </button>
-                        <ChevronRight size={14} className="text-slate-600" />
+                        <DirIcon
+                          icon={ChevronRight}
+                          width={14}
+                          height={14}
+                          className="text-slate-600"
+                        />
                       </button>
                     );
                   })}
@@ -1048,26 +1093,26 @@ export default function Maintenance() {
             <h2 className="text-lg font-bold text-white mb-6 flex items-center justify-between gap-2">
               <span className="flex items-center gap-2">
                 <Plus className="text-violet-400" size={20} />
-                {editingJob ? "Edit Job" : "New Repair Job"}
+                {editingJob ? t("form.editJob") : t("form.newJob")}
               </span>
               <button
                 type="button"
                 onClick={handleCancelForm}
                 className="p-1 rounded-lg text-slate-500 hover:text-white hover:bg-slate-700 transition-colors"
-                title="Cancel"
+                title={tc("actions.cancel")}
               >
                 <X size={18} />
               </button>
             </h2>
 
-            <div className="space-y-3 flex-1 overflow-auto pr-1 custom-scrollbar">
+            <div className="space-y-3 flex-1 overflow-auto pe-1 custom-scrollbar">
               {/* Device Info */}
               <div>
                 <label
                   htmlFor="maintenance-device-name"
                   className="text-xs text-slate-400 block mb-1"
                 >
-                  Device Name / Model *
+                  {t("form.deviceName")}
                 </label>
                 <input
                   id="maintenance-device-name"
@@ -1075,7 +1120,7 @@ export default function Maintenance() {
                   value={deviceName}
                   onChange={(e) => setDeviceName(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
-                  placeholder="e.g., iPhone 13 Pro Max"
+                  placeholder={t("form.devicePlaceholder")}
                   ref={deviceNameRef}
                 />
               </div>
@@ -1086,14 +1131,14 @@ export default function Maintenance() {
                   htmlFor="maintenance-issue"
                   className="text-xs text-slate-400 block mb-1"
                 >
-                  Issue Description *
+                  {t("form.issue")}
                 </label>
                 <textarea
                   id="maintenance-issue"
                   value={issue}
                   onChange={(e) => setIssue(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500 resize-none h-24"
-                  placeholder="e.g., Broken Screen, Battery Replacement..."
+                  placeholder={t("form.issuePlaceholder")}
                 />
               </div>
 
@@ -1103,22 +1148,26 @@ export default function Maintenance() {
                   htmlFor="maintenance-warranty-months"
                   className="text-xs text-slate-400 block mb-1"
                 >
-                  Repair warranty (months)
+                  {t("form.warranty")}
                 </label>
                 <input
                   id="maintenance-warranty-months"
-                  type="number"
-                  min={0}
-                  max={60}
-                  step={1}
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={2}
                   value={warrantyMonths}
-                  onChange={(e) => setWarrantyMonths(e.target.value)}
-                  placeholder="No warranty"
+                  onChange={(e) =>
+                    setWarrantyMonths(
+                      normalizeDigits(e.target.value).replace(/[^0-9]/g, ""),
+                    )
+                  }
+                  placeholder={t("form.noWarranty")}
                   className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
                 />
                 {editingJob?.warranty_until && (
                   <p className="text-[11px] text-emerald-400 mt-1">
-                    Warranty until {editingJob.warranty_until}
+                    {t("form.warrantyUntil")}{" "}
+                    <Ltr>{editingJob.warranty_until}</Ltr>
                   </p>
                 )}
               </div>
@@ -1127,7 +1176,7 @@ export default function Maintenance() {
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-xs text-slate-400">
-                    Repair Cost / Price
+                    {t("form.costPrice")}
                   </span>
                   {/* Currency toggle */}
                   <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
@@ -1156,13 +1205,12 @@ export default function Maintenance() {
                 </div>
                 {isAmountLocked && (
                   <p className="text-[10px] text-amber-400 mb-1.5">
-                    Paid job — void or refund to change the amount
+                    {t("form.locked")}
                   </p>
                 )}
                 {hasMoneyHistory && isRefundedOrVoided && (
                   <p className="text-[10px] text-sky-400 mb-1.5">
-                    This job was voided or refunded — amounts are editable
-                    again.
+                    {t("form.unlocked")}
                   </p>
                 )}
                 <div className="grid grid-cols-2 gap-3">
@@ -1171,11 +1219,11 @@ export default function Maintenance() {
                       htmlFor="maintenance-cost"
                       className="text-[10px] text-slate-500 block mb-1 uppercase"
                     >
-                      Repair Cost ({currency})
+                      {t("form.cost", { currency })}
                     </label>
                     <div className="relative">
                       {currency === "USD" && (
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
+                        <span className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
                           $
                         </span>
                       )}
@@ -1184,7 +1232,7 @@ export default function Maintenance() {
                         value={parseFloat(cost) || 0}
                         onChange={(n) => setCost(n ? String(n) : "")}
                         disabled={isAmountLocked}
-                        className={`w-full bg-slate-900 border border-slate-600 rounded-lg ${currency === "USD" ? "pl-7" : "pl-3"} pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-orange-500 disabled:opacity-50 disabled:cursor-not-allowed`}
+                        className={`w-full bg-slate-900 border border-slate-600 rounded-lg ${currency === "USD" ? "ps-7" : "ps-3"} pe-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-orange-500 disabled:opacity-50 disabled:cursor-not-allowed`}
                         placeholder={currency === "USD" ? "0.00" : "0"}
                       />
                     </div>
@@ -1194,11 +1242,11 @@ export default function Maintenance() {
                       htmlFor="maintenance-price"
                       className="text-[10px] text-emerald-400 block mb-1 uppercase"
                     >
-                      Price to Client ({currency})
+                      {t("form.price", { currency })}
                     </label>
                     <div className="relative">
                       {currency === "USD" && (
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500 text-sm">
+                        <span className="absolute start-3 top-1/2 -translate-y-1/2 text-emerald-500 text-sm">
                           $
                         </span>
                       )}
@@ -1207,7 +1255,7 @@ export default function Maintenance() {
                         value={parseFloat(price) || 0}
                         onChange={(n) => setPrice(n ? String(n) : "")}
                         disabled={isAmountLocked}
-                        className={`w-full bg-slate-900 border border-emerald-500/50 rounded-lg ${currency === "USD" ? "pl-7" : "pl-3"} pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed`}
+                        className={`w-full bg-slate-900 border border-emerald-500/50 rounded-lg ${currency === "USD" ? "ps-7" : "ps-3"} pe-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed`}
                         placeholder={currency === "USD" ? "0.00" : "0"}
                       />
                     </div>
@@ -1231,14 +1279,14 @@ export default function Maintenance() {
                 className="bg-slate-900/60 border border-slate-700/40 rounded-lg p-3 space-y-1 text-sm"
               >
                 <div className="flex justify-between text-slate-400">
-                  <span>Labour</span>
+                  <span>{t("totals.labour")}</span>
                   <span className="font-mono text-white">
                     {fmtCurrency(labourFinalDisplay)}
                   </span>
                 </div>
                 {partsPriceUsd > 0 && (
                   <div className="flex justify-between text-slate-400">
-                    <span>Parts</span>
+                    <span>{t("totals.parts")}</span>
                     <span className="font-mono text-white">
                       ${partsPriceUsd.toFixed(2)}
                     </span>
@@ -1246,9 +1294,11 @@ export default function Maintenance() {
                 )}
                 <div className="flex justify-between border-t border-slate-700/50 pt-1 font-semibold text-emerald-400">
                   <span>
-                    {currency === "LBP" && partsPriceUsd > 0 ? "Due" : "Total"}
+                    {currency === "LBP" && partsPriceUsd > 0
+                      ? t("totals.due")
+                      : t("totals.total")}
                   </span>
-                  <span className="font-mono">
+                  <span className="font-mono" dir="ltr">
                     {currency === "LBP"
                       ? partsPriceUsd > 0
                         ? `${fmtCurrency(labourFinalDisplay)} + $${partsPriceUsd.toFixed(2)}`
@@ -1264,7 +1314,7 @@ export default function Maintenance() {
                   htmlFor="maintenance-client-name"
                   className="text-xs text-slate-400 block mb-1"
                 >
-                  Client Name
+                  {t("form.clientName")}
                 </label>
                 <input
                   id="maintenance-client-name"
@@ -1272,7 +1322,7 @@ export default function Maintenance() {
                   value={clientName}
                   onChange={(e) => setClientName(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
-                  placeholder="Walk-in Client"
+                  placeholder={t("form.walkIn")}
                 />
               </div>
               <div>
@@ -1280,7 +1330,7 @@ export default function Maintenance() {
                   htmlFor="maintenance-client-phone"
                   className="text-xs text-slate-400 block mb-1"
                 >
-                  Phone Number
+                  {t("form.phone")}
                 </label>
                 <input
                   id="maintenance-client-phone"
@@ -1288,7 +1338,7 @@ export default function Maintenance() {
                   value={clientPhone}
                   onChange={(e) => setClientPhone(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
-                  placeholder="Optional"
+                  placeholder={t("form.optional")}
                 />
               </div>
               <SaveAsClientCheckbox
@@ -1302,16 +1352,15 @@ export default function Maintenance() {
                 <div className="border-t border-slate-700/50 pt-3">
                   <h4 className="text-xs font-semibold text-slate-400 mb-2 flex items-center gap-1.5">
                     <History size={12} />
-                    Status Timeline
+                    {t("timeline.title")}
                   </h4>
                   {statusHistory.length === 0 ? (
                     <p className="text-[11px] text-slate-600">
-                      No status changes recorded yet.
+                      {t("timeline.empty")}
                     </p>
                   ) : (
                     <ul className="space-y-1.5">
                       {statusHistory.map((h) => {
-                        const toBadge = statusBadge(h.to_status);
                         return (
                           <li
                             key={h.id}
@@ -1319,16 +1368,21 @@ export default function Maintenance() {
                           >
                             {h.from_status && (
                               <span className="text-slate-600">
-                                {statusBadge(h.from_status).label} →
+                                {t("timeline.from", {
+                                  status: statusLabel(h.from_status, t),
+                                })}
                               </span>
                             )}
                             <span
-                              className={`px-1.5 py-0.5 rounded font-medium ${toBadge.className}`}
+                              className={`px-1.5 py-0.5 rounded font-medium ${statusBadgeClass(h.to_status)}`}
                             >
-                              {toBadge.label}
+                              {statusLabel(h.to_status, t)}
                             </span>
-                            <span className="text-slate-500 ml-auto whitespace-nowrap">
-                              {parseDbDate(h.created_at).toLocaleString()}
+                            <span className="text-slate-500 ms-auto whitespace-nowrap">
+                              {formatDateTime(
+                                parseDbDate(h.created_at),
+                                NUMERIC_DATE_TIME,
+                              )}
                             </span>
                           </li>
                         );
@@ -1342,7 +1396,7 @@ export default function Maintenance() {
               {isAdmin && editingJob && (
                 <div className="border-t border-slate-700/50 pt-3 space-y-1 text-[11px]">
                   <h4 className="text-xs font-semibold text-slate-400 mb-1">
-                    Profit
+                    {t("profit.title")}
                   </h4>
                   {(() => {
                     const labourCostVal = parseFloat(cost) || 0;
@@ -1353,20 +1407,20 @@ export default function Maintenance() {
                     return (
                       <>
                         <div className="flex justify-between text-slate-400">
-                          <span>Labour margin</span>
+                          <span>{t("profit.labourMargin")}</span>
                           <span className="font-mono text-white">
                             {fmtCurrency(labourMargin)}
                           </span>
                         </div>
                         <div className="flex justify-between text-slate-400">
-                          <span>Parts margin</span>
+                          <span>{t("profit.partsMargin")}</span>
                           <span className="font-mono text-white">
                             ${partsMargin.toFixed(2)}
                           </span>
                         </div>
                         <div className="flex justify-between border-t border-slate-700/50 pt-1 font-semibold text-emerald-400">
-                          <span>Total</span>
-                          <span className="font-mono">
+                          <span>{t("profit.total")}</span>
+                          <span className="font-mono" dir="ltr">
                             {currency === "LBP"
                               ? `${fmtCurrency(labourMargin)} + $${partsMargin.toFixed(2)}`
                               : `$${(labourMargin + partsMargin).toFixed(2)}`}
@@ -1390,14 +1444,14 @@ export default function Maintenance() {
                 onClick={() => handleSaveDraft()}
                 className="flex-1 py-3 rounded-xl font-bold text-slate-300 hover:text-white hover:bg-slate-700 transition-colors border border-slate-600"
               >
-                Save as Draft
+                {t("actions.saveDraft")}
               </button>
               <button
                 onClick={() => setIsCheckoutOpen(true)}
                 className="flex-[2] py-3 rounded-xl font-bold text-white bg-violet-600 hover:bg-violet-500 shadow-lg shadow-violet-900/20 transition-all flex items-center justify-center gap-2"
               >
                 <DollarSign size={18} />
-                Proceed to Checkout
+                {t("actions.checkout")}
               </button>
             </div>
           </div>

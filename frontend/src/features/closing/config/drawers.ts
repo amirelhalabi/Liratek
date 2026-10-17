@@ -16,8 +16,8 @@ import type { DrawerType, DrawerConfig } from "../types";
 export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
   General: {
     type: "General",
-    label: "General",
-    description: "Main cash register",
+    label: "General", // i18n-exempt: English source, shown via t("closing:drawers.<code>")
+    description: "Main cash register", // i18n-exempt: English source, shown via t("closing:drawers.<code>")
     icon: "wallet",
     color: {
       border: "border-blue-500/30",
@@ -27,8 +27,8 @@ export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
   },
   OMT_System: {
     type: "OMT_System",
-    label: "OMT Cash Drawer",
-    description: "Physical cash drawer at the OMT counter",
+    label: "OMT Cash Drawer", // i18n-exempt: English source, shown via t("closing:drawers.<code>")
+    description: "Physical cash drawer at the OMT counter", // i18n-exempt: English source, shown via t("closing:drawers.<code>")
     icon: "dollar-sign",
     color: {
       border: "border-green-500/30",
@@ -38,8 +38,8 @@ export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
   },
   OMT_App: {
     type: "OMT_App",
-    label: "OMT App",
-    description: "OMT app wallet",
+    label: "OMT App", // i18n-exempt: English source, shown via t("closing:drawers.<code>")
+    description: "OMT app wallet", // i18n-exempt: English source, shown via t("closing:drawers.<code>")
     icon: "smartphone",
     color: {
       border: "border-lime-500/30",
@@ -49,8 +49,8 @@ export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
   },
   Whish_App: {
     type: "Whish_App",
-    label: "Whish App",
-    description: "Whish app",
+    label: "Whish App", // i18n-exempt: English source, shown via t("closing:drawers.<code>")
+    description: "Whish app", // i18n-exempt: English source, shown via t("closing:drawers.<code>")
     icon: "dollar-sign",
     color: {
       border: "border-emerald-500/30",
@@ -60,8 +60,8 @@ export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
   },
   Binance: {
     type: "Binance",
-    label: "Binance",
-    description: "Binance wallet",
+    label: "Binance", // i18n-exempt: English source, shown via t("closing:drawers.<code>")
+    description: "Binance wallet", // i18n-exempt: English source, shown via t("closing:drawers.<code>")
     icon: "dollar-sign",
     color: {
       border: "border-yellow-500/30",
@@ -71,8 +71,8 @@ export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
   },
   MTC: {
     type: "MTC",
-    label: "MTC",
-    description: "MTC recharges",
+    label: "MTC", // i18n-exempt: English source, shown via t("closing:drawers.<code>")
+    description: "MTC recharges", // i18n-exempt: English source, shown via t("closing:drawers.<code>")
     icon: "phone",
     color: {
       border: "border-orange-500/30",
@@ -82,8 +82,8 @@ export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
   },
   Alfa: {
     type: "Alfa",
-    label: "Alfa",
-    description: "Alfa recharges",
+    label: "Alfa", // i18n-exempt: English source, shown via t("closing:drawers.<code>")
+    description: "Alfa recharges", // i18n-exempt: English source, shown via t("closing:drawers.<code>")
     icon: "phone",
     color: {
       border: "border-red-500/30",
@@ -93,8 +93,8 @@ export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
   },
   iPick: {
     type: "iPick",
-    label: "iPick",
-    description: "iPick services",
+    label: "iPick", // i18n-exempt: English source, shown via t("closing:drawers.<code>")
+    description: "iPick services", // i18n-exempt: English source, shown via t("closing:drawers.<code>")
     icon: "zap",
     color: {
       border: "border-sky-500/30",
@@ -104,8 +104,8 @@ export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
   },
   Katsh: {
     type: "Katsh",
-    label: "Katsh",
-    description: "Katsh services",
+    label: "Katsh", // i18n-exempt: English source, shown via t("closing:drawers.<code>")
+    description: "Katsh services", // i18n-exempt: English source, shown via t("closing:drawers.<code>")
     icon: "zap",
     color: {
       border: "border-orange-500/30",
@@ -115,8 +115,8 @@ export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
   },
   Whish_System: {
     type: "Whish_System",
-    label: "Whish Cash Drawer",
-    description: "Physical cash drawer at the Whish counter",
+    label: "Whish Cash Drawer", // i18n-exempt: English source, shown via t("closing:drawers.<code>")
+    description: "Physical cash drawer at the Whish counter", // i18n-exempt: English source, shown via t("closing:drawers.<code>")
     icon: "zap",
     color: {
       border: "border-fuchsia-500/30",

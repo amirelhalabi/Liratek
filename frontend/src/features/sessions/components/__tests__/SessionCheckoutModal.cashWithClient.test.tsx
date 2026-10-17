@@ -87,7 +87,12 @@ jest.mock("@liratek/ui", () => ({
     React.useEffect(() => {
       mountCount += 1;
       onChange([
-        { id: "l1", method: props.initialMethod as string, currencyCode: "USD", amount: total },
+        {
+          id: "l1",
+          method: props.initialMethod as string,
+          currencyCode: "USD",
+          amount: total,
+        },
       ]);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -97,7 +102,9 @@ jest.mock("@liratek/ui", () => ({
           type="button"
           data-testid="pick-cash"
           onClick={() =>
-            onChange([{ id: "l1", method: "CASH", currencyCode: "USD", amount: total }])
+            onChange([
+              { id: "l1", method: "CASH", currencyCode: "USD", amount: total },
+            ])
           }
         >
           cash
@@ -212,7 +219,11 @@ describe("SessionCheckoutModal — Cash with a customer who has an account", () 
       (p: { direction?: string }) => p.direction !== "OUT",
     );
     expect(inLegs).toEqual([
-      expect.objectContaining({ method: "CASH", currency_code: "USD", amount: 134 }),
+      expect.objectContaining({
+        method: "CASH",
+        currency_code: "USD",
+        amount: 134,
+      }),
     ]);
   });
 });

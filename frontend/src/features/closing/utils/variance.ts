@@ -8,6 +8,8 @@
  *   - "diff"  → any difference exists                        → amber (attention)
  */
 
+import { formatNumber } from "@liratek/ui/i18n/format";
+
 export type VarianceStatus = "match" | "diff";
 
 export interface VarianceInfo {
@@ -74,8 +76,8 @@ export function formatDayVariance(days: number): string {
 
 /** Format an amount for display: LBP as whole numbers, others with 2 decimals. */
 export function formatCurrencyAmount(amount: number, code: string): string {
-  if (code === "LBP") return Math.round(amount).toLocaleString();
-  return amount.toLocaleString(undefined, {
+  if (code === "LBP") return formatNumber(Math.round(amount));
+  return formatNumber(amount, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });

@@ -17,6 +17,11 @@ import {
   carrierLineAlertText,
 } from "../carrierLineAlerts";
 import type { CarrierLineEntity } from "@liratek/ui";
+import { i18n } from "@/i18n/setup";
+
+// LIRA-331: the banner text now takes the translator; English must read
+// exactly as it did before conversion.
+const t = i18n.getFixedT("en", "dashboard");
 
 function makeLine(overrides: Partial<CarrierLineEntity>): CarrierLineEntity {
   return {
@@ -179,7 +184,7 @@ describe("computeCarrierLineAlerts — sold-ahead days (#28, LIRA-218)", () => {
       lineLabel: "Shop Line 1",
       daysOwed: 210,
       deadlineDays: 3,
-    });
+    }, t);
     expect(text).toContain("210");
     expect(text).toMatch(/recharge/i);
   });
@@ -196,7 +201,7 @@ describe("computeCarrierLineAlerts — sold-ahead days (#28, LIRA-218)", () => {
       lineLabel: "Shop Line 1",
       daysOwed: 210,
       deadlineDays: 5,
-    });
+    }, t);
     expect(text).toMatch(/within 5d/i);
   });
 
@@ -207,7 +212,7 @@ describe("computeCarrierLineAlerts — sold-ahead days (#28, LIRA-218)", () => {
       lineLabel: "Shop Line 1",
       daysOwed: 210,
       deadlineDays: 0,
-    });
+    }, t);
     expect(text).toMatch(/now/i);
   });
 
@@ -241,5 +246,56 @@ describe("computeCarrierLineAlerts — sold-ahead days (#28, LIRA-218)", () => {
     if (soldAhead?.kind === "sold-ahead") {
       expect(soldAhead.deadlineDays).toBe(2);
     }
+  });
+});
+
+describe("carrierLineAlertText — LIRA-331 language", () => {
+  afterEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+
+  it("keeps the pre-conversion English text for every alert kind", () => {
+    expect(carrierLineAlertText({ kind: "missing", carrier: "alfa" }, t)).toBe(
+      "Alfa has no active line",
+    );
+    expect(
+      carrierLineAlertText(
+        { kind: "expiring", carrier: "mtc", lineLabel: "L1", daysLeft: -2 },
+        t,
+      ),
+    ).toBe("MTC — L1 expired 2d ago");
+    expect(
+      carrierLineAlertText(
+        { kind: "expiring", carrier: "mtc", lineLabel: "L1", daysLeft: 0 },
+        t,
+      ),
+    ).toBe("MTC — L1 expires today");
+    expect(
+      carrierLineAlertText(
+        { kind: "expiring", carrier: "mtc", lineLabel: "L1", daysLeft: 4 },
+        t,
+      ),
+    ).toBe("MTC — L1 expires in 4d");
+    expect(
+      carrierLineAlertText(
+        {
+          kind: "sold-ahead",
+          carrier: "mtc",
+          lineLabel: "L1",
+          daysOwed: 30,
+          deadlineDays: 2,
+        },
+        t,
+      ),
+    ).toBe("MTC — L1 has 30 days sold ahead — recharge within 2d to deliver them");
+  });
+
+  it("speaks Arabic when given the Arabic translator, keeping brand and numbers", async () => {
+    const { loadLanguage } = await import("@/i18n/setup");
+    await loadLanguage("ar");
+    const tAr = i18n.getFixedT("ar", "dashboard");
+    expect(tAr("page.title")).toBe("لوحة التحكم");
+    const text = carrierLineAlertText({ kind: "missing", carrier: "alfa" }, tAr);
+    expect(text).toBe("لا يوجد خط فعّال لـ Alfa");
   });
 });

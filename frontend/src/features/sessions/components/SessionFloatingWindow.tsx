@@ -10,6 +10,10 @@ import {
 import logger from "@/utils/logger";
 import { useSession } from "../context/SessionContext";
 import { binanceCashSide, splitBasketCashSides } from "../utils/binanceCart";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 
 /**
  * SessionPopupPanel — renders cart items + committed transactions for the active session.
@@ -32,6 +36,8 @@ export function SessionPopupPanel({ onCheckout }: { onCheckout: () => void }) {
     closeCurrentSession,
     updateSessionInfo,
   } = useSession();
+  const { t } = useTranslation("sessions");
+  const { t: tc } = useTranslation("common");
 
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState("");
@@ -51,14 +57,14 @@ export function SessionPopupPanel({ onCheckout }: { onCheckout: () => void }) {
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
                   className="bg-violet-800/50 border border-violet-400/30 rounded px-1.5 py-0.5 text-sm text-white w-24 focus:outline-none focus:ring-1 focus:ring-violet-300"
-                  placeholder="Name"
+                  placeholder={t("field.name")}
                   autoFocus
                 />
                 <input
                   value={editPhone}
                   onChange={(e) => setEditPhone(e.target.value)}
                   className="bg-violet-800/50 border border-violet-400/30 rounded px-1.5 py-0.5 text-sm text-white w-24 focus:outline-none focus:ring-1 focus:ring-violet-300"
-                  placeholder="Phone"
+                  placeholder={t("field.phone")}
                 />
               </div>
             ) : (
@@ -78,11 +84,11 @@ export function SessionPopupPanel({ onCheckout }: { onCheckout: () => void }) {
                 </svg>
                 <div className="truncate text-sm">
                   <span className="font-semibold">
-                    {activeSession.customer_name || "Customer"}
+                    {activeSession.customer_name || t("panel.customer")}
                   </span>
                   {activeSession.customer_phone && (
-                    <span className="ml-2 opacity-90">
-                      {activeSession.customer_phone}
+                    <span className="ms-2 opacity-90">
+                      <Ltr>{activeSession.customer_phone}</Ltr>
                     </span>
                   )}
                 </div>
@@ -110,14 +116,14 @@ export function SessionPopupPanel({ onCheckout }: { onCheckout: () => void }) {
                     setIsEditing(false);
                   }}
                   className="hover:bg-violet-800 px-1.5 py-1 rounded transition-colors text-green-300"
-                  title="Save"
+                  title={tc("actions.save")}
                 >
                   <Check className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={() => setIsEditing(false)}
                   className="hover:bg-violet-800 px-1.5 py-1 rounded transition-colors text-red-300"
-                  title="Cancel"
+                  title={tc("actions.cancel")}
                 >
                   <XIcon className="w-3.5 h-3.5" />
                 </button>
@@ -131,7 +137,7 @@ export function SessionPopupPanel({ onCheckout }: { onCheckout: () => void }) {
                     setIsEditing(true);
                   }}
                   className="hover:bg-violet-800 px-1.5 py-1 rounded transition-colors"
-                  title="Edit Session"
+                  title={t("panel.editSession")}
                 >
                   <Pencil className="w-3.5 h-3.5" />
                 </button>
@@ -139,19 +145,22 @@ export function SessionPopupPanel({ onCheckout }: { onCheckout: () => void }) {
                   onClick={async () => {
                     if (
                       window.confirm(
-                        `Close session for ${activeSession.customer_name || "this customer"}?`,
+                        t("panel.confirmClose", {
+                          name:
+                            activeSession.customer_name || t("thisCustomer"),
+                        }),
                       )
                     ) {
                       try {
                         await closeCurrentSession();
                       } catch (err) {
                         logger.error("Failed to close session:", err);
-                        alert("Failed to close session");
+                        alert(t("closeFailed"));
                       }
                     }
                   }}
                   className="hover:bg-violet-800 px-1.5 py-1 rounded transition-colors"
-                  title="Close Session"
+                  title={t("panel.closeSession")}
                 >
                   <XIcon className="w-3.5 h-3.5" />
                 </button>
@@ -164,7 +173,7 @@ export function SessionPopupPanel({ onCheckout }: { onCheckout: () => void }) {
         <div className="flex-1 overflow-y-auto px-4 py-3">
           {cartItems.length === 0 && sessionTransactions.length === 0 ? (
             <div className="flex items-center justify-center py-6 text-slate-400">
-              <p className="text-xs">No items yet — add from any module</p>
+              <p className="text-xs">{t("panel.empty")}</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -172,7 +181,7 @@ export function SessionPopupPanel({ onCheckout }: { onCheckout: () => void }) {
               {cartItems.length > 0 && (
                 <div>
                   <div className="text-[10px] font-semibold text-emerald-400 uppercase tracking-wider mb-1.5">
-                    Cart ({cartItems.length})
+                    {t("panel.cart", { n: cartItems.length })}
                   </div>
                   <ul className="space-y-1.5">
                     {cartItems.map((item) => (
@@ -206,17 +215,17 @@ export function SessionPopupPanel({ onCheckout }: { onCheckout: () => void }) {
                                   }`}
                                 >
                                   {cash !== null ? (
-                                    <>
+                                    <Ltr>
                                       {cash >= 0 ? "+" : "-"}$
                                       {Math.abs(cash).toFixed(2)}
-                                    </>
+                                    </Ltr>
                                   ) : (
-                                    <>
+                                    <Ltr>
                                       {item.amount >= 0 ? "+" : "-"}
                                       {item.currency === "LBP"
-                                        ? `${Math.abs(item.amount).toLocaleString()} LBP`
+                                        ? `${formatNumber(Math.abs(item.amount))} LBP`
                                         : `$${Math.abs(item.amount).toFixed(2)}`}
-                                    </>
+                                    </Ltr>
                                   )}
                                 </span>
                               );
@@ -224,7 +233,7 @@ export function SessionPopupPanel({ onCheckout }: { onCheckout: () => void }) {
                             <button
                               onClick={() => removeFromCart(item.id)}
                               className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-300 p-0.5"
-                              title="Remove from cart"
+                              title={t("panel.removeFromCart")}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -241,7 +250,9 @@ export function SessionPopupPanel({ onCheckout }: { onCheckout: () => void }) {
                 <div>
                   {cartItems.length > 0 && (
                     <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                      Completed ({sessionTransactions.length})
+                      {t("panel.completed", {
+                        n: sessionTransactions.length,
+                      })}
                     </div>
                   )}
                   <ul className="space-y-1.5">
@@ -253,12 +264,12 @@ export function SessionPopupPanel({ onCheckout }: { onCheckout: () => void }) {
                         <div className="flex justify-between items-center">
                           <span className="font-medium text-sm flex items-center gap-1.5 text-slate-300">
                             {getTransactionIcon(tx.transaction_type)}
-                            {formatTransactionType(tx.transaction_type)}
+                            {formatTransactionType(tx.transaction_type, t)}
                           </span>
                           <div className="text-sm font-semibold">
                             {tx.amount_usd > 0 && (
                               <span className="text-green-400">
-                                ${tx.amount_usd.toFixed(2)}
+                                <Ltr>${tx.amount_usd.toFixed(2)}</Ltr>
                               </span>
                             )}
                             {tx.amount_usd > 0 && tx.amount_lbp > 0 && (
@@ -266,7 +277,7 @@ export function SessionPopupPanel({ onCheckout }: { onCheckout: () => void }) {
                             )}
                             {tx.amount_lbp > 0 && (
                               <span className="text-blue-400">
-                                {tx.amount_lbp.toLocaleString()} LBP
+                                <Ltr>{formatNumber(tx.amount_lbp)} LBP</Ltr>
                               </span>
                             )}
                           </div>
@@ -309,7 +320,7 @@ export function SessionPopupPanel({ onCheckout }: { onCheckout: () => void }) {
                   <div className="space-y-1">
                     <div className="flex justify-between items-center text-sm">
                       <span className="font-medium text-emerald-300">
-                        Cart Total
+                        {t("panel.cartTotal")}
                       </span>
                       <div className="font-bold">
                         {(netUsd !== 0 || netLbp === 0) && (
@@ -318,8 +329,10 @@ export function SessionPopupPanel({ onCheckout }: { onCheckout: () => void }) {
                               netUsd >= 0 ? "text-emerald-400" : "text-red-400"
                             }
                           >
-                            {netUsd < 0 ? "-" : ""}$
-                            {Math.abs(netUsd).toFixed(2)}
+                            <Ltr>
+                              {netUsd < 0 ? "-" : ""}$
+                              {Math.abs(netUsd).toFixed(2)}
+                            </Ltr>
                           </span>
                         )}
                         {netUsd !== 0 && netLbp !== 0 && (
@@ -331,8 +344,10 @@ export function SessionPopupPanel({ onCheckout }: { onCheckout: () => void }) {
                               netLbp >= 0 ? "text-blue-400" : "text-red-400"
                             }
                           >
-                            {netLbp < 0 ? "-" : ""}
-                            {Math.abs(netLbp).toLocaleString()} LBP
+                            <Ltr>
+                              {netLbp < 0 ? "-" : ""}
+                              {formatNumber(Math.abs(netLbp))} LBP
+                            </Ltr>
                           </span>
                         )}
                       </div>
@@ -343,24 +358,28 @@ export function SessionPopupPanel({ onCheckout }: { onCheckout: () => void }) {
                         className="flex justify-between items-center text-xs text-slate-400"
                       >
                         <span>
-                          Charge{" "}
-                          {chargeUsd > 0 && (
-                            <span>${chargeUsd.toFixed(2)}</span>
-                          )}
-                          {chargeUsd > 0 && chargeLbp > 0 && " + "}
-                          {chargeLbp > 0 && (
-                            <span>{chargeLbp.toLocaleString()} LBP</span>
-                          )}
+                          {t("panel.charge")}{" "}
+                          <Ltr>
+                            {chargeUsd > 0 && (
+                              <span>${chargeUsd.toFixed(2)}</span>
+                            )}
+                            {chargeUsd > 0 && chargeLbp > 0 && " + "}
+                            {chargeLbp > 0 && (
+                              <span>{formatNumber(chargeLbp)} LBP</span>
+                            )}
+                          </Ltr>
                         </span>
                         <span>
-                          Payout{" "}
-                          {payoutUsd > 0 && (
-                            <span>${payoutUsd.toFixed(2)}</span>
-                          )}
-                          {payoutUsd > 0 && payoutLbp > 0 && " + "}
-                          {payoutLbp > 0 && (
-                            <span>{payoutLbp.toLocaleString()} LBP</span>
-                          )}
+                          {t("panel.payout")}{" "}
+                          <Ltr>
+                            {payoutUsd > 0 && (
+                              <span>${payoutUsd.toFixed(2)}</span>
+                            )}
+                            {payoutUsd > 0 && payoutLbp > 0 && " + "}
+                            {payoutLbp > 0 && (
+                              <span>{formatNumber(payoutLbp)} LBP</span>
+                            )}
+                          </Ltr>
                         </span>
                       </div>
                     )}
@@ -373,28 +392,30 @@ export function SessionPopupPanel({ onCheckout }: { onCheckout: () => void }) {
                 className="w-full py-2 rounded-lg font-semibold text-sm text-white bg-emerald-600 hover:bg-emerald-500 transition-colors flex items-center justify-center gap-2"
               >
                 <ShoppingCart className="w-4 h-4" />
-                Checkout ({cartItemCount} items)
+                {t("panel.checkout", { n: cartItemCount })}
               </button>
             ) : sessionTransactions.length > 0 ? (
               <button
                 onClick={async () => {
                   if (
                     window.confirm(
-                      `Save & close session for ${activeSession.customer_name || "this customer"}?`,
+                      t("panel.confirmSaveClose", {
+                        name: activeSession.customer_name || t("thisCustomer"),
+                      }),
                     )
                   ) {
                     try {
                       await closeCurrentSession();
                     } catch (err) {
                       logger.error("Failed to close session:", err);
-                      alert("Failed to close session");
+                      alert(t("closeFailed"));
                     }
                   }
                 }}
                 className="w-full py-2 rounded-lg font-semibold text-sm text-white bg-violet-600 hover:bg-violet-500 transition-colors flex items-center justify-center gap-2"
               >
                 <Save className="w-4 h-4" />
-                Save & Close Session
+                {t("panel.saveClose")}
               </button>
             ) : null}
           </div>
@@ -405,16 +426,17 @@ export function SessionPopupPanel({ onCheckout }: { onCheckout: () => void }) {
 }
 
 // Helper functions
-function formatTransactionType(type: string): string {
+function formatTransactionType(type: string, t: TFunction<"sessions">): string {
   const map: Record<string, string> = {
-    sale: "Sale",
-    recharge: "Recharge",
-    exchange: "Exchange",
-    omt: "OMT",
-    whish: "Whish",
-    maintenance: "Maintenance",
-    expense: "Expense",
+    sale: t("txType.sale"),
+    recharge: t("txType.recharge"),
+    exchange: t("txType.exchange"),
+    omt: t("txType.omt"),
+    whish: t("txType.whish"),
+    maintenance: t("txType.maintenance"),
+    expense: t("txType.expense"),
   };
+  // Unknown codes fall back to the capitalised DB code (a data value).
   return map[type] || type.charAt(0).toUpperCase() + type.slice(1);
 }
 

@@ -18,6 +18,9 @@ import { useApi, appEvents } from "@liratek/ui";
 import { arePhoneNumbersEqual } from "@/utils/phoneNumber";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import logger from "@/utils/logger";
+import { useTranslation } from "react-i18next";
+import { useFormat } from "@/i18n/useFormat";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 
 type SessionFilter = "all" | "active" | "closed";
 
@@ -47,6 +50,9 @@ export function CustomerSessionButton({
     startSession,
   } = useSession();
   const api = useApi();
+  const { t } = useTranslation("sessions");
+  const { t: tc } = useTranslation("common");
+  const { formatTime } = useFormat();
   const [showDropdown, setShowDropdown] = useState(false);
   const [showNewSessionModal, setShowNewSessionModal] = useState(false);
   // Owned here, not in SessionPopupPanel: checkout closes the session, which
@@ -146,7 +152,7 @@ export function CustomerSessionButton({
         logger.error("Failed to load clients:", err);
         appEvents.emit(
           "notification:show",
-          "Failed to load client list",
+          t("button.loadClientsFailed"),
           "error",
         );
       } finally {
@@ -173,7 +179,9 @@ export function CustomerSessionButton({
     e.stopPropagation();
     if (
       !window.confirm(
-        `Permanently delete session for "${sessionName || "this customer"}"? This cannot be undone.`,
+        t("button.confirmDelete", {
+          name: sessionName || t("thisCustomer"),
+        }),
       )
     ) {
       return;
@@ -182,7 +190,7 @@ export function CustomerSessionButton({
       await deleteSession(sessionId);
     } catch (err) {
       logger.error("Failed to delete session:", err);
-      appEvents.emit("notification:show", "Failed to delete session", "error");
+      appEvents.emit("notification:show", t("button.deleteFailed"), "error");
     }
   };
 
@@ -190,11 +198,7 @@ export function CustomerSessionButton({
     e.stopPropagation();
 
     if (!session.customer_phone) {
-      appEvents.emit(
-        "notification:show",
-        "Cannot save client without phone number",
-        "warning",
-      );
+      appEvents.emit("notification:show", t("button.noPhone"), "warning");
       return;
     }
 
@@ -207,7 +211,7 @@ export function CustomerSessionButton({
       if (existingClient) {
         appEvents.emit(
           "notification:show",
-          `Client already exists: ${existingClient.full_name}`,
+          t("button.clientExists", { name: existingClient.full_name }),
           "warning",
         );
         return;
@@ -216,9 +220,9 @@ export function CustomerSessionButton({
       // Create client directly via API — dual-mode (IPC on desktop, REST in
       // the browser) so this works from a web session too (rule 19).
       const result = await api.createClient({
-        full_name: session.customer_name || "Unknown",
+        full_name: session.customer_name || "Unknown", // i18n-exempt: stored text sent to server
         phone_number: session.customer_phone,
-        notes: `Added from customer session`,
+        notes: `Added from customer session`, // i18n-exempt: stored text sent to server
         whatsapp_opt_in: 1,
       });
 
@@ -227,25 +231,17 @@ export function CustomerSessionButton({
         const clients = await api.getClients();
         setExistingClients(clients);
 
-        appEvents.emit(
-          "notification:show",
-          "Client saved successfully",
-          "success",
-        );
+        appEvents.emit("notification:show", t("button.clientSaved"), "success");
       } else {
         appEvents.emit(
           "notification:show",
-          result.error || "Failed to save client",
+          result.error || t("button.saveClientFailed"),
           "error",
         );
       }
     } catch (err) {
       logger.error("Failed to save client:", err);
-      appEvents.emit(
-        "notification:show",
-        "Failed to save client. Please try again.",
-        "error",
-      );
+      appEvents.emit("notification:show", t("button.saveClientRetry"), "error");
     }
   };
 
@@ -267,16 +263,17 @@ export function CustomerSessionButton({
           : [];
 
       let counter = 1;
+      // i18n-exempt: stored walk-in customer name (data value), matched against today's sessions
       while (todayNames.includes(`Client${counter}`)) {
         counter++;
       }
 
-      await startSession({ customer_name: `Client${counter}` });
+      await startSession({ customer_name: `Client${counter}` }); // i18n-exempt: stored walk-in customer name (data value)
     } catch (err: any) {
       logger.error("Failed to start walk-in session:", err);
       appEvents.emit(
         "notification:show",
-        err?.message || "Failed to start walk-in session",
+        err?.message || t("button.walkInFailed"),
         "error",
       );
     }
@@ -302,7 +299,7 @@ export function CustomerSessionButton({
       setEditingSessionId(null);
     } catch (err) {
       logger.error("Failed to update session:", err);
-      appEvents.emit("notification:show", "Failed to update session", "error");
+      appEvents.emit("notification:show", t("button.updateFailed"), "error");
     }
   };
 
@@ -348,36 +345,45 @@ export function CustomerSessionButton({
           }`}
           title={
             activeCount === 0
-              ? "Start Customer Session"
+              ? t("button.startTitle")
               : hasActiveSession
-                ? "Show this session's cart"
-                : `${activeCount} active session${activeCount > 1 ? "s" : ""}`
+                ? t("button.showCartTitle")
+                : t(
+                    activeCount > 1
+                      ? "button.activeSessionsMany"
+                      : "button.activeSessionsOne",
+                    { n: activeCount },
+                  )
           }
         >
           {activeCount > 0 ? (
             <>
               <Users size={16} />
               <span className="text-sm font-medium">
-                {isKnownClient ? "Client" : "Customer"} Session
+                {isKnownClient
+                  ? t("button.clientSession")
+                  : t("button.customerSession")}
                 {activeSession?.customer_name
                   ? ` - ${activeSession.customer_name}`
                   : ""}
               </span>
               {cartItemCount > 0 && (
                 <span className="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold rounded-full px-2 py-0.5">
-                  items: {cartItemCount}
+                  {t("button.itemsBadge", { n: cartItemCount })}
                 </span>
               )}
               {activeCount > 1 && (
                 <span className="bg-white/20 text-white text-[10px] font-bold rounded-full px-2 py-0.5">
-                  sessions: {activeCount}
+                  {t("button.sessionsBadge", { n: activeCount })}
                 </span>
               )}
             </>
           ) : (
             <>
               <UserPlus size={16} />
-              <span className="text-sm font-medium">New Customer</span>
+              <span className="text-sm font-medium">
+                {t("button.newCustomer")}
+              </span>
             </>
           )}
         </button>
@@ -389,9 +395,14 @@ export function CustomerSessionButton({
           <button
             type="button"
             onClick={handleSwitcherClick}
-            aria-label="Switch or start a session"
+            aria-label={t("button.switcherAria")}
             aria-expanded={showDropdown}
-            title={`${activeCount} active session${activeCount > 1 ? "s" : ""}`}
+            title={t(
+              activeCount > 1
+                ? "button.activeSessionsMany"
+                : "button.activeSessionsOne",
+              { n: activeCount },
+            )}
             className="flex items-center px-1.5 py-1.5 rounded-lg bg-violet-700 text-white hover:bg-violet-600 transition-all"
           >
             <ChevronDown size={16} />
@@ -403,7 +414,7 @@ export function CustomerSessionButton({
           <div
             ref={popupRef}
             data-testid="session-hover-panel"
-            className="absolute top-full left-0 mt-2 z-50 animate-in fade-in zoom-in-95 duration-200"
+            className="absolute top-full start-0 mt-2 z-50 animate-in fade-in zoom-in-95 duration-200"
           >
             <SessionPopupPanel onCheckout={() => setIsCheckoutOpen(true)} />
           </div>
@@ -411,18 +422,20 @@ export function CustomerSessionButton({
 
         {/* Click Dropdown: Session switcher */}
         {showDropdown && (
-          <div className="absolute top-full left-0 mt-2 w-72 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden">
+          <div className="absolute top-full start-0 mt-2 w-72 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden">
             {/* Header */}
             <div className="px-4 py-3 bg-slate-900 border-b border-slate-700">
               <p className="text-sm font-semibold text-white">
-                Customer Sessions
+                {t("page.title")}
               </p>
               <p className="text-xs text-slate-400">
                 {activeCount > 0
-                  ? `${activeCount} active`
-                  : "No active sessions"}
+                  ? t("button.activeCount", { n: activeCount })
+                  : t("button.noActive")}
                 {allTodaySessions.length > activeCount &&
-                  ` · ${allTodaySessions.length - activeCount} closed`}
+                  ` · ${t("button.closedCount", {
+                    n: allTodaySessions.length - activeCount,
+                  })}`}
               </p>
             </div>
 
@@ -439,10 +452,10 @@ export function CustomerSessionButton({
                   }`}
                 >
                   {f === "active"
-                    ? "Active"
+                    ? t("button.filterActive")
                     : f === "closed"
-                      ? "Closed"
-                      : "All"}
+                      ? t("button.filterClosed")
+                      : t("button.filterAll")}
                 </button>
               ))}
             </div>
@@ -451,7 +464,7 @@ export function CustomerSessionButton({
             <div className="max-h-64 overflow-y-auto p-2">
               {isLoadingClients ? (
                 <div className="flex items-center justify-center py-4 text-slate-400">
-                  <span className="text-sm">Loading clients...</span>
+                  <span className="text-sm">{t("button.loadingClients")}</span>
                 </div>
               ) : (
                 <>
@@ -465,12 +478,12 @@ export function CustomerSessionButton({
                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-600 to-violet-700 flex items-center justify-center flex-shrink-0">
                           <UserPlus size={16} className="text-white" />
                         </div>
-                        <div className="flex-1 text-left">
+                        <div className="flex-1 text-start">
                           <p className="text-sm font-medium text-white group-hover:text-violet-300">
-                            New Session
+                            {t("button.newSession")}
                           </p>
                           <p className="text-xs text-slate-400">
-                            Start with customer name
+                            {t("button.newSessionHint")}
                           </p>
                         </div>
                       </button>
@@ -482,12 +495,12 @@ export function CustomerSessionButton({
                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-600 to-amber-700 flex items-center justify-center flex-shrink-0">
                           <Footprints size={16} className="text-white" />
                         </div>
-                        <div className="flex-1 text-left">
+                        <div className="flex-1 text-start">
                           <p className="text-sm font-medium text-white group-hover:text-amber-300">
-                            Walk-In
+                            {t("button.walkIn")}
                           </p>
                           <p className="text-xs text-slate-400">
-                            Quick start — auto-named
+                            {t("button.walkInHint")}
                           </p>
                         </div>
                       </button>
@@ -525,7 +538,7 @@ export function CustomerSessionButton({
                             {getInitials(session.customer_name)}
                           </span>
                         </div>
-                        <div className="flex-1 text-left">
+                        <div className="flex-1 text-start">
                           {editingSessionId === session.id ? (
                             <div className="flex flex-col gap-1">
                               <input
@@ -534,14 +547,14 @@ export function CustomerSessionButton({
                                 onChange={(e) => setEditName(e.target.value)}
                                 onClick={(e) => e.stopPropagation()}
                                 className="bg-slate-900 border border-slate-600 rounded px-2 py-0.5 text-sm text-white w-full focus:outline-none focus:ring-1 focus:ring-violet-500"
-                                placeholder="Name"
+                                placeholder={t("field.name")}
                               />
                               <input
                                 value={editPhone}
                                 onChange={(e) => setEditPhone(e.target.value)}
                                 onClick={(e) => e.stopPropagation()}
                                 className="bg-slate-900 border border-slate-600 rounded px-2 py-0.5 text-xs text-white w-full focus:outline-none focus:ring-1 focus:ring-violet-500"
-                                placeholder="Phone"
+                                placeholder={t("field.phone")}
                               />
                             </div>
                           ) : (
@@ -555,12 +568,23 @@ export function CustomerSessionButton({
                                       : "text-white group-hover:text-violet-300"
                                 }`}
                               >
-                                {session.customer_name || "Unknown Customer"}
+                                {session.customer_name || t("unknownCustomer")}
                               </p>
                               <p className="text-xs text-slate-400">
-                                {isClosed
-                                  ? `Closed${session.closed_at ? ` · ${parseDbDate(session.closed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}`
-                                  : session.customer_phone || ""}
+                                {isClosed ? (
+                                  session.closed_at ? (
+                                    t("button.closedAt", {
+                                      time: formatTime(
+                                        parseDbDate(session.closed_at),
+                                        { hour: "2-digit", minute: "2-digit" },
+                                      ),
+                                    })
+                                  ) : (
+                                    t("button.closed")
+                                  )
+                                ) : (
+                                  <Ltr>{session.customer_phone || ""}</Ltr>
+                                )}
                               </p>
                             </>
                           )}
@@ -571,14 +595,14 @@ export function CustomerSessionButton({
                               <button
                                 onClick={(e) => handleSaveEdit(e, session.id)}
                                 className="p-1 text-slate-400 hover:text-green-400 hover:bg-green-900/20 rounded transition-all"
-                                title="Save"
+                                title={tc("actions.save")}
                               >
                                 <Check size={16} />
                               </button>
                               <button
                                 onClick={handleCancelEdit}
                                 className="p-1 text-slate-400 hover:text-red-400 hover:bg-red-900/20 rounded transition-all"
-                                title="Cancel"
+                                title={tc("actions.cancel")}
                               >
                                 <X size={16} />
                               </button>
@@ -590,7 +614,7 @@ export function CustomerSessionButton({
                                 <button
                                   onClick={(e) => handleEditSession(e, session)}
                                   className="p-1 text-slate-400 hover:text-violet-400 hover:bg-violet-900/20 rounded transition-all"
-                                  title="Edit session"
+                                  title={t("button.editSession")}
                                 >
                                   <Pencil size={14} />
                                 </button>
@@ -604,7 +628,7 @@ export function CustomerSessionButton({
                                       handleSaveClient(e, session)
                                     }
                                     className="p-1 text-slate-400 hover:text-emerald-400 hover:bg-emerald-900/20 rounded transition-all"
-                                    title="Save as client"
+                                    title={t("button.saveAsClient")}
                                   >
                                     <Save size={16} />
                                   </button>
@@ -616,7 +640,7 @@ export function CustomerSessionButton({
                                     handleCloseSession(e, session.id)
                                   }
                                   className="p-1 text-slate-400 hover:text-orange-400 hover:bg-orange-900/20 rounded transition-all"
-                                  title="Close session (end visit)"
+                                  title={t("button.closeVisit")}
                                 >
                                   <X size={16} />
                                 </button>
@@ -631,7 +655,7 @@ export function CustomerSessionButton({
                                   )
                                 }
                                 className="p-1 text-slate-400 hover:text-red-400 hover:bg-red-900/20 rounded transition-all"
-                                title="Delete permanently"
+                                title={t("button.deletePermanent")}
                               >
                                 <Trash2 size={14} />
                               </button>
@@ -644,13 +668,11 @@ export function CustomerSessionButton({
 
                   {filteredSessions.length === 0 && (
                     <div className="text-center text-slate-400 text-xs">
-                      No{" "}
                       {sessionFilter === "active"
-                        ? "active"
+                        ? t("button.emptyActive")
                         : sessionFilter === "closed"
-                          ? "closed"
-                          : ""}{" "}
-                      sessions today
+                          ? t("button.emptyClosed")
+                          : t("button.emptyAll")}
                     </div>
                   )}
                 </>

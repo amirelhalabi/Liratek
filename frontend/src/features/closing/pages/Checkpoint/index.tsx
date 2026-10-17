@@ -14,11 +14,13 @@
 
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import {
   useDrawerCheckpoint,
   SAVE_STYLES,
 } from "../../hooks/useDrawerCheckpoint";
 import { CheckpointDrawerBody } from "../../components/CheckpointDrawerBody";
+import { useDrawerText } from "../../hooks/useDrawerText";
 
 interface CheckpointModalProps {
   isOpen: boolean;
@@ -32,14 +34,14 @@ export default function CheckpointModal({
   onClose,
 }: CheckpointModalProps) {
   useModalFocusFix(isOpen);
+  const { t } = useTranslation("closing");
+  const drawerText = useDrawerText();
   const cp = useDrawerCheckpoint({ isOpen, drawerName, onSaved: onClose });
-  const { drawerConfig, saving, overallStatus, saveLabel, handleSave } = cp;
+  const { saving, overallStatus, saveLabel, handleSave } = cp;
 
   const handleCancel = () => {
     if (cp.hasUnsavedChanges) {
-      if (
-        confirm("You have unsaved changes. Are you sure you want to close?")
-      ) {
+      if (confirm(t("checkpoint.unsavedConfirm"))) {
         onClose();
       }
     } else {
@@ -66,11 +68,10 @@ export default function CheckpointModal({
         <div className="flex justify-between items-center p-6 border-b border-slate-700 bg-slate-800">
           <div>
             <h2 className="text-xl font-bold text-white">
-              Checkpoint — {drawerConfig?.label ?? drawerName}
+              {t("checkpoint.title", { drawer: drawerText.label(drawerName) })}
             </h2>
             <p className="text-slate-400 text-sm mt-1">
-              Adjust any amount that differs from the expected balance, then
-              save.
+              {t("checkpoint.subtitle")}
             </p>
           </div>
           <button
@@ -96,11 +97,12 @@ export default function CheckpointModal({
               disabled={saving}
               className="px-4 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700 transition-colors disabled:opacity-50"
             >
-              Cancel
+              {t("common:actions.cancel")}
             </button>
 
             <button
               type="button"
+              data-testid="checkpoint-save"
               onClick={handleSave}
               disabled={cp.saveDisabled}
               className={`px-6 py-2 ${SAVE_STYLES[overallStatus]} text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed max-w-[70%] truncate`}

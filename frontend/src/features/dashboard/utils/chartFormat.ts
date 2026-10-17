@@ -13,6 +13,8 @@
  * component file — add it here instead.
  */
 
+import { formatNumber } from "@liratek/ui/i18n/format";
+
 /**
  * DC-5 (OWNER_NOTES_2026-09-21.md §7.1) — the left (USD) Y-axis used to
  * divide every tick by 1,000 and label it "Nk" unconditionally, so a shop
@@ -107,7 +109,7 @@ export function formatTooltipValue(
     return [formatAmount(valNum, "USD"), label];
   }
   return [
-    `${valNum.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+    formatNumber(valNum, { maximumFractionDigits: 0 }),
     label,
   ];
 }

@@ -4,6 +4,7 @@
  */
 
 import { X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 interface ModalHeaderProps {
   title: string;
@@ -22,6 +23,7 @@ export function ModalHeader({
   gradientTo,
   onClose,
 }: ModalHeaderProps) {
+  const { t } = useTranslation("closing");
   return (
     <div
       className={`bg-gradient-to-r from-${gradientFrom} to-${gradientTo} px-6 py-5 flex items-center justify-between`}
@@ -37,7 +39,7 @@ export function ModalHeader({
       <button
         onClick={onClose}
         className="text-white/80 hover:text-white hover:bg-white/10 rounded-lg p-2 transition"
-        aria-label="Close modal"
+        aria-label={t("modalHeader.close")}
       >
         <X size={24} />
       </button>

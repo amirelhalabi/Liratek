@@ -11,6 +11,8 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { translateServerError } from "@liratek/ui/i18n/serverMessage";
 import logger from "@/utils/logger";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import type { DrawerType } from "../types";
@@ -58,6 +60,7 @@ export function useDrawerCheckpoint({
   });
   const [amountsReady, setAmountsReady] = useState(false);
 
+  const { t } = useTranslation("closing");
   const api = useApi();
   const drawer = drawerName as DrawerType;
   const drawerConfig = DRAWER_CONFIGS[drawer];
@@ -149,7 +152,7 @@ export function useDrawerCheckpoint({
       .catch((err: unknown) => {
         logger.error("[Checkpoint] Countable currencies error:", err);
         setCountableError(
-          getApiErrorMessage(err, "Failed to load this drawer's currencies"),
+          getApiErrorMessage(err, t("save.loadCurrenciesFailed")),
         );
       });
   };
@@ -238,7 +241,7 @@ export function useDrawerCheckpoint({
     if (!carrier) return;
     const phone = newLinePhone.trim();
     if (!phone) {
-      setAddLineError("Enter a phone number to add a line.");
+      setAddLineError(t("save.enterPhone"));
       return;
     }
     setAddingLine(true);
@@ -251,7 +254,9 @@ export function useDrawerCheckpoint({
         credits,
       });
       if (!result.success) {
-        setAddLineError(result.error || "Failed to add the line");
+        setAddLineError(
+          translateServerError(result, t, t("save.addLineFailed")),
+        );
         return;
       }
       setNewLinePhone("");
@@ -259,7 +264,7 @@ export function useDrawerCheckpoint({
       await loadCarrierLines();
       await fetchSystemExpected();
     } catch (error) {
-      setAddLineError(getApiErrorMessage(error, "Failed to add the line"));
+      setAddLineError(getApiErrorMessage(error, t("save.addLineFailed")));
     } finally {
       setAddingLine(false);
     }
@@ -355,11 +360,11 @@ export function useDrawerCheckpoint({
   if (lineCreditsDiffs.length > 0 || hasValidityDiff) overallStatus = "diff";
 
   const saveLabel = (() => {
-    if (saving) return "Saving...";
-    if (overallStatus === "match") return "Save Checkpoint — Balanced";
+    if (saving) return t("common:state.saving");
+    if (overallStatus === "match") return t("save.balanced");
     const parts: string[] = [];
     if (diffs.length > 2) {
-      parts.push(`Variance in ${diffs.length} currencies`);
+      parts.push(t("variance.inCurrencies", { n: diffs.length }));
     } else {
       parts.push(
         ...diffs.map(
@@ -371,18 +376,22 @@ export function useDrawerCheckpoint({
     if (lineCreditsDiffs.length > 0) {
       parts.push(
         lineCreditsDiffs.length > 1
-          ? `Credits variance on ${lineCreditsDiffs.length} lines`
+          ? t("variance.creditsOnLines", { n: lineCreditsDiffs.length })
           : `${lineCreditsDiffs[0].line.phone_number} ${lineCreditsDiffs[0].variance > 0 ? "+" : ""}${formatCurrencyAmount(lineCreditsDiffs[0].variance, "USD")}`,
       );
     }
     if (hasValidityDiff) {
       parts.push(
         lineExpiryDiffs.length > 1
-          ? `Validity variance on ${lineExpiryDiffs.length} lines`
-          : `Validity ${formatDayVariance(lineExpiryDiffs[0].info.days)}`,
+          ? t("variance.validityOnLines", { n: lineExpiryDiffs.length })
+          : t("variance.validity", {
+              days: formatDayVariance(lineExpiryDiffs[0].info.days),
+            }),
       );
     }
-    return `Save — ${parts.join(", ")}`;
+    return t("save.withVariance", {
+      parts: parts.join(t("variance.listSeparator")),
+    });
   })();
 
   const handleSave = async () => {
@@ -434,7 +443,7 @@ export function useDrawerCheckpoint({
       const result = await api.createCheckpoint(checkpointData);
 
       if (!result.success) {
-        setSaveError(result.error || "Failed to save checkpoint");
+        setSaveError(translateServerError(result, t, t("save.failed")));
         return;
       }
 
@@ -474,6 +483,7 @@ export function useDrawerCheckpoint({
             new Date(),
           );
 
+          // i18n-exempt: closing report text (FR-024 deferred, monospace layout)
           const html = `<!doctype html><html><head><meta charset="utf-8" /><title>Checkpoint Report</title></head><body><pre style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; white-space: pre-wrap;">${escapeHtml(reportText)}</pre></body></html>`;
 
           const pdfRes = await api.generatePDF(
@@ -500,7 +510,7 @@ export function useDrawerCheckpoint({
       // LIRA-247: `error instanceof Error` is false for a thrown ApiError
       // (e.g. a web 403 role refusal), so it used to fall back to this
       // generic string and hide the real reason.
-      setSaveError(getApiErrorMessage(error, "An unexpected error occurred"));
+      setSaveError(getApiErrorMessage(error, t("save.unexpected")));
     } finally {
       setSaving(false);
     }

@@ -11,6 +11,11 @@ import {
 } from "lucide-react";
 import { PageHeader, useApi, DateRangeFilter } from "@liratek/ui";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import { useFormat } from "@/i18n/useFormat";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 
 interface SessionSummary {
   id: number;
@@ -33,18 +38,19 @@ interface SessionSummary {
   total_profit_lbp: number;
 }
 
-function formatTime(iso: string): string {
-  const d = parseDbDate(iso);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
+const CLOCK = { hour: "2-digit", minute: "2-digit" } as const;
 
-function getDuration(startedAt: string, closedAt?: string): string {
+function getDuration(
+  startedAt: string,
+  t: TFunction<"sessions">,
+  closedAt?: string,
+): string {
   const start = new Date(startedAt).getTime();
   const end = closedAt ? new Date(closedAt).getTime() : Date.now();
   const mins = Math.round((end - start) / 60000);
-  if (mins < 60) return `${mins}m`;
+  if (mins < 60) return t("card.minutes", { m: mins });
   const hrs = Math.floor(mins / 60);
-  return `${hrs}h ${mins % 60}m`;
+  return t("card.hoursMinutes", { h: hrs, m: mins % 60 });
 }
 
 function CurrencyAmount({
@@ -58,9 +64,13 @@ function CurrencyAmount({
 }) {
   const parts: string[] = [];
   if (usd !== 0) parts.push(`$${usd.toFixed(2)}`);
-  if (lbp !== 0) parts.push(`${Math.round(lbp).toLocaleString()} LBP`);
+  if (lbp !== 0) parts.push(`${formatNumber(Math.round(lbp))} LBP`);
   if (parts.length === 0) return null;
-  return <span className={className}>{parts.join(" + ")}</span>;
+  return (
+    <span className={className}>
+      <Ltr>{parts.join(" + ")}</Ltr>
+    </span>
+  );
 }
 
 function localToday(): string {
@@ -73,6 +83,7 @@ function localToday(): string {
 
 export default function CustomerSessions() {
   const api = useApi();
+  const { t } = useTranslation("sessions");
   const today = localToday();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -120,7 +131,7 @@ export default function CustomerSessions() {
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 flex flex-col gap-4 overflow-hidden animate-in fade-in duration-300">
       <PageHeader
-        title="Customer Sessions"
+        title={t("page.title")}
         actions={
           <div className="flex items-center gap-3">
             <DateRangeFilter
@@ -132,18 +143,20 @@ export default function CustomerSessions() {
             <div className="flex items-center gap-2">
               <div className="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                 <span className="text-emerald-300/60 text-[10px] block">
-                  Active
+                  {t("page.active")}
                 </span>
                 <span className="font-bold">{activeSessions.length}</span>
               </div>
               <div className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700">
-                <span className="text-slate-400 text-[10px] block">Closed</span>
+                <span className="text-slate-400 text-[10px] block">
+                  {t("page.closed")}
+                </span>
                 <span className="font-bold">{closedSessions.length}</span>
               </div>
               {(totalRevenueUsd > 0 || totalRevenueLbp > 0) && (
                 <div className="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
                   <span className="text-amber-300/60 text-[10px] block">
-                    Revenue
+                    {t("page.revenue")}
                   </span>
                   <CurrencyAmount
                     usd={totalRevenueUsd}
@@ -155,7 +168,7 @@ export default function CustomerSessions() {
               {(totalProfitUsd > 0 || totalProfitLbp > 0) && (
                 <div className="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                   <span className="text-emerald-300/60 text-[10px] block">
-                    Profit
+                    {t("page.profit")}
                   </span>
                   <CurrencyAmount
                     usd={totalProfitUsd}
@@ -169,7 +182,7 @@ export default function CustomerSessions() {
               type="button"
               onClick={loadSessions}
               className="p-2 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white transition-all"
-              title="Refresh"
+              title={t("page.refresh")}
             >
               <RefreshCw
                 className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`}
@@ -183,16 +196,14 @@ export default function CustomerSessions() {
       <div className="flex-1 overflow-auto min-h-0">
         {isLoading && sessions.length === 0 ? (
           <div className="flex items-center justify-center h-full text-slate-400">
-            <RefreshCw className="w-5 h-5 animate-spin mr-2" />
-            Loading sessions...
+            <RefreshCw className="w-5 h-5 animate-spin me-2" />
+            {t("page.loading")}
           </div>
         ) : sessions.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-2">
             <Users className="w-12 h-12 text-slate-600" />
-            <p className="text-lg font-medium">No sessions today</p>
-            <p className="text-sm text-slate-500">
-              Customer sessions will appear here when started
-            </p>
+            <p className="text-lg font-medium">{t("page.emptyTitle")}</p>
+            <p className="text-sm text-slate-500">{t("page.emptyHint")}</p>
           </div>
         ) : (
           <div className="space-y-4">
@@ -201,7 +212,7 @@ export default function CustomerSessions() {
               <div>
                 <h3 className="text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5" />
-                  Active ({activeSessions.length})
+                  {t("page.activeHeading", { n: activeSessions.length })}
                 </h3>
                 <div className="grid gap-2">
                   {activeSessions.map((s) => (
@@ -216,7 +227,7 @@ export default function CustomerSessions() {
               <div>
                 <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                   <CheckCircle className="w-3.5 h-3.5" />
-                  Completed ({closedSessions.length})
+                  {t("page.completedHeading", { n: closedSessions.length })}
                 </h3>
                 <div className="grid gap-2">
                   {closedSessions.map((s) => (
@@ -254,6 +265,8 @@ interface SessionTransaction {
 
 function SessionCard({ session: s }: { session: SessionSummary }) {
   const api = useApi();
+  const { t } = useTranslation("sessions");
+  const { formatTime } = useFormat();
   const isActive = s.is_active === 1;
   // Use checkout totals if available, otherwise fall back to linked transaction totals
   const revenueUsd = s.checkout_total_usd || s.total_usd;
@@ -317,21 +330,25 @@ function SessionCard({ session: s }: { session: SessionSummary }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-medium text-sm text-white truncate">
-              {s.customer_name || "Walk-in"}
+              {s.customer_name || t("card.walkIn")}
             </span>
             {s.customer_phone && (
-              <span className="text-xs text-slate-400">{s.customer_phone}</span>
+              <span className="text-xs text-slate-400">
+                <Ltr>{s.customer_phone}</Ltr>
+              </span>
             )}
           </div>
           <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-400">
             <span>
-              {formatTime(s.started_at)}
-              {s.closed_at ? ` — ${formatTime(s.closed_at)}` : ""}
+              {formatTime(parseDbDate(s.started_at), CLOCK)}
+              {s.closed_at
+                ? ` — ${formatTime(parseDbDate(s.closed_at), CLOCK)}`
+                : ""}
             </span>
             <span className="text-slate-600">·</span>
-            <span>{getDuration(s.started_at, s.closed_at)}</span>
+            <span>{getDuration(s.started_at, t, s.closed_at)}</span>
             <span className="text-slate-600">·</span>
-            <span>by {s.started_by}</span>
+            <span>{t("card.by", { name: s.started_by })}</span>
           </div>
         </div>
 
@@ -345,7 +362,7 @@ function SessionCard({ session: s }: { session: SessionSummary }) {
 
         {/* Revenue */}
         {hasRevenue && (
-          <div className="text-right">
+          <div className="text-end">
             <CurrencyAmount
               usd={revenueUsd}
               lbp={revenueLbp}
@@ -356,7 +373,7 @@ function SessionCard({ session: s }: { session: SessionSummary }) {
 
         {/* Profit */}
         {hasProfit && (
-          <div className="text-right flex items-center gap-1">
+          <div className="text-end flex items-center gap-1">
             <TrendingUp className="w-3 h-3 text-emerald-400" />
             <CurrencyAmount
               usd={profitUsd}
@@ -374,7 +391,7 @@ function SessionCard({ session: s }: { session: SessionSummary }) {
               : "bg-slate-700/50 text-slate-400"
           }`}
         >
-          {isActive ? "Active" : "Done"}
+          {isActive ? t("card.active") : t("card.done")}
         </div>
 
         {/* Expand indicator */}
@@ -390,11 +407,11 @@ function SessionCard({ session: s }: { session: SessionSummary }) {
         <div className="px-4 pb-3 border-t border-slate-700/50 pt-3">
           {loadingDetails ? (
             <div className="text-xs text-slate-400 text-center py-2">
-              Loading...
+              {t("card.loading")}
             </div>
           ) : cartItems.length === 0 && transactions.length === 0 ? (
             <div className="text-xs text-slate-500 text-center py-2">
-              No items in this session
+              {t("card.noItems")}
             </div>
           ) : (
             <div className="space-y-3">
@@ -402,7 +419,7 @@ function SessionCard({ session: s }: { session: SessionSummary }) {
               {cartItems.length > 0 && (
                 <div>
                   <div className="text-[10px] font-semibold text-emerald-400 uppercase tracking-wider mb-1.5">
-                    Cart Items ({cartItems.length})
+                    {t("card.cartItems", { n: cartItems.length })}
                   </div>
                   <div className="space-y-1">
                     {cartItems.map((item) => (
@@ -425,10 +442,12 @@ function SessionCard({ session: s }: { session: SessionSummary }) {
                               : "text-red-400"
                           }`}
                         >
-                          {item.amount >= 0 ? "+" : ""}
-                          {item.currency === "LBP"
-                            ? `${item.amount.toLocaleString()} LBP`
-                            : `$${item.amount.toFixed(2)}`}
+                          <Ltr>
+                            {item.amount >= 0 ? "+" : ""}
+                            {item.currency === "LBP"
+                              ? `${formatNumber(item.amount)} LBP`
+                              : `$${item.amount.toFixed(2)}`}
+                          </Ltr>
                         </span>
                       </div>
                     ))}
@@ -440,7 +459,7 @@ function SessionCard({ session: s }: { session: SessionSummary }) {
               {transactions.length > 0 && (
                 <div>
                   <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Transactions ({transactions.length})
+                    {t("card.transactions", { n: transactions.length })}
                   </div>
                   <div className="space-y-1">
                     {transactions.map((tx) => (
@@ -464,7 +483,7 @@ function SessionCard({ session: s }: { session: SessionSummary }) {
                           <div className="text-sm font-semibold">
                             {tx.amount_usd > 0 && (
                               <span className="text-green-400">
-                                ${tx.amount_usd.toFixed(2)}
+                                <Ltr>${tx.amount_usd.toFixed(2)}</Ltr>
                               </span>
                             )}
                             {tx.amount_usd > 0 && tx.amount_lbp > 0 && (
@@ -472,7 +491,7 @@ function SessionCard({ session: s }: { session: SessionSummary }) {
                             )}
                             {tx.amount_lbp > 0 && (
                               <span className="text-blue-400">
-                                {tx.amount_lbp.toLocaleString()} LBP
+                                <Ltr>{formatNumber(tx.amount_lbp)} LBP</Ltr>
                               </span>
                             )}
                           </div>
