@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { useFormat } from "@/i18n/useFormat";
 import logger from "@/utils/logger";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { FileText, X, ShoppingCart, Trash2 } from "lucide-react";
@@ -37,6 +40,8 @@ import { toSaleItems } from "@/features/sales/utils/saleItems";
 import { localDay } from "@/shared/utils/localDay";
 
 export default function POS() {
+  const { t } = useTranslation("sales");
+  const { formatDateTime } = useFormat();
   const api = useApi();
   // LIRA-296 P3: "IMEI" or "Serial" per category, for the checkout receipt.
   const serialLabelOf = useCategorySerialLabels();
@@ -347,8 +352,8 @@ export default function POS() {
     // Clear POS cart after adding to session
     setCartItems([]);
     setCurrentDraftId(undefined);
-    appEvents.emit("notification:show", "Added to session cart!", "success");
-  }, [activeSession, cartItems, addToSessionCart, defaultExchangeRate]);
+    appEvents.emit("notification:show", t("pos.addedToSession"), "success");
+  }, [activeSession, cartItems, addToSessionCart, defaultExchangeRate, t]);
 
   // Minimize current order
   const handleMinimizeOrder = useCallback(
@@ -434,13 +439,17 @@ export default function POS() {
       try {
         await api.deleteDraft(draftId);
         await fetchDrafts();
-        appEvents.emit("notification:show", "Draft deleted", "success");
+        appEvents.emit("notification:show", t("pos.draftDeleted"), "success");
       } catch (error) {
         logger.error("Failed to delete draft:", error);
-        appEvents.emit("notification:show", "Failed to delete draft", "error");
+        appEvents.emit(
+          "notification:show",
+          t("pos.deleteDraftFailed"),
+          "error",
+        );
       }
     },
-    [api, fetchDrafts],
+    [api, fetchDrafts, t],
   );
 
   // Persist minimized orders to localStorage
@@ -568,7 +577,7 @@ export default function POS() {
         }
         appEvents.emit(
           "notification:show",
-          "Draft saved successfully!",
+          t("pos.draftSaved"),
           "success",
         );
         appEvents.emit("checkout:closed");
@@ -577,7 +586,7 @@ export default function POS() {
       } else {
         appEvents.emit(
           "notification:show",
-          "Failed to save draft: " + result.error,
+          t("pos.saveDraftFailed", { error: result.error }),
           "error",
         );
       }
@@ -589,7 +598,7 @@ export default function POS() {
         "notification:show",
         getApiErrorMessage(
           error,
-          "An unexpected error occurred saving the draft.",
+          t("pos.saveDraftUnexpected"),
         ),
         "error",
       );
@@ -743,7 +752,7 @@ export default function POS() {
         setRefreshSalesKey((k) => k + 1);
         appEvents.emit(
           "notification:show",
-          "Sale completed successfully!",
+          t("pos.saleCompleted"),
           "success",
         );
         // LIRA-296 P3: e.g. a serial item sold without picking its unit.
@@ -756,7 +765,7 @@ export default function POS() {
       } else {
         appEvents.emit(
           "notification:show",
-          "Sale failed: " + result.error,
+          t("pos.saleFailed", { error: result.error }),
           "error",
         );
       }
@@ -768,7 +777,7 @@ export default function POS() {
         "notification:show",
         getApiErrorMessage(
           error,
-          "An unexpected error occurred processing the sale.",
+          t("pos.saleUnexpected"),
         ),
         "error",
       );
@@ -779,7 +788,7 @@ export default function POS() {
     <div
       className={`h-full overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 animate-in fade-in duration-500 ${minimizedOrders.length > 0 ? "pb-32" : ""}`}
     >
-      <PageHeader title="Point of Sale" />
+      <PageHeader title={t("pos.title")} />
 
       {completedSaleId != null && (
         <SaleCompletedStrip
@@ -818,7 +827,7 @@ export default function POS() {
           {currentDraftId && (
             <div className="mt-2 text-center">
               <span className="text-xs font-mono bg-violet-500/20 text-violet-300 px-2 py-1 rounded">
-                Editing Draft #{currentDraftId}
+                {t("pos.editingDraft", { id: currentDraftId })}
               </span>
             </div>
           )}
@@ -895,7 +904,7 @@ export default function POS() {
             <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
                 <FileText className="text-violet-400" />
-                Saved Drafts
+                {t("pos.savedDrafts")}
               </h2>
               <button
                 onClick={() => setIsDraftsOpen(false)}
@@ -908,7 +917,7 @@ export default function POS() {
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
               {drafts.length === 0 ? (
                 <div className="text-center text-slate-500 py-12">
-                  No saved drafts found.
+                  {t("pos.noDrafts")}
                 </div>
               ) : (
                 drafts.map((draft) => (
@@ -918,9 +927,9 @@ export default function POS() {
                   >
                     <div>
                       <div className="flex items-center gap-3 mb-1">
-                        <span className="font-bold text-white text-lg">
+                        <Ltr className="font-bold text-white text-lg">
                           ${(draft.total_amount_usd ?? 0).toFixed(2)}
-                        </span>
+                        </Ltr>
                         {draft.client_name && (
                           <span className="text-sm px-2 py-0.5 bg-slate-700 rounded text-slate-300">
                             {draft.client_name}
@@ -929,16 +938,18 @@ export default function POS() {
                       </div>
                       <div className="text-xs text-slate-500">
                         {draft.created_at
-                          ? parseDbDate(draft.created_at).toLocaleString()
-                          : "Unknown"}{" "}
-                        • {draft.items?.length || 0} Items
+                          ? formatDateTime(parseDbDate(draft.created_at))
+                          : t("pos.unknownDate")}{" "}
+                        {t("pos.draftItems", {
+                          count: draft.items?.length || 0,
+                        })}
                       </div>
                     </div>
                     <div className="flex gap-2">
                       <button
                         onClick={() => handleDeleteDraft(draft.id)}
                         className="px-3 py-2 bg-red-600/20 hover:bg-red-600/40 text-red-400 hover:text-red-300 rounded-lg font-medium transition-colors"
-                        title="Delete Draft"
+                        title={t("pos.deleteDraft")}
                       >
                         <Trash2 size={18} />
                       </button>
@@ -946,7 +957,7 @@ export default function POS() {
                         onClick={() => handleResumeDraft(draft)}
                         className="px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg font-medium shadow-lg shadow-violet-900/20"
                       >
-                        Resume
+                        {t("pos.resume")}
                       </button>
                     </div>
                   </div>
@@ -968,9 +979,9 @@ export default function POS() {
       {/* Confirmation Modals */}
       <ConfirmModal
         isOpen={showClearConfirm}
-        title="Clear Cart"
-        message="Are you sure you want to clear all items from the current cart? This action cannot be undone."
-        confirmLabel="Clear Cart"
+        title={t("pos.clearCart")}
+        message={t("pos.clearCartMessage")}
+        confirmLabel={t("pos.clearCart")}
         onConfirm={handleClearCart}
         onCancel={() => setShowClearConfirm(false)}
         variant="danger"
@@ -978,7 +989,7 @@ export default function POS() {
 
       {/* Minimized Orders Bar */}
       {minimizedOrders.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-700 shadow-2xl z-40">
+        <div className="fixed bottom-0 start-0 end-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-700 shadow-2xl z-40">
           <div className="flex items-center gap-2 px-4 py-2 overflow-x-auto">
             {/* Minimized orders - most recent on the right */}
             {minimizedOrders.map((order, index) => {
@@ -991,7 +1002,7 @@ export default function POS() {
                 0,
               );
               const customerName =
-                order.checkoutData.clientSearchInput || "Walk-in Customer";
+                order.checkoutData.clientSearchInput || t("pos.walkInCustomer");
 
               return (
                 <div
@@ -1006,12 +1017,15 @@ export default function POS() {
                   }}
                 >
                   <ShoppingCart size={16} className="text-violet-400" />
-                  <div className="flex-1 text-left min-w-0">
+                  <div className="flex-1 text-start min-w-0">
                     <div className="text-xs font-medium text-white truncate">
                       {customerName}
                     </div>
                     <div className="text-[10px] text-slate-400">
-                      {itemCount} items • ${totalAmount.toFixed(2)}
+                      {t("pos.minimizedSummary", {
+                        count: itemCount,
+                        amount: `$${totalAmount.toFixed(2)}`,
+                      })}
                     </div>
                   </div>
                   {index === minimizedOrders.length - 1 && (
@@ -1019,8 +1033,8 @@ export default function POS() {
                   )}
                   <button
                     onClick={(e) => handleCancelMinimizedOrder(order.id, e)}
-                    className="ml-1 p-1 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded transition-colors"
-                    title="Cancel Order"
+                    className="ms-1 p-1 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded transition-colors"
+                    title={t("pos.cancelOrder")}
                   >
                     <Trash2 size={14} />
                   </button>

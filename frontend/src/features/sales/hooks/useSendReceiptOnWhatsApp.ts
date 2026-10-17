@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApi } from "@liratek/ui";
+import { useTranslation } from "react-i18next";
 import { toWhatsAppNumber } from "@liratek/core";
 import logger from "@/utils/logger";
 import { useShopInfo } from "@/hooks/useShopName";
@@ -29,13 +30,6 @@ import {
   formatReceiptWhatsApp,
   type ReceiptData,
 } from "@/features/sales/utils/receiptFormatter";
-
-export const WHATSAPP_BLOCKED_MESSAGE =
-  "WhatsApp could not be opened — allow pop-ups and try again";
-export const WHATSAPP_NUMBER_INVALID_MESSAGE =
-  "That is not a valid phone number — check it and try again";
-export const WHATSAPP_NUMBER_EMPTY_MESSAGE =
-  "Type the customer's WhatsApp number";
 
 export type SendReceiptStatus = "idle" | "loading" | "ready" | "error";
 
@@ -58,6 +52,9 @@ export function useSendReceiptOnWhatsApp(
     apiRef.current = api;
   }, [api]);
   const shop = useShopInfo();
+  // LIRA-331: the cashier-facing errors follow the screen language; the
+  // WhatsApp message itself stays English (owner decision).
+  const { t } = useTranslation("sales");
 
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [status, setStatus] = useState<SendReceiptStatus>(
@@ -126,8 +123,8 @@ export function useSendReceiptOnWhatsApp(
       if (!phone.ok) {
         setError(
           phone.reason === "empty"
-            ? WHATSAPP_NUMBER_EMPTY_MESSAGE
-            : WHATSAPP_NUMBER_INVALID_MESSAGE,
+            ? t("whatsapp.numberEmpty")
+            : t("whatsapp.numberInvalid"),
         );
         return;
       }
@@ -142,16 +139,18 @@ export function useSendReceiptOnWhatsApp(
           if (result.success) return;
           setError(
             result.error === "blocked"
-              ? WHATSAPP_BLOCKED_MESSAGE
-              : `WhatsApp could not be opened: ${result.error ?? "unknown error"}`,
+              ? t("whatsapp.blocked")
+              : t("whatsapp.openFailed", {
+                  error: result.error ?? t("whatsapp.unknownError"),
+                }),
           );
         })
         .catch((err: unknown) => {
           logger.error("Opening WhatsApp failed", { err });
-          setError(WHATSAPP_BLOCKED_MESSAGE);
+          setError(t("whatsapp.blocked"));
         });
     },
-    [status, receipt, savedPhone],
+    [status, receipt, savedPhone, t],
   );
 
   const clearError = useCallback(() => setError(null), []);

@@ -10,11 +10,9 @@
  */
 import { useState } from "react";
 import { MessageCircle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { toWhatsAppNumber } from "@liratek/core";
-import {
-  useSendReceiptOnWhatsApp,
-  WHATSAPP_NUMBER_INVALID_MESSAGE,
-} from "@/features/sales/hooks/useSendReceiptOnWhatsApp";
+import { useSendReceiptOnWhatsApp } from "@/features/sales/hooks/useSendReceiptOnWhatsApp";
 
 export type WhatsAppSender = ReturnType<typeof useSendReceiptOnWhatsApp>;
 
@@ -27,17 +25,18 @@ export function SendOnWhatsAppControl({
   sender: WhatsAppSender;
   compact?: boolean;
 }) {
+  const { t } = useTranslation("sales");
   const [asking, setAsking] = useState(false);
   const [typed, setTyped] = useState("");
 
   const typedCheck = toWhatsAppNumber(typed);
   const liveInvalid =
     typed.trim() !== "" && !typedCheck.ok
-      ? WHATSAPP_NUMBER_INVALID_MESSAGE
+      ? t("whatsapp.numberInvalid")
       : null;
   const message =
     sender.status === "error"
-      ? "Could not load the receipt — close and try again"
+      ? t("whatsapp.loadFailed")
       : (sender.error ?? (asking ? liveInvalid : null));
 
   // Synchronous on purpose: WhatsApp must open inside this click.
@@ -71,15 +70,16 @@ export function SendOnWhatsAppControl({
         className={`${pad} text-emerald-300 hover:text-emerald-100 hover:bg-emerald-900/30 rounded-lg font-medium border border-emerald-500/30 flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
       >
         <MessageCircle size={16} />
-        Send on WhatsApp
+        {t("whatsapp.send")}
       </button>
 
       {asking && sender.needsNumber && (
         <div className="flex items-center gap-2">
           <input
             type="tel"
-            aria-label="Customer's WhatsApp number"
-            placeholder="03 123 456 or +961…"
+            aria-label={t("whatsapp.numberLabel")}
+            placeholder={t("whatsapp.numberPlaceholder")}
+            dir="ltr"
             value={typed}
             onChange={(e) => {
               setTyped(e.target.value);
@@ -103,14 +103,14 @@ export function SendOnWhatsAppControl({
             onClick={onConfirm}
             className="px-3 py-1.5 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-medium"
           >
-            Send
+            {t("whatsapp.sendShort")}
           </button>
           <button
             type="button"
             onClick={cancel}
             className="px-3 py-1.5 text-sm text-slate-300 hover:text-white rounded-lg"
           >
-            Cancel
+            {t("actions.cancel")}
           </button>
         </div>
       )}

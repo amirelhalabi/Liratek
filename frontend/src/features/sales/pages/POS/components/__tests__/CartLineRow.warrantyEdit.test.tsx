@@ -86,7 +86,8 @@ describe("CartLineRow — per-line warranty (LIRA-296)", () => {
     const { onSetWarranty } = renderRow(item({ warranty_months: 3 }));
     fireEvent.click(await screen.findByRole("button", { name: "Edit warranty" }));
     const box = screen.getByLabelText("Warranty months for Charger");
-    expect(box).toHaveValue(3);
+    // LIRA-331: a text box (inputMode numeric) so Arabic digits are accepted.
+    expect(box).toHaveValue("3");
     fireEvent.change(box, { target: { value: "6" } });
     fireEvent.click(screen.getByRole("button", { name: "Save warranty" }));
     expect(onSetWarranty).toHaveBeenCalledWith("1", 6);

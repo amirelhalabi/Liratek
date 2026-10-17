@@ -217,7 +217,7 @@ Each test builds the payload through the real builder or screen with `lng=en` an
 
 ### Module conversions (all [P]: each owns its own folder and namespace files)
 
-- [ ] T050 [P] [US1] `sales` (POS, CheckoutModal, SaleDetailModal; not `utils/receiptFormatter.ts`, which belongs to Phase 6). Namespace `sales`. Depends on T043.
+- [x] T050 [P] [US1] `sales` (POS, CheckoutModal, SaleDetailModal; not `utils/receiptFormatter.ts`, which belongs to Phase 6). Namespace `sales`. Depends on T043.
 - [ ] T051 [P] [US1] `recharge`, part 1: `TelecomForm.tsx`, `KatshForm.tsx`, `CarrierLinesPanel.tsx`, `CardGridPayView.tsx`, `ProviderTabs.tsx`, `ProviderStats.tsx`, `CompactStats.tsx`, `pages/Recharge/**`. Namespace `recharge`. Depends on T044.
 - [ ] T052 [P] [US1] `recharge`, part 2: `FinancialForm.tsx`, `OmtWhishAppTransferForm.tsx`, `CryptoForm.tsx`, `PaymentSheet.tsx`, `HistoryModal.tsx`, `OmtAppCashoutModal.tsx`, `WalletExchangePanel.tsx`, `WhishCurrencySwitch.tsx`, `NewServiceItemInlineForm.tsx`. Namespace `rechargeFinancial`. Depends on T044.
 - [x] T053 [P] [US1] `services` (OMT/Whish system page). Namespace `services`. Depends on T045.

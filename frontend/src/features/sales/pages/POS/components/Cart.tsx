@@ -1,5 +1,7 @@
 import { CreditCard, History, ShoppingBag } from "lucide-react";
 import type { CartItem } from "@liratek/ui";
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { CartLineRow } from "./CartLineRow";
 import { getCartLineKey } from "@/features/sales/utils/cartLineKey";
 
@@ -38,6 +40,7 @@ export default function Cart({
   isSessionActive = false,
   onAddToSessionCart,
 }: CartProps) {
+  const { t } = useTranslation("sales");
   const totalAmount = items.reduce(
     (sum, item) => sum + item.retail_price * item.quantity,
     0,
@@ -49,18 +52,18 @@ export default function Cart({
       <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800 rounded-t-2xl">
         <h2 className="text-lg font-bold text-white flex items-center gap-2">
           <span className="w-2 h-6 bg-violet-600 rounded-full"></span>
-          Current Sale
+          {t("cart.title")}
         </h2>
 
         <div className="flex items-center gap-3">
           <button
             onClick={onOpenDrafts}
             className="relative p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors group"
-            title="View Saved Drafts"
+            title={t("cart.viewDrafts")}
           >
             <History size={18} />
             {draftCount > 0 && (
-              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-violet-500 text-[10px] font-bold text-white">
+              <span className="absolute -top-1 -end-1 flex h-4 w-4 items-center justify-center rounded-full bg-violet-500 text-[10px] font-bold text-white">
                 {draftCount}
               </span>
             )}
@@ -70,7 +73,7 @@ export default function Cart({
               onClick={onClearCart}
               className="text-xs text-red-400 hover:text-red-300 transition-colors bg-red-500/10 px-2 py-1 rounded hover:bg-red-500/20"
             >
-              Clear
+              {t("cart.clear")}
             </button>
           )}
         </div>
@@ -83,9 +86,9 @@ export default function Cart({
             <div className="w-16 h-16 rounded-full bg-slate-700/50 flex items-center justify-center">
               <CreditCard className="opacity-50" size={32} />
             </div>
-            <p>Cart is empty</p>
+            <p>{t("cart.empty")}</p>
             <p className="text-xs text-slate-600 text-center max-w-[200px]">
-              Scan a barcode or select products to begin a sale.
+              {t("cart.emptyHint")}
             </p>
           </div>
         ) : (
@@ -107,22 +110,22 @@ export default function Cart({
       <div className="p-4 bg-slate-900 border-t border-slate-700 space-y-4 rounded-b-2xl">
         <div className="space-y-2 text-sm">
           <div className="flex justify-between text-slate-400">
-            <span>Items</span>
+            <span>{t("cart.items")}</span>
             <span>{items.reduce((acc, i) => acc + i.quantity, 0)}</span>
           </div>
           <div className="flex justify-between text-slate-400">
-            <span>Subtotal</span>
-            <span>${totalAmount.toFixed(2)}</span>
+            <span>{t("cart.subtotal")}</span>
+            <Ltr>${totalAmount.toFixed(2)}</Ltr>
           </div>
           {/* Discount logic can be added later */}
         </div>
 
         <div className="pt-4 border-t border-slate-700">
           <div className="flex justify-between items-end mb-4">
-            <span className="text-slate-400 mb-1">Total Due</span>
-            <span className="text-3xl font-bold text-emerald-400">
+            <span className="text-slate-400 mb-1">{t("cart.totalDue")}</span>
+            <Ltr className="text-3xl font-bold text-emerald-400">
               ${totalAmount.toFixed(2)}
-            </span>
+            </Ltr>
           </div>
 
           {isSessionActive && onAddToSessionCart ? (
@@ -132,7 +135,7 @@ export default function Cart({
               className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white py-4 rounded-xl font-bold text-lg shadow-lg shadow-emerald-900/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
             >
               <ShoppingBag size={20} />
-              Add to Session Cart
+              {t("cart.addToSession")}
             </button>
           ) : (
             <button
@@ -141,7 +144,7 @@ export default function Cart({
               className="w-full bg-violet-600 hover:bg-violet-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white py-4 rounded-xl font-bold text-lg shadow-lg shadow-violet-900/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
             >
               <CreditCard size={20} />
-              Proceed to Checkout
+              {t("cart.checkout")}
             </button>
           )}
         </div>

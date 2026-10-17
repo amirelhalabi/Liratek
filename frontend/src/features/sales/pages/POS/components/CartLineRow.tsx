@@ -1,4 +1,8 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import { Trash2, Plus, Minus } from "lucide-react";
 import type { CartItem } from "@liratek/ui";
 import { ConfirmModal } from "@liratek/ui";
@@ -15,15 +19,19 @@ import {
 import { resolveWarrantyMonths, warrantyMonthsSchema } from "@liratek/core";
 
 function WarrantyBadge({ months }: { months: number | null | undefined }) {
+  const { t } = useTranslation("sales");
   if (!months || months <= 0) return null;
   return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-950/60 border border-red-500/60 text-xs font-semibold text-red-400 shrink-0">
-      🛡 {months} month{months === 1 ? "" : "s"}
+      {months === 1
+        ? t("line.warrantyOneMonth")
+        : t("line.warrantyMonths", { count: months })}
     </span>
   );
 }
 
-const monthsLabel = (m: number) => `${m} month${m === 1 ? "" : "s"}`;
+const monthsLabel = (m: number, t: TFunction<"sales">) =>
+  m === 1 ? t("line.oneMonth") : t("line.months", { count: m });
 
 /**
  * LIRA-296 — "Warranty: N months (edit)" for one cart line. The default is
@@ -38,6 +46,7 @@ function WarrantyControl({
   item: CartItem;
   onSet: (months: number | null) => void;
 }) {
+  const { t } = useTranslation("sales");
   const categoryDefaults = useCategoryWarrantyDefaults();
   const defaultMonths = resolveWarrantyMonths(
     undefined,
@@ -55,32 +64,32 @@ function WarrantyControl({
   const [invalid, setInvalid] = useState(false);
 
   const label = months
-    ? `Warranty: ${monthsLabel(months)}${edited ? " (edited)" : ""}`
+    ? edited
+      ? t("line.warrantyEdited", { months: monthsLabel(months, t) })
+      : t("line.warranty", { months: monthsLabel(months, t) })
     : edited
-      ? "No warranty (edited)"
-      : "No warranty";
+      ? t("line.noWarrantyEdited")
+      : t("line.noWarranty");
 
   if (editing) {
     return (
       <div className="mt-1 flex items-center gap-1.5 text-[11px]">
         <input
-          type="number"
-          min={0}
-          max={60}
-          step={1}
+          type="text"
+          inputMode="numeric"
           autoFocus
           value={value}
-          aria-label={`Warranty months for ${item.name}`}
+          aria-label={t("line.warrantyInputLabel", { name: item.name })}
           onChange={(e) => {
-            setValue(e.target.value);
+            setValue(normalizeDigits(e.target.value));
             setInvalid(false);
           }}
           className="w-14 bg-slate-900 border border-slate-600 rounded px-1.5 py-0.5 text-white text-[11px] focus:outline-none focus:border-violet-500"
         />
-        <span className="text-slate-400">months</span>
+        <span className="text-slate-400">{t("line.monthsUnit")}</span>
         <button
           type="button"
-          aria-label="Save warranty"
+          aria-label={t("line.saveWarranty")}
           onClick={() => {
             const n = Number(value);
             if (value.trim() === "" || !warrantyMonthsSchema.safeParse(n).success) {
@@ -92,7 +101,7 @@ function WarrantyControl({
           }}
           className="px-1.5 py-0.5 rounded bg-violet-600 hover:bg-violet-500 text-white"
         >
-          Save
+          {t("line.save")}
         </button>
         <button
           type="button"
@@ -102,9 +111,11 @@ function WarrantyControl({
           }}
           className="px-1.5 py-0.5 rounded text-slate-400 hover:text-white"
         >
-          Use default
+          {t("line.useDefault")}
         </button>
-        {invalid && <span className="text-red-400">0 to 60 months</span>}
+        {invalid && (
+          <span className="text-red-400">{t("line.warrantyRange")}</span>
+        )}
       </div>
     );
   }
@@ -116,7 +127,7 @@ function WarrantyControl({
       </span>
       <button
         type="button"
-        aria-label="Edit warranty"
+        aria-label={t("line.editWarranty")}
         onClick={() => {
           setValue(months == null ? "" : String(months));
           setInvalid(false);
@@ -124,7 +135,7 @@ function WarrantyControl({
         }}
         className="text-violet-300 hover:text-violet-100 underline"
       >
-        edit
+        {t("line.edit")}
       </button>
     </div>
   );
@@ -161,6 +172,7 @@ export function CartLineRow({
   onSelectUnit,
   onSetWarranty,
 }: CartLineRowProps) {
+  const { t } = useTranslation("sales");
   const lineKey = getCartLineKey(item);
   // LIRA-296 P3: "IMEI" or "Serial", as the category calls it.
   const serialLabel = useCategorySerialLabels()(
@@ -179,6 +191,8 @@ export function CartLineRow({
     id: number;
     imei: string;
   } | null>(null);
+  // Display only: the label the category uses, in the screen language.
+  const serialText = t(`serial.${serialLabel}`);
   const mode = resolveCartLineMode(item.tracks_imei_units, units.length);
   const isLockedQty = shouldAlwaysAddNewLine(mode);
 
@@ -239,19 +253,23 @@ export function CartLineRow({
               }}
               className="w-full h-[30px] bg-slate-900 border border-slate-700/50 rounded-lg px-2 text-[10px] text-white focus:border-violet-500/50 outline-none font-mono"
             >
-              <option value="">Select {serialLabel}…</option>
+              <option value="">
+                {t("line.selectSerial", { label: serialText })}
+              </option>
               {unitOptions.map((u) => (
                 <option key={u.id} value={u.id}>
-                  {u.is_defective ? `${u.imei} — Defective` : u.imei}
+                  {u.is_defective
+                    ? t("line.defectiveOption", { imei: u.imei })
+                    : u.imei}
                 </option>
               ))}
             </select>
             <ConfirmModal
               isOpen={pendingDefectiveUnit !== null}
-              title="Defective Phone"
-              message="This phone is marked defective — sell anyway?"
-              confirmLabel="Sell Anyway"
-              cancelLabel="Cancel"
+              title={t("line.defectiveTitle")}
+              message={t("line.defectiveMessage")}
+              confirmLabel={t("line.sellAnyway")}
+              cancelLabel={t("actions.cancel")}
               variant="warning"
               onConfirm={() => {
                 if (pendingDefectiveUnit) {
@@ -266,19 +284,19 @@ export function CartLineRow({
       </div>
 
       <div className="flex flex-col items-end gap-2">
-        <div className="font-bold text-violet-400">
+        <Ltr className="font-bold text-violet-400">
           ${(item.retail_price * item.quantity).toFixed(2)}
-        </div>
+        </Ltr>
 
         <div className="flex items-center gap-2 bg-slate-800 rounded-lg p-1 border border-slate-700">
           <button
             onClick={() => onUpdateQuantity(lineKey, -1)}
             className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white disabled:opacity-30"
             disabled={item.quantity <= 1 || isLockedQty}
-            aria-label="Decrease quantity"
+            aria-label={t("line.decrease")}
             title={
               isLockedQty
-                ? `Locked at 1 — each ${serialLabel}/unit is its own line`
+                ? t("line.lockedQty", { label: serialText })
                 : undefined
             }
           >
@@ -291,10 +309,10 @@ export function CartLineRow({
             onClick={() => onUpdateQuantity(lineKey, 1)}
             className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white disabled:opacity-30"
             disabled={isLockedQty}
-            aria-label="Increase quantity"
+            aria-label={t("line.increase")}
             title={
               isLockedQty
-                ? `Locked at 1 — each ${serialLabel}/unit is its own line`
+                ? t("line.lockedQty", { label: serialText })
                 : undefined
             }
           >
@@ -305,8 +323,8 @@ export function CartLineRow({
 
       <button
         onClick={() => onRemoveItem(lineKey)}
-        className="self-center p-2 text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all -mr-2"
-        aria-label="Remove item"
+        className="self-center p-2 text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all -me-2"
+        aria-label={t("line.remove")}
       >
         <Trash2 size={16} />
       </button>

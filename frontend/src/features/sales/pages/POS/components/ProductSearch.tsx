@@ -1,5 +1,9 @@
 import { useState, useEffect, useCallback, useRef, memo } from "react";
+import { useTranslation } from "react-i18next";
 import logger from "@/utils/logger";
+import { useFormat } from "@/i18n/useFormat";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { DirIcon } from "@liratek/ui/components/ui/DirIcon";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { addDaysToDateString } from "@liratek/core";
 import {
@@ -61,6 +65,8 @@ function ProductSearch({
   onSaleClick,
   refreshSalesKey,
 }: ProductSearchProps) {
+  const { t } = useTranslation("sales");
+  const { formatTime: formatClock } = useFormat();
   const api = useApi();
   const [search, setSearch] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
@@ -97,7 +103,7 @@ function ProductSearch({
       } else {
         alert(
           (result as { success: false; error?: string }).error ??
-            "Failed to save",
+            t("search.saveFailed"),
         );
       }
     } finally {
@@ -131,7 +137,7 @@ function ProductSearch({
       if (added === false) {
         appEvents.emit(
           "notification:show",
-          `Unit ${unit.imei} is already in the cart`,
+          t("search.unitInCart", { imei: unit.imei }),
           "error",
         );
       } else {
@@ -140,7 +146,7 @@ function ProductSearch({
       isUserSearch.current = false;
       requestAnimationFrame(() => searchInputRef.current?.focus());
     },
-    [onAddToCart],
+    [onAddToCart, t],
   );
 
   // Date state for searching past sales, defaults to today
@@ -311,7 +317,7 @@ function ProductSearch({
 
   const formatTime = (dateStr: string) => {
     const d = parseDbDate(dateStr);
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return formatClock(d, { hour: "2-digit", minute: "2-digit" });
   };
 
   const shiftDate = (days: number) => {
@@ -325,9 +331,9 @@ function ProductSearch({
   };
 
   const displayDateStr = () => {
-    if (isToday) return "Today's Sales";
+    if (isToday) return t("search.todaysSales");
     const [year, month, day] = selectedDate.split("-");
-    return `${day}/${month}/${year}'s Sales`;
+    return t("search.daySales", { date: `${day}/${month}/${year}` });
   };
 
   return (
@@ -335,7 +341,7 @@ function ProductSearch({
       {/* Search Header */}
       <div className="p-4 border-b border-slate-700 bg-slate-800/80 backdrop-blur-sm sticky top-0 z-10">
         <div className="relative">
-          <Search className="absolute left-4 top-3.5 text-slate-500 h-5 w-5" />
+          <Search className="absolute start-4 top-3.5 text-slate-500 h-5 w-5" />
           <input
             ref={searchInputRef}
             autoFocus
@@ -346,8 +352,8 @@ function ProductSearch({
               cancelBarcodeAutoAdd();
               setSearch(e.target.value);
             }}
-            placeholder="Search products by name or barcode..."
-            className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-12 pr-4 py-3 text-white focus:ring-2 focus:ring-violet-600 shadow-inner"
+            placeholder={t("search.placeholder")}
+            className="w-full bg-slate-900 border border-slate-700 rounded-xl ps-12 pe-4 py-3 text-white focus:ring-2 focus:ring-violet-600 shadow-inner"
           />
         </div>
       </div>
@@ -370,17 +376,18 @@ function ProductSearch({
               {!isToday && (
                 <button
                   onClick={() => setSelectedDate(getTodayStr())}
-                  className="ml-2 text-xs text-violet-400 hover:text-violet-300 font-medium"
+                  className="ms-2 text-xs text-violet-400 hover:text-violet-300 font-medium"
                 >
-                  Today
+                  {t("search.today")}
                 </button>
               )}
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => shiftDate(-1)}
+                  aria-label={t("search.previousDay")}
                   className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded border border-slate-700 transition-colors"
                 >
-                  <ChevronLeft size={16} />
+                  <DirIcon icon={ChevronLeft} width={16} height={16} />
                 </button>
                 <input
                   type="date"
@@ -392,9 +399,10 @@ function ProductSearch({
                 <button
                   onClick={() => shiftDate(1)}
                   disabled={isToday}
+                  aria-label={t("search.nextDay")}
                   className="p-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:hover:bg-slate-800 text-slate-400 hover:text-white disabled:hover:text-slate-400 rounded border border-slate-700 transition-colors"
                 >
-                  <ChevronRight size={16} />
+                  <DirIcon icon={ChevronRight} width={16} height={16} />
                 </button>
               </div>
             </div>
@@ -402,7 +410,7 @@ function ProductSearch({
             {todaysSales.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-slate-500">
                 <ShoppingCart size={48} className="mb-4 opacity-50" />
-                <p>No sales found for this date</p>
+                <p>{t("search.noSales")}</p>
               </div>
             ) : showImages ? (
               /* ── Sales Card Grid ── */
@@ -411,17 +419,17 @@ function ProductSearch({
                   <button
                     key={sale.id}
                     onClick={() => onSaleClick?.(sale.id)}
-                    className={`group relative flex flex-col p-4 rounded-xl border transition-all text-left ${
+                    className={`group relative flex flex-col p-4 rounded-xl border transition-all text-start ${
                       sale.status === "refunded"
                         ? "bg-red-950/30 border-red-800/50 hover:border-red-600"
                         : "bg-slate-800 border-slate-700 hover:border-violet-500 hover:bg-slate-750"
                     }`}
                   >
                     {sale.status === "refunded" && (
-                      <div className="absolute top-2 right-2">
+                      <div className="absolute top-2 end-2">
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 font-medium flex items-center gap-1">
                           <RotateCcw size={10} />
-                          Refunded
+                          {t("search.refunded")}
                         </span>
                       </div>
                     )}
@@ -431,17 +439,19 @@ function ProductSearch({
                     <div className="flex items-center gap-1.5 mb-2">
                       <User size={12} className="text-slate-500 shrink-0" />
                       <span className="text-sm text-slate-300 truncate">
-                        {sale.client_name || "Walk-in"}
+                        {sale.client_name || t("search.walkIn")}
                       </span>
                     </div>
                     <div className="text-xs text-slate-500 mb-2">
-                      {sale.item_count} item{sale.item_count !== 1 ? "s" : ""}
+                      {sale.item_count === 1
+                        ? t("search.oneItem")
+                        : t("search.itemCount", { count: sale.item_count })}
                     </div>
                     <div className="mt-auto">
                       <span
                         className={`font-bold text-lg ${sale.status === "refunded" ? "text-red-400 line-through" : "text-emerald-400"}`}
                       >
-                        ${sale.final_amount_usd.toFixed(2)}
+                        <Ltr>${sale.final_amount_usd.toFixed(2)}</Ltr>
                       </span>
                     </div>
                   </button>
@@ -452,30 +462,30 @@ function ProductSearch({
               <DataTable<TodaySale>
                 columns={[
                   {
-                    header: "Time",
+                    header: t("search.colTime"),
                     sortKey: "created_at" as any,
                     className:
-                      "px-3 py-2 text-left text-xs font-semibold uppercase text-slate-400",
+                      "px-3 py-2 text-start text-xs font-semibold uppercase text-slate-400",
                     width: "80px",
                   },
                   {
-                    header: "Customer",
+                    header: t("search.colCustomer"),
                     sortKey: "client_name" as any,
                     className:
-                      "px-3 py-2 text-left text-xs font-semibold uppercase text-slate-400",
+                      "px-3 py-2 text-start text-xs font-semibold uppercase text-slate-400",
                   },
                   {
-                    header: "Items",
+                    header: t("search.colItems"),
                     sortKey: "item_count" as any,
                     className:
                       "px-3 py-2 text-center text-xs font-semibold uppercase text-slate-400",
                     width: "60px",
                   },
                   {
-                    header: "Total",
+                    header: t("search.colTotal"),
                     sortKey: "final_amount_usd" as any,
                     className:
-                      "px-3 py-2 text-right text-xs font-semibold uppercase text-slate-400",
+                      "px-3 py-2 text-end text-xs font-semibold uppercase text-slate-400",
                     width: "90px",
                   },
                   {
@@ -488,7 +498,7 @@ function ProductSearch({
                 data={todaysSales}
                 paginate
                 pageSize={PAGE_SIZE}
-                pageLabel="sales"
+                pageLabel={t("search.pageSales")}
                 defaultSortKey={"created_at" as any}
                 defaultSortDirection="desc"
                 className="w-full text-sm"
@@ -512,21 +522,21 @@ function ProductSearch({
                         </td>
                         <td className="px-3 py-2.5">
                           <span className="text-slate-200">
-                            {sale.client_name || "Walk-in"}
+                            {sale.client_name || t("search.walkIn")}
                           </span>
                         </td>
                         <td className="px-3 py-2.5 text-center text-slate-400 text-xs">
                           {sale.item_count}
                         </td>
-                        <td className="px-3 py-2.5 text-right">
+                        <td className="px-3 py-2.5 text-end">
                           <span
                             className={`font-bold ${sale.status === "refunded" ? "text-red-400 line-through" : "text-emerald-400"}`}
                           >
-                            ${sale.final_amount_usd.toFixed(2)}
+                            <Ltr>${sale.final_amount_usd.toFixed(2)}</Ltr>
                           </span>
                           {sale.status === "refunded" && (
-                            <span className="ml-1 text-[10px] text-red-400">
-                              refunded
+                            <span className="ms-1 text-[10px] text-red-400">
+                              {t("search.refundedLower")}
                             </span>
                           )}
                         </td>
@@ -540,14 +550,14 @@ function ProductSearch({
                                 onClick={handleSaveNote}
                                 disabled={editNoteSaving}
                                 className="p-1 text-emerald-400 hover:bg-emerald-400/10 rounded transition-colors disabled:opacity-50"
-                                title="Save"
+                                title={t("search.save")}
                               >
                                 <Check size={12} />
                               </button>
                               <button
                                 onClick={() => setEditingNoteId(null)}
                                 className="p-1 text-slate-400 hover:bg-slate-700 rounded transition-colors"
-                                title="Cancel"
+                                title={t("actions.cancel")}
                               >
                                 <XIcon size={12} />
                               </button>
@@ -556,7 +566,7 @@ function ProductSearch({
                             <button
                               onClick={() => startNoteEdit(sale)}
                               className="p-1 text-slate-500 hover:text-orange-400 hover:bg-orange-400/10 rounded transition-colors"
-                              title="Edit note"
+                              title={t("search.editNote")}
                             >
                               <Pencil size={11} />
                             </button>
@@ -578,7 +588,7 @@ function ProductSearch({
                                 if (e.key === "Escape") setEditingNoteId(null);
                               }}
                               className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-orange-500"
-                              placeholder="Add a note for this sale..."
+                              placeholder={t("search.notePlaceholder")}
                             />
                           </td>
                         </tr>
@@ -592,7 +602,7 @@ function ProductSearch({
         ) : products.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-slate-500">
             <ShoppingCart size={48} className="mb-4 opacity-50" />
-            <p>No products found</p>
+            <p>{t("search.noProducts")}</p>
             {search.trim().length > 0 && onCreateProduct && (
               <button
                 onClick={() => {
@@ -606,7 +616,7 @@ function ProductSearch({
                 className="mt-4 flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg font-medium transition-colors"
               >
                 <Plus size={18} />
-                Create Item
+                {t("search.createItem")}
               </button>
             )}
           </div>
@@ -617,20 +627,22 @@ function ProductSearch({
               <button
                 key={product.id}
                 onClick={() => onAddToCart(product)}
-                className="group relative flex flex-col items-start p-4 bg-slate-800 border border-slate-700 rounded-xl hover:border-violet-500 hover:bg-slate-750 transition-all text-left"
+                className="group relative flex flex-col items-start p-4 bg-slate-800 border border-slate-700 rounded-xl hover:border-violet-500 hover:bg-slate-750 transition-all text-start"
               >
                 {/* Stock Badge */}
-                <div className="absolute top-2 left-2 z-10">
+                <div className="absolute top-2 start-2 z-10">
                   <span
                     className={`text-xs px-2 py-1 rounded-full font-medium ${(product.stock_quantity ?? 0) > 0 ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}`}
                   >
-                    {product.stock_quantity ?? 0} left
+                    {t("search.stockLeft", {
+                      count: product.stock_quantity ?? 0,
+                    })}
                   </span>
                 </div>
                 {/* Add Button on hover */}
-                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                <div className="absolute top-2 end-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                   <div className="bg-violet-600 text-white text-xs px-2 py-1 rounded-full">
-                    Add
+                    {t("search.add")}
                   </div>
                 </div>
                 {/* Image */}
@@ -652,9 +664,9 @@ function ProductSearch({
                   {product.category}
                 </div>
                 <div className="mt-auto w-full">
-                  <span className="text-violet-400 font-bold text-lg">
+                  <Ltr className="text-violet-400 font-bold text-lg">
                     ${(product.retail_price ?? 0).toFixed(2)}
-                  </span>
+                  </Ltr>
                 </div>
               </button>
             ))}
@@ -664,37 +676,37 @@ function ProductSearch({
           <DataTable<Product>
             columns={[
               {
-                header: "Product",
+                header: t("search.colProduct"),
                 sortKey: "name",
                 className:
-                  "px-3 py-2 text-left text-xs font-semibold uppercase text-slate-400",
+                  "px-3 py-2 text-start text-xs font-semibold uppercase text-slate-400",
               },
               {
-                header: "Category",
+                header: t("search.colCategory"),
                 sortKey: "category",
                 className:
-                  "px-3 py-2 text-left text-xs font-semibold uppercase text-slate-400",
+                  "px-3 py-2 text-start text-xs font-semibold uppercase text-slate-400",
                 width: "130px",
               },
               {
-                header: "Stock",
+                header: t("search.colStock"),
                 sortKey: "stock_quantity",
                 className:
-                  "px-3 py-2 text-right text-xs font-semibold uppercase text-slate-400",
+                  "px-3 py-2 text-end text-xs font-semibold uppercase text-slate-400",
                 width: "70px",
               },
               {
-                header: "Price",
+                header: t("search.colPrice"),
                 sortKey: "retail_price",
                 className:
-                  "px-3 py-2 text-right text-xs font-semibold uppercase text-slate-400",
+                  "px-3 py-2 text-end text-xs font-semibold uppercase text-slate-400",
                 width: "80px",
               },
             ]}
             data={products}
             paginate
             pageSize={PAGE_SIZE}
-            pageLabel="products"
+            pageLabel={t("search.pageProducts")}
             defaultSortKey="name"
             className="w-full text-sm"
             theadClassName="border-b border-slate-700"
@@ -720,17 +732,17 @@ function ProductSearch({
                     {product.category}
                   </span>
                 </td>
-                <td className="px-3 py-2.5 text-right">
+                <td className="px-3 py-2.5 text-end">
                   <span
                     className={`text-xs font-medium ${(product.stock_quantity ?? 0) > 0 ? "text-emerald-400" : "text-red-400"}`}
                   >
                     {product.stock_quantity ?? 0}
                   </span>
                 </td>
-                <td className="px-3 py-2.5 text-right">
-                  <span className="text-violet-400 font-bold">
+                <td className="px-3 py-2.5 text-end">
+                  <Ltr className="text-violet-400 font-bold">
                     ${(product.retail_price ?? 0).toFixed(2)}
-                  </span>
+                  </Ltr>
                 </td>
               </tr>
             )}
@@ -740,10 +752,10 @@ function ProductSearch({
 
       <ConfirmModal
         isOpen={pendingScanAdd !== null}
-        title="Defective Phone"
-        message="This phone is marked defective — sell anyway?"
-        confirmLabel="Sell Anyway"
-        cancelLabel="Cancel"
+        title={t("line.defectiveTitle")}
+        message={t("line.defectiveMessage")}
+        confirmLabel={t("line.sellAnyway")}
+        cancelLabel={t("actions.cancel")}
         variant="warning"
         onConfirm={() => {
           const pending = pendingScanAdd;

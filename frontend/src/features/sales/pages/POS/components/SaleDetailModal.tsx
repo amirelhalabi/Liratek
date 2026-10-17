@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { useFormat } from "@/i18n/useFormat";
 import {
   X,
   RotateCcw,
@@ -78,6 +81,8 @@ export default function SaleDetailModal({
   onRefunded,
 }: SaleDetailModalProps) {
   useModalFocusFix(true);
+  const { t } = useTranslation("sales");
+  const { formatDateTime, formatNumber } = useFormat();
   const api = useApi();
   const shopInfo = useShopInfo();
   const { drawerAffectingMethods } = usePaymentMethods();
@@ -177,7 +182,9 @@ export default function SaleDetailModal({
       if (result?.success === false) {
         appEvents.emit(
           "notification:show",
-          "Failed to update customer: " + (result.error || "Unknown error"),
+          t("detail.updateCustomerFailed", {
+            error: result.error || t("detail.unknownError"),
+          }),
           "error",
         );
         return;
@@ -185,10 +192,18 @@ export default function SaleDetailModal({
       setEditingCustomer(false);
       await loadSale();
       setCustomerEdits((n) => n + 1);
-      appEvents.emit("notification:show", "Customer updated", "success");
+      appEvents.emit(
+        "notification:show",
+        t("detail.customerUpdated"),
+        "success",
+      );
     } catch (e) {
       logger.error("Failed to update sale customer", { error: e });
-      appEvents.emit("notification:show", "Failed to update customer", "error");
+      appEvents.emit(
+        "notification:show",
+        t("detail.updateCustomerFailedShort"),
+        "error",
+      );
     } finally {
       setSavingCustomer(false);
     }
@@ -227,7 +242,7 @@ export default function SaleDetailModal({
     if (kind?.kind === "sale") {
       appEvents.emit(
         "notification:show",
-        "Sale refunded successfully",
+        t("detail.saleRefunded"),
         "success",
       );
       appEvents.emit("sale:completed", { refunded: true, saleId });
@@ -237,7 +252,10 @@ export default function SaleDetailModal({
     } else if (kind?.kind === "item") {
       appEvents.emit(
         "notification:show",
-        `Refunded ${kind.quantity}x ${kind.item.name}`,
+        t("detail.itemRefunded", {
+          quantity: kind.quantity,
+          name: kind.item.name,
+        }),
         "success",
       );
       appEvents.emit("sale:completed", { refunded: true, saleId });
@@ -293,7 +311,7 @@ export default function SaleDetailModal({
       if (!preview.success) {
         appEvents.emit(
           "notification:show",
-          preview.error || "Failed to load refund details",
+          preview.error || t("detail.refundDetailsFailed"),
           "error",
         );
         return;
@@ -302,7 +320,7 @@ export default function SaleDetailModal({
         if (preview.sessionId == null || preview.sessionTransactionId == null) {
           appEvents.emit(
             "notification:show",
-            "Could not resolve this sale's session — try refunding it from the Transactions page.",
+            t("detail.sessionUnresolved"),
             "error",
           );
           return;
@@ -326,7 +344,7 @@ export default function SaleDetailModal({
     } catch (_err) {
       appEvents.emit(
         "notification:show",
-        "Failed to load refund details",
+        t("detail.refundDetailsFailed"),
         "error",
       );
     } finally {
@@ -354,7 +372,7 @@ export default function SaleDetailModal({
       if (!preview.success) {
         appEvents.emit(
           "notification:show",
-          preview.error || "Failed to load refund details",
+          preview.error || t("detail.refundDetailsFailed"),
           "error",
         );
         return;
@@ -363,7 +381,7 @@ export default function SaleDetailModal({
         if (preview.sessionId == null || preview.sessionTransactionId == null) {
           appEvents.emit(
             "notification:show",
-            "Could not resolve this sale's session — try refunding it from the Transactions page.",
+            t("detail.sessionUnresolved"),
             "error",
           );
           return;
@@ -389,7 +407,7 @@ export default function SaleDetailModal({
     } catch (_err) {
       appEvents.emit(
         "notification:show",
-        "Failed to load refund details",
+        t("detail.refundDetailsFailed"),
         "error",
       );
     } finally {
@@ -454,7 +472,7 @@ export default function SaleDetailModal({
         if (result.success) {
           appEvents.emit(
             "notification:show",
-            "Sale refunded successfully",
+            t("detail.saleRefunded"),
             "success",
           );
           appEvents.emit("sale:completed", { refunded: true, saleId });
@@ -467,7 +485,7 @@ export default function SaleDetailModal({
         } else {
           appEvents.emit(
             "notification:show",
-            result.error || "Refund failed",
+            result.error || t("detail.refundFailed"),
             "error",
           );
         }
@@ -495,7 +513,7 @@ export default function SaleDetailModal({
         if (result.success) {
           appEvents.emit(
             "notification:show",
-            `Refunded ${quantity}x ${item.name}`,
+            t("detail.itemRefunded", { quantity, name: item.name }),
             "success",
           );
           appEvents.emit("sale:completed", { refunded: true, saleId });
@@ -506,7 +524,7 @@ export default function SaleDetailModal({
         } else {
           appEvents.emit(
             "notification:show",
-            result.error || "Item refund failed",
+            result.error || t("detail.itemRefundFailed"),
             "error",
           );
         }
@@ -514,7 +532,7 @@ export default function SaleDetailModal({
     } catch (_err) {
       appEvents.emit(
         "notification:show",
-        "Refund failed unexpectedly",
+        t("detail.refundFailedUnexpectedly"),
         "error",
       );
     } finally {
@@ -538,7 +556,7 @@ export default function SaleDetailModal({
 
   const formatTime = (dateStr: string) => {
     const d = parseDbDate(dateStr);
-    return d.toLocaleString();
+    return formatDateTime(d);
   };
 
   // LIRA-232 round-2 review (finding 3) — `sale.status` is the PRIMARY
@@ -588,11 +606,11 @@ export default function SaleDetailModal({
         <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
           <div>
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              Sale #{saleId}
+              {t("detail.title", { id: saleId })}
               {isRefunded && (
                 <span className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400 font-medium flex items-center gap-1">
                   <RotateCcw size={12} />
-                  Refunded
+                  {t("detail.refunded")}
                 </span>
               )}
             </h2>
@@ -613,11 +631,11 @@ export default function SaleDetailModal({
 
         {loading ? (
           <div className="flex items-center justify-center h-48 text-slate-500">
-            Loading...
+            {t("detail.loading")}
           </div>
         ) : !sale ? (
           <div className="flex items-center justify-center h-48 text-slate-500">
-            Sale not found
+            {t("detail.notFound")}
           </div>
         ) : (
           <>
@@ -633,13 +651,14 @@ export default function SaleDetailModal({
                     <input
                       value={editName}
                       onChange={(e) => setEditName(e.target.value)}
-                      placeholder="Customer name"
+                      placeholder={t("detail.customerName")}
                       className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
                     />
                     <input
                       value={editPhone}
                       onChange={(e) => setEditPhone(e.target.value)}
-                      placeholder="Phone (optional)"
+                      placeholder={t("detail.phoneOptional")}
+                      dir="ltr"
                       className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
                     />
                     <div className="flex gap-2">
@@ -648,13 +667,13 @@ export default function SaleDetailModal({
                         disabled={savingCustomer}
                         className="px-3 py-1 rounded-lg text-xs font-semibold bg-orange-600 hover:bg-orange-500 disabled:bg-slate-700 text-white"
                       >
-                        {savingCustomer ? "Saving..." : "Save"}
+                        {savingCustomer ? t("detail.saving") : t("detail.save")}
                       </button>
                       <button
                         onClick={() => setEditingCustomer(false)}
                         className="px-3 py-1 rounded-lg text-xs font-semibold text-slate-400 hover:text-white"
                       >
-                        Cancel
+                        {t("actions.cancel")}
                       </button>
                     </div>
                   </div>
@@ -662,12 +681,12 @@ export default function SaleDetailModal({
                   <div className="flex items-center gap-2">
                     <div>
                       <div className="text-sm text-slate-200">
-                        {sale.client_name || "Walk-in Customer"}
+                        {sale.client_name || t("detail.walkInCustomer")}
                       </div>
                       {sale.client_phone && (
-                        <div className="text-xs text-slate-500">
+                        <Ltr className="block text-xs text-slate-500">
                           {sale.client_phone}
-                        </div>
+                        </Ltr>
                       )}
                     </div>
                     {/* Rename is a walk-in-only affordance (client_id null): a
@@ -675,7 +694,7 @@ export default function SaleDetailModal({
                     {sale.client_id == null && !isRefunded && (
                       <button
                         onClick={startEditCustomer}
-                        title="Edit customer"
+                        title={t("detail.editCustomer")}
                         className="p-1 text-slate-500 hover:text-orange-400"
                       >
                         <Pencil size={13} />
@@ -690,7 +709,7 @@ export default function SaleDetailModal({
                 <div className="flex items-center gap-2 mb-3">
                   <Package size={14} className="text-slate-400" />
                   <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">
-                    Items ({items.length})
+                    {t("detail.itemsCount", { count: items.length })}
                   </h3>
                 </div>
                 <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 divide-y divide-slate-700/50">
@@ -703,7 +722,7 @@ export default function SaleDetailModal({
                         key={item.id}
                         className="flex items-center justify-between px-4 py-3"
                       >
-                        <div className="flex-1 min-w-0 mr-3">
+                        <div className="flex-1 min-w-0 me-3">
                           <p
                             className={`text-sm truncate ${isFullyRefunded ? "text-red-400 line-through" : "text-slate-200"}`}
                           >
@@ -711,20 +730,28 @@ export default function SaleDetailModal({
                           </p>
                           <div className="flex items-center gap-2 text-xs text-slate-500">
                             <span>
-                              Qty: {item.quantity}
+                              {t("detail.qty", { count: item.quantity })}
                               {alreadyRefunded > 0 && (
-                                <span className="text-red-400 ml-1">
-                                  ({alreadyRefunded} refunded)
+                                <span className="text-red-400 ms-1">
+                                  {t("detail.qtyRefunded", {
+                                    count: alreadyRefunded,
+                                  })}
                                 </span>
                               )}
                             </span>
-                            <span>× ${item.sold_price_usd.toFixed(2)}</span>
+                            <Ltr>× ${item.sold_price_usd.toFixed(2)}</Ltr>
                             {item.barcode && (
                               <span className="font-mono">{item.barcode}</span>
                             )}
                             {item.imei && (
                               <span className="font-mono text-slate-600">
-                                {item.serial_label || "IMEI"}: {item.imei}
+                                {t("detail.serialValue", {
+                                  label:
+                                    item.serial_label === "Serial"
+                                      ? t("serial.Serial")
+                                      : t("serial.IMEI"),
+                                  value: item.imei,
+                                })}
                               </span>
                             )}
                           </div>
@@ -747,15 +774,22 @@ export default function SaleDetailModal({
                               if (w.state === "NONE") return null;
                               const base =
                                 w.state === "VOID"
-                                  ? "Void"
+                                  ? t("detail.warrantyVoid")
                                   : w.state === "COVERED"
-                                    ? `Covered until ${w.until}`
-                                    : `Expired on ${w.until}`;
+                                    ? t("detail.warrantyCovered", {
+                                        date: w.until,
+                                      })
+                                    : t("detail.warrantyExpired", {
+                                        date: w.until,
+                                      });
                               const partly =
                                 w.state !== "VOID" &&
                                 alreadyRefunded > 0 &&
                                 alreadyRefunded < item.quantity
-                                  ? ` · ${alreadyRefunded} of ${item.quantity} refunded`
+                                  ? t("detail.partlyRefunded", {
+                                      refunded: alreadyRefunded,
+                                      quantity: item.quantity,
+                                    })
                                   : "";
                               const colorClass =
                                 w.state === "VOID"
@@ -781,9 +815,9 @@ export default function SaleDetailModal({
                                           units: [],
                                         })
                                       }
-                                      className="ml-2 underline text-violet-300 hover:text-violet-100"
+                                      className="ms-2 underline text-violet-300 hover:text-violet-100"
                                     >
-                                      Warranty claim
+                                      {t("detail.warrantyClaim")}
                                     </button>
                                   )}
                                 </div>
@@ -795,7 +829,9 @@ export default function SaleDetailModal({
                           <span
                             className={`text-sm font-mono shrink-0 ${isFullyRefunded ? "text-red-400 line-through" : "text-slate-300"}`}
                           >
-                            ${(item.quantity * item.sold_price_usd).toFixed(2)}
+                            <Ltr>
+                              ${(item.quantity * item.sold_price_usd).toFixed(2)}
+                            </Ltr>
                           </span>
 
                           {!isFullyRefunded && !isRefunded && (
@@ -806,7 +842,7 @@ export default function SaleDetailModal({
                               }}
                               disabled={refunding}
                               className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded transition-colors disabled:opacity-50"
-                              title="Refund item"
+                              title={t("detail.refundItem")}
                             >
                               <RotateCcw size={14} />
                             </button>
@@ -823,17 +859,17 @@ export default function SaleDetailModal({
                 <div className="flex items-center gap-2 mb-2">
                   <DollarSign size={14} className="text-slate-400" />
                   <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">
-                    Payment
+                    {t("detail.payment")}
                   </h3>
                 </div>
                 <div className="flex justify-between text-sm text-slate-400">
-                  <span>Subtotal</span>
-                  <span>${sale.total_amount_usd.toFixed(2)}</span>
+                  <span>{t("detail.subtotal")}</span>
+                  <Ltr>${sale.total_amount_usd.toFixed(2)}</Ltr>
                 </div>
                 {sale.discount_usd > 0 && (
                   <div className="flex justify-between text-sm text-slate-400">
-                    <span>Discount</span>
-                    <span>-${sale.discount_usd.toFixed(2)}</span>
+                    <span>{t("detail.discount")}</span>
+                    <Ltr>-${sale.discount_usd.toFixed(2)}</Ltr>
                   </div>
                 )}
                 {saleExtra > 0 && (
@@ -841,12 +877,12 @@ export default function SaleDetailModal({
                     data-testid="sale-detail-extra"
                     className="flex justify-between text-sm text-amber-400"
                   >
-                    <span>Extra</span>
-                    <span>+${saleExtra.toFixed(2)}</span>
+                    <span>{t("detail.extra")}</span>
+                    <Ltr>+${saleExtra.toFixed(2)}</Ltr>
                   </div>
                 )}
                 <div className="flex justify-between text-sm font-bold pt-2 border-t border-slate-700">
-                  <span className="text-white">Total</span>
+                  <span className="text-white">{t("detail.total")}</span>
                   <span
                     className={
                       isRefunded
@@ -854,31 +890,31 @@ export default function SaleDetailModal({
                         : "text-violet-400"
                     }
                   >
-                    ${(sale.final_amount_usd + saleExtra).toFixed(2)}
+                    <Ltr>${(sale.final_amount_usd + saleExtra).toFixed(2)}</Ltr>
                   </span>
                 </div>
                 <div className="flex justify-between text-xs text-slate-500">
-                  <span>Paid USD</span>
-                  <span>${sale.paid_usd.toFixed(2)}</span>
+                  <span>{t("detail.paidUsd")}</span>
+                  <Ltr>${sale.paid_usd.toFixed(2)}</Ltr>
                 </div>
                 {sale.paid_lbp > 0 && (
                   <div className="flex justify-between text-xs text-slate-500">
-                    <span>Paid LBP</span>
-                    <span>{sale.paid_lbp.toLocaleString()}</span>
+                    <span>{t("detail.paidLbp")}</span>
+                    <Ltr>{formatNumber(sale.paid_lbp)}</Ltr>
                   </div>
                 )}
                 {(sale.change_given_usd > 0 || sale.change_given_lbp > 0) && (
                   <div className="flex justify-between text-xs text-slate-500">
-                    <span>Change</span>
-                    <span>
+                    <span>{t("detail.change")}</span>
+                    <Ltr>
                       {sale.change_given_usd > 0 &&
                         `$${sale.change_given_usd.toFixed(2)}`}
                       {sale.change_given_usd > 0 &&
                         sale.change_given_lbp > 0 &&
                         " + "}
                       {sale.change_given_lbp > 0 &&
-                        `${sale.change_given_lbp.toLocaleString()} LBP`}
-                    </span>
+                        `${formatNumber(sale.change_given_lbp)} LBP`}
+                    </Ltr>
                   </div>
                 )}
               </div>
@@ -890,14 +926,14 @@ export default function SaleDetailModal({
                 onClick={onClose}
                 className="px-4 py-2.5 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg font-medium transition-colors"
               >
-                Close
+                {t("detail.close")}
               </button>
               <button
                 onClick={handlePrintReceipt}
                 className="px-4 py-2.5 text-blue-300 hover:text-blue-100 hover:bg-blue-900/30 rounded-lg font-medium border border-blue-500/30 flex items-center gap-2 transition-colors"
               >
                 <Printer size={16} />
-                Print
+                {t("detail.print")}
               </button>
               {/* LIRA-333 (FR-002/FR-003): saved, completed sales only.
                   `refreshKey` re-reads the sale after a customer edit, so
@@ -912,14 +948,14 @@ export default function SaleDetailModal({
                 <button
                   onClick={openWholeSaleRefund}
                   disabled={refunding || loadingRefundPreview}
-                  className="ml-auto px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-lg font-medium flex items-center gap-2 transition-colors disabled:opacity-50"
+                  className="ms-auto px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-lg font-medium flex items-center gap-2 transition-colors disabled:opacity-50"
                 >
                   <RotateCcw size={16} />
                   {loadingRefundPreview
-                    ? "Loading..."
+                    ? t("detail.loading")
                     : refunding
-                      ? "Refunding..."
-                      : "Refund Sale"}
+                      ? t("detail.refunding")
+                      : t("detail.refundSale")}
                 </button>
               )}
             </div>
@@ -1045,7 +1081,7 @@ export default function SaleDetailModal({
             setClaimTarget(null);
             appEvents.emit(
               "notification:show",
-              "Warranty claim started",
+              t("detail.claimStarted"),
               "success",
             );
             loadSale();
