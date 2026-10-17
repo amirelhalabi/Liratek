@@ -90,8 +90,14 @@ async function runFlow(sixMonths = "6"): Promise<unknown[][]> {
   await screen.findByText("Laptops");
 
   // 2. Rename: actions cell → [edit, delete], then [save, cancel].
-  fireEvent.click(within(cells("Cables")[4]).getAllByRole("button")[0]);
-  const editInput = cells("Cables")[1].querySelector("input")!;
+  // Keep the row: once editing starts its name cell holds an input, not text.
+  const cablesRow = screen.getByText("Cables").closest("tr")!;
+  fireEvent.click(
+    within(cablesRow.querySelectorAll("td")[4] as HTMLElement).getAllByRole(
+      "button",
+    )[0],
+  );
+  const editInput = cablesRow.querySelectorAll("td")[1].querySelector("input")!;
   fireEvent.change(editInput, { target: { value: "USB Cables" } });
   // While editing, the name cell holds an input (not the text), so find the
   // row through the input itself.
