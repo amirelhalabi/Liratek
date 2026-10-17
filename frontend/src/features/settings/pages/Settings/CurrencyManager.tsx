@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
+import { useFormat } from "@/i18n/useFormat";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import {
   Check,
@@ -38,6 +42,7 @@ function ModuleMultiSelect({
   selected,
   onChange,
 }: ModuleMultiSelectProps) {
+  const { t } = useTranslation("settings");
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -102,7 +107,9 @@ function ModuleMultiSelect({
       >
         <span className="flex-1 flex flex-wrap gap-1 min-h-[22px]">
           {labels.length === 0 ? (
-            <span className="text-slate-500 text-xs">No modules</span>
+            <span className="text-slate-500 text-xs">
+              {t("currency.noModules")}
+            </span>
           ) : (
             labels.map((l) => (
               <span
@@ -129,7 +136,7 @@ function ModuleMultiSelect({
         >
           <div className="p-1.5 border-b border-slate-700 flex items-center justify-between px-3">
             <span className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">
-              Select Modules
+              {t("currency.selectModules")}
             </span>
             <button
               type="button"
@@ -203,7 +210,7 @@ function computeEffectiveRates(row: RateRow) {
 
 function formatRate(rate: number, isStronger: 1 | -1): string {
   return isStronger === 1
-    ? rate.toLocaleString(undefined, { maximumFractionDigits: 0 }) + " LBP"
+    ? formatNumber(rate, { maximumFractionDigits: 0 }) + " LBP"
     : rate.toFixed(4) + " USD";
 }
 
@@ -214,6 +221,8 @@ function getCurrencyLabel(toCode: string, isStronger: 1 | -1): string {
 
 function ExchangeRatesSection() {
   const api = useApi();
+  const { t } = useTranslation(["settings", "common"]);
+  const { formatDateTime } = useFormat();
   const [rates, setRates] = useState<RateRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [editingRow, setEditingRow] = useState<RateRow | null>(null);
@@ -266,14 +275,15 @@ function ExchangeRatesSection() {
     const toCode = isAdding
       ? editForm.to_code.trim().toUpperCase()
       : editingRow?.to_code;
-    if (!toCode) return alert("Please enter a currency code.");
-    const market = parseFloat(editForm.market_rate);
-    const buy = parseFloat(editForm.buy_rate);
-    const sell = parseFloat(editForm.sell_rate);
-    if (isNaN(market) || market <= 0) return alert("Invalid market rate.");
-    if (isNaN(buy) || buy <= 0) return alert("Invalid buy rate.");
-    if (isNaN(sell) || sell <= 0) return alert("Invalid sell rate.");
-    if (buy >= sell) return alert("Buy rate must be less than sell rate.");
+    if (!toCode) return alert(t("currency.codeRequired"));
+    const market = parseFloat(normalizeDigits(editForm.market_rate));
+    const buy = parseFloat(normalizeDigits(editForm.buy_rate));
+    const sell = parseFloat(normalizeDigits(editForm.sell_rate));
+    if (isNaN(market) || market <= 0)
+      return alert(t("currency.invalidMarket"));
+    if (isNaN(buy) || buy <= 0) return alert(t("currency.invalidBuy"));
+    if (isNaN(sell) || sell <= 0) return alert(t("currency.invalidSell"));
+    if (buy >= sell) return alert(t("currency.buyBelowSell"));
 
     const res = await api.setRate({
       to_code: toCode,
@@ -282,7 +292,8 @@ function ExchangeRatesSection() {
       sell_rate: sell,
       is_stronger: editForm.is_stronger,
     });
-    if (!res?.success) return alert(res?.error ?? "Failed to save rate.");
+    if (!res?.success)
+      return alert(res?.error ?? t("currency.rateSaveFailed"));
     handleModalClose();
     load();
   };
@@ -290,16 +301,14 @@ function ExchangeRatesSection() {
   // ── Delete ──────────────────────────────────────────────────────────────
   const handleDelete = async (row: RateRow) => {
     if (
-      !confirm(
-        `Delete rate for ${row.to_code}? This will break exchanges involving this currency.`,
-      )
+      !confirm(t("currency.rateDeleteConfirm", { code: row.to_code }))
     )
       return;
     try {
       await api.deleteRate(row.to_code);
       load();
     } catch {
-      alert("Failed to delete rate.");
+      alert(t("currency.rateDeleteFailed"));
     }
   };
 
@@ -309,19 +318,22 @@ function ExchangeRatesSection() {
   return (
     <div className="space-y-4">
       <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
-        Exchange Rates
+        {t("currency.ratesTitle")}
       </h3>
 
       {/* ── Info Banner ── */}
       <div className="flex items-start gap-3 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg text-sm text-blue-300">
         <Info size={16} className="mt-0.5 shrink-0 text-blue-400" />
         <div>
-          Set the <strong>buy rate</strong> (what we give) and{" "}
-          <strong>sell rate</strong> (what the customer gives) directly. The
-          market rate is automatically calculated as the midpoint. Use{" "}
-          <strong>stronger</strong> for currencies worth more than 1 USD (EUR,
-          GBP), and <strong>weaker</strong> for currencies worth less (LBP,
-          TRY).
+          {t("currency.ratesInfo1")}{" "}
+          <strong>{t("currency.buyRateWord")}</strong>{" "}
+          {t("currency.ratesInfo2")}{" "}
+          <strong>{t("currency.sellRateWord")}</strong>{" "}
+          {t("currency.ratesInfo3")}{" "}
+          <strong>{t("currency.strongerWord")}</strong>{" "}
+          {t("currency.ratesInfo4")}{" "}
+          <strong>{t("currency.weakerWord")}</strong>{" "}
+          {t("currency.ratesInfo5")}
         </div>
       </div>
 
@@ -333,13 +345,13 @@ function ExchangeRatesSection() {
               <TrendingUp className="w-4 h-4 text-emerald-400" />
               <div>
                 <h4 className="text-xs font-semibold text-emerald-400">
-                  USD/LBP Profit Spread
+                  {t("currency.lbpSpread")}
                 </h4>
                 <p className="text-lg font-bold text-white mt-0.5">
-                  {lbpSpread.toLocaleString()} LBP
+                  {formatNumber(lbpSpread)} LBP
                 </p>
                 <p className="text-xs text-emerald-300/70">
-                  Per 1 USD exchanged (sell - buy)
+                  {t("currency.lbpSpreadHint")}
                 </p>
               </div>
             </div>
@@ -351,13 +363,13 @@ function ExchangeRatesSection() {
               <TrendingUp className="w-4 h-4 text-emerald-400" />
               <div>
                 <h4 className="text-xs font-semibold text-emerald-400">
-                  USD/EUR Profit Spread
+                  {t("currency.eurSpread")}
                 </h4>
                 <p className="text-lg font-bold text-white mt-0.5">
                   ${eurSpread.toFixed(2)} USD
                 </p>
                 <p className="text-xs text-emerald-300/70">
-                  Per 1 EUR exchanged (sell - buy)
+                  {t("currency.eurSpreadHint")}
                 </p>
               </div>
             </div>
@@ -368,30 +380,30 @@ function ExchangeRatesSection() {
       {/* ── Add Rate Button + Rates Table ── */}
       <div className="flex items-center justify-between">
         <span className="text-sm text-slate-400">
-          {rates.length} rate{rates.length !== 1 ? "s" : ""} configured
+          {t("currency.ratesCount", { count: rates.length })}
         </span>
         <button
           onClick={handleAddOpen}
           className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white transition-colors"
         >
           <Plus size={14} />
-          Add Rate
+          {t("currency.addRate")}
         </button>
       </div>
 
       <div className="border border-slate-700 rounded-xl overflow-hidden">
         <DataTable
           columns={[
-            { header: "Currency" },
-            { header: "Market Rate" },
-            { header: "Buy Rate (we give)" },
-            { header: "Sell Rate (customer gives)" },
-            { header: "Updated" },
-            { header: "Actions" },
+            { header: t("currency.col.currency") },
+            { header: t("currency.col.market") },
+            { header: t("currency.col.buy") },
+            { header: t("currency.col.sell") },
+            { header: t("currency.col.updated") },
+            { header: t("currency.col.actions") },
           ]}
           data={rates}
           loading={loading}
-          emptyMessage="No rates configured"
+          emptyMessage={t("currency.noRates")}
           exportExcel
           exportPdf
           exportFilename="exchange-rates"
@@ -411,8 +423,8 @@ function ExchangeRatesSection() {
                   </div>
                   <div className="text-xs text-slate-600 mt-0.5">
                     {row.is_stronger === 1
-                      ? "Weaker than USD"
-                      : "Stronger than USD"}
+                      ? t("currency.weakerThanUsd")
+                      : t("currency.strongerThanUsd")}
                   </div>
                 </td>
                 <td className="p-3">
@@ -425,7 +437,7 @@ function ExchangeRatesSection() {
                     {formatRate(buyRate, row.is_stronger)}
                   </span>
                   <div className="text-xs text-slate-600">
-                    We give this to customer
+                    {t("currency.weGive")}
                   </div>
                 </td>
                 <td className="p-3">
@@ -433,25 +445,25 @@ function ExchangeRatesSection() {
                     {formatRate(sellRate, row.is_stronger)}
                   </span>
                   <div className="text-xs text-slate-600">
-                    Customer gives us this
+                    {t("currency.customerGives")}
                   </div>
                 </td>
                 <td className="p-3 text-slate-400 text-xs">
-                  {parseDbDate(row.updated_at).toLocaleString()}
+                  {formatDateTime(parseDbDate(row.updated_at))}
                 </td>
                 <td className="p-3">
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => handleEditOpen(row)}
                       className="p-2 hover:bg-slate-700 rounded text-blue-400 hover:text-blue-300 transition-colors"
-                      title="Edit rate"
+                      title={t("currency.editRate")}
                     >
                       <Edit size={16} />
                     </button>
                     <button
                       onClick={() => handleDelete(row)}
                       className="p-2 hover:bg-slate-700 rounded text-red-400 hover:text-red-300 transition-colors"
-                      title="Delete rate"
+                      title={t("currency.deleteRate")}
                     >
                       <Trash2 size={16} />
                     </button>
@@ -469,10 +481,10 @@ function ExchangeRatesSection() {
           <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 w-[420px] shadow-2xl">
             <h3 className="text-lg font-bold text-white mb-4">
               {isAdding ? (
-                "Add Rate"
+                t("currency.addRate")
               ) : (
                 <>
-                  Edit Rate —{" "}
+                  {t("currency.editRateTitle")}{" "}
                   <span className="text-violet-400">{editingRow!.to_code}</span>
                 </>
               )}
@@ -482,7 +494,7 @@ function ExchangeRatesSection() {
                 <>
                   <div>
                     <label className="block text-sm text-slate-400 mb-1">
-                      Currency Code
+                      {t("currency.currencyCode")}
                     </label>
                     <input
                       value={editForm.to_code}
@@ -492,7 +504,7 @@ function ExchangeRatesSection() {
                           to_code: e.target.value.toUpperCase(),
                         })
                       }
-                      placeholder="e.g. LBP, EUR, GBP"
+                      placeholder={t("currency.codePlaceholder")}
                       maxLength={5}
                       className="w-full bg-slate-900 border border-slate-700 rounded px-4 py-2 text-white font-mono uppercase"
                       autoFocus
@@ -500,7 +512,7 @@ function ExchangeRatesSection() {
                   </div>
                   <div>
                     <label className="block text-sm text-slate-400 mb-1">
-                      Strength vs USD
+                      {t("currency.strength")}
                     </label>
                     <Select
                       value={String(editForm.is_stronger)}
@@ -511,8 +523,8 @@ function ExchangeRatesSection() {
                         })
                       }
                       options={[
-                        { value: "1", label: "Weaker than USD (e.g. LBP)" },
-                        { value: "-1", label: "Stronger than USD (e.g. EUR)" },
+                        { value: "1", label: t("currency.weakerOption") },
+                        { value: "-1", label: t("currency.strongerOption") },
                       ]}
                       buttonClassName="w-full bg-slate-900 border border-slate-700 rounded px-4 py-2 text-white"
                     />
@@ -521,10 +533,11 @@ function ExchangeRatesSection() {
               )}
               <div>
                 <label className="block text-sm text-slate-400 mb-1">
-                  Market Rate
+                  {t("currency.marketRate")}
                 </label>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={editForm.market_rate}
                   onChange={(e) =>
                     setEditForm({ ...editForm, market_rate: e.target.value })
@@ -535,10 +548,11 @@ function ExchangeRatesSection() {
               </div>
               <div>
                 <label className="block text-sm text-slate-400 mb-1">
-                  Buy Rate (we give)
+                  {t("currency.buyRate")}
                 </label>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={editForm.buy_rate}
                   onChange={(e) =>
                     setEditForm({ ...editForm, buy_rate: e.target.value })
@@ -548,10 +562,11 @@ function ExchangeRatesSection() {
               </div>
               <div>
                 <label className="block text-sm text-slate-400 mb-1">
-                  Sell Rate (customer gives)
+                  {t("currency.sellRate")}
                 </label>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={editForm.sell_rate}
                   onChange={(e) =>
                     setEditForm({ ...editForm, sell_rate: e.target.value })
@@ -562,7 +577,7 @@ function ExchangeRatesSection() {
               {!isAdding && (
                 <div>
                   <label className="block text-sm text-slate-400 mb-1">
-                    Strength vs USD
+                    {t("currency.strength")}
                   </label>
                   <Select
                     value={String(editForm.is_stronger)}
@@ -573,8 +588,8 @@ function ExchangeRatesSection() {
                       })
                     }
                     options={[
-                      { value: "1", label: "Weaker than USD (e.g. LBP)" },
-                      { value: "-1", label: "Stronger than USD (e.g. EUR)" },
+                      { value: "1", label: t("currency.weakerOption") },
+                      { value: "-1", label: t("currency.strongerOption") },
                     ]}
                     buttonClassName="w-full bg-slate-900 border border-slate-700 rounded px-4 py-2 text-white"
                   />
@@ -586,13 +601,13 @@ function ExchangeRatesSection() {
                   onClick={handleModalClose}
                   className="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded text-white transition-colors"
                 >
-                  Cancel
+                  {t("common:actions.cancel")}
                 </button>
                 <button
                   onClick={handleSave}
                   className="flex-1 px-4 py-2 bg-violet-600 hover:bg-violet-700 rounded text-white font-medium transition-colors"
                 >
-                  Save
+                  {t("common:actions.save")}
                 </button>
               </div>
             </div>
@@ -606,6 +621,7 @@ function ExchangeRatesSection() {
 // ─── Drawer–Currency configuration section ─────────────────────────────────
 function DrawerCurrencySection() {
   const api = useApi();
+  const { t } = useTranslation("settings");
   const [drawerConfig, setDrawerConfig] = useState<Record<string, string[]>>(
     {},
   );
@@ -618,9 +634,11 @@ function DrawerCurrencySection() {
   // OMT_System / Whish_System are the physical cash drawer at the shop's
   // money-transfer counter (Primary Cash Drawer plan §1) — not a provider
   // float balance (PR #66's rejected model). Names unchanged, labels only.
+  // OD-3: the seeded drawer names that read as words are translated; brand
+  // names stay as they are. The drawer code is what every payload uses.
   const DRAWER_LABELS: Record<string, string> = {
-    General: "General",
-    OMT_System: "OMT Cash Drawer",
+    General: t("currency.drawer.General"),
+    OMT_System: t("currency.drawer.OMT_System"),
     OMT_App: "OMT App",
     Whish_App: "Whish App",
     Binance: "Binance",
@@ -628,7 +646,7 @@ function DrawerCurrencySection() {
     Alfa: "Alfa",
     iPick: "iPick",
     Katsh: "Katsh",
-    Whish_System: "Whish Cash Drawer",
+    Whish_System: t("currency.drawer.Whish_System"),
   };
 
   const load = useCallback(async () => {
@@ -724,7 +742,7 @@ function DrawerCurrencySection() {
           failures
             .map(
               ({ drawer, result }) =>
-                `${DRAWER_LABELS[drawer] ?? drawer}: ${result?.error ?? "Save was refused."}`,
+                `${DRAWER_LABELS[drawer] ?? drawer}: ${result?.error ?? t("currency.saveRefused")}`,
             )
             .join(" · "),
         );
@@ -740,9 +758,9 @@ function DrawerCurrencySection() {
     return (
       <div className="space-y-3">
         <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
-          Drawer Currencies
+          {t("currency.drawerTitle")}
         </h3>
-        <p className="text-slate-500 text-sm py-2">Loading…</p>
+        <p className="text-slate-500 text-sm py-2">{t("currency.loading")}</p>
       </div>
     );
   }
@@ -750,11 +768,10 @@ function DrawerCurrencySection() {
   return (
     <div className="space-y-3">
       <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
-        Drawer Currencies
+        {t("currency.drawerTitle")}
       </h3>
       <p className="text-xs text-slate-500 mb-2">
-        Configure which currencies are shown for each drawer on the Dashboard
-        and in Closing/Opening.
+        {t("currency.drawerIntro")}
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -811,10 +828,10 @@ function DrawerCurrencySection() {
       <p className="flex items-start gap-1.5 text-xs text-slate-500">
         <Info size={13} className="mt-0.5 shrink-0 text-slate-600" />
         <span>
-          <strong className="text-slate-400">General</strong> is not listed — it
-          accepts every currency, so there is nothing to configure. Exchange can
-          bring any currency into it, and it is counted at closing whenever it
-          holds a balance.
+          <strong className="text-slate-400">
+            {t("currency.drawer.General")}
+          </strong>{" "}
+          {t("currency.generalNote")}
         </span>
       </p>
 
@@ -827,7 +844,7 @@ function DrawerCurrencySection() {
       {hasPending && (
         <div className="flex items-center justify-between rounded-lg border border-amber-600/40 bg-amber-950/80 backdrop-blur-sm px-4 py-3">
           <span className="text-sm text-amber-300">
-            Unsaved drawer changes for{" "}
+            {t("currency.unsavedDrawers")}{" "}
             <strong>{Object.keys(pending).join(", ")}</strong>
           </span>
           <div className="flex gap-2">
@@ -835,7 +852,7 @@ function DrawerCurrencySection() {
               onClick={() => setPending({})}
               className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors"
             >
-              Discard
+              {t("currency.discard")}
             </button>
             <button
               onClick={handleSave}
@@ -843,7 +860,7 @@ function DrawerCurrencySection() {
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50 transition-colors"
             >
               <Save size={14} />
-              {saving ? "Saving…" : "Save Changes"}
+              {saving ? t("currency.saving") : t("currency.saveChanges")}
             </button>
           </div>
         </div>
@@ -855,6 +872,7 @@ function DrawerCurrencySection() {
 // ─── Currency Manager ──────────────────────────────────────────────────────
 export default function CurrencyManager() {
   const api = useApi();
+  const { t } = useTranslation(["settings", "common"]);
   const [list, setList] = useState<CurrencyRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -915,7 +933,7 @@ export default function CurrencyManager() {
       code,
       name,
       symbol || undefined,
-      decimalPlaces ? Number(decimalPlaces) : undefined,
+      decimalPlaces ? Number(normalizeDigits(decimalPlaces)) : undefined,
     );
     if (res.success) {
       setCode("");
@@ -931,12 +949,12 @@ export default function CurrencyManager() {
 
   const handleToggle = async (id: number, active: number) => {
     const res = await api.updateCurrency(id, { is_active: active ? 0 : 1 });
-    if (res && !res.success) alert(res.error || "Failed to update currency");
+    if (res && !res.success) alert(res.error || t("currency.updateFailed"));
     load();
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm("Delete this currency? This cannot be undone.")) return;
+    if (!confirm(t("currency.deleteConfirm"))) return;
     const res = await api.deleteCurrency(id);
     if (!res.success) alert(res.error);
     load();
@@ -980,10 +998,10 @@ export default function CurrencyManager() {
         const msgs = failed
           .map(
             (f) =>
-              `${f.currencyCode}: ${(f.res as any)?.error ?? "Unknown error"}`,
+              `${f.currencyCode}: ${(f.res as any)?.error ?? t("currency.unknownError")}`,
           )
           .join("\n");
-        alert(`Failed to save modules:\n${msgs}`);
+        alert(t("currency.modulesSaveFailed", { list: msgs }));
       }
       await load();
       window.dispatchEvent(new Event("currencies-changed"));
@@ -1010,14 +1028,14 @@ export default function CurrencyManager() {
       {/* ── Currencies Header ───────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
-          Currencies
+          {t("currency.currenciesTitle")}
         </h3>
         <button
           onClick={() => setShowAdd((v) => !v)}
           className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white transition-colors"
         >
           {showAdd ? <X size={14} /> : <Plus size={14} />}
-          {showAdd ? "Cancel" : "Add Currency"}
+          {showAdd ? t("common:actions.cancel") : t("currency.addCurrency")}
         </button>
       </div>
 
@@ -1030,7 +1048,7 @@ export default function CurrencyManager() {
                 htmlFor="currency-code"
                 className="block text-xs text-slate-400 mb-1"
               >
-                Code
+                {t("currency.code")}
               </label>
               <input
                 id="currency-code"
@@ -1045,13 +1063,13 @@ export default function CurrencyManager() {
                 htmlFor="currency-name"
                 className="block text-xs text-slate-400 mb-1"
               >
-                Name
+                {t("currency.name")}
               </label>
               <input
                 id="currency-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="US Dollar"
+                placeholder={t("currency.namePlaceholder")}
                 className="w-full bg-slate-800/50 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"
               />
             </div>
@@ -1060,7 +1078,7 @@ export default function CurrencyManager() {
                 htmlFor="currency-symbol"
                 className="block text-xs text-slate-400 mb-1"
               >
-                Symbol
+                {t("currency.symbol")}
               </label>
               <input
                 id="currency-symbol"
@@ -1075,15 +1093,14 @@ export default function CurrencyManager() {
                 htmlFor="currency-decimals"
                 className="block text-xs text-slate-400 mb-1"
               >
-                Decimals
+                {t("currency.decimals")}
               </label>
               <input
                 id="currency-decimals"
                 value={decimalPlaces}
                 onChange={(e) => setDecimalPlaces(e.target.value)}
-                type="number"
-                min="0"
-                max="8"
+                type="text"
+                inputMode="numeric"
                 className="w-full bg-slate-800/50 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"
               />
             </div>
@@ -1095,7 +1112,7 @@ export default function CurrencyManager() {
               className="flex items-center gap-1.5 px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-sm transition-colors"
             >
               <Plus size={14} />
-              Add Currency
+              {t("currency.addCurrency")}
             </button>
           </div>
         </div>
@@ -1103,11 +1120,12 @@ export default function CurrencyManager() {
 
       {/* ── Currency Cards ──────────────────────────────────────────── */}
       {loading ? (
-        <p className="text-slate-500 text-sm py-4">Loading currencies...</p>
+        <p className="text-slate-500 text-sm py-4">
+          {t("currency.loadingCurrencies")}
+        </p>
       ) : list.length === 0 ? (
         <p className="text-slate-500 text-sm py-4">
-          No currencies configured. Click &quot;Add Currency&quot; to create
-          one.
+          {t("currency.noCurrencies")}
         </p>
       ) : (
         <div className="space-y-3">
@@ -1143,12 +1161,15 @@ export default function CurrencyManager() {
                               : "bg-red-600/20 text-red-400"
                           }`}
                         >
-                          {c.is_active ? "Active" : "Inactive"}
+                          {c.is_active
+                            ? t("currency.active")
+                            : t("currency.inactive")}
                         </span>
                       </div>
                       <div className="text-xs text-slate-500 mt-0.5">
-                        {c.decimal_places} decimal place
-                        {c.decimal_places !== 1 ? "s" : ""}
+                        {t("currency.decimalPlaces", {
+                          count: c.decimal_places,
+                        })}
                       </div>
                     </div>
                   </div>
@@ -1163,12 +1184,14 @@ export default function CurrencyManager() {
                           : "border-emerald-600/40 text-emerald-400 hover:bg-emerald-900/20"
                       }`}
                     >
-                      {c.is_active ? "Deactivate" : "Activate"}
+                      {c.is_active
+                        ? t("currency.deactivate")
+                        : t("currency.activate")}
                     </button>
                     <button
                       onClick={() => handleDelete(c.id)}
                       className="text-xs p-1.5 rounded-lg border border-red-600/30 text-red-400 hover:bg-red-900/20 transition-colors"
-                      title="Delete currency"
+                      title={t("currency.deleteCurrency")}
                     >
                       <Trash2 size={14} />
                     </button>
@@ -1178,7 +1201,7 @@ export default function CurrencyManager() {
                 {/* Enabled modules */}
                 <div className="mt-3 pt-3 border-t border-slate-700/50">
                   <span className="block text-[11px] text-slate-500 uppercase tracking-wider mb-1.5 font-medium">
-                    Enabled Modules
+                    {t("currency.enabledModules")}
                   </span>
                   <ModuleMultiSelect
                     allModules={allModules}
@@ -1196,7 +1219,7 @@ export default function CurrencyManager() {
       {hasPendingChanges && (
         <div className="sticky bottom-0 flex items-center justify-between rounded-lg border border-amber-600/40 bg-amber-950/80 backdrop-blur-sm px-4 py-3">
           <span className="text-sm text-amber-300">
-            Unsaved module changes for{" "}
+            {t("currency.unsavedModules")}{" "}
             <strong>{Object.keys(pendingModules).join(", ")}</strong>
           </span>
           <div className="flex gap-2">
@@ -1204,7 +1227,7 @@ export default function CurrencyManager() {
               onClick={() => setPendingModules({})}
               className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors"
             >
-              Discard
+              {t("currency.discard")}
             </button>
             <button
               onClick={handleSaveModules}
@@ -1212,7 +1235,7 @@ export default function CurrencyManager() {
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50 transition-colors"
             >
               <Save size={14} />
-              {saving ? "Saving…" : "Save Changes"}
+              {saving ? t("currency.saving") : t("currency.saveChanges")}
             </button>
           </div>
         </div>
