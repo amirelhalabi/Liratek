@@ -6,9 +6,14 @@
  * forbids, and which modules can never be gated.
  *
  * Owner decisions this implements (`SUBSCRIPTION_MANAGEMENT_PLAN.md` § 3):
- * per-tenant module allowlist rather than named tiers, no trial, manual
- * mark-paid, a 7-day grace that ends in `read_only` and NEVER in a lockout,
- * and desktop enforcement that FAILS OPEN.
+ * per-tenant module allowlist rather than named tiers, manual mark-paid, a
+ * 7-day grace that ends in `read_only` and NEVER in a lockout, and desktop
+ * enforcement that FAILS OPEN.
+ *
+ * LIRA-332 supersedes D2 ("no trial") for publicly signed-up shops: a
+ * 14-day free trial, stored as `trial_ends_at` and derived LIVE into the
+ * `trial` / `trial_ended` standings here (research R1/R2/R5). An ended trial
+ * gets no grace and creates no records, but loses nothing.
  */
 
 import {
@@ -18,6 +23,11 @@ import {
   type SubscriptionStatus,
 } from "../repositories/SubscriptionRepository.js";
 import { createChildLogger } from "../utils/logger.js";
+import {
+  parseUtcInstant,
+  trialView,
+  type TrialView,
+} from "../utils/trialCalendar.js";
 import {
   GRACE_PERIOD_DAYS,
   UNGATEABLE_MODULES,
@@ -41,15 +51,30 @@ export { GRACE_PERIOD_DAYS, UNGATEABLE_MODULES };
  * derive from `status`: two callers deriving it independently is how one of
  * them ends up treating `grace` as read-only.
  */
+/**
+ * LIRA-332: what a shop's standing MEANS, derived once (data-model
+ * "Derived: standing"). `status` is still the stored column, which stays
+ * `active` for the whole trial; every consumer branches on this instead.
+ */
+export type SubscriptionStanding = "trial" | "trial_ended" | SubscriptionStatus;
+
 export interface SubscriptionStatusView {
+  /** The stored column ('active' throughout a trial, ended or not). */
   status: SubscriptionStatus;
+  /** LIRA-332: the derived standing every screen and gate reads. */
+  standing: SubscriptionStanding;
   plan: string;
-  /** false ONLY in read_only. Grace is fully functional by design. */
+  /**
+   * false in read_only and (LIRA-332) trial_ended. Grace is fully functional
+   * by design.
+   */
   canWrite: boolean;
   currentPeriodEnd: string | null;
   graceEndsAt: string | null;
   /** null means every module — see `entitledModules` handling below. */
   entitledModules: string[] | null;
+  /** LIRA-332: null unless standing is `trial` or `trial_ended`. */
+  trial: TrialView | null;
 }
 
 // =============================================================================
@@ -109,14 +134,54 @@ export class SubscriptionService {
     return { ...this.toView(row), tenantId: row.tenant_id };
   }
 
+  /**
+   * LIRA-332: the trial view of a row, or null when it is not on a trial.
+   *
+   * Invariant (enforced by this service, never by callers): a row with
+   * `trial_ends_at` is `active` with no period and no grace. A row that
+   * breaks it (hand-edited) is read by its PAID columns, so a paying shop is
+   * never told "trial ended" (SC-006). Logged as a warning.
+   */
+  private trialOf(row: SubscriptionEntity): TrialView | null {
+    if (!row.trial_ends_at) return null;
+    if (
+      row.status !== "active" ||
+      row.current_period_end !== null ||
+      row.grace_ends_at !== null
+    ) {
+      log.warn(
+        { tenantId: row.tenant_id, status: row.status },
+        "trial_ends_at set on a paying row; reading the paid columns",
+      );
+      return null;
+    }
+    const endsAt = parseUtcInstant(row.trial_ends_at);
+    if (Number.isNaN(endsAt.getTime())) {
+      log.warn(
+        { tenantId: row.tenant_id, trialEndsAt: row.trial_ends_at },
+        "trial_ends_at is not a date; treating the shop as not on a trial",
+      );
+      return null;
+    }
+    return trialView(endsAt, this.now());
+  }
+
   private toView(row: SubscriptionEntity): SubscriptionStatusView {
+    const trial = this.trialOf(row);
+    const standing: SubscriptionStanding = trial
+      ? trial.ended
+        ? "trial_ended"
+        : "trial"
+      : row.status;
     return {
       status: row.status,
+      standing,
       plan: row.plan,
-      canWrite: row.status !== "read_only",
+      canWrite: standing !== "read_only" && standing !== "trial_ended",
       currentPeriodEnd: row.current_period_end,
       graceEndsAt: row.grace_ends_at,
       entitledModules: this.parseModules(row.entitled_modules),
+      trial,
     };
   }
 
@@ -159,12 +224,17 @@ export class SubscriptionService {
    * Clearing `grace_ends_at` matters. A shop that lapsed, paid, and later
    * lapsed again would otherwise inherit the OLD grace deadline — already in
    * the past — and skip straight to read-only on its second lapse.
+   *
+   * LIRA-332: it also clears the trial, so recording a payment on a trial
+   * shop can never leave it reading as trial-ended.
    */
   markPaid(tenantId: number, periodEnd: string | null): SubscriptionEntity {
     const updated = this.repo.update(tenantId, {
       status: "active",
       current_period_end: periodEnd,
       grace_ends_at: null,
+      trial_started_at: null,
+      trial_ends_at: null,
     });
     if (!updated) {
       throw new Error(`No subscription for tenant ${tenantId}`);

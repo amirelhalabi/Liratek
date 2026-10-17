@@ -50,7 +50,9 @@ function createTestDb(): Database.Database {
       entitled_modules TEXT,
       notes TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      trial_started_at DATETIME,
+      trial_ends_at DATETIME
     );
     CREATE UNIQUE INDEX idx_tenant_subscriptions_tenant
       ON tenant_subscriptions(tenant_id);
