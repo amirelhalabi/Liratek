@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
 import { CheckCircle, CreditCard, Info } from "lucide-react";
 import type { PaymentLine } from "@liratek/ui";
 import { maxRechargeDiscount } from "@liratek/core";
@@ -116,6 +118,7 @@ export function CardGridPayView({
   onTransactionTimeChange,
   hasActiveSession = false,
 }: CardGridPayViewProps) {
+  const { t } = useTranslation("recharge");
   const [sheetOpen, setSheetOpen] = useState(false);
   const theme = themeFor(brand);
   const selected = items.find((i) => i.id === selectedId) ?? null;
@@ -129,7 +132,7 @@ export function CardGridPayView({
           unitPrice: selected.sellLbp,
           currency: "LBP",
           ...(selected.valueUsd !== undefined
-            ? { note: `Value $${selected.valueUsd}` }
+            ? { note: t("cardGrid.valueNote", { value: selected.valueUsd }) }
             : {}),
         },
       ]
@@ -156,7 +159,7 @@ export function CardGridPayView({
                 }`}
               >
                 {isSelected && (
-                  <div className={`absolute top-2 right-2 ${theme.check}`}>
+                  <div className={`absolute top-2 end-2 ${theme.check}`}>
                     <CheckCircle size={16} />
                   </div>
                 )}
@@ -167,40 +170,44 @@ export function CardGridPayView({
 
                 {item.valueUsd !== undefined && (
                   <div className="text-sm text-slate-400 mb-2">
-                    Value: ${item.valueUsd}
+                    {t("cardGrid.value", { value: item.valueUsd })}
                   </div>
                 )}
 
                 <div className="text-sm text-emerald-400 font-mono">
-                  Sell: {item.sellLbp.toLocaleString()} LBP
+                  {t("cardGrid.sell", { amount: formatNumber(item.sellLbp) })}
                 </div>
 
                 {/* Admin-only margin info — revealed on hover to keep cards clean */}
                 {showProfit && (
                   <div
-                    className="group/info absolute bottom-2 right-2"
+                    className="group/info absolute bottom-2 end-2"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <button
                       type="button"
-                      aria-label="Margin details"
+                      aria-label={t("cardGrid.marginDetails")}
                       className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-800 text-slate-400 transition-colors hover:bg-slate-700 hover:text-slate-200"
                     >
                       <Info size={12} />
                     </button>
-                    <div className="pointer-events-none absolute bottom-full right-0 z-20 mb-2 hidden w-40 rounded-lg border border-slate-700 bg-slate-900 p-2.5 shadow-xl group-hover/info:block">
+                    <div className="pointer-events-none absolute bottom-full end-0 z-20 mb-2 hidden w-40 rounded-lg border border-slate-700 bg-slate-900 p-2.5 shadow-xl group-hover/info:block">
                       <div className="flex justify-between text-xs">
-                        <span className="text-slate-400">Cost</span>
+                        <span className="text-slate-400">
+                          {t("cardGrid.cost")}
+                        </span>
                         <span className="font-mono text-slate-300">
-                          {item.costLbp.toLocaleString()} LBP
+                          {formatNumber(item.costLbp)} LBP
                         </span>
                       </div>
                       <div className="mt-1 flex justify-between text-xs">
-                        <span className="text-slate-400">Profit</span>
+                        <span className="text-slate-400">
+                          {t("cardGrid.profit")}
+                        </span>
                         <span
                           className={`font-mono ${profit >= 0 ? "text-green-400" : "text-red-400"}`}
                         >
-                          {profit.toLocaleString()} LBP
+                          {formatNumber(profit)} LBP
                         </span>
                       </div>
                     </div>
@@ -215,12 +222,12 @@ export function CardGridPayView({
       {/* Sticky Trigger Bar */}
       <div className="shrink-0 bg-slate-800 rounded-xl border border-slate-700/50 p-4 shadow-2xl">
         <div className="flex items-center gap-4">
-          <div className="text-right flex-1">
+          <div className="text-end flex-1">
             <div className="text-xs text-slate-400">
-              {selected ? selected.label : "Select an option"}
+              {selected ? selected.label : t("cardGrid.selectOption")}
             </div>
             <div className="text-base text-emerald-400 font-mono font-bold">
-              {selected ? `${selected.sellLbp.toLocaleString()} LBP` : "—"}
+              {selected ? `${formatNumber(selected.sellLbp)} LBP` : "—"}
             </div>
           </div>
 
@@ -242,7 +249,7 @@ export function CardGridPayView({
             }`}
           >
             <CreditCard size={18} />
-            {hasActiveSession ? "Add to Cart" : "Pay"}
+            {hasActiveSession ? t("common.addToCart") : t("cardGrid.pay")}
           </button>
         </div>
       </div>
@@ -282,11 +289,11 @@ export function CardGridPayView({
         {...(onExtraChange ? { onExtraChange } : {})}
         summary={[
           ...(selected && selected.valueUsd !== undefined
-            ? [{ label: "Value", value: `$${selected.valueUsd}` }]
+            ? [{ label: t("cardGrid.valueLabel"), value: `$${selected.valueUsd}` }]
             : []),
           {
-            label: "Price",
-            value: `${(selected?.sellLbp ?? 0).toLocaleString()} LBP`,
+            label: t("cardGrid.price"),
+            value: `${formatNumber(selected?.sellLbp ?? 0)} LBP`,
             color: "text-emerald-400",
           },
         ]}
@@ -295,7 +302,7 @@ export function CardGridPayView({
           type="text"
           value={clientName}
           onChange={(e) => onClientNameChange(e.target.value)}
-          placeholder="Client name (optional)"
+          placeholder={t("common.clientNameOptional")}
           className={`w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none ${theme.inputFocus}`}
         />
         <TransactionTimeOverride

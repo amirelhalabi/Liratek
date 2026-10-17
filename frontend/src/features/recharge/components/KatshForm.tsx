@@ -549,7 +549,7 @@ const ItemCard = memo(function ItemCard({
                       decimals={0}
                       zeroAsEmpty={false}
                       aria-label="Only-Days price"
-                      className={`w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-[11px] text-white text-right font-mono focus:outline-none ${brand.focusBorder}`}
+                      className={`w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-[11px] text-white text-end font-mono focus:outline-none ${brand.focusBorder}`}
                     />
                   </div>
                   <PriceChangeWarning
@@ -568,7 +568,7 @@ const ItemCard = memo(function ItemCard({
                       decimals={0}
                       zeroAsEmpty={false}
                       aria-label="Only-Days credit price"
-                      className={`w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-[11px] text-white text-right font-mono focus:outline-none ${brand.focusBorder}`}
+                      className={`w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-[11px] text-white text-end font-mono focus:outline-none ${brand.focusBorder}`}
                     />
                   </div>
                   <PriceChangeWarning
@@ -2037,10 +2037,10 @@ function KatshFormInner({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={`Search ${activeProvider} items...`}
-            className={`w-full px-4 py-2.5 pl-10 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none ${billAccent.brand.searchFocus} transition-all`}
+            className={`w-full px-4 py-2.5 ps-10 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none ${billAccent.brand.searchFocus} transition-all`}
           />
           <svg
-            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"
+            className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -2055,7 +2055,7 @@ function KatshFormInner({
           {searchQuery && (
             <button
               onClick={() => setSearchQuery("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+              className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
               aria-label="Clear search"
               type="button"
             >
@@ -2078,7 +2078,7 @@ function KatshFormInner({
 
         <div className="flex items-center gap-2 shrink-0">
           {totalItems > 0 && (
-            <div className="text-right leading-tight">
+            <div className="text-end leading-tight">
               <div className="text-xs text-white font-bold">
                 {totalItems} items
               </div>
@@ -2093,7 +2093,7 @@ function KatshFormInner({
             </div>
           )}
           {pendingBills.length > 0 && (!activeSession || forPartner) && (
-            <div className="text-right leading-tight">
+            <div className="text-end leading-tight">
               <div className={`text-xs font-bold ${billAccent.pendingLabel}`}>
                 {pendingBills.length > 1
                   ? `${pendingBills.length} BILLS`
@@ -2513,7 +2513,7 @@ function KatshFormInner({
             className={`w-full mt-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none ${billAccent.brand.focusBorder}`}
           />
           <div className="relative">
-            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
+            <div className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-500">
               <Phone size={14} />
             </div>
             <input
@@ -2522,7 +2522,7 @@ function KatshFormInner({
               value={clientPhone}
               onChange={(e) => setClientPhone(e.target.value)}
               placeholder="Phone number (registers a new client)"
-              className={`w-full bg-slate-800 border border-slate-600 rounded-lg pl-10 pr-3 py-2 text-sm text-white font-mono focus:outline-none ${billAccent.brand.focusBorder}`}
+              className={`w-full bg-slate-800 border border-slate-600 rounded-lg ps-10 pe-3 py-2 text-sm text-white font-mono focus:outline-none ${billAccent.brand.focusBorder}`}
             />
           </div>
           {clientName.trim() && clientPhone.trim() && !clientId && (

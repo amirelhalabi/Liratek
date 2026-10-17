@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Zap, Signal, Wifi, Bitcoin, type LucideIcon } from "lucide-react";
 import { ProviderLogo } from "@/shared/components/ProviderLogo";
 import {
@@ -22,7 +23,7 @@ export const TAB_LOGO_PX = { selected: 26, unselected: 36 } as const;
  *  count always sits in the same place. Neutral and theme-aware (dark pill in
  *  dark mode, light pill in light mode), so it reads on every brand colour. */
 const COUNT_PILL =
-  "absolute -top-1 -right-1 min-w-5 px-1.5 py-0.5 text-center text-[10px] font-bold leading-none rounded-full bg-slate-800 text-white border border-slate-600 shadow-sm";
+  "absolute -top-1 -end-1 min-w-5 px-1.5 py-0.5 text-center text-[10px] font-bold leading-none rounded-full bg-slate-800 text-white border border-slate-600 shadow-sm";
 
 /** Where the sliding hover highlight sits: the hovered logo's box, relative to
  *  the tab row. */
@@ -49,6 +50,7 @@ export function ProviderTabs({
   onSelectProvider,
   cartCounts,
 }: ProviderTabsProps) {
+  const { t } = useTranslation("recharge");
   // Hover: ONE soft highlight slides from logo to logo (it is not a per-tab
   // effect), takes each logo's shape (circle or rounded square) and colour,
   // and fades out when the mouse leaves the row. Nothing grows, so square
@@ -64,7 +66,7 @@ export function ProviderTabs({
     <div
       ref={rowRef}
       role="group"
-      aria-label="Providers"
+      aria-label={t("providerTabs.label")}
       onMouseLeave={() => setVisible(false)}
       className="relative flex flex-wrap items-center gap-2"
     >
@@ -74,7 +76,7 @@ export function ProviderTabs({
         data-visible={String(visible)}
         {...(spot ? { "data-brand": spot.brand } : {})}
         {...(brand ? { "data-shape": brand.shape } : {})}
-        className="pointer-events-none absolute left-0 top-0 transition-[transform,width,height,border-radius,background-color,opacity] duration-200 ease-out motion-reduce:transition-opacity"
+        className="pointer-events-none absolute start-0 top-0 transition-[transform,width,height,border-radius,background-color,opacity] duration-200 ease-out motion-reduce:transition-opacity"
         style={{
           opacity: visible ? 1 : 0,
           transform: spot

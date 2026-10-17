@@ -2110,7 +2110,7 @@ export default function MobileRecharge() {
       {/* Scrollable content area — pt/px give the sticky search bar's focus
           ring room to render; flush against the clip edge otherwise cuts
           off its top/left border. */}
-      <div className="flex-1 min-h-0 overflow-y-auto -mr-6 pt-1 pl-1 pr-7 pb-6">
+      <div className="flex-1 min-h-0 overflow-y-auto -me-6 pt-1 ps-1 pe-7 pb-6">
         {activeConfig?.formMode === "telecom" && (
           <TelecomForm
             isMTC={isMTC}

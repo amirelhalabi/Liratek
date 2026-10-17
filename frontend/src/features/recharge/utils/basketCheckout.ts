@@ -17,6 +17,7 @@ import {
   type RechargePartnerOrderPayload,
 } from "@liratek/core";
 import type { PaymentLine } from "@liratek/ui";
+import { formatNumber } from "@liratek/ui/i18n/format";
 import { formatCatalogItemName } from "../hooks/useMobileServiceItems";
 import { providerBrandOf } from "../types";
 import type {
@@ -106,6 +107,7 @@ export function billPricedLine(bill: BasketBill): PricedLine {
     key: `bill-${bill.id}`,
     provider: bill.provider,
     kind: "bill",
+    // i18n-exempt: the session cart label is stored with the sale (data)
     label: `${PROVIDER_LABEL[bill.provider] ?? bill.provider} BILL — ${fmtMoney(bill.amount, bill.currency)}`,
     sheetItem: {
       key: `bill-${bill.id}`,
@@ -276,7 +278,7 @@ export interface BasketEntry {
 
 function fmtMoney(amount: number, currency: "LBP" | "USD"): string {
   return currency === "LBP"
-    ? `${Math.round(amount).toLocaleString()} LBP`
+    ? `${formatNumber(Math.round(amount))} LBP`
     : `$${amount.toFixed(2)}`;
 }
 
