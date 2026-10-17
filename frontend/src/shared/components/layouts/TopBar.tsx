@@ -118,6 +118,7 @@ export default function TopBar({
 }: TopBarProps) {
   const api = useApi();
   const { t } = useTranslation("layout");
+  const { t: tc } = useTranslation("common");
   const { formatNumber } = useFormat();
   // LIRA-309 — read through a ref: the polling effect below runs once ([]).
   const { isModuleEnabled } = useModules();
@@ -461,7 +462,7 @@ export default function TopBar({
                     }}
                     className="text-xs px-2 py-1 bg-slate-700 rounded text-slate-200"
                   >
-                    {t("common:actions.clear")}
+                    {tc("actions.clear")}
                   </button>
                   <button
                     onClick={() => setIsNotificationsOpen(false)}

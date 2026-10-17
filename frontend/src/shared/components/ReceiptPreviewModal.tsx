@@ -25,6 +25,7 @@ export function ReceiptPreviewModal({
   onClose,
 }: ReceiptPreviewModalProps) {
   const { t } = useTranslation("shared");
+  const { t: tc } = useTranslation("common");
   const handlePrint = async () => {
     await printReceipt({
       text,
@@ -83,14 +84,14 @@ export function ReceiptPreviewModal({
             onClick={onClose}
             className="flex-1 px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg font-medium transition-colors"
           >
-            {t("common:actions.close")}
+            {tc("actions.close")}
           </button>
           <button
             onClick={handlePrint}
             className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold active:scale-95 transition-all flex items-center justify-center gap-2"
           >
             <Printer size={18} />
-            {t("common:actions.print")}
+            {tc("actions.print")}
           </button>
         </div>
       </div>
