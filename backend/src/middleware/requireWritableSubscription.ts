@@ -43,7 +43,11 @@
 
 import type { Request, Response, NextFunction } from "express";
 import { getSubscriptionService } from "@liratek/core";
-import { verifyJwt } from "./auth.js";
+import { resolveRequestTenantId } from "./requestTenant.js";
+import {
+  isTrialEndedAllowedWrite,
+  trialEndedBody,
+} from "./requireOpenTrial.js";
 import { logger } from "../server.js";
 
 /** Methods that can change data. Everything else is a read. */
@@ -167,37 +171,9 @@ function isSubscriptionGated(originalUrl: string): boolean {
   );
 }
 
-/**
- * Which tenant is asking.
- *
- * `req.user` if some earlier middleware already authenticated (the case if
- * this is ever mounted per-router), otherwise decoded from the bearer token
- * with the SAME `verifyJwt` the auth middleware uses — not a second
- * verification of its own.
- *
- * That fallback is what makes a single global mount possible. Mounting this
- * app-wide BEFORE the routers means `req.user` is not populated yet, because
- * every router runs its own `authenticateJWT`; a version that only read
- * `req.user` would therefore see `undefined` on every request, fail open every
- * time, and enforce nothing at all — silently, with all its tests passing.
- * That is the same shape as the documented `requireRole`-without-`requireAuth`
- * trap.
- *
- * One accepted imprecision: a token whose SESSION was revoked still carries a
- * real tenantId here, so a lapsed tenant using a revoked token gets 402 rather
- * than the 401 the auth layer would have given it. Both are refusals, and the
- * alternative — validating the session a second time — would double every
- * request's work to improve an error code.
- */
-function resolveTenantId(req: Request): number | null {
-  if (req.user) return req.user.tenantId ?? null;
-
-  const header = req.headers.authorization;
-  if (!header?.startsWith("Bearer ")) return null;
-
-  const payload = verifyJwt(header.slice(7));
-  return payload?.tenantId ?? null;
-}
+// Tenant resolution lives in ./requestTenant.ts (LIRA-332), shared with
+// requireOpenTrial: `req.user`, else the bearer JWT — see its comment for why
+// a global mount needs the bearer fallback.
 
 export function requireWritableSubscription(
   req: Request,
@@ -211,7 +187,7 @@ export function requireWritableSubscription(
   // nobody has written yet, with no list to maintain.
   if (!isSubscriptionGated(req.originalUrl)) return next();
 
-  const tenantId = resolveTenantId(req);
+  const tenantId = resolveRequestTenantId(req);
   // No tenant on the request: either unauthenticated (some other middleware's
   // problem) or a platform user, who has no subscription to lapse.
   if (tenantId === null) return next();
@@ -229,6 +205,22 @@ export function requireWritableSubscription(
   }
 
   if (canWrite) return next();
+
+  // LIRA-332 (defence in depth): `canWrite` is also false for an ENDED FREE
+  // TRIAL. requireOpenTrial (mounted first) answers those, but if this gate
+  // is ever reached with one, it follows the trial rules — the same
+  // allowlist, the trial wording — never "your subscription has lapsed",
+  // which would tell a shop that never paid that it is overdue. Paying shops
+  // (read_only) are unaffected: this branch is only for trial_ended.
+  if (isTrialEnded(tenantId)) {
+    if (isTrialEndedAllowedWrite(req.method, req.originalUrl)) return next();
+    logger.warn(
+      { tenantId, method: req.method, path: req.originalUrl },
+      "write refused: free trial has ended",
+    );
+    res.status(200).json(trialEndedBody());
+    return;
+  }
 
   logger.warn(
     { tenantId, method: req.method, path: req.originalUrl },
@@ -252,4 +244,15 @@ export function requireWritableSubscription(
       "Contact support to restore full access.",
     code: "SUBSCRIPTION_READ_ONLY",
   });
+}
+
+/** Never throws: an unknown standing is not a trial. */
+function isTrialEnded(tenantId: number): boolean {
+  try {
+    return (
+      getSubscriptionService().statusFor(tenantId)?.standing === "trial_ended"
+    );
+  } catch {
+    return false;
+  }
 }

@@ -222,3 +222,25 @@ describe("read_only does not hide anything", () => {
     expect(keysOf(list)).toContain("pos");
   });
 });
+
+// LIRA-332 (T033). Characterization, not failing-first: ModuleService reads
+// only the allowlist, so this passed before and after. It pins "view
+// everything" for an ended free trial — hiding modules would be a lockout by
+// another route.
+describe("an ended free trial does not hide anything", () => {
+  it("every enabled module stays visible", () => {
+    subscriptions.createForTenant(1, {
+      entitled_modules: null,
+      trial_started_at: "2026-01-01 08:00:00",
+      trial_ends_at: "2026-01-14 22:00:00",
+    });
+    const list = runWithTenant(1, () => modules.getEnabledModules());
+    expect(keysOf(list)).toEqual([
+      "dashboard",
+      "exchange",
+      "inventory",
+      "pos",
+      "settings",
+    ]);
+  });
+});

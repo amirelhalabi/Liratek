@@ -194,15 +194,15 @@ Line numbers drift: search for the named symbol.
 
 ### Inventory (before the gate exists)
 
-- [ ] T028 [US2] **Route inventory**. Enumerate EVERY write route under `backend/src/api/*.ts` and `server.ts`. Grep `router\.(post|put|patch|delete)\(` WITHOUT requiring the path on the same line, because multi-line declarations are common (85 matched the single-line form). Include `/api/auth/*`, `/api/auth/google/*`, `/api/auth/signin-code/*`, `/api/mobile/auth/*`, `/api/password-reset/*`, `/api/user-email/*` and `/api/offline/*`.
+- [x] T028 [US2] **Route inventory**. Enumerate EVERY write route under `backend/src/api/*.ts` and `server.ts`. Grep `router\.(post|put|patch|delete)\(` WITHOUT requiring the path on the same line, because multi-line declarations are common (85 matched the single-line form). Include `/api/auth/*`, `/api/auth/google/*`, `/api/auth/signin-code/*`, `/api/mobile/auth/*`, `/api/password-reset/*`, `/api/user-email/*` and `/api/offline/*`.
   - Classify each as **record-creating**, which stays blocked, or **allowed**, with a one-line reason: view, export, sign-out, account safety, or access-removing.
   - Confirm or drop each provisional entry of research R6, reading each handler: `vouchers/validate` must not write, and the `voice/*` routes must record nothing.
   - Write the final list as `TRIAL_ENDED_ALLOWED_WRITES` (method + path regex + reason comment) in `backend/src/middleware/requireOpenTrial.ts`.
-- [ ] T029 [P] [US2] **Writes the UI fires without a user action**. Grep `frontend/src` and `mobile/src` for POST/PUT/PATCH/DELETE adapter calls made on mount, on login, or on a timer, not on a button. Each one is either added to the T028 allowlist with a reason, or made to skip when `standing === "trial_ended"`. Otherwise every page load of an ended shop shows an error (FR-009).
+- [x] T029 [P] [US2] **Writes the UI fires without a user action**. Grep `frontend/src` and `mobile/src` for POST/PUT/PATCH/DELETE adapter calls made on mount, on login, or on a timer, not on a button. Each one is either added to the T028 allowlist with a reason, or made to skip when `standing === "trial_ended"`. Otherwise every page load of an ended shop shows an error (FR-009).
 
 ### Tests (write first, see them fail)
 
-- [ ] T030 [P] [US2] In `backend/src/middleware/__tests__/requireOpenTrial.test.ts` (new):
+- [x] T030 [P] [US2] In `backend/src/middleware/__tests__/requireOpenTrial.test.ts` (new):
   - **ended tenant**:
     - POST `/api/sales`, `/api/clients`, `/api/expenses`, `/api/settings/x`, `/api/debts/repayments` and `/api/inventory` (a sample of every T028 "record-creating" family) each → HTTP 200 `{success:false, code:"TRIAL_ENDED", error:"Your free trial has ended. Contact LiraTek on WhatsApp to activate."}`;
     - the handler never runs;
@@ -215,16 +215,16 @@ Line numbers drift: search for the named symbol.
   - **wording**: no response body contains "overdue", "lapsed" or "read-only" (FR-011).
 
   Not proven failing-first (new contract). The ordering case fails against today's server, because it returns the 402 lapsed text once `canWrite` is false.
-- [ ] T031 [P] [US2] In `backend/src/middleware/__tests__/requireWritableSubscription.test.ts`, add a case: when it is reached directly with a `trial_ended` view (gate bypassed in the test), it answers with the trial code and wording. The existing `read_only` and `grace` cases stay unchanged and must still pass.
-- [ ] T032 [P] [US2] In `packages/core/src/services/__tests__/UserInvitationService.trialEnded.test.ts` (new): check/accept into a trial-ended shop is refused (no user created). The message says the free trial has ended and does not mention a subscription lapse. Code `SHOP_NOT_ACTIVE` is kept.
-- [ ] T033 [P] [US2] In `packages/core/src/services/__tests__/ModuleService.entitlement.test.ts`, add a case: a trial-ended shop's enabled modules are unchanged, so it can still view every module.
+- [x] T031 [P] [US2] In `backend/src/middleware/__tests__/requireWritableSubscription.test.ts`, add a case: when it is reached directly with a `trial_ended` view (gate bypassed in the test), it answers with the trial code and wording. The existing `read_only` and `grace` cases stay unchanged and must still pass.
+- [x] T032 [P] [US2] In `packages/core/src/services/__tests__/UserInvitationService.trialEnded.test.ts` (new): check/accept into a trial-ended shop is refused (no user created). The message says the free trial has ended and does not mention a subscription lapse. Code `SHOP_NOT_ACTIVE` is kept.
+- [x] T033 [P] [US2] In `packages/core/src/services/__tests__/ModuleService.entitlement.test.ts`, add a case: a trial-ended shop's enabled modules are unchanged, so it can still view every module.
 - [x] T034 [P] [US2] In `frontend/src/api/__tests__/httpClient.trialEnded.test.ts` (new): a 200 body with `code:"TRIAL_ENDED"` dispatches `TRIAL_ENDED_EVENT` exactly once and still returns the envelope to the caller. Other failure codes dispatch nothing.
 - [x] T035 [P] [US2] Banner: in `SubscriptionBanner.trial.test.tsx`, `trial_ended` renders `trial-ended` with the FR-011 text and the WhatsApp button. Firing `TRIAL_ENDED_EVENT` triggers an immediate re-fetch.
 
 ### Implementation
 
-- [ ] T036 [US2] Extract tenant resolution from `requireWritableSubscription.ts` (`req.user`, else `verifyJwt` on the bearer) into `backend/src/middleware/requestTenant.ts` (`resolveRequestTenantId`). The existing middleware imports it and its behaviour is unchanged. The existing `requireWritableSubscription*.test.ts` files are the regression net.
-- [ ] T037 [US2] Implement `backend/src/middleware/requireOpenTrial.ts`:
+- [x] T036 [US2] Extract tenant resolution from `requireWritableSubscription.ts` (`req.user`, else `verifyJwt` on the bearer) into `backend/src/middleware/requestTenant.ts` (`resolveRequestTenantId`). The existing middleware imports it and its behaviour is unchanged. The existing `requireWritableSubscription*.test.ts` files are the regression net.
+- [x] T037 [US2] Implement `backend/src/middleware/requireOpenTrial.ts`:
   - pass when the method is not a write, when there is no tenant, or when the path is allowlisted (T028);
   - otherwise `getSubscriptionService().statusFor(tenantId)`, and refuse only when `standing === "trial_ended"`;
   - catch → `next()`;
@@ -232,11 +232,11 @@ Line numbers drift: search for the named symbol.
   - export a `TRIAL_ENDED_MESSAGE` constant, used by every refusal site.
 
   Mount it in `backend/src/server.ts` immediately BEFORE `app.use(requireWritableSubscription)`. Makes T030 pass.
-- [ ] T038 [US2] In `requireWritableSubscription.ts`: when `!canWrite` and `standing === "trial_ended"`, answer with the trial code and wording instead of the lapsed text. Makes T031 pass.
-- [ ] T039 [US2] In `packages/core/src/services/UserInvitationService.ts`, choose the SHOP_NOT_ACTIVE message by standing ("This shop's free trial has ended. Its admin can contact LiraTek to activate."). The `canWrite` call stays where it is. Makes T032 pass.
+- [x] T038 [US2] In `requireWritableSubscription.ts`: when `!canWrite` and `standing === "trial_ended"`, answer with the trial code and wording instead of the lapsed text. Makes T031 pass.
+- [x] T039 [US2] In `packages/core/src/services/UserInvitationService.ts`, choose the SHOP_NOT_ACTIVE message by standing ("This shop's free trial has ended. Its admin can contact LiraTek to activate."). The `canWrite` call stays where it is. Makes T032 pass.
 - [x] T040 [US2] In `frontend/src/api/httpClient.ts`, export `TRIAL_ENDED_EVENT` and dispatch it when a parsed body has `code === "TRIAL_ENDED"`. Makes T034 pass.
 - [x] T041 [US2] Banner: add the `trial_ended` alert (contracts/ui-trial.md) and a `TRIAL_ENDED_EVENT` listener that re-runs `load()`. The listener is removed on unmount. Makes T035 pass.
-- [ ] T042 [US2] Apply the T029 findings: skip or allowlist each automatic write.
+- [x] T042 [US2] Apply the T029 findings: skip or allowlist each automatic write.
 
 **Checkpoint**: a trial ends exactly on time and the shop keeps everything. **Still do not push**: the owner cannot activate yet.
 
