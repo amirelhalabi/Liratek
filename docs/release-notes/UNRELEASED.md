@@ -105,6 +105,7 @@ Right after a sale, the POS shows "Sale completed" with a Send on WhatsApp butto
 - OMT/Whish page, OMT send with "Online Brokerage": a BINANCE fee charged to the customer is now recorded with the send. Before, any such send with a fee was refused with "the payment is more than the total".
 - OMT/Whish page: from now on each OMT or Whish send and receive keeps everything you enter on the transaction itself — service type, reference number, the customer's name and phone, OMT or Whish fee, whether the fee was included, the partner, the fee for paying by wallet, the note, and how the customer paid.
 - OMT/Whish page: an OMT send paid by OMT Wallet or Whish Wallet with the wallet fee is no longer refused. The payment box now asks for the amount, the OMT fee and the wallet fee together (for example $102 on a $100 send), so the customer pays the right total.
+- OMT/Whish page: when the sender's name and phone are filled in, picking OMT Wallet or Whish Wallet no longer puts the wallet fee on the customer's account. The wallet line now shows the full total (for example $102 on a $100 Intra send), and the send is recorded instead of refused.
 - Partners page: from now on, a settlement paid in more than one way (for example $200 cash + $100 Whish) shows "via SPLIT" in the partner's history instead of only the first method.
 - On the Suppliers page, the Payments list is easier to read: notes show in full (up to two lines), dates fit on one line, and the LBP amount no longer runs into the note.
 - Suppliers: the Transactions and Payments lists open in their own window from two buttons, so the supplier page stays short. The tab for picking transactions to settle is now called "Settle".
@@ -136,6 +137,13 @@ Right after a sale, the POS shows "Sale completed" with a Send on WhatsApp butto
 - The side menu's scroll bar only shows while your pointer is over the menu, and takes no space otherwise.
 - Refreshing the page no longer sends you back to the sign-in screen when several people use the same login at once. If the app can't check your sign-in right away, it tries again for a few seconds before showing the sign-in screen.
 - New shops now start with a free 14-day trial. You can see how many days are left at the top of every page and in the phone app, and contact us on WhatsApp to activate. When a trial ends you can still sign in, see and export everything; nothing is deleted.
+
+## 🔒 Security & sign-in
+
+- Staff can no longer read the shop's WhatsApp access key, including from the activity log. Only admins see it. Sending WhatsApp messages from the app works as before.
+- When an admin changes someone's role, or sets a new password for them, that person is signed out and signs in again with the new role. A desktop app window already open on their PC picks up the change at their next sign-in.
+- Web app: after 5 wrong passwords within 15 minutes when pairing a PC for offline use, or when unlocking the Profits page, further tries are refused until the 15 minutes are up.
+- Web app: a PC paired for offline use stops sending and receiving while its shop is suspended, and starts again once the shop is active. The work it did offline is kept on the PC.
 
 ## 📱 MTC / Alfa
 
