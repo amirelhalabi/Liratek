@@ -318,13 +318,13 @@ Line numbers drift: search for the named symbol.
 
 **Independent Test**: set a trial's last day, then with a fake clock at 23:30, 00:30 and 02:59 Beirut on the last day and the day after (summer and winter), compare the status route, the admin list and a POST.
 
-- [ ] T053 [P] [US4] In `backend/src/__tests__/trialBoundary.api.test.ts` (new):
+- [x] T053 [P] [US4] In `backend/src/__tests__/trialBoundary.api.test.ts` (new):
   - a faked system time only (the Tests header `doNotFake` config) over every quickstart §1 row, with the process `TZ` forced to `UTC` for the test, so the server clock really is UTC as on Fly;
   - for each row, assert that `GET /api/subscription/status` `trial.{lastDay,daysLeft,ended}` deep-equals the matching row of `GET /api/admin/subscriptions` (US4-4);
   - POST `/api/sales` is refused **only** on the "ended" rows (US4-1…3, SC-005).
 
   Add one variant that sends a forged `X-Client-Day` of the previous day on an ended row, and assert that it is **still refused** (research R3: the header is never trusted for enforcement). Not proven failing-first (new contract) for the agreement half. The forged-header half is a guard on T037's design.
-- [ ] T054 [US4] If T053 finds any disagreement, fix it at the single derivation (`trialView` / SS `toView`), never per screen (rule 14).
+- [x] T054 [US4] If T053 finds any disagreement, fix it at the single derivation (`trialView` / SS `toView`), never per screen (rule 14).
 
 **Checkpoint**: SC-005 is proven on the server. The screens render server values, so they agree by construction (T020 and T046 assert that the rendering uses them verbatim).
 
