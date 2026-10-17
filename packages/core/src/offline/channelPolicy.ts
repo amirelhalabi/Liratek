@@ -301,6 +301,9 @@ const LOCAL: readonly string[] = [
   "offline:send-now",
   "offline:open-web-app",
   "offline:install-update",
+  // LIRA-333: opens a WhatsApp link outside LiraTek (shell.openExternal);
+  // touches no data, so it runs offline and is never recorded.
+  "app:open-external",
 ];
 
 /** Reads — run under the write guard offline (FR-036). */

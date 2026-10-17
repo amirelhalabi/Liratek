@@ -11,12 +11,10 @@ import {
 } from "lucide-react";
 import { appEvents, EXCHANGE_RATE, useApi } from "@liratek/ui";
 import logger from "@/utils/logger";
-import {
-  formatReceipt58mm,
-  type ReceiptData,
-} from "@/features/sales/utils/receiptFormatter";
+import { buildSaleReceiptData } from "@/features/sales/utils/saleReceipt";
+import { printSaleReceipt } from "@/features/sales/utils/printSaleReceipt";
+import SendOnWhatsAppButton from "@/features/sales/components/SendOnWhatsAppButton";
 import { useShopInfo } from "@/hooks/useShopName";
-import { printReceipt } from "@/shared/utils/printReceipt";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { localDay } from "@/shared/utils/localDay";
@@ -34,7 +32,6 @@ import { RefundQuantityModal } from "@/features/audit/components/RefundQuantityM
 import { useSessionItemRefund } from "@/features/audit/hooks/useSessionItemRefund";
 import {
   REFUND_KEPT_CHANGE_TYPES,
-  receiptNumberFor,
   resolveWarranty,
   type RefundKeptChangeInput,
 } from "@liratek/core";
@@ -44,6 +41,10 @@ import type {
   RefundUnitExtraOverride,
 } from "@/features/audit/refundLegOverride";
 import { getProductUnitsForSaleItems } from "@/api/backendApi";
+import type {
+  SaleDetail,
+  SaleDetailItem as SaleItem,
+} from "@/features/sales/types/saleDetail";
 
 /** LIRA-231 owner decision (2026-09-26): a sale paid through a customer
  *  session basket has its own pooled payment, invisible to a
@@ -64,50 +65,6 @@ import { getProductUnitsForSaleItems } from "@/api/backendApi";
  *  the original SALE member, so the preview/refund calls targeted the wrong
  *  transaction id and "Refund item"/"Refund Sale" broke on a
  *  once-refunded session sale. */
-
-interface SaleItem {
-  id: number;
-  sale_id: number;
-  product_id: number;
-  quantity: number;
-  sold_price_usd: number;
-  name: string;
-  barcode: string;
-  imei?: string;
-  is_refunded?: number;
-  refunded_quantity?: number;
-  /** LIRA-143 phase 6a — stamped once at sale time (sale_items.warranty_until,
-   *  already selected via `si.*` in SalesRepository.getSaleItems). Null for a
-   *  non-IMEI-tracked line or a product with no warranty_months. */
-  warranty_until?: string | null;
-  /** LIRA-296 — the line's SOLD unit's override (LIRA-143), when there is
-   *  one; it wins over `warranty_until` (same precedence as the search). */
-  warranty_override_until?: string | null;
-  /** LIRA-296 P3 — what the line's serial is called ('IMEI' | 'Serial');
-   *  missing on older data (then "IMEI"). */
-  serial_label?: string | null;
-}
-
-interface SaleDetail {
-  id: number;
-  client_id: number | null;
-  client_name: string | null;
-  client_phone: string | null;
-  total_amount_usd: number;
-  discount_usd: number;
-  final_amount_usd: number;
-  /** LIRA-319: the extra charged on top of the items, from the sale's
-   *  transaction row. Optional — absent on a server that does not send it
-   *  (and on every sale before the feature), read as 0. */
-  extra_usd?: number | null;
-  paid_usd: number;
-  paid_lbp: number;
-  change_given_usd: number;
-  change_given_lbp: number;
-  exchange_rate_snapshot: number;
-  status: string;
-  created_at: string;
-}
 
 interface SaleDetailModalProps {
   saleId: number;
@@ -177,6 +134,8 @@ export default function SaleDetailModal({
   const [editName, setEditName] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [savingCustomer, setSavingCustomer] = useState(false);
+  // LIRA-333: bumps after a customer edit so "Send on WhatsApp" re-reads.
+  const [customerEdits, setCustomerEdits] = useState(0);
 
   const loadSale = async () => {
     setLoading(true);
@@ -225,6 +184,7 @@ export default function SaleDetailModal({
       }
       setEditingCustomer(false);
       await loadSale();
+      setCustomerEdits((n) => n + 1);
       appEvents.emit("notification:show", "Customer updated", "success");
     } catch (e) {
       logger.error("Failed to update sale customer", { error: e });
@@ -567,63 +527,13 @@ export default function SaleDetailModal({
 
   const handlePrintReceipt = async () => {
     if (!sale) return;
-
-    const receipt: ReceiptData = {
-      shop_name: shopInfo.name,
-      shop_phone: shopInfo.phone,
-      shop_location: shopInfo.location,
-      // LIRA-296: the saved header (SF-3) and the warranty terms.
-      header_text: shopInfo.headerText ?? "",
-      warranty_terms: shopInfo.warrantyTerms ?? "",
-      receipt_number: receiptNumberFor(sale.id),
-      client_name: sale.client_name || "Walk-in Customer",
-      client_phone: sale.client_phone || "",
-      items: items.map((item) => ({
-        name: item.name,
-        quantity: item.quantity,
-        price: item.sold_price_usd,
-        subtotal: item.sold_price_usd * item.quantity,
-        imei: item.imei || null,
-        serial_label: item.serial_label ?? null,
-        // LIRA-143 phase 6a — the sale row already exists here, so use the
-        // EXACT stamped value rather than recomputing it.
-        warranty_until: item.warranty_until || null,
-      })),
-      subtotal: sale.total_amount_usd,
-      discount: sale.discount_usd,
-      // LIRA-319: "Extra +$X" on the reprint; the total includes it.
-      extra: saleExtra,
-      total: sale.final_amount_usd + saleExtra,
-      payment_usd: sale.paid_usd,
-      payment_lbp: sale.paid_lbp,
-      change_usd: sale.change_given_usd ?? 0,
-      change_lbp: sale.change_given_lbp ?? 0,
-      exchange_rate: sale.exchange_rate_snapshot || EXCHANGE_RATE,
-      timestamp: sale.created_at,
-    };
-
-    const formatted = formatReceipt58mm(receipt);
-
-    let targetPrinter = "";
-    try {
-      const settings = await api.getAllSettings();
-      if (settings) {
-        const printerSetting = settings.find(
-          (s: any) => s.key_name === "receipt_printer",
-        );
-        if (printerSetting?.value) {
-          targetPrinter = printerSetting.value;
-        }
-      }
-    } catch {
-      // ignore — fall through to popup
-    }
-
-    await printReceipt({
-      text: formatted,
-      logo: shopInfo.logo,
-      printer: targetPrinter,
-    });
+    // LIRA-333 (FR-006): the ONE receipt description — the same one the
+    // WhatsApp message and the post-sale strip build from.
+    await printSaleReceipt(
+      api,
+      buildSaleReceiptData(sale, items, shopInfo),
+      shopInfo.logo,
+    );
   };
 
   const formatTime = (dateStr: string) => {
@@ -989,6 +899,15 @@ export default function SaleDetailModal({
                 <Printer size={16} />
                 Print
               </button>
+              {/* LIRA-333 (FR-002/FR-003): saved, completed sales only.
+                  `refreshKey` re-reads the sale after a customer edit, so
+                  a corrected phone is used (US2-2). */}
+              {(sale.status === "completed" || sale.status === "refunded") && (
+                <SendOnWhatsAppButton
+                  saleId={sale.id}
+                  refreshKey={customerEdits}
+                />
+              )}
               {!isRefunded && (
                 <button
                   onClick={openWholeSaleRefund}

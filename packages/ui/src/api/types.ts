@@ -7,6 +7,8 @@
 
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
+// LIRA-333 — open a WhatsApp link outside LiraTek (rule 21).
+import type { OpenExternalUrlInput } from "@liratek/core";
 // LIRA-309 — phone lines held for sale (schema-derived payload types, rule 21).
 import type {
   ListResaleLinesQueryInput,
@@ -1364,6 +1366,13 @@ export type ApiAdapter = {
   ) => Promise<Array<Record<string, unknown> & { id: number }>>;
   getSale: (saleId: number) => Promise<any>;
   getSaleItems: (saleId: number) => Promise<any[]>;
+  /** LIRA-333 — open a WhatsApp link (wa.me / api.whatsapp.com only)
+   *  OUTSIDE LiraTek: Electron shell on desktop, a new tab on web. Writes
+   *  nothing. `{ success: false, error: "blocked" }` = the browser blocked
+   *  the pop-up. Call it synchronously inside the click handler. */
+  openExternalUrl: (
+    input: OpenExternalUrlInput,
+  ) => Promise<{ success: boolean; error?: string }>;
   /** Refund a WHOLE sale (admin only). LIRA-231: `refundLegs` is optional —
    *  omit for the default (mirror the original payment legs verbatim)
    *  reversal; pass the operator's chosen return method(s) to override it.

@@ -60,6 +60,15 @@ On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for yo
 On Accounts, tap "Export Excel" to save every client's account in one file, laid out like the sheet you import: a list of names and phones, then a page per client with what they bought, what they paid, and what they still owe in $ and LBP. You can import that file into another shop and every entry keeps its date. Importing it back into the same shop is refused, so nothing gets counted twice.
 ![The Export Excel button on Accounts](whats-new/1.35.0/accounts-export-excel.png)
 
+### Send the receipt on WhatsApp
+
+Right after a sale, the POS shows "Sale completed" with a Send on WhatsApp button, and every past sale's details have the same button next to Print. WhatsApp opens on the customer's chat with the receipt already written, and you press Send. No number on the sale? Type one for that send only. It costs nothing per message.
+
+## 🛒 POS
+
+- After a sale, and from any past sale's details, you can now send the receipt to the customer on WhatsApp. WhatsApp opens on their chat with the receipt already written; you press Send. Works on the desktop app and the web app.
+- A reprinted sale receipt now shows the part put on the customer's account and any gift card on their own lines, and its "Paid" amount stays what the customer paid at the counter, even after they pay off the account later.
+
 ## 💳 Payment window
 
 - The change box is smaller: one line shows the change due and how you hand it back (cash, or OMT / Whish / Binance), the next has the $ and LBP fields with quick $, LBP and Account buttons, and the last line says where any change you don't hand back goes.

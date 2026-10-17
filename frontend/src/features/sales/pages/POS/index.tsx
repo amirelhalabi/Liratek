@@ -12,6 +12,8 @@ import CheckoutModal, {
 } from "./components/CheckoutModal";
 import ProductForm from "@/features/inventory/pages/Inventory/ProductForm";
 import SaleDetailModal from "./components/SaleDetailModal";
+import SaleCompletedStrip from "./components/SaleCompletedStrip";
+import { useCompletedSaleStrip } from "@/features/sales/hooks/useCompletedSaleStrip";
 import { appEvents, useApi } from "@liratek/ui";
 import { emitSaleWarnings } from "@/features/sales/utils/saleWarnings";
 import { useCategorySerialLabels } from "@/features/sales/hooks/useCategoryWarrantyDefaults";
@@ -48,6 +50,12 @@ export default function POS() {
   // a POS cart added to a session is saved at the rate it is paid at.
   const { buyRate: defaultExchangeRate } = useSellRate();
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  // LIRA-333 — hidden again when the next sale starts (first cart item).
+  const {
+    completedSaleId,
+    show: showCompletedSale,
+    hide: hideCompletedSale,
+  } = useCompletedSaleStrip(cartItems.length);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
   // Sale detail modal state
@@ -727,6 +735,9 @@ export default function POS() {
 
         setIsCheckoutOpen(false);
         setCartItems([]);
+        // LIRA-333 (FR-001): the "Sale completed — Send on WhatsApp · Print"
+        // strip for this sale; it never opens WhatsApp by itself (FR-004).
+        if (result.id) showCompletedSale(result.id);
         setCurrentDraftId(undefined);
         setPendingCheckoutData(null);
         setRefreshSalesKey((k) => k + 1);
@@ -769,6 +780,14 @@ export default function POS() {
       className={`h-full overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 animate-in fade-in duration-500 ${minimizedOrders.length > 0 ? "pb-32" : ""}`}
     >
       <PageHeader title="Point of Sale" />
+
+      {completedSaleId != null && (
+        <SaleCompletedStrip
+          key={completedSaleId}
+          saleId={completedSaleId}
+          onClose={hideCompletedSale}
+        />
+      )}
 
       <div className="flex flex-1 min-h-0 gap-4 overflow-hidden relative">
         {/* Left: Product Selection */}

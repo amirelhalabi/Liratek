@@ -78,6 +78,8 @@ export * from "./utils/walletTransfer.js";
 export * from "./utils/transactionText.js";
 export * from "./utils/transactionVisibility.js";
 export * from "./utils/cashFlow.js";
+// LIRA-333 — the one WhatsApp phone rule (FR-014/015).
+export * from "./utils/whatsappPhone.js";
 export * from "./utils/transactionRowDisplay.js";
 // LIRA-302 — catalog cart payload (web + phone) and the USD/LBP rate reader (pure).
 export * from "./utils/catalogSale.js";
