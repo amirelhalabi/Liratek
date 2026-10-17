@@ -1,6 +1,10 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { appEvents, MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { X } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { useFormat } from "@/i18n/useFormat";
 import type { AccountSettleAllocResult, OmtCoveredType } from "@liratek/core";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
@@ -79,14 +83,14 @@ const STALE_ERROR_PREFIX = "OMT's balance changed since you opened this sheet.";
 function formatMoney(amount: number, currency: SettleCurrency): string {
   const abs = Math.abs(amount);
   return currency === "LBP"
-    ? `${Math.round(abs).toLocaleString()} LBP`
+    ? `${formatNumber(Math.round(abs))} LBP`
     : `$${abs.toFixed(2)}`;
 }
 
 /** Compact form for the preview chips: "$47", "$20.30", "100,000 LBP". */
 function formatCompact(amount: number, currency: SettleCurrency): string {
   const abs = Math.abs(amount);
-  if (currency === "LBP") return `${Math.round(abs).toLocaleString()} LBP`;
+  if (currency === "LBP") return `${formatNumber(Math.round(abs))} LBP`;
   const cents = Math.round(abs * 100);
   return cents % 100 === 0 ? `$${cents / 100}` : `$${(cents / 100).toFixed(2)}`;
 }
@@ -166,6 +170,8 @@ export function AccountSettleSheet({
   onClose,
   onSettled,
 }: AccountSettleSheetProps) {
+  const { t } = useTranslation("suppliers");
+  const { t: tc } = useTranslation("common");
   const { methods } = usePaymentMethods();
   const { buyRate: exchangeRate } = useSellRate();
   // Owner decision 2026-10-07: the rate the cashier actually used on a
@@ -348,8 +354,7 @@ export function AccountSettleSheet({
       // transfer this payment closes, to be recognised as profit (FR-012).
       let commissionProblem: string | null = null;
       if (alloc && s.commission > 0 && alloc.commission_without_closed_model1) {
-        commissionProblem =
-          "Commission counts only when this payment fully pays at least one transfer that carries commission.";
+        commissionProblem = t("accountSettle.commissionProblem");
       }
       out[c] = { ...s, included: alloc !== null, alloc, commissionProblem };
     }
@@ -424,7 +429,7 @@ export function AccountSettleSheet({
 
       const result = await settleMutation.mutateAsync(payload);
       if (!result.success) {
-        const message = result.error || "Settlement failed";
+        const message = result.error || t("settle.failed");
         setError(message);
         // FR-021 — someone else changed the account: show the new amounts,
         // keep what the operator typed.
@@ -438,18 +443,29 @@ export function AccountSettleSheet({
         .map((s) => {
           const paid = sumAmounts(linesByCurrency[s.currency], s.currency);
           if (paid <= 0) return null;
-          return `${s.direction === "PAY" ? "paid" : "received"} ${formatMoney(paid, s.currency)}`;
+          return s.direction === "PAY"
+            ? t("accountSettle.summaryPaid", {
+                money: formatMoney(paid, s.currency),
+              })
+            : t("accountSettle.summaryReceived", {
+                money: formatMoney(paid, s.currency),
+              });
         })
         .filter(Boolean)
         .join(", ");
       appEvents.emit(
         "notification:show",
-        `${account.account_name} account settled${summary ? ` — ${summary}` : ""}`,
+        summary
+          ? t("accountSettle.doneWithSummary", {
+              name: account.account_name,
+              summary,
+            })
+          : t("accountSettle.done", { name: account.account_name }),
         "success",
       );
       onSettled();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Settlement failed");
+      setError(err instanceof Error ? err.message : t("settle.failed"));
     } finally {
       setSubmitting(false);
     }
@@ -487,18 +503,17 @@ export function AccountSettleSheet({
         <div className="flex items-start justify-between mb-4">
           <div>
             <h3 className="text-xl font-bold text-white">
-              Settle {account.account_name} account
+              {t("accountSettle.title", { name: account.account_name })}
             </h3>
             <div className="text-xs text-slate-400 mt-1">
-              Enter what you pay or receive in each currency — the oldest
-              transfers in that currency close first.
+              {t("accountSettle.intro")}
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="text-slate-400 hover:text-white transition-colors"
-            aria-label="Close"
+            aria-label={tc("actions.close")}
           >
             <X className="w-5 h-5" />
           </button>
@@ -510,7 +525,7 @@ export function AccountSettleSheet({
               className="bg-emerald-950/40 border border-emerald-800/60 rounded-xl px-3 py-2 text-xs text-emerald-300"
               data-testid="supplier-account-settle-available-credit"
             >
-              This account has an available credit of{" "}
+              {t("accountSettle.availableCredit")}{" "}
               <span className="font-mono font-semibold">
                 {[
                   account.total_usd < -0.01
@@ -523,7 +538,7 @@ export function AccountSettleSheet({
                   .filter(Boolean)
                   .join(" + ")}
               </span>{" "}
-              — it is netted against the oldest debt in its own currency.
+              {t("accountSettle.availableCreditHint")}
             </div>
           )}
 
@@ -531,21 +546,20 @@ export function AccountSettleSheet({
             value={coveredTypes}
             onChange={handleCoveredChange}
             testIdPrefix="supplier-account-settle-covered"
-            heading="Which OMT shares does this statement include?"
+            heading={t("settleTab.coveredHeading")}
           />
 
           {unsettledQuery.isLoading ? (
             <div className="text-slate-400 text-xs py-4 text-center">
-              Loading unsettled queue…
+              {t("accountSettle.loading")}
             </div>
           ) : unsettledQuery.isError ? (
             <div className="text-red-400 text-xs py-4 text-center">
-              Couldn&apos;t load the {account.account_name} account. Close and
-              try again.
+              {t("accountSettle.loadFailed", { name: account.account_name })}
             </div>
           ) : rows.length === 0 ? (
             <div className="text-slate-500 text-xs py-4 text-center">
-              Nothing to settle on the {account.account_name} account.
+              {t("accountSettle.empty", { name: account.account_name })}
             </div>
           ) : (
             <PickTransfers
@@ -575,8 +589,12 @@ export function AccountSettleSheet({
                   key={`main-${mainDirection}-${mainKeyCurrencies}-${scopeKey}`}
                   label={
                     mainDirection === "PAY"
-                      ? `You pay (${mainCurrencies.join(" · ")})`
-                      : `You receive (${mainCurrencies.join(" · ")})`
+                      ? t("accountSettle.youPay", {
+                          currencies: mainCurrencies.join(" · "),
+                        })
+                      : t("accountSettle.youReceive", {
+                          currencies: mainCurrencies.join(" · "),
+                        })
                   }
                   // LIRA-322 — each currency on its own: a line counts only
                   // toward its own currency, never converted or netted.
@@ -596,7 +614,9 @@ export function AccountSettleSheet({
                   // handed back, left on the account (server books it).
                   onReturnChange={setMainReturnLegs}
                   unreturnedChangeTo="ACCOUNT_BALANCE"
-                  accountLabel={`${account.account_name}'s account`}
+                  accountLabel={t("accountSettle.accountLabel", {
+                    name: account.account_name,
+                  })}
                   cashOnlyReturn
                   showPmFee={false}
                   showDiscount={false}
@@ -612,7 +632,11 @@ export function AccountSettleSheet({
                   onExchangeRateChange={setPaymentRate}
                   payer={mainDirection === "PAY" ? "shop" : "customer"}
                   {...(mainDirection === "COLLECT"
-                    ? { owedLabel: `${account.account_name} still owes` }
+                    ? {
+                        owedLabel: t("accountSettle.stillOwes", {
+                          name: account.account_name,
+                        }),
+                      }
                     : {})}
                   // Owner decision 2026-10-12 — no Waive on the Suppliers
                   // page (the server supports it per currency, FR-011).
@@ -641,8 +665,10 @@ export function AccountSettleSheet({
                     key={`${s.currency}-${s.direction}`}
                     label={
                       s.direction === "PAY"
-                        ? `You pay (${s.currency})`
-                        : `You receive (${s.currency})`
+                        ? t("accountSettle.youPay", { currencies: s.currency })
+                        : t("accountSettle.youReceive", {
+                            currencies: s.currency,
+                          })
                     }
                     totals={[
                       {
@@ -666,7 +692,9 @@ export function AccountSettleSheet({
                       }))
                     }
                     unreturnedChangeTo="ACCOUNT_BALANCE"
-                    accountLabel={`${account.account_name}'s account`}
+                    accountLabel={t("accountSettle.accountLabel", {
+                      name: account.account_name,
+                    })}
                     cashOnlyReturn
                     showPmFee={false}
                     showDiscount={false}
@@ -682,7 +710,11 @@ export function AccountSettleSheet({
                     onExchangeRateChange={setPaymentRate}
                     payer={s.direction === "PAY" ? "shop" : "customer"}
                     {...(s.direction === "COLLECT"
-                      ? { owedLabel: `${account.account_name} still owes` }
+                      ? {
+                          owedLabel: t("accountSettle.stillOwes", {
+                            name: account.account_name,
+                          }),
+                        }
                       : {})}
                     waiveDisabled
                   />
@@ -698,7 +730,9 @@ export function AccountSettleSheet({
                   data-testid={`supplier-account-settle-nothing-owed-${s.currency.toLowerCase()}`}
                   className="flex items-center justify-between gap-2 text-xs text-slate-500 px-1"
                 >
-                  <span>Nothing owed in {s.currency}</span>
+                  <span>
+                    {t("accountSettle.nothingOwedIn", { currency: s.currency })}
+                  </span>
                   <DirectionChoice
                     currency={s.currency}
                     value={null}
@@ -716,13 +750,16 @@ export function AccountSettleSheet({
 
           <div>
             <label className="block text-xs text-slate-400 mb-1">
-              Note (optional)
+              {t("form.noteOptional")}
             </label>
             <input
+              data-testid="supplier-account-settle-note"
               value={note}
               onChange={(e) => setNote(e.target.value)}
               className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
-              placeholder={`Settlement: ${account.account_name} account`}
+              placeholder={t("accountSettle.notePlaceholder", {
+                name: account.account_name,
+              })}
             />
           </div>
 
@@ -743,7 +780,7 @@ export function AccountSettleSheet({
               disabled={submitting}
               className="flex-1 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-800 hover:text-white transition-colors disabled:opacity-50"
             >
-              Cancel
+              {tc("actions.cancel")}
             </button>
             <button
               type="button"
@@ -752,7 +789,7 @@ export function AccountSettleSheet({
               disabled={confirmDisabled}
               className="flex-1 py-3 rounded-xl font-bold text-white shadow-lg active:scale-95 transition-all disabled:bg-slate-700 disabled:text-slate-500 disabled:shadow-none bg-blue-600 hover:bg-blue-500 shadow-blue-900/20"
             >
-              {submitting ? "Processing..." : "Settle Account"}
+              {submitting ? t("form.processing") : t("account.settle")}
             </button>
           </div>
         </div>
@@ -771,6 +808,7 @@ function DirectionChoice({
   value: SettleDirection | null;
   onChoose: (dir: SettleDirection) => void;
 }) {
+  const { t } = useTranslation("suppliers");
   return (
     <div className="flex gap-1">
       {(["PAY", "COLLECT"] as const).map((dir) => (
@@ -787,7 +825,9 @@ function DirectionChoice({
               : "bg-slate-700 text-slate-300 hover:bg-slate-600"
           }`}
         >
-          {dir === "PAY" ? "Pay OMT" : "Collect from OMT"}
+          {dir === "PAY"
+            ? t("accountSettle.payOmt")
+            : t("accountSettle.collectFromOmt")}
         </button>
       ))}
     </div>
@@ -818,6 +858,7 @@ function CurrencySection({
   returnLegs: PerCurrency<PaymentLine[]>;
   paymentInput: ReactNode;
 }) {
+  const { t } = useTranslation("suppliers");
   const first = sections[0];
   const { direction } = first;
   const nothingOwed = sections.length === 1 && first.canChooseDirection;
@@ -837,10 +878,10 @@ function CurrencySection({
       <div className="flex items-center justify-between gap-2">
         <span className="text-white font-bold text-sm">
           {nothingOwed
-            ? `Nothing owed in ${first.currency}`
+            ? t("accountSettle.nothingOwedIn", { currency: first.currency })
             : direction === "PAY"
-              ? `You pay ${accountName}`
-              : `${accountName} pays you`}
+              ? t("accountSettle.youPayName", { name: accountName })
+              : t("accountSettle.namePaysYou", { name: accountName })}
         </span>
         {nothingOwed ? (
           <DirectionChoice
@@ -881,7 +922,7 @@ function CurrencySection({
           return (
             <div key={s.currency}>
               <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
-                Settlement commission ({s.currency})
+                {t("accountSettle.commission", { currency: s.currency })}
               </label>
               <input
                 type="text"
@@ -930,8 +971,8 @@ function CurrencySection({
         <div className="flex justify-between text-slate-300">
           <span>
             {owesYouAfter
-              ? `${accountName} still owes you after`
-              : "Still owed after"}
+              ? t("accountSettle.stillOwesYouAfter", { name: accountName })
+              : t("accountSettle.stillOwedAfter")}
           </span>
           <span className="font-mono font-semibold text-white">
             {sections.map((s, i) => (
@@ -959,7 +1000,7 @@ function CurrencySection({
             <div key={s.currency} className="space-y-1">
               {s.alloc && s.alloc.cashout_commission_recognised > 0 && (
                 <div className="flex justify-between text-slate-300">
-                  <span>Deferred cashout commission recognised now</span>
+                  <span>{t("accountSettle.deferredCommission")}</span>
                   <span
                     data-testid={`supplier-account-settle-deferred-commission-${lc}`}
                     className="font-mono text-emerald-400"
@@ -977,8 +1018,12 @@ function CurrencySection({
                   data-testid={`supplier-account-settle-extra-${lc}`}
                 >
                   {changeInOtherCurrency
-                    ? `Extra ${formatMoney(extra, s.currency)} — change handed back in the other currency.`
-                    : `Extra ${formatMoney(extra, s.currency)} goes on the account.`}
+                    ? t("accountSettle.extraChangeOther", {
+                        money: formatMoney(extra, s.currency),
+                      })
+                    : t("accountSettle.extraOnAccount", {
+                        money: formatMoney(extra, s.currency),
+                      })}
                 </p>
               )}
             </div>
@@ -991,6 +1036,7 @@ function CurrencySection({
 
 /** One currency's preview rows: closes / part-paid / untouched. */
 function PreviewRows({ section }: { section: SectionState }) {
+  const { t } = useTranslation("suppliers");
   const { currency, alloc } = section;
   const closedKeys = new Set(alloc?.closed.map(accountRowKey) ?? []);
   return (
@@ -1021,25 +1067,29 @@ function PreviewRows({ section }: { section: SectionState }) {
               {rowTypeLabel(row)}
               {before < 0 && (
                 <span className="px-1 py-0.5 rounded bg-emerald-900/50 text-emerald-400 text-[9px] font-semibold uppercase tracking-wide">
-                  Credit
+                  {t("accountSettle.credit")}
                 </span>
               )}
             </div>
-            <div className="col-span-3 text-right font-mono text-white">
+            <div className="col-span-3 text-end font-mono text-white">
               {formatMoney(before, currency)}
             </div>
-            <div className="col-span-5 text-right">
+            <div className="col-span-5 text-end">
               {status === "closes" ? (
                 <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-900/50 text-green-300">
-                  Closes
+                  {t("accountSettle.closes")}
                 </span>
               ) : status === "part-paid" && alloc?.partial ? (
                 <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-900/50 text-amber-300">
-                  {`${formatCompact(alloc.partial.applied, currency)} of ${formatCompact(before, currency)} · ${formatCompact(alloc.partial.remaining, currency)} owed`}
+                  {t("accountSettle.partialOf", {
+                    applied: formatCompact(alloc.partial.applied, currency),
+                    before: formatCompact(before, currency),
+                    remaining: formatCompact(alloc.partial.remaining, currency),
+                  })}
                 </span>
               ) : (
                 <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-700 text-slate-400">
-                  Untouched
+                  {t("accountSettle.untouched")}
                 </span>
               )}
             </div>
@@ -1068,6 +1118,8 @@ function PickTransfers({
   onTogglePick: (row: AccountUnsettledRow) => void;
   onClear: () => void;
 }) {
+  const { t } = useTranslation("suppliers");
+  const { formatDateTime } = useFormat();
   return (
     <div className="border border-slate-700 rounded-xl overflow-hidden">
       <div className="flex items-center justify-between gap-2 bg-slate-900/60 px-3 py-2">
@@ -1078,8 +1130,10 @@ function PickTransfers({
           aria-expanded={open}
           className="text-xs font-semibold text-slate-300 hover:text-white"
         >
-          {open ? "▾" : "▸"} Pick transfers
-          {picked.size > 0 ? ` (${picked.size} picked)` : " (optional)"}
+          {open ? "▾" : "▸"} {t("accountSettle.pickTransfers")}
+          {picked.size > 0
+            ? ` ${t("accountSettle.pickedCount", { n: picked.size })}`
+            : ` ${t("accountSettle.optional")}`}
         </button>
         {picked.size > 0 && (
           <button
@@ -1088,7 +1142,7 @@ function PickTransfers({
             onClick={onClear}
             className="text-xs text-slate-400 hover:text-white"
           >
-            Clear — whole account
+            {t("accountSettle.clearPicks")}
           </button>
         )}
       </div>
@@ -1119,25 +1173,32 @@ function PickTransfers({
                   {rowTypeLabel(row)}
                   {waiting && (
                     <span className="px-1 py-0.5 rounded bg-slate-700 text-slate-400 text-[9px] font-semibold">
-                      Waiting — not in this statement
+                      {t("settleTab.waiting")}
                     </span>
                   )}
                   {isCreditRow(row) && (
                     <span className="px-1 py-0.5 rounded bg-emerald-900/50 text-emerald-400 text-[9px] font-semibold uppercase tracking-wide">
-                      Credit
+                      {t("accountSettle.credit")}
                     </span>
                   )}
                   {isPartPaid(row) && (
                     <span className="px-1 py-0.5 rounded bg-amber-900/50 text-amber-300 text-[9px] font-semibold">
-                      Part-paid
+                      {t("accountSettle.partPaid")}
                     </span>
                   )}
                 </div>
-                <div className="col-span-3 text-right font-mono text-white">
-                  {rowRemainingLabel(row)}
+                <div className="col-span-3 text-end font-mono text-white">
+                  <Ltr>{rowRemainingLabel(row)}</Ltr>
                 </div>
                 <div className="col-span-4 text-slate-400">
-                  {parseDbDate(row.created_at).toLocaleString()}
+                  {formatDateTime(parseDbDate(row.created_at), {
+                    year: "numeric",
+                    month: "numeric",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                    second: "2-digit",
+                  })}
                 </div>
               </label>
             );

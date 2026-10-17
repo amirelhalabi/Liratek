@@ -32,6 +32,7 @@ import {
 import { getCurrencyDecimals, getCurrencySymbol } from "@/utils/currency";
 import { getRowCashFlowDirection } from "./cashFlow";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { formatNumber as formatEnNumber } from "@liratek/ui/i18n/format";
 import type { TransactionRow } from "./hooks/useTransactionRows";
 
 export type DetailValue =
@@ -250,7 +251,7 @@ export function readableTitle(title: string): string {
 export function formatDetailMoney(amount: number, currency: string): string {
   const decimals = getCurrencyDecimals(currency);
   const symbol = getCurrencySymbol(currency);
-  const digits = Math.abs(amount).toLocaleString(undefined, {
+  const digits = formatEnNumber(Math.abs(amount), {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   });
@@ -424,7 +425,7 @@ function isIdKey(key: string): boolean {
 }
 
 function exactNumber(n: number): string {
-  return n.toLocaleString(undefined, { maximumFractionDigits: 10 });
+  return formatEnNumber(n, { maximumFractionDigits: 10 });
 }
 
 /** 0.0445 → "4.45%" — exact, without floating-point noise. */
@@ -512,18 +513,18 @@ function readableDate(s: string): string | null {
   };
   if (isDay) {
     const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-    return Number.isNaN(d.getTime())
-      ? null
-      : d.toLocaleDateString("en-GB", { ...opts, timeZone: "UTC" });
+    if (Number.isNaN(d.getTime())) return null;
+    // i18n-exempt: en-GB day, shared with the export (format.ts has no en-GB)
+    return d.toLocaleDateString("en-GB", { ...opts, timeZone: "UTC" });
   }
   const d = parseDbDate(s);
-  return Number.isNaN(d.getTime())
-    ? null
-    : d.toLocaleString("en-GB", {
-        ...opts,
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+  if (Number.isNaN(d.getTime())) return null;
+  // i18n-exempt: en-GB date-time, shared with the export
+  return d.toLocaleString("en-GB", {
+    ...opts,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 /** A saved code as words: `DEDUCTED` → "Deducted", `SMS_Transfer_Fee` →

@@ -1,4 +1,6 @@
 import { MultiSelect } from "@liratek/ui";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
 import {
   OMT_COVERED_TYPE_VALUES,
   coveredTypeLabel,
@@ -31,7 +33,7 @@ export default function OmtCoveredTypesPicker({
   onChange,
   byType,
   testIdPrefix,
-  heading = "Which shares does this SMS include?",
+  heading,
 }: {
   value: OmtCoveredType[] | undefined;
   onChange: (next: OmtCoveredType[] | undefined) => void;
@@ -39,6 +41,7 @@ export default function OmtCoveredTypesPicker({
   testIdPrefix: string;
   heading?: string;
 }) {
+  const { t } = useTranslation("suppliers");
   const handleChange = (next: string[]) => {
     onChange(
       next.length === 0
@@ -56,11 +59,11 @@ export default function OmtCoveredTypesPicker({
         {stats && (
           <span
             data-testid={`${testIdPrefix}-${type}-amount`}
-            className="ml-auto shrink-0 font-mono text-[11px] text-slate-500"
+            className="ms-auto shrink-0 font-mono text-[11px] text-slate-500"
           >
             {stats.count} · ${stats.commission_usd.toFixed(2)}
             {stats.commission_lbp
-              ? ` + ${Math.round(stats.commission_lbp).toLocaleString()} LBP`
+              ? ` + ${formatNumber(Math.round(stats.commission_lbp))} LBP`
               : ""}
           </span>
         )}
@@ -70,9 +73,13 @@ export default function OmtCoveredTypesPicker({
 
   return (
     <div data-testid={`${testIdPrefix}-picker`} className="space-y-1">
-      <div className="text-[11px] font-semibold text-slate-300">{heading}</div>
+      <div className="text-[11px] font-semibold text-slate-300">
+        {heading ?? t("coveredTypes.defaultHeading")}
+      </div>
       <MultiSelect
-        label={value === undefined ? "All types" : "Types"}
+        label={
+          value === undefined ? t("ledger.allTypes") : t("coveredTypes.types")
+        }
         testId={testIdPrefix}
         values={value ?? []}
         onChange={handleChange}

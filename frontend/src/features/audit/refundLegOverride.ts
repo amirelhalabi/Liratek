@@ -29,6 +29,7 @@ import {
 } from "@liratek/core";
 import { convert, type RateTable, type PaymentLine } from "@liratek/ui";
 
+import { formatNumber } from "@liratek/ui/i18n/format";
 import type { TransactionPaymentLeg } from "./cashFlow";
 
 /** One operator-chosen refund return leg. Type alias for the core schema's
@@ -181,8 +182,8 @@ export function buildDefaultRefundLines(
     .filter(
       ([currencyCode, amount]) => Math.abs(amount) > epsilonFor(currencyCode),
     )
-    .filter(
-      (entry): entry is ["USD" | "LBP", number] => isRefundCurrency(entry[0]),
+    .filter((entry): entry is ["USD" | "LBP", number] =>
+      isRefundCurrency(entry[0]),
     )
     .map(([currencyCode, amount]) => {
       const candidate = largestLegByCurrency[currencyCode]?.method;
@@ -252,7 +253,7 @@ export function validateRefundLines(
     const original = Math.abs(originalNet[currency] ?? 0);
     const chosen = lineTotals[currency] ?? 0;
     if (Math.abs(original - chosen) > epsilonFor(currency)) {
-      return `Return total for ${currency} must equal ${original.toLocaleString()} (currently ${chosen.toLocaleString()}).`;
+      return `Return total for ${currency} must equal ${formatNumber(original)} (currently ${formatNumber(chosen)}).`;
     }
   }
   return null;
@@ -274,7 +275,8 @@ function toUsd(amount: number, currencyCode: string, rate: number): number {
   if (currencyCode === "USD") return amount;
   const table = usdRateTable(rate);
   try {
-    return convert({ amount, currency: currencyCode }, "USD", table, "buy").amount;
+    return convert({ amount, currency: currencyCode }, "USD", table, "buy")
+      .amount;
   } catch {
     return amount;
   }
@@ -356,7 +358,7 @@ export function validateRefundValue(
 
   if (Math.abs(originalValue - chosenValue) > REFUND_VALUE_TOLERANCE_USD) {
     const fmt = (v: number) =>
-      `$${v.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+      `$${formatNumber(v, { maximumFractionDigits: 2 })}`;
     return `Return value at the current rate must equal ${fmt(originalValue)} (currently ${fmt(chosenValue)}).`;
   }
   return null;

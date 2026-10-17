@@ -1,1 +1,255 @@
-{}
+{
+  "page": {
+    "title": "الموردون",
+    "subtitle": "تابع المبالغ المستحقة للموردين. ديون النظام تُسجَّل تلقائياً من العمليات.",
+    "totalOwedUsd": "إجمالي المستحق (USD)",
+    "totalOwedLbp": "إجمالي المستحق (LBP)"
+  },
+  "account": {
+    "badge": "حساب",
+    "partOf": "ضمن حساب {{name}}",
+    "settle": "تسوية الحساب",
+    "settleTitle": "سوِّ الكونتوار وOMT App وiPick بدفعة واحدة",
+    "unsettledCount": "{{n}} غير مسوّاة"
+  },
+  "accountSettle": {
+    "title": "تسوية حساب {{name}}",
+    "intro": "أدخل ما تدفعه أو تقبضه بكل عملة — تُقفل أقدم التحويلات بتلك العملة أولاً.",
+    "availableCredit": "لهذا الحساب رصيد دائن متاح بقيمة",
+    "availableCreditHint": "— يُخصم من أقدم دين بالعملة نفسها.",
+    "loading": "جارٍ تحميل العمليات غير المسوّاة…",
+    "loadFailed": "تعذّر تحميل حساب {{name}}. أغلق وحاول مجدداً.",
+    "empty": "لا شيء للتسوية على حساب {{name}}.",
+    "youPay": "تدفع ({{currencies}})",
+    "youReceive": "تقبض ({{currencies}})",
+    "accountLabel": "حساب {{name}}",
+    "stillOwes": "المتبقي على {{name}}",
+    "nothingOwedIn": "لا مستحقات بـ{{currency}}",
+    "notePlaceholder": "تسوية: حساب {{name}}",
+    "payOmt": "ادفع لـOMT",
+    "collectFromOmt": "اقبض من OMT",
+    "youPayName": "تدفع لـ{{name}}",
+    "namePaysYou": "{{name}} يدفع لك",
+    "commission": "عمولة التسوية ({{currency}})",
+    "commissionProblem": "لا تُحتسب العمولة إلا إذا سدّدت هذه الدفعة بالكامل تحويلاً واحداً على الأقل يحمل عمولة.",
+    "stillOwesYouAfter": "يبقى على {{name}} لك بعدها",
+    "stillOwedAfter": "المتبقي بعدها",
+    "deferredCommission": "عمولة السحب المؤجّلة تُحتسب الآن",
+    "extraChangeOther": "زيادة {{money}} — تُردّ الفكّة بالعملة الأخرى.",
+    "extraOnAccount": "زيادة {{money}} تُضاف إلى الحساب.",
+    "credit": "دائن",
+    "closes": "يُقفل",
+    "partialOf": "{{applied}} من {{before}} · المتبقي {{remaining}}",
+    "untouched": "بلا تغيير",
+    "pickTransfers": "اختر التحويلات",
+    "pickedCount": "({{n}} مختارة)",
+    "optional": "(اختياري)",
+    "clearPicks": "مسح — كامل الحساب",
+    "partPaid": "مدفوع جزئياً",
+    "summaryPaid": "دُفع {{money}}",
+    "summaryReceived": "قُبض {{money}}",
+    "done": "تمّت تسوية حساب {{name}}",
+    "doneWithSummary": "تمّت تسوية حساب {{name}} — {{summary}}"
+  },
+  "adjust": {
+    "open": "إضافة دائن / مدين",
+    "openTitle": "سجّل يدوياً مبلغاً دائناً أو مديناً على هذا المورّد",
+    "subtitle": "تصحيح يدوي لسجلّ {{name}}.",
+    "direction": "الاتجاه",
+    "credit": "دائن (نحن مدينون لهم)",
+    "debit": "مدين (هم مدينون لنا)",
+    "notePlaceholder": "ملاحظة اختيارية...",
+    "cashMoved": "تحرّك الكاش",
+    "cashMovedInHint": "— هذا القيد يحرّك الصندوق: كاش داخل من المورّد. ألغِ التحديد لتصحيح دفتري فقط (بلا تغيير في الصندوق).",
+    "cashMovedOutHint": "— هذا القيد يحرّك الصندوق: كاش خارج إلى المورّد. ألغِ التحديد لتصحيح دفتري فقط (بلا تغيير في الصندوق).",
+    "saveEntry": "حفظ القيد",
+    "enterAmount": "أدخل مبلغاً أكبر من 0",
+    "failed": "تعذّر تسجيل القيد",
+    "creditRecorded": "تم تسجيل الدائن.",
+    "creditRecordedPaper": "تم تسجيل الدائن (دفترياً، بلا حركة كاش).",
+    "debitRecorded": "تم تسجيل المدين.",
+    "debitRecordedPaper": "تم تسجيل المدين (دفترياً، بلا حركة كاش)."
+  },
+  "balance": {
+    "label": "الرصيد:",
+    "settled": "مسوّى",
+    "youOwe": "عليك {{money}}",
+    "theyOweYou": "لك عليهم {{money}}"
+  },
+  "cashflow": {
+    "paySupplier": "الدفع للمورّد",
+    "supplierPaidUs": "المورّد دفع لنا",
+    "accountLabel": "حساب المورّد",
+    "recordPayment": "تسجيل الدفعة",
+    "recordReceipt": "تسجيل المقبوض",
+    "discountReason": "سبب الخصم (اختياري)",
+    "discountReasonPlaceholder": "لماذا يسامح المورّد بهذا المبلغ…",
+    "notePlaceholderPay": "دفعة للمورّد…",
+    "notePlaceholderReceive": "مبلغ مقبوض من المورّد…",
+    "enterAmount": "أدخل مبلغ دفعة واحداً على الأقل",
+    "recorded": "تم تسجيل عملية المورّد بنجاح",
+    "recordedDiscount": "تم تسجيل عملية المورّد (خصم {{amount}})"
+  },
+  "category": {
+    "companies": "الشركات",
+    "products": "المنتجات"
+  },
+  "coveredTypes": {
+    "defaultHeading": "أي حصص تشملها هذه الرسالة؟",
+    "types": "الأنواع"
+  },
+  "drawer": {
+    "omtCash": "صندوق كاش OMT",
+    "whishCash": "صندوق كاش Whish"
+  },
+  "entryType": {
+    "TOP_UP": "تعبئة",
+    "SALE_COST": "كلفة بيع",
+    "PAYMENT": "دفعة",
+    "ADJUSTMENT": "تصحيح",
+    "SETTLEMENT": "تسوية",
+    "CASH_PRIZE": "جائزة نقدية",
+    "SUPPLIER_PAYS_US": "دفع لنا",
+    "DISCOUNT": "خصم",
+    "STOCK_INTAKE": "استلام بضاعة"
+  },
+  "errors": {
+    "failed": "فشلت العملية"
+  },
+  "form": {
+    "amountUsd": "المبلغ (USD)",
+    "amountLbp": "المبلغ (LBP)",
+    "currency": "العملة",
+    "noteOptional": "ملاحظة (اختياري)",
+    "processing": "جارٍ التنفيذ..."
+  },
+  "header": {
+    "transactions": "العمليات",
+    "payments": "الدفعات"
+  },
+  "ledger": {
+    "allTypes": "كل الأنواع",
+    "entry": "القيد",
+    "source": "المصدر",
+    "note": "ملاحظة",
+    "date": "التاريخ",
+    "voided": "ملغاة",
+    "empty": "لا قيود دفع بعد.",
+    "hintUp": "يزيد ما علينا لهذا المورّد",
+    "hintDown": "يُنقص ما علينا لهذا المورّد (أو يزيد ما لنا عليه)",
+    "hintFlat": "لا أثر على الرصيد"
+  },
+  "list": {
+    "inactive": "غير نشط",
+    "empty": "لا يوجد موردون.",
+    "selectPrompt": "اختر مورّداً لعرض السجلّ."
+  },
+  "owedCell": {
+    "breakdown": "{{amount}} {{op}} {{fee}} رسم"
+  },
+  "payments": {
+    "title": "{{name}} — الدفعات",
+    "commissionTitle": "عمولة قُبضت عند التسوية — لا تغيّر الرصيد"
+  },
+  "purchases": {
+    "history": "سجلّ المشتريات",
+    "stockOnHand": "البضاعة المتوفرة:",
+    "stockOnHandHint": "(قيمة المخزون، وليست ديناً)",
+    "loading": "جارٍ تحميل سجلّ المشتريات…",
+    "empty": "لا توريدات أو دفعات مسجّلة بعد لـ{{name}}.",
+    "stockReceived": "بضاعة مستلمة",
+    "payment": "دفعة"
+  },
+  "recordDebt": {
+    "open": "تسجيل دين",
+    "openTitle": "سجّل ديناً لمنتجات لم تُستلم بعد، لربطها لاحقاً",
+    "title": "تسجيل دين — {{name}}",
+    "hint": "يسجّل ما عليك لـ{{name}} عن منتجات لم تُستلم بعد — اربطها بهذا الدين لاحقاً من نموذج \"استلام بضاعة\" في المخزون، بدل تسجيل دين ثانٍ.",
+    "notePlaceholder": "مثلاً: فاتورة #1234، 20 قطعة قادمة",
+    "submit": "تسجيل الدين",
+    "failed": "تعذّر تسجيل الدين"
+  },
+  "settle": {
+    "confirmTitleOne": "تسوية عملية واحدة مع {{name}}",
+    "confirmTitleMany": "تسوية {{n}} عمليات مع {{name}}",
+    "confirm": "تأكيد التسوية",
+    "totalOwed": "إجمالي المستحق لـ{{name}} (صافي الرسوم):",
+    "lumpSum": "مبلغ إجمالي",
+    "rateCount": "سعر × عدد",
+    "commissionUsd": "العمولة (USD)",
+    "commissionLbp": "العمولة (LBP)",
+    "ratePerUnit": "السعر للوحدة",
+    "count": "العدد",
+    "yourCommission": "عمولتك (مخصومة مسبقاً):",
+    "owesYou": "{{name}} مدين لك بـ:",
+    "topUp": "تعبئة",
+    "otherPayment": "دفعة أخرى",
+    "topUpHint": "تصل كتعبئة لرصيد {{name}} عند التأكيد — لا دفعة عليك.",
+    "otherPaymentHint": "اختر أدناه كيف يدفع لك {{name}} — المبلغ معبّأ مسبقاً من العمولة أعلاه.",
+    "netPaymentTo": "صافي الدفعة لـ{{name}}:",
+    "mismatch": "الدفعة المُدخلة لا تغطي المستحق عن هذه العمليات — أدخل كامل المبلغ الصافي أو ألغِ تحديد بعض العمليات.",
+    "notePlaceholder": "تسوية مع {{name}}",
+    "failed": "فشلت التسوية",
+    "supplierFallback": "المورّد",
+    "doneCredited": "أُضيف لـ{{name}} {{money}}",
+    "doneNet": "الصافي {{money}}",
+    "doneOne": "تمّت تسوية عملية واحدة — {{detail}}",
+    "doneMany": "تمّت تسوية {{n}} عمليات — {{detail}}"
+  },
+  "settleTab": {
+    "heading": "تسوية العمولات",
+    "coveredHeading": "أي حصص OMT يشملها هذا الكشف؟",
+    "selectAll": "تحديد الكل ({{n}})",
+    "mixedTitle": "التحديد يخلط عمليات عمولة بالنظام القديم والجديد — سوِّها بدفعات منفصلة",
+    "mixedWarning": "هذا التحديد يخلط عمليات عمولة بالنظام القديم والجديد — لا يمكن تسويتها بدفعة واحدة. ألغِ تحديد مجموعة وسوِّها على حدة.",
+    "loading": "جارٍ تحميل العمليات المعلّقة…",
+    "empty": "لا عمليات معلّقة للتسوية لـ{{name}}",
+    "bill": "فاتورة",
+    "waiting": "بالانتظار — ليست في هذا الكشف",
+    "billsOwes": "{{name}} مدين لك بعمولة تسوية — حدّد السعر/العدد في التسوية",
+    "owedNewModel": "المستحق {{money}} − العمولة (تُدخل أدناه)",
+    "owedLegacy": "المستحق ${{owed}} − العمولة ${{commission}}",
+    "netYouPay": "الصافي الذي تدفعه:"
+  },
+  "statement": {
+    "title": "المطابقة مع كشف OMT",
+    "grossOwed": "المستحق لـOMT (إجمالي)",
+    "unsettledCommission": "− العمولة غير المسوّاة",
+    "expected": "= المتوقع في كشف OMT",
+    "smsUsd": "رسالة OMT تقول (USD)",
+    "smsLbp": "رسالة OMT تقول (LBP)",
+    "typeSmsFigure": "اكتب الرقم من الرسالة",
+    "matches": "مطابق",
+    "offBy": "فرق <ltr>{{money}}</ltr>"
+  },
+  "status": {
+    "partial": "جزئي",
+    "partialPaid": "جزئي · {{amount}}",
+    "voided": "ملغاة",
+    "settled": "مسوّاة",
+    "paid": "مدفوعة",
+    "unpaid": "غير مدفوعة"
+  },
+  "table": {
+    "type": "النوع",
+    "detail": "التفاصيل",
+    "amount": "المبلغ",
+    "date": "التاريخ",
+    "commission": "العمولة",
+    "status": "الحالة",
+    "omtFee": "رسم OMT"
+  },
+  "tabs": {
+    "purchases": "المشتريات",
+    "payReceive": "دفع / قبض",
+    "settle": "تسوية"
+  },
+  "txns": {
+    "title": "{{name}} — العمليات",
+    "loading": "جارٍ تحميل العمليات…",
+    "empty": "لا عمليات لـ{{name}}",
+    "counts": "{{paid}} مدفوعة · {{partial}} جزئية · {{unpaid}} غير مدفوعة",
+    "outstanding": "المتبقي: {{amounts}}",
+    "fullyCovered": "مغطّى بالكامل"
+  }
+}

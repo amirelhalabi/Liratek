@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import { Trans, useTranslation } from "react-i18next";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import logger from "@/utils/logger";
 
@@ -8,6 +9,7 @@ import logger from "@/utils/logger";
  * impersonated tenant's POS UI on every protected route.
  */
 export function ImpersonationBanner() {
+  const { t } = useTranslation("admin");
   const { isImpersonating, impersonationInfo, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -16,9 +18,11 @@ export function ImpersonationBanner() {
   const who =
     impersonationInfo.username ??
     (impersonationInfo.tenantId != null
-      ? `the tenant admin (tenant #${impersonationInfo.tenantId})`
-      : "the tenant admin");
-  const tenant = impersonationInfo.tenantName ?? "this tenant";
+      ? t("impersonation.tenantAdminNo", {
+          id: impersonationInfo.tenantId,
+        })
+      : t("impersonation.tenantAdmin"));
+  const tenant = impersonationInfo.tenantName ?? t("impersonation.thisTenant");
 
   const handleDisconnect = async () => {
     // logout() is impersonation-aware: it POSTs /api/auth/logout with the
@@ -49,14 +53,18 @@ export function ImpersonationBanner() {
       className="sticky top-0 z-[200] flex flex-wrap items-center justify-between gap-3 bg-orange-500 px-4 py-2 text-sm font-medium text-white shadow-md"
     >
       <span>
-        You are viewing as <strong>{who}</strong> — {tenant}. Any changes are
-        recorded.
+        <Trans
+          t={t}
+          i18nKey="impersonation.viewingAs"
+          values={{ who, tenant }}
+          components={{ strong: <strong /> }}
+        />
       </span>
       <button
         onClick={handleDisconnect}
         className="shrink-0 rounded-lg border border-white/50 px-3 py-1 text-xs font-semibold transition-colors hover:bg-white/10"
       >
-        Disconnect
+        {t("impersonation.disconnect")}
       </button>
     </div>
   );

@@ -1,5 +1,6 @@
 import { useEffect, useId, type ReactNode } from "react";
 import { X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 export interface SupplierTableModalProps {
   /** e.g. "Katsh — Transactions" — also the dialog's accessible name. */
@@ -22,6 +23,7 @@ export function SupplierTableModal({
   onClose,
   children,
 }: SupplierTableModalProps) {
+  const { t: tc } = useTranslation("common");
   const titleId = useId();
 
   useEffect(() => {
@@ -55,7 +57,7 @@ export function SupplierTableModal({
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={tc("actions.close")}
             className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
           >
             <X size={20} />

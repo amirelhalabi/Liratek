@@ -6,6 +6,8 @@
  * helpers around it — that mix is what made the old TransactionsViewer hard
  * to navigate in the first place.
  */
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { formatAmount } from "../transactionDisplay";
 import {
   getRowCashFlowDirection,
@@ -54,6 +56,7 @@ export function CashFlowBadge({
   reversesId = null,
   signedAmounts,
 }: CashFlowBadgeProps) {
+  const { t } = useTranslation("audit");
   // LIRA-140: money that landed in a PROVIDER BALANCE, not a till — matches
   // the split the closing count sheet already makes (till cash and provider
   // balances are different money), and the Transactions page is the one
@@ -129,8 +132,8 @@ export function CashFlowBadge({
               >
                 <span>{direction === "in" ? "↓" : "↑"}</span>
                 <span>
-                  {direction === "in" ? "IN" : "OUT"}{" "}
-                  {formatSettlementPart(part)}
+                  {direction === "in" ? t("badges.in") : t("badges.out")}{" "}
+                  <Ltr>{formatSettlementPart(part)}</Ltr>
                 </span>
               </span>
             </span>

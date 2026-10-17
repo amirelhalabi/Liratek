@@ -8,12 +8,15 @@
  *
  * Pure data, no JSX: `SummaryCell` renders them.
  */
+import { formatNumber } from "@liratek/ui/i18n/format";
 import type { TransactionRow } from "./hooks/useTransactionRows";
 
 export type RowStatus = "VOIDED" | "REFUNDED" | "PARTLY_REFUNDED" | "ACTIVE";
 
 export interface RowBadge {
   key: "status" | "reverses" | "credits";
+  /** English text. The screen shows it in the displayed language from the
+   *  row itself (`rowStatus`, `signedCreditsText`) — LIRA-331. */
   label: string;
   className: string;
 }
@@ -58,7 +61,12 @@ export function rowStatusText(row: Parameters<typeof rowStatus>[0]): string {
  * (`formatAmount` would print `$-73`).
  */
 export function returnedCreditsText(v: number): string {
-  return `${v < 0 ? "−" : ""}$${Math.abs(v).toLocaleString()}`;
+  return `${v < 0 ? "−" : ""}$${formatNumber(Math.abs(v))}`;
+}
+
+/** The credits tag's amount, signed both ways: "+$3" / "−$2.5". */
+export function signedCreditsText(v: number): string {
+  return `${v > 0 ? "+" : ""}${returnedCreditsText(v)}`;
 }
 
 /** True when the row returned (or reversed) a non-zero credit amount. */
@@ -121,10 +129,10 @@ export function rowBadges(
     });
   }
   if (hasReturnedCredits(row)) {
-    const v = row.returned_credits_usd;
     badges.push({
       key: "credits",
-      label: `${v > 0 ? "+" : ""}${returnedCreditsText(v)} credits back`,
+      // i18n-exempt: English text; SummaryCell shows audit:badges.creditsBack
+      label: `${signedCreditsText(row.returned_credits_usd)} credits back`,
       className: CHIP_CLASS,
     });
   }

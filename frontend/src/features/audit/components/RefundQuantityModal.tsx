@@ -7,6 +7,8 @@
  * instead of two copies of the same quantity-clamp logic (rule 14).
  */
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
 
 export interface RefundQuantityModalProps {
   itemName: string;
@@ -21,6 +23,7 @@ export function RefundQuantityModal({
   onConfirm,
   onCancel,
 }: RefundQuantityModalProps) {
+  const { t } = useTranslation("audit");
   const [quantity, setQuantity] = useState(1);
 
   useEffect(() => {
@@ -33,29 +36,33 @@ export function RefundQuantityModal({
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div className="p-6 border-b border-slate-700">
-        <h3 className="text-lg font-bold text-white">Refund Item Quantity</h3>
+        <h3 className="text-lg font-bold text-white">
+          {t("refundQuantity.title")}
+        </h3>
       </div>
 
       <div className="p-6 space-y-4">
         <p className="text-slate-300">
-          Refunding:{" "}
+          {t("refundQuantity.refunding")}{" "}
           <span className="font-semibold text-white">{itemName}</span>
         </p>
 
         <div className="space-y-2">
           <label className="text-sm text-slate-400">
-            Available to refund: {availableQuantity}
+            {t("refundQuantity.available", { count: availableQuantity })}
           </label>
           <input
-            type="number"
-            min={1}
-            max={availableQuantity}
+            type="text"
+            inputMode="numeric"
             value={quantity}
             onChange={(e) =>
               setQuantity(
                 Math.max(
                   1,
-                  Math.min(availableQuantity, parseInt(e.target.value) || 1),
+                  Math.min(
+                    availableQuantity,
+                    parseInt(normalizeDigits(e.target.value)) || 1,
+                  ),
                 ),
               )
             }
@@ -69,13 +76,13 @@ export function RefundQuantityModal({
           onClick={onCancel}
           className="flex-1 px-4 py-2.5 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg font-medium transition-colors"
         >
-          Cancel
+          {t("refundQuantity.cancel")}
         </button>
         <button
           onClick={() => onConfirm(quantity)}
           className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-lg font-medium transition-colors"
         >
-          Refund {quantity}x
+          {t("refundQuantity.confirm", { count: quantity })}
         </button>
       </div>
     </div>

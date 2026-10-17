@@ -1,1 +1,156 @@
-{}
+{
+  "page": {
+    "title": "Partners",
+    "showInactive": "Show inactive",
+    "addPartner": "Add Partner",
+    "partnersOweUs": "Partners owe us",
+    "weOwePartners": "We owe partners",
+    "loading": "Loading...",
+    "empty": "No partners yet",
+    "selectPrompt": "Select a partner to view details",
+    "loadFailed": "Failed to load partners.",
+    "activated": "Partner activated.",
+    "activateFailed": "Failed to activate."
+  },
+  "card": {
+    "off": "off"
+  },
+  "common": {
+    "notes": "Notes",
+    "notesPlaceholder": "Optional notes...",
+    "amount": "Amount",
+    "currency": "Currency",
+    "direction": "Direction",
+    "balanceUsd": "Balance USD",
+    "balanceLbp": "Balance LBP",
+    "enterValidAmount": "Enter a valid amount.",
+    "unexpectedError": "Unexpected error.",
+    "processing": "Processing...",
+    "cashMoved": "Cash moved",
+    "debitTheyOweUs": "DEBIT (they owe us)",
+    "creditWeOweThem": "CREDIT (we owe them)"
+  },
+  "form": {
+    "addTitle": "Add Partner",
+    "editTitle": "Edit Partner",
+    "name": "Name",
+    "namePlaceholder": "Partner name",
+    "phone": "Phone",
+    "systemAssociation": "System Association",
+    "none": "None",
+    "systemHint": "Associate this partner with a provider system. Only OMT and Whish currently gate transactions on their own page — other systems are for record-keeping only.",
+    "nameRequired": "Partner name is required.",
+    "updated": "Partner updated.",
+    "created": "Partner created.",
+    "saveFailed": "Failed to save partner.",
+    "saveError": "Unexpected error saving partner.",
+    "saving": "Saving...",
+    "update": "Update",
+    "create": "Create"
+  },
+  "settle": {
+    "title": "Settle – {{name}}",
+    "confirm": "Confirm Settlement",
+    "cashMovedHint": "— this settlement moves the drawer via the payment legs below. Untick for a paper-only settlement (no drawer change).",
+    "forgive": "Forgive (no cash)",
+    "forgiveAmount": "Forgive amount",
+    "capped": "Capped to max ({{amount}})",
+    "lowerPayment": "Lower the payment to forgive part of it.",
+    "reasonPlaceholder": "Reason (optional)...",
+    "afterForgive": "After Forgive",
+    "partnerWillOwe": "Partner will owe",
+    "partnerAccount": "the partner's account",
+    "recordedDiscount": "Settlement recorded (discount {{amount}})",
+    "recorded": "Settlement recorded.",
+    "failed": "Failed to settle.",
+    "error": "Unexpected error during settlement."
+  },
+  "record": {
+    "title": "Add Credit / Debt – {{name}}",
+    "cashMovedHint": "— this entry records physical cash:",
+    "cashOut": "cash OUT of the drawer to the partner (advance)",
+    "cashIn": "cash IN from the partner",
+    "paperHint": ". Leave unticked for a paper-style correction (no drawer change).",
+    "recording": "Recording...",
+    "submit": "Add Credit / Debt",
+    "recorded": "Transaction recorded.",
+    "failed": "Failed to record transaction.",
+    "error": "Unexpected error recording transaction."
+  },
+  "writeOff": {
+    "title": "Write off – {{name}}",
+    "intro": "We forgive part of what {{name}} owes us — no cash movement.",
+    "amountOwed": "Amount — owed {{amount}}",
+    "reason": "Reason",
+    "reasonPlaceholder": "Optional reason...",
+    "submit": "Write off",
+    "done": "Balance written off.",
+    "failed": "Failed to write off."
+  },
+  "deactivate": {
+    "title": "Deactivate Partner",
+    "confirm": "Are you sure you want to deactivate <name>{{name}}</name>? They will be hidden from the active list but their history will be preserved.",
+    "deactivating": "Deactivating...",
+    "submit": "Deactivate",
+    "done": "Partner deactivated.",
+    "failed": "Failed to deactivate."
+  },
+  "ledger": {
+    "via": "via {{method}}",
+    "debit": "DEBIT",
+    "credit": "CREDIT",
+    "customer": "Customer",
+    "ref": "Ref #",
+    "phone": "Phone",
+    "provider": "Provider",
+    "amount": "Amount",
+    "fee": "+ {{amount}} fee",
+    "txnId": "Txn ID",
+    "loadFailed": "Failed to load ledger.",
+    "loading": "Loading ledger...",
+    "empty": "No transactions found",
+    "date": "Date",
+    "type": "Type",
+    "notes": "Notes"
+  },
+  "detail": {
+    "inactive": "Inactive",
+    "system": "{{system}} System",
+    "edit": "Edit",
+    "settle": "Settle",
+    "addCredit": "Add Credit / Debt",
+    "writeOffTitle": "Forgive part of what the partner owes us",
+    "writeOff": "Write off",
+    "deactivate": "Deactivate",
+    "activate": "Activate",
+    "usdBalance": "USD Balance",
+    "lbpBalance": "LBP Balance",
+    "theyOweUs": "They owe us",
+    "weOweThem": "We owe them",
+    "settled": "Settled",
+    "forOurSystem": "FOR (our system)",
+    "throughTheirSystem": "THROUGH (their system)",
+    "settlementsAdj": "Settlements / Adj."
+  },
+  "filters": {
+    "allModes": "All modes",
+    "allProviders": "All providers",
+    "allDirections": "All directions",
+    "debit": "Debit (they owe us)",
+    "credit": "Credit (we owe them)",
+    "clearAll": "Clear all"
+  },
+  "selector": {
+    "loading": "Loading partners…",
+    "loadFailed": "Couldn't load partners{{detail}}.",
+    "none": "No partners available. Add a partner first.",
+    "noneWithSystem": "No partners available with {{system}} system. Add a partner first.",
+    "single": "Partner: {{name}}",
+    "label": "Partner:",
+    "selectPartner": "Select partner",
+    "direct": "Direct (no partner)"
+  },
+  "toggle": {
+    "forPartner": "For Partner"
+  }
+}

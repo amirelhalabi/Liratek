@@ -1,1 +1,255 @@
-{}
+{
+  "page": {
+    "title": "Suppliers",
+    "subtitle": "Track amounts owed to suppliers. System debts are auto-recorded from transactions.",
+    "totalOwedUsd": "Total Owed (USD)",
+    "totalOwedLbp": "Total Owed (LBP)"
+  },
+  "account": {
+    "badge": "Account",
+    "partOf": "part of {{name}} account",
+    "settle": "Settle Account",
+    "settleTitle": "Settle the counter, OMT App and iPick in one payment",
+    "unsettledCount": "{{n}} unsettled"
+  },
+  "accountSettle": {
+    "title": "Settle {{name}} account",
+    "intro": "Enter what you pay or receive in each currency — the oldest transfers in that currency close first.",
+    "availableCredit": "This account has an available credit of",
+    "availableCreditHint": "— it is netted against the oldest debt in its own currency.",
+    "loading": "Loading unsettled queue…",
+    "loadFailed": "Couldn't load the {{name}} account. Close and try again.",
+    "empty": "Nothing to settle on the {{name}} account.",
+    "youPay": "You pay ({{currencies}})",
+    "youReceive": "You receive ({{currencies}})",
+    "accountLabel": "{{name}}'s account",
+    "stillOwes": "{{name}} still owes",
+    "nothingOwedIn": "Nothing owed in {{currency}}",
+    "notePlaceholder": "Settlement: {{name}} account",
+    "payOmt": "Pay OMT",
+    "collectFromOmt": "Collect from OMT",
+    "youPayName": "You pay {{name}}",
+    "namePaysYou": "{{name}} pays you",
+    "commission": "Settlement commission ({{currency}})",
+    "commissionProblem": "Commission counts only when this payment fully pays at least one transfer that carries commission.",
+    "stillOwesYouAfter": "{{name}} still owes you after",
+    "stillOwedAfter": "Still owed after",
+    "deferredCommission": "Deferred cashout commission recognised now",
+    "extraChangeOther": "Extra {{money}} — change handed back in the other currency.",
+    "extraOnAccount": "Extra {{money}} goes on the account.",
+    "credit": "Credit",
+    "closes": "Closes",
+    "partialOf": "{{applied}} of {{before}} · {{remaining}} owed",
+    "untouched": "Untouched",
+    "pickTransfers": "Pick transfers",
+    "pickedCount": "({{n}} picked)",
+    "optional": "(optional)",
+    "clearPicks": "Clear — whole account",
+    "partPaid": "Part-paid",
+    "summaryPaid": "paid {{money}}",
+    "summaryReceived": "received {{money}}",
+    "done": "{{name}} account settled",
+    "doneWithSummary": "{{name}} account settled — {{summary}}"
+  },
+  "adjust": {
+    "open": "Add Credit / Debt",
+    "openTitle": "Manually record a credit or debt against this supplier",
+    "subtitle": "Manual ledger correction for {{name}}.",
+    "direction": "Direction",
+    "credit": "CREDIT (we owe them)",
+    "debit": "DEBIT (they owe us)",
+    "notePlaceholder": "Optional note...",
+    "cashMoved": "Cash moved",
+    "cashMovedInHint": "— this entry moves the drawer: cash IN from the supplier. Untick for a paper-only ledger correction (no drawer change).",
+    "cashMovedOutHint": "— this entry moves the drawer: cash OUT to the supplier. Untick for a paper-only ledger correction (no drawer change).",
+    "saveEntry": "Save entry",
+    "enterAmount": "Enter an amount greater than 0",
+    "failed": "Failed to record entry",
+    "creditRecorded": "Credit recorded.",
+    "creditRecordedPaper": "Credit recorded (paper, no cash moved).",
+    "debitRecorded": "Debit recorded.",
+    "debitRecordedPaper": "Debit recorded (paper, no cash moved)."
+  },
+  "balance": {
+    "label": "Balance:",
+    "settled": "Settled",
+    "youOwe": "You owe {{money}}",
+    "theyOweYou": "They owe you {{money}}"
+  },
+  "cashflow": {
+    "paySupplier": "Pay Supplier",
+    "supplierPaidUs": "Supplier Paid Us",
+    "accountLabel": "the supplier's account",
+    "recordPayment": "Record Payment",
+    "recordReceipt": "Record Receipt",
+    "discountReason": "Discount reason (optional)",
+    "discountReasonPlaceholder": "Why the supplier is forgiving this amount…",
+    "notePlaceholderPay": "Payment to supplier…",
+    "notePlaceholderReceive": "Amount received from supplier…",
+    "enterAmount": "Enter at least one payment amount",
+    "recorded": "Supplier transaction recorded successfully",
+    "recordedDiscount": "Supplier transaction recorded (discount {{amount}})"
+  },
+  "category": {
+    "companies": "Companies",
+    "products": "Products"
+  },
+  "coveredTypes": {
+    "defaultHeading": "Which shares does this SMS include?",
+    "types": "Types"
+  },
+  "drawer": {
+    "omtCash": "OMT Cash Drawer",
+    "whishCash": "Whish Cash Drawer"
+  },
+  "entryType": {
+    "TOP_UP": "TOP_UP",
+    "SALE_COST": "SALE COST",
+    "PAYMENT": "PAYMENT",
+    "ADJUSTMENT": "ADJUSTMENT",
+    "SETTLEMENT": "SETTLEMENT",
+    "CASH_PRIZE": "CASH_PRIZE",
+    "SUPPLIER_PAYS_US": "PAID US",
+    "DISCOUNT": "DISCOUNT",
+    "STOCK_INTAKE": "Stock Received"
+  },
+  "errors": {
+    "failed": "Failed"
+  },
+  "form": {
+    "amountUsd": "Amount (USD)",
+    "amountLbp": "Amount (LBP)",
+    "currency": "Currency",
+    "noteOptional": "Note (optional)",
+    "processing": "Processing..."
+  },
+  "header": {
+    "transactions": "Transactions",
+    "payments": "Payments"
+  },
+  "ledger": {
+    "allTypes": "All types",
+    "entry": "Entry",
+    "source": "Source",
+    "note": "Note",
+    "date": "Date",
+    "voided": "VOIDED",
+    "empty": "No payment entries yet.",
+    "hintUp": "Increases what we owe this supplier",
+    "hintDown": "Decreases what we owe this supplier (or increases what they owe us)",
+    "hintFlat": "No effect on the balance"
+  },
+  "list": {
+    "inactive": "Inactive",
+    "empty": "No suppliers found.",
+    "selectPrompt": "Select a supplier to view ledger."
+  },
+  "owedCell": {
+    "breakdown": "{{amount}} {{op}} {{fee}} fee"
+  },
+  "payments": {
+    "title": "{{name}} — Payments",
+    "commissionTitle": "Commission collected at settlement — does not change the balance"
+  },
+  "purchases": {
+    "history": "Purchase History",
+    "stockOnHand": "Stock on hand:",
+    "stockOnHandHint": "(inventory value, not debt)",
+    "loading": "Loading purchase history…",
+    "empty": "No deliveries or payments recorded yet for {{name}}.",
+    "stockReceived": "Stock received",
+    "payment": "Payment"
+  },
+  "recordDebt": {
+    "open": "Record Debt",
+    "openTitle": "Record a debt for products not yet received, to attach later",
+    "title": "Record Debt — {{name}}",
+    "hint": "Books what you owe {{name}} for products not yet received — attach them to this debt later from Inventory's \"Receive Stock\" form, instead of booking a second debt.",
+    "notePlaceholder": "e.g. Invoice #1234, 20 units incoming",
+    "submit": "Record debt",
+    "failed": "Failed to record debt"
+  },
+  "settle": {
+    "confirmTitleOne": "Settle 1 transaction with {{name}}",
+    "confirmTitleMany": "Settle {{n}} transactions with {{name}}",
+    "confirm": "Confirm Settlement",
+    "totalOwed": "Total owed to {{name}} (fee-net):",
+    "lumpSum": "Lump sum",
+    "rateCount": "Rate × count",
+    "commissionUsd": "Commission (USD)",
+    "commissionLbp": "Commission (LBP)",
+    "ratePerUnit": "Rate per unit",
+    "count": "Count",
+    "yourCommission": "Your commission (already netted out):",
+    "owesYou": "{{name}} owes you:",
+    "topUp": "Top-up",
+    "otherPayment": "Other payment",
+    "topUpHint": "Arrives as a top-up to the {{name}} balance when you confirm — no payment for you to make.",
+    "otherPaymentHint": "Pick how {{name}} pays you below — the amount is prefilled from the commission above.",
+    "netPaymentTo": "Net payment to {{name}}:",
+    "mismatch": "The entered payment doesn't cover the amount owed for these transactions — enter the full net amount or deselect some transactions.",
+    "notePlaceholder": "Settlement with {{name}}",
+    "failed": "Settlement failed",
+    "supplierFallback": "supplier",
+    "doneCredited": "{{name}} credited {{money}}",
+    "doneNet": "net {{money}}",
+    "doneOne": "Settled 1 transaction — {{detail}}",
+    "doneMany": "Settled {{n}} transactions — {{detail}}"
+  },
+  "settleTab": {
+    "heading": "Commission Settlement",
+    "coveredHeading": "Which OMT shares does this statement include?",
+    "selectAll": "Select all ({{n}})",
+    "mixedTitle": "Selection mixes legacy and new-model commission transactions — settle them in separate batches",
+    "mixedWarning": "This selection mixes legacy and new-model commission transactions — they can't be settled in one batch. Deselect one group and settle it separately.",
+    "loading": "Loading pending transactions…",
+    "empty": "No pending transactions to settle for {{name}}",
+    "bill": "Bill",
+    "waiting": "Waiting — not in this statement",
+    "billsOwes": "{{name}} owes you a settlement commission — set the rate/count in Settle",
+    "owedNewModel": "Owed {{money}} − commission (entered below)",
+    "owedLegacy": "Owed ${{owed}} − commission ${{commission}}",
+    "netYouPay": "Net you pay:"
+  },
+  "statement": {
+    "title": "Check against OMT's statement",
+    "grossOwed": "Owed to OMT (gross)",
+    "unsettledCommission": "− Unsettled commission",
+    "expected": "= Expected on OMT's statement",
+    "smsUsd": "OMT SMS says (USD)",
+    "smsLbp": "OMT SMS says (LBP)",
+    "typeSmsFigure": "Type the SMS figure",
+    "matches": "Matches",
+    "offBy": "Off by <ltr>{{money}}</ltr>"
+  },
+  "status": {
+    "partial": "Partial",
+    "partialPaid": "Partial · {{amount}}",
+    "voided": "Voided",
+    "settled": "Settled",
+    "paid": "Paid",
+    "unpaid": "Unpaid"
+  },
+  "table": {
+    "type": "Type",
+    "detail": "Detail",
+    "amount": "Amount",
+    "date": "Date",
+    "commission": "Commission",
+    "status": "Status",
+    "omtFee": "OMT Fee"
+  },
+  "tabs": {
+    "purchases": "Purchases",
+    "payReceive": "Pay / Receive",
+    "settle": "Settle"
+  },
+  "txns": {
+    "title": "{{name}} — Transactions",
+    "loading": "Loading transactions…",
+    "empty": "No transactions found for {{name}}",
+    "counts": "{{paid}} paid · {{partial}} partial · {{unpaid}} unpaid",
+    "outstanding": "Outstanding: {{amounts}}",
+    "fullyCovered": "Fully covered"
+  }
+}

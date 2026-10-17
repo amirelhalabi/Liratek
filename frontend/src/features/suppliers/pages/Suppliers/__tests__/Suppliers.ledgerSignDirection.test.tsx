@@ -236,7 +236,10 @@ describe("Suppliers page — ledger badge/amount direction agreement (LIRA-129)"
     fireEvent.click((await screen.findAllByText("OMT"))[0]);
     await openSupplierTable("payments");
 
-    const amountCell = await screen.findByText("-45.50");
+    // LIRA-331: the signed amount sits in an <Ltr> (bdi) inside its cell.
+    const amountCell = (await screen.findByText("-45.50")).closest(
+      "div",
+    ) as HTMLElement;
     // Owner's rule (2026-08-11): DOWN ("supplier owes us more") is RED —
     // the reverse of this file's pre-audit expectation (was green).
     expect(amountCell.className).toMatch(/text-red-400/);
@@ -262,7 +265,10 @@ describe("Suppliers page — ledger badge/amount direction agreement (LIRA-129)"
     fireEvent.click((await screen.findAllByText("OMT"))[0]);
     await openSupplierTable("payments");
 
-    const amountCell = await screen.findByText("+80.00");
+    // LIRA-331: the signed amount sits in an <Ltr> (bdi) inside its cell.
+    const amountCell = (await screen.findByText("+80.00")).closest(
+      "div",
+    ) as HTMLElement;
     // Owner's rule: UP ("we owe the supplier more") is GREEN — the reverse
     // of this file's pre-audit expectation (was red).
     expect(amountCell.className).toMatch(/text-emerald-400/);
@@ -292,7 +298,10 @@ describe("Suppliers page — ledger badge/amount direction agreement (LIRA-129)"
     fireEvent.click((await screen.findAllByText("LOTO"))[0]);
     await openSupplierTable("payments");
 
-    const amountCell = await screen.findByText("+15,000");
+    // LIRA-331: the signed amount sits in an <Ltr> (bdi) inside its cell.
+    const amountCell = (await screen.findByText("+15,000")).closest(
+      "div",
+    ) as HTMLElement;
     // Owner's rule: UP is GREEN (was red pre-audit).
     expect(amountCell.className).toMatch(/text-emerald-400/);
 

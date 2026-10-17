@@ -6,6 +6,8 @@
  * (owner answer Q2, "Refund All Remaining" — no `saleItemId`). Fully-
  * refunded lines are hidden; there is nothing left to refund on them.
  */
+import { useTranslation } from "react-i18next";
+
 export interface SessionSaleLineItem {
   id: number;
   name: string;
@@ -27,6 +29,7 @@ export function SessionSaleLinePickerModal({
   onRefundAllRemaining,
   onCancel,
 }: SessionSaleLinePickerModalProps) {
+  const { t } = useTranslation("audit");
   const refundable = items.filter(
     (item) => item.quantity - (item.refunded_quantity ?? 0) > 0,
   );
@@ -46,7 +49,7 @@ export function SessionSaleLinePickerModal({
       >
         <div className="p-6 border-b border-slate-700">
           <h3 className="text-lg font-bold text-white">
-            Refund Which Item?
+            {t("linePicker.title")}
           </h3>
         </div>
 
@@ -62,15 +65,17 @@ export function SessionSaleLinePickerModal({
                 <div className="min-w-0">
                   <p className="text-sm text-white truncate">{item.name}</p>
                   <p className="text-xs text-slate-500">
-                    Qty: {remaining} remaining × $
-                    {item.sold_price_usd.toFixed(2)}
+                    {t("linePicker.qty", {
+                      remaining,
+                      price: item.sold_price_usd.toFixed(2),
+                    })}
                   </p>
                 </div>
                 <button
                   onClick={() => onPickLine(item)}
                   className="px-3 py-1.5 text-xs rounded bg-red-600 hover:bg-red-500 text-white font-medium shrink-0"
                 >
-                  Refund
+                  {t("linePicker.refund")}
                 </button>
               </div>
             );
@@ -82,13 +87,13 @@ export function SessionSaleLinePickerModal({
             onClick={onCancel}
             className="flex-1 px-4 py-2.5 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg font-medium transition-colors"
           >
-            Cancel
+            {t("linePicker.cancel")}
           </button>
           <button
             onClick={() => onRefundAllRemaining()}
             className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-lg font-medium transition-colors"
           >
-            Refund All Remaining
+            {t("linePicker.refundAll")}
           </button>
         </div>
       </div>

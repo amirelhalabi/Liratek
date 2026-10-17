@@ -1,4 +1,8 @@
 import { useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import type { OmtCoveredType } from "@liratek/core";
 import {
   useSupplierAccountExpectedStatementQuery,
@@ -75,7 +79,7 @@ function saveInputs(accountSupplierId: number, usd: string, lbp: string) {
  *  thousands separators and a decimal point. Returns `null` for an empty or
  *  unparsable string (shown as "—", not a false 0 vs 0 match). */
 function parseSmsFigure(raw: string): number | null {
-  const trimmed = raw.trim();
+  const trimmed = normalizeDigits(raw).trim();
   if (trimmed === "" || trimmed === "-") return null;
   const cleaned = trimmed.replace(/,/g, "");
   const n = Number(cleaned);
@@ -89,7 +93,7 @@ function formatUsd(n: number): string {
 
 function formatLbp(n: number): string {
   const sign = n < 0 ? "-" : "";
-  return `${sign}${Math.abs(Math.round(n)).toLocaleString()} LBP`;
+  return `${sign}${formatNumber(Math.abs(Math.round(n)))} LBP`;
 }
 
 function DiffBadge({
@@ -101,8 +105,13 @@ function DiffBadge({
   eps: number;
   format: (n: number) => string;
 }) {
+  const { t } = useTranslation("suppliers");
   if (diff === null) {
-    return <span className="text-slate-500 text-xs">Type the SMS figure</span>;
+    return (
+      <span className="text-slate-500 text-xs">
+        {t("statement.typeSmsFigure")}
+      </span>
+    );
   }
   const matches = Math.abs(diff) <= eps;
   return (
@@ -112,7 +121,17 @@ function DiffBadge({
         matches ? "text-emerald-400" : "text-amber-400"
       }`}
     >
-      {matches ? "Matches" : `Off by ${format(diff)}`}
+      {matches ? (
+        t("statement.matches")
+      ) : (
+        <Trans
+          t={t}
+          i18nKey="statement.offBy"
+          values={{ money: format(diff) }}
+          // The same element <Ltr> renders: amounts keep their sign on the left.
+          components={{ ltr: <bdi dir="ltr" /> }}
+        />
+      )}
     </span>
   );
 }
@@ -122,6 +141,7 @@ export function OmtStatementCheckPanel({
 }: {
   account: AccountBalance;
 }) {
+  const { t } = useTranslation("suppliers");
   const accountSupplierId = account.account_supplier_id;
   // LIRA-256 — lazily initialised from this device's last choice (no
   // setState in an effect); undefined = All types.
@@ -168,7 +188,7 @@ export function OmtStatementCheckPanel({
       className="mt-3 rounded-lg border border-slate-700/60 bg-slate-900/40 p-3 space-y-3"
     >
       <div className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
-        Check against OMT&apos;s statement
+        {t("statement.title")}
       </div>
 
       <OmtCoveredTypesPicker
@@ -182,52 +202,54 @@ export function OmtStatementCheckPanel({
       />
 
       <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs font-mono">
-        <div className="text-slate-400">Owed to OMT (gross)</div>
+        <div className="text-slate-400">{t("statement.grossOwed")}</div>
         <div />
         <div data-testid="omt-statement-gross-usd" className="text-slate-200">
-          {formatUsd(grossUsd)}
+          <Ltr>{formatUsd(grossUsd)}</Ltr>
         </div>
         <div data-testid="omt-statement-gross-lbp" className="text-slate-200">
-          {formatLbp(grossLbp)}
+          <Ltr>{formatLbp(grossLbp)}</Ltr>
         </div>
 
-        <div className="text-slate-400">− Unsettled commission</div>
+        <div className="text-slate-400">
+          {t("statement.unsettledCommission")}
+        </div>
         <div />
         <div
           data-testid="omt-statement-commission-usd"
           className="text-slate-200"
         >
-          {formatUsd(commissionUsd)}
+          <Ltr>{formatUsd(commissionUsd)}</Ltr>
         </div>
         <div
           data-testid="omt-statement-commission-lbp"
           className="text-slate-200"
         >
-          {formatLbp(commissionLbp)}
+          <Ltr>{formatLbp(commissionLbp)}</Ltr>
         </div>
 
         <div className="text-slate-300 font-semibold border-t border-slate-700/60 pt-1">
-          = Expected on OMT&apos;s statement
+          {t("statement.expected")}
         </div>
         <div className="border-t border-slate-700/60 pt-1" />
         <div
           data-testid="omt-statement-expected-usd"
           className="text-white font-semibold"
         >
-          {formatUsd(expectedUsd)}
+          <Ltr>{formatUsd(expectedUsd)}</Ltr>
         </div>
         <div
           data-testid="omt-statement-expected-lbp"
           className="text-white font-semibold"
         >
-          {formatLbp(expectedLbp)}
+          <Ltr>{formatLbp(expectedLbp)}</Ltr>
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 pt-1">
         <div>
           <label className="block text-[11px] text-slate-400 mb-1">
-            OMT SMS says (USD)
+            {t("statement.smsUsd")}
           </label>
           <input
             data-testid="omt-statement-sms-usd-input"
@@ -248,7 +270,7 @@ export function OmtStatementCheckPanel({
         </div>
         <div>
           <label className="block text-[11px] text-slate-400 mb-1">
-            OMT SMS says (LBP)
+            {t("statement.smsLbp")}
           </label>
           <input
             data-testid="omt-statement-sms-lbp-input"

@@ -484,11 +484,11 @@ const DAY_FMT: Intl.DateTimeFormatOptions = {
 };
 
 function dayText(d: Date): string {
-  return d.toLocaleDateString("en-GB", DAY_FMT);
+  return d.toLocaleDateString("en-GB", DAY_FMT); // i18n-exempt: export date format (en-GB)
 }
 
 function timeOf(d: Date): string {
-  return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); // i18n-exempt: export date format (en-GB)
 }
 
 /** "2026-10-16" (the page's date filter) as a local date. */
@@ -614,26 +614,26 @@ export function transactionsExportTemplate(
           ["Exported at", now, { type: "datetime" }],
         ]),
         exportTable({
-          title: "Money in / out",
+          title: "Money in / out", // i18n-exempt: export heading
           rows: currencies.filter(
             (c) => totals.in[c] !== undefined || totals.out[c] !== undefined,
           ),
           columns: [
-            { header: "Currency", value: (c) => c, width: 16 },
+            { header: "Currency", value: (c) => c, width: 16 }, // i18n-exempt: export heading
             {
-              header: "In",
+              header: "In", // i18n-exempt: export heading
               value: (c) => roundTo(totals.in[c] ?? 0, c),
               type: "money",
               currency: (c) => c,
             },
             {
-              header: "Out",
+              header: "Out", // i18n-exempt: export heading
               value: (c) => roundTo(totals.out[c] ?? 0, c),
               type: "money",
               currency: (c) => c,
             },
             {
-              header: "Net",
+              header: "Net", // i18n-exempt: export heading
               value: (c) =>
                 roundTo(
                   roundTo(totals.in[c] ?? 0, c) -
@@ -646,12 +646,12 @@ export function transactionsExportTemplate(
           ],
         }),
         exportTable({
-          title: "By type",
+          title: "By type", // i18n-exempt: export heading
           rows: typeRows,
           columns: [
-            { header: "Type", value: (t) => t.type },
+            { header: "Type", value: (t) => t.type }, // i18n-exempt: export heading
             {
-              header: "Count",
+              header: "Count", // i18n-exempt: export heading
               value: (t) => t.count,
               type: "integer",
               total: true,
@@ -685,41 +685,41 @@ export function transactionsExportTemplate(
           autoFilter: true,
           rowStyle: (p) => statusStyle(p.row),
           columns: [
-            { header: "Date", value: (p) => p.when, type: "date", width: 12 },
-            { header: "Time", value: (p) => p.when, type: "time", width: 7 },
+            { header: "Date", value: (p) => p.when, type: "date", width: 12 }, // i18n-exempt: export heading
+            { header: "Time", value: (p) => p.when, type: "time", width: 7 }, // i18n-exempt: export heading
             { header: "#", value: (p) => p.row.id, type: "integer", width: 8 },
-            { header: "Type", value: (p) => p.type, width: 20 },
+            { header: "Type", value: (p) => p.type, width: 20 }, // i18n-exempt: export heading
             {
-              header: "Client",
+              header: "Client", // i18n-exempt: export heading
               value: (p) => p.row.client_name ?? null,
               width: 18,
             },
             {
-              header: "Phone",
+              header: "Phone", // i18n-exempt: export heading
               value: (p) => p.row.client_phone ?? null,
               width: 12,
             },
             {
-              header: "Summary",
+              header: "Summary", // i18n-exempt: export heading
               value: (p) => displaySummary(p.row) ?? null,
               width: 46,
             },
             {
-              header: "Amount",
+              header: "Amount", // i18n-exempt: export heading
               value: (p) =>
                 amountCellText(p.row, deriveRow(p.row, p.isGroupHeader)),
               width: 18,
             },
             ...moneyColumns(currencies),
             {
-              header: "Method",
+              header: "Method", // i18n-exempt: export heading
               value: (p) => methodText(p.row, opts.methodLabelByCode),
               width: 20,
             },
-            { header: "User", value: (p) => p.row.username || null, width: 10 },
-            { header: "Status", value: (p) => rowStatusText(p.row), width: 15 },
+            { header: "User", value: (p) => p.row.username || null, width: 10 }, // i18n-exempt: export heading
+            { header: "Status", value: (p) => rowStatusText(p.row), width: 15 }, // i18n-exempt: export heading
             {
-              header: "Key details",
+              header: "Key details", // i18n-exempt: export heading
               value: (p) => keyDetailsText(p.row, ctx),
               width: 70,
             },
@@ -740,40 +740,40 @@ export function transactionsExportTemplate(
           autoFilter: true,
           columns: [
             {
-              header: "Txn #",
+              header: "Txn #", // i18n-exempt: export heading
               value: (l) => l.row.id,
               type: "integer",
               width: 8,
             },
             {
-              header: "Date",
+              header: "Date", // i18n-exempt: export heading
               value: (l) => whenOf.get(l.row.id)!.when,
               type: "date",
               width: 12,
             },
             {
-              header: "Time",
+              header: "Time", // i18n-exempt: export heading
               value: (l) => whenOf.get(l.row.id)!.when,
               type: "time",
               width: 7,
             },
             {
-              header: "Type",
+              header: "Type", // i18n-exempt: export heading
               value: (l) => whenOf.get(l.row.id)!.type,
               width: 20,
             },
-            { header: "Kind", value: (l) => l.kind, width: 20 },
-            { header: "In/Out", value: (l) => l.inOut, width: 8 },
-            { header: "Method", value: (l) => l.method || null, width: 18 },
-            { header: "Currency", value: (l) => l.currency || null, width: 9 },
+            { header: "Kind", value: (l) => l.kind, width: 20 }, // i18n-exempt: export heading
+            { header: "In/Out", value: (l) => l.inOut, width: 8 }, // i18n-exempt: export heading
+            { header: "Method", value: (l) => l.method || null, width: 18 }, // i18n-exempt: export heading
+            { header: "Currency", value: (l) => l.currency || null, width: 9 }, // i18n-exempt: export heading
             {
-              header: "Amount",
+              header: "Amount", // i18n-exempt: export heading
               value: (l) => (Number.isNaN(l.amount) ? null : l.amount),
               type: "money",
               currency: (l) => l.currency || "USD",
               width: 16,
             },
-            { header: "Note", value: (l) => l.note || null, width: 30 },
+            { header: "Note", value: (l) => l.note || null, width: 30 }, // i18n-exempt: export heading
           ],
         }),
       ],
@@ -792,21 +792,21 @@ export function transactionsExportTemplate(
           autoFilter: true,
           columns: [
             {
-              header: "Txn #",
+              header: "Txn #", // i18n-exempt: export heading
               value: (f) => f.p.row.id,
               type: "integer",
               width: 8,
             },
             {
-              header: "Date",
+              header: "Date", // i18n-exempt: export heading
               value: (f) => f.p.when,
               type: "datetime",
               width: 17,
             },
-            { header: "Type", value: (f) => f.p.type, width: 20 },
-            { header: "Section", value: (f) => f.section, width: 16 },
-            { header: "Field", value: (f) => f.field, width: 30 },
-            { header: "Value", value: (f) => f.value, width: 60 },
+            { header: "Type", value: (f) => f.p.type, width: 20 }, // i18n-exempt: export heading
+            { header: "Section", value: (f) => f.section, width: 16 }, // i18n-exempt: export heading
+            { header: "Field", value: (f) => f.field, width: 30 }, // i18n-exempt: export heading
+            { header: "Value", value: (f) => f.value, width: 60 }, // i18n-exempt: export heading
           ],
         }),
       ],
@@ -900,7 +900,7 @@ export function transactionsExportTemplate(
     };
 
     return {
-      title: `Transactions — ${period}`,
+      title: `Transactions — ${period}`, // i18n-exempt: export heading
       orientation: "landscape",
       headerLines: [
         ...(opts.shopName ? [opts.shopName] : []),
@@ -909,26 +909,26 @@ export function transactionsExportTemplate(
       ],
       summary: [
         {
-          title: "Money in / out",
+          title: "Money in / out", // i18n-exempt: export heading
           head: ["Currency", "In", "Out", "Net"],
           rows: moneyRows,
         },
         {
-          title: "Transactions by type",
+          title: "Transactions by type", // i18n-exempt: export heading
           head: ["Type", "Count", "Type", "Count"],
           rows: typeRows,
           numericColumns: [1, 3],
         },
       ],
       columns: [
-        { header: "Time", width: 36 },
+        { header: "Time", width: 36 }, // i18n-exempt: export heading
         { header: "#", width: 42 },
-        { header: "Type", width: 92 },
-        { header: "Client", width: 84 },
-        { header: "Summary" },
-        { header: "In", width: 98, align: "right" },
-        { header: "Out", width: 98, align: "right" },
-        { header: "Method", width: 92 },
+        { header: "Type", width: 92 }, // i18n-exempt: export heading
+        { header: "Client", width: 84 }, // i18n-exempt: export heading
+        { header: "Summary" }, // i18n-exempt: export heading
+        { header: "In", width: 98, align: "right" }, // i18n-exempt: export heading
+        { header: "Out", width: 98, align: "right" }, // i18n-exempt: export heading
+        { header: "Method", width: 92 }, // i18n-exempt: export heading
       ],
       groups: [...groups.entries()].map(([day, list]) => {
         const dayMoney: RowMoney = { in: {}, out: {} };
@@ -939,11 +939,12 @@ export function transactionsExportTemplate(
         for (const side of [dayMoney.in, dayMoney.out]) {
           for (const c of Object.keys(side)) side[c] = roundTo(side[c]!, c);
         }
+        // i18n-exempt: export date format (en-GB)
         const weekday = list[0]!.when.toLocaleDateString("en-GB", {
           weekday: "short",
         });
         return {
-          label: `${weekday} ${day}  ·  ${list.length} transaction${list.length === 1 ? "" : "s"}`,
+          label: `${weekday} ${day}  ·  ${list.length} transaction${list.length === 1 ? "" : "s"}`, // i18n-exempt: export heading
           totals: [sideText("In", dayMoney.in), sideText("Out", dayMoney.out)]
             .filter(Boolean)
             .join("   ·   "),

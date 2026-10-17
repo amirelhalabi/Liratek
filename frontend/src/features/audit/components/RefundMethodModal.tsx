@@ -1,10 +1,9 @@
 import { useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
 import { CounterpartySettleModal, type PaymentLine } from "@liratek/ui";
 import type { Money } from "@liratek/ui";
-import {
-  SHORTFALL_MAX,
-  type RefundKeptChangeInput,
-} from "@liratek/core";
+import { SHORTFALL_MAX, type RefundKeptChangeInput } from "@liratek/core";
 import type { TransactionPaymentLeg } from "../cashFlow";
 import {
   buildDefaultRefundLines,
@@ -168,6 +167,8 @@ export function RefundMethodModal({
   onCancel,
   onConfirm,
 }: RefundMethodModalProps) {
+  // Labels only: nothing translated here reaches `onConfirm`'s arguments.
+  const { t } = useTranslation("audit");
   // Computed once from the legs snapshot the caller passed in when opening
   // this modal — stable for the lifetime of one refund attempt.
   const originalNet = useMemo(() => netByCurrency(legs), [legs]);
@@ -196,8 +197,8 @@ export function RefundMethodModal({
   // never hand-typed.
   const keptCapText =
     refundCurrency === "LBP"
-      ? `${SHORTFALL_MAX.LBP.toLocaleString("en-US")} LBP`
-      : `$${SHORTFALL_MAX.USD.toLocaleString("en-US")}`;
+      ? `${formatNumber(SHORTFALL_MAX.LBP)} LBP`
+      : `$${formatNumber(SHORTFALL_MAX.USD)}`;
 
   const totals: Money[] = useMemo(
     () => defaults.map((d) => ({ currency: d.currencyCode, amount: d.amount })),
@@ -260,24 +261,26 @@ export function RefundMethodModal({
     currentRate,
     activeKept,
   );
-  const validationError =
-    plainError == null ? null : (keptError ?? plainError);
+  const validationError = plainError == null ? null : (keptError ?? plainError);
   const isDefault = linesMatchDefault(overrideLines, defaults);
 
   const methodLabel = (code: string): string =>
     paymentMethods.find((m) => m.code === code)?.label ?? code;
 
+  // Display only — the payload is built from `overrideLines`, never this text.
   const returningText = overrideLines
     .map((l) =>
-      l.currencyCode === "USD"
-        ? `$${l.amount.toLocaleString()} via ${methodLabel(l.method)}`
-        : `${l.amount.toLocaleString()} LBP via ${methodLabel(l.method)}`,
+      t("refundModal.via", {
+        amount:
+          l.currencyCode === "USD"
+            ? `$${formatNumber(l.amount)}`
+            : `${formatNumber(l.amount)} LBP`,
+        method: methodLabel(l.method),
+      }),
     )
     .join(" + ");
 
-  const setKeptFromMpi = (
-    next: { usd: number; lbp: number } | null,
-  ): void => {
+  const setKeptFromMpi = (next: { usd: number; lbp: number } | null): void => {
     setKept(next ? { usd: next.usd, lbp: next.lbp } : null);
   };
 
@@ -333,19 +336,22 @@ export function RefundMethodModal({
 
   return (
     <CounterpartySettleModal
-      title="Refund — Choose Return Method"
+      title={t("refundModal.title")}
       subtitle={
         <span data-testid="refund-subtitle">
           {!hasLegsToOverride
-            ? "A reversal entry will be created. Review the returned phone(s) below, then confirm."
+            ? t("refundModal.subtitleUnitsOnly")
             : keptEligible
-              ? `A reversal entry will be created. Choose which drawer(s) the refund is handed back from, and adjust the rate if needed. Hand back what the customer originally paid — in cash or a wallet in ${refundCurrency} it may be short by up to ${keptCapText}, and the rest is kept as profit.`
-              : "A reversal entry will be created. Choose which drawer(s) the refund is handed back from, and adjust the rate if needed — the total value at the rate shown must match what the customer originally paid."}
+              ? t("refundModal.subtitleKept", {
+                  currency: refundCurrency,
+                  cap: keptCapText,
+                })
+              : t("refundModal.subtitle")}
         </span>
       }
       onCancel={onCancel}
       onConfirm={handleConfirm}
-      confirmLabel="Confirm Refund"
+      confirmLabel={t("refundModal.confirm")}
       confirmColor="red"
       isSubmitting={isSubmitting}
       confirmDisabled={
@@ -355,7 +361,7 @@ export function RefundMethodModal({
       multiPaymentInput={
         hasLegsToOverride
           ? {
-              label: "Refund",
+              label: t("refundModal.paymentLabel"),
               currency: defaults[0]?.currencyCode ?? "USD",
               totalAmountCurrency: defaults[0]?.currencyCode ?? "USD",
               totals,
@@ -385,7 +391,7 @@ export function RefundMethodModal({
               showPmFee: false,
               // A refund's lines are money the shop hands BACK, not money
               // the customer paid (production test 2026-10-07).
-              paidLabel: "Hand back",
+              paidLabel: t("refundModal.handBack"),
               // Refund kept change — the shop hands money OUT, and only a
               // caller that may keep change wires the report (opt-in).
               ...(keptEligible
@@ -400,7 +406,9 @@ export function RefundMethodModal({
           data-testid="refund-rate-fallback-note"
           className="rounded-xl border border-amber-700/40 bg-amber-950/30 px-4 py-2 text-xs text-amber-300"
         >
-          No rate was recorded for this {entityLabel} — using today's rate.
+          {entityLabel === "sale"
+            ? t("refundModal.rateFallbackSale")
+            : t("refundModal.rateFallbackTransaction")}
         </div>
       )}
       {accountReduction &&
@@ -409,18 +417,20 @@ export function RefundMethodModal({
             data-testid="refund-account-reduction"
             className="rounded-xl border border-sky-700/40 bg-sky-950/30 px-4 py-3 text-sm text-sky-200"
           >
-            Reduces {accountReduction.clientLabel || "the customer"}'s account
-            by{" "}
-            {[
-              accountReduction.usd > 0
-                ? `$${accountReduction.usd.toLocaleString()}`
-                : null,
-              accountReduction.lbp > 0
-                ? `${accountReduction.lbp.toLocaleString()} LBP`
-                : null,
-            ]
-              .filter(Boolean)
-              .join(" and ")}
+            {t("refundModal.reducesAccount", {
+              client:
+                accountReduction.clientLabel || t("refundModal.theCustomer"),
+              amount: [
+                accountReduction.usd > 0
+                  ? `$${formatNumber(accountReduction.usd)}`
+                  : null,
+                accountReduction.lbp > 0
+                  ? `${formatNumber(accountReduction.lbp)} LBP`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(t("refundModal.and")),
+            })}
           </div>
         )}
       {hasLegsToOverride && (
@@ -428,7 +438,7 @@ export function RefundMethodModal({
           data-testid="refund-return-summary"
           className="rounded-xl border border-slate-700/50 bg-slate-900/50 px-4 py-3 text-sm"
         >
-          <span className="text-slate-400">Returning: </span>
+          <span className="text-slate-400">{t("refundModal.returning")}</span>
           <span className="font-mono text-white">{returningText || "—"}</span>
           {validationError && (
             <p
@@ -447,13 +457,13 @@ export function RefundMethodModal({
         >
           <div>
             <h4 className="text-sm font-semibold text-white">
-              Returned phones
+              {t("refundModal.returnedPhones")}
             </h4>
             {/* LIRA-296 follow-up (owner decision 2026-10-10): no warranty
                 date here — a returned phone's warranty is set at the till
                 when it is sold again. */}
             <p className="text-xs text-slate-400 mt-1">
-              The warranty is set again when the phone is resold.
+              {t("refundModal.warrantyNote")}
             </p>
           </div>
           {units.map((u) => {
@@ -474,7 +484,7 @@ export function RefundMethodModal({
                     }
                     className="w-3.5 h-3.5 rounded border-slate-600 bg-slate-700 accent-red-600"
                   />
-                  Defective
+                  {t("refundModal.defective")}
                 </label>
               </div>
             );
