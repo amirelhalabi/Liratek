@@ -1188,6 +1188,7 @@ function OmtWhishAppTransferFormInner({
                 setShowPaymentSheet(true);
               }
             }}
+            data-testid="transfer-proceed"
             disabled={
               !amount ||
               parseFloat(amount) <= 0 ||
