@@ -1,5 +1,9 @@
 import { fallbackMethodLabel } from "@/features/audit/transactionDisplay";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { expenseCategoryLabel } from "../expenseCategoryLabel";
 import { Calendar, RefreshCw, X, Ban, Pencil, Check } from "lucide-react";
 import { DataTable, DateRangeFilter } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
@@ -54,8 +58,9 @@ interface HistoryModalProps {
 function paymentMethodText(
   method: string | undefined,
   labels: Record<string, string> | undefined,
+  cashLabel: string,
 ): string {
-  if (!method) return "Cash";
+  if (!method) return cashLabel;
   return labels?.[method] ?? fallbackMethodLabel(method);
 }
 
@@ -68,6 +73,8 @@ export function HistoryModal({
   onVoid,
 }: HistoryModalProps) {
   useModalFocusFix(true);
+  const { t } = useTranslation("expenses");
+  const { t: tc } = useTranslation("common");
   const expensesWithDay = useMemo(
     () =>
       expenses.map((e) => ({
@@ -119,7 +126,7 @@ export function HistoryModal({
         setEditingId(null);
         onRefresh();
       } else {
-        alert(result.error ?? "Failed to save");
+        alert(result.error ?? t("errors.saveFailed"));
       }
     } finally {
       setEditSaving(false);
@@ -138,9 +145,9 @@ export function HistoryModal({
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700/60">
           <h2 className="text-base font-semibold text-white flex items-center gap-2">
             <Calendar className="text-slate-400" size={18} />
-            Expense History
-            <span className="text-xs text-slate-500 font-normal ml-1">
-              ({filteredData.length} records)
+            {t("history.title")}
+            <span className="text-xs text-slate-500 font-normal ms-1">
+              {t("history.records", { count: filteredData.length })}
             </span>
           </h2>
           <div className="flex items-center gap-2">
@@ -154,14 +161,14 @@ export function HistoryModal({
             <button
               onClick={onRefresh}
               className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-              title="Refresh"
+              title={tc("actions.refresh")}
             >
               <RefreshCw size={14} />
             </button>
             <button
               onClick={onClose}
               className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-              title="Close"
+              title={tc("actions.close")}
             >
               <X size={18} />
             </button>
@@ -170,39 +177,39 @@ export function HistoryModal({
         <div className="flex-1 min-h-0 overflow-auto p-4">
           {loading ? (
             <div className="flex items-center justify-center py-12 text-slate-500">
-              <RefreshCw size={20} className="animate-spin mr-2" />
-              Loading...
+              <RefreshCw size={20} className="animate-spin me-2" />
+              {tc("state.loading")}
             </div>
           ) : (
             <DataTable<Expense>
               columns={[
                 {
-                  header: "Description",
+                  header: t("history.description"),
                   className: "px-6 py-3",
                   sortKey: "description",
                 },
                 {
-                  header: "Category",
+                  header: t("form.category"),
                   className: "px-6 py-3",
                   sortKey: "category",
                 },
-                { header: "Paid By", className: "px-6 py-3" },
+                { header: t("history.paidBy"), className: "px-6 py-3" },
                 {
-                  header: "USD",
-                  className: "px-6 py-3 text-right",
+                  header: tc("currency.USD"),
+                  className: "px-6 py-3 text-end",
                   sortKey: "amount_usd",
                 },
-                { header: "LBP", className: "px-6 py-3 text-right" },
-                { header: "Action", className: "px-6 py-3 text-center" },
+                { header: tc("currency.LBP"), className: "px-6 py-3 text-end" },
+                { header: t("history.action"), className: "px-6 py-3 text-center" },
               ]}
               data={filteredData}
               exportExcel
               exportPdf
               exportFilename="expenses-history"
               className="w-full"
-              theadClassName="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
+              theadClassName="bg-slate-900/50 text-start text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
               tbodyClassName="divide-y divide-slate-700/50"
-              emptyMessage="No expenses recorded yet."
+              emptyMessage={t("history.empty")}
               renderRow={(expense) => {
                 const isRefunded = Boolean(expense.is_refunded);
                 const isEditing = editingId === expense.id;
@@ -216,14 +223,16 @@ export function HistoryModal({
                         <div className="text-sm text-white font-medium flex items-center gap-1 flex-wrap">
                           <span className="inline-flex items-center gap-0.5 text-[11px] font-mono text-red-400 shrink-0">
                             ↓{" "}
-                            {expense.amount_usd > 0
-                              ? `$${expense.amount_usd.toFixed(2)}`
-                              : `${expense.amount_lbp.toLocaleString()} LBP`}
+                            <Ltr>
+                              {expense.amount_usd > 0
+                                ? `$${expense.amount_usd.toFixed(2)}`
+                                : `${formatNumber(expense.amount_lbp)} LBP`}
+                            </Ltr>
                           </span>
                           {expense.description}
                           {isRefunded && (
-                            <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                              Refunded
+                            <span className="ms-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                              {t("history.refunded")}
                             </span>
                           )}
                           {expense.edited_by && (
@@ -231,9 +240,9 @@ export function HistoryModal({
                               entityType="expense"
                               entityId={expense.id!}
                               trigger={
-                                <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400 cursor-pointer hover:bg-yellow-500/20 transition-colors">
+                                <span className="ms-2 inline-flex items-center gap-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400 cursor-pointer hover:bg-yellow-500/20 transition-colors">
                                   <Pencil size={8} />
-                                  Edited
+                                  {t("history.edited")}
                                 </span>
                               }
                             />
@@ -242,20 +251,21 @@ export function HistoryModal({
                       </td>
                       <td className="px-6 py-4">
                         <span className="px-2.5 py-0.5 bg-slate-700 text-slate-300 rounded-full text-xs font-medium">
-                          {expense.category.replace(/_/g, " ")}
+                          {expenseCategoryLabel(expense.category, t)}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-400">
                         {paymentMethodText(
                           expense.paid_by_method,
                           methodLabels,
+                          tc("payment.CASH"),
                         )}
                       </td>
-                      <td className="px-6 py-4 text-right text-sm font-bold text-orange-400 font-mono">
-                        ${expense.amount_usd.toFixed(2)}
+                      <td className="px-6 py-4 text-end text-sm font-bold text-orange-400 font-mono">
+                        <Ltr>${expense.amount_usd.toFixed(2)}</Ltr>
                       </td>
-                      <td className="px-6 py-4 text-right text-sm font-bold text-orange-400 font-mono">
-                        {expense.amount_lbp.toLocaleString()}
+                      <td className="px-6 py-4 text-end text-sm font-bold text-orange-400 font-mono">
+                        <Ltr>{formatNumber(expense.amount_lbp)}</Ltr>
                       </td>
                       <td className="px-6 py-4 text-center">
                         <div className="flex items-center justify-center gap-1">
@@ -265,14 +275,14 @@ export function HistoryModal({
                                 onClick={handleSaveEdit}
                                 disabled={editSaving}
                                 className="p-1.5 text-emerald-400 hover:bg-emerald-400/10 rounded-lg transition-colors disabled:opacity-50"
-                                title="Save"
+                                title={tc("actions.save")}
                               >
                                 <Check size={15} />
                               </button>
                               <button
                                 onClick={() => setEditingId(null)}
                                 className="p-1.5 text-slate-400 hover:bg-slate-700 rounded-lg transition-colors"
-                                title="Cancel"
+                                title={tc("actions.cancel")}
                               >
                                 <X size={15} />
                               </button>
@@ -281,7 +291,7 @@ export function HistoryModal({
                             <button
                               onClick={() => startEdit(expense)}
                               className="p-1.5 text-slate-500 hover:text-orange-400 hover:bg-orange-400/10 rounded-lg transition-colors"
-                              title="Edit metadata"
+                              title={t("history.editMetadata")}
                             >
                               <Pencil size={14} />
                             </button>
@@ -289,7 +299,7 @@ export function HistoryModal({
                           <button
                             onClick={() => onVoid(expense.id!)}
                             className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
-                            title="Void expense"
+                            title={t("history.void")}
                           >
                             <Ban size={16} />
                           </button>
@@ -302,7 +312,7 @@ export function HistoryModal({
                           <div className="flex items-end gap-3 flex-wrap">
                             <div className="flex-1 min-w-[160px]">
                               <label className="text-xs text-slate-400 block mb-1">
-                                Description
+                                {t("history.description")}
                               </label>
                               <input
                                 value={editForm.description}
@@ -313,12 +323,12 @@ export function HistoryModal({
                                   }))
                                 }
                                 className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500 w-full"
-                                placeholder="Description"
+                                placeholder={t("history.description")}
                               />
                             </div>
                             <div>
                               <label className="text-xs text-slate-400 block mb-1">
-                                Category
+                                {t("form.category")}
                               </label>
                               <input
                                 value={editForm.category}
@@ -329,12 +339,12 @@ export function HistoryModal({
                                   }))
                                 }
                                 className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500 w-44"
-                                placeholder="Category"
+                                placeholder={t("form.category")}
                               />
                             </div>
                             <div className="flex-1 min-w-[160px]">
                               <label className="text-xs text-slate-400 block mb-1">
-                                Note
+                                {t("history.note")}
                               </label>
                               <input
                                 value={editForm.note}
@@ -345,7 +355,7 @@ export function HistoryModal({
                                   }))
                                 }
                                 className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500 w-full"
-                                placeholder="Note"
+                                placeholder={t("history.note")}
                               />
                             </div>
                           </div>

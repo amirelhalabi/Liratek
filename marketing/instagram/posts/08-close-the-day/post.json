@@ -63,7 +63,14 @@
     "assets/shots/dashboard.png"
   ],
   "notes": "",
-  "media": [],
+  "media": [
+    "media/slide-01.jpg",
+    "media/slide-02.jpg",
+    "media/slide-03.jpg",
+    "media/slide-04.jpg",
+    "media/slide-05.jpg"
+  ],
   "public_urls": [],
-  "published_id": null
+  "published_id": null,
+  "rendered_at": "2026-10-16T20:18:37.769Z"
 }

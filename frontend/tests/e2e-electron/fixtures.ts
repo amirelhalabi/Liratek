@@ -751,7 +751,9 @@ export async function navigateTo(page: Page, route: string) {
     "/debts": "text=Debt",
     "/expenses": "#expense-description",
     "/clients": 'button:has-text("Add Client")',
-    "/recharge": '#telecom-amount, button:has-text("MTC")',
+    // Unselected provider tabs are bare logos (no text) — anchor on the
+    // tab row itself (ProviderTabs: role=group "Providers").
+    "/recharge": '#telecom-amount, [role="group"][aria-label="Providers"]',
     "/maintenance": "#maintenance-device-name",
     "/loto": "text=Loto",
     // NOTE: keep anchors in sync with the pages — a stale anchor silently

@@ -11,6 +11,7 @@ const ALL = (shop: string) => [
   queryKeys.catalog(shop),
   queryKeys.rates(shop),
   queryKeys.modules(shop),
+  queryKeys.subscription(shop),
 ];
 
 describe("query keys (LIRA-300)", () => {

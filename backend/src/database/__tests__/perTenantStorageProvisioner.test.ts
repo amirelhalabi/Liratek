@@ -230,6 +230,68 @@ describe("createPerTenantStorageProvisioner", () => {
       expect(platformTenantRepo.getById(plain.id)?.google_signup_at).toBeNull();
     });
 
+    // LIRA-332 US1. Failing-first: run before the provisioner change, the
+    // trial seed was ignored (hard-coded literal) and trial_ends_at was NULL.
+    it("stamps the trial seed on the PLATFORM row only; no seed = today's paying row", () => {
+      const trial = provisioner.createTenant({
+        name: "Trial Shop",
+        slug: "trialshop",
+        contactName: null,
+        contactPhone: null,
+        notes: null,
+        adminUsername: "admin",
+        passwordHash: "hashed-password-value",
+        subscriptionSeed: {
+          plan: "standard",
+          status: "active",
+          current_period_end: null,
+          entitled_modules: null,
+          trial_started_at: "2026-10-17 07:00:00",
+          trial_ends_at: "2026-10-30 22:00:00",
+        },
+      });
+      const paying = provisioner.createTenant({
+        name: "Paying Shop",
+        slug: "payingshop",
+        contactName: null,
+        contactPhone: null,
+        notes: null,
+        adminUsername: "admin",
+        passwordHash: "hashed-password-value",
+      });
+
+      const trialSub = platformSubscriptionRepo.getByTenantId(trial.id);
+      expect(trialSub).toMatchObject({
+        plan: "standard",
+        status: "active",
+        current_period_end: null,
+        entitled_modules: null,
+        trial_started_at: "2026-10-17 07:00:00",
+        trial_ends_at: "2026-10-30 22:00:00",
+      });
+      expect(platformSubscriptionRepo.getByTenantId(paying.id)).toMatchObject({
+        plan: "standard",
+        status: "active",
+        current_period_end: null,
+        entitled_modules: null,
+        trial_started_at: null,
+        trial_ends_at: null,
+      });
+
+      // § 12.2 unchanged: the shop file holds no subscription rows.
+      const shopDb = new RealDatabase(
+        path.join(tenantsDir, `${trial.id}.db`),
+        { readonly: true },
+      );
+      try {
+        expect(
+          shopDb.prepare(`SELECT * FROM tenant_subscriptions`).all(),
+        ).toHaveLength(0);
+      } finally {
+        shopDb.close();
+      }
+    });
+
     it("links the shop file's admin user to the sign-up email, with the verified stamp (v196)", () => {
       const proven = "2026-10-07T12:00:00.000Z";
       const created = provisioner.createTenant({

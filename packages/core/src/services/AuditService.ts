@@ -232,6 +232,46 @@ export class AuditService {
       .getByEntity(entityType, entityId)
       .map(redactSensitiveAuditRow);
   }
+
+  /**
+   * LIRA-332 (FR-022): one shop's subscription history for the owner's
+   * PlanModal — activate, extend trial, record payment — newest first, at
+   * most 50. Platform scope, whatever the caller's.
+   */
+  subscriptionHistory(targetTenantId: number): SubscriptionHistoryEntry[] {
+    const rows = runWithoutTenant(() =>
+      this.repo.listSubscriptionHistory(targetTenantId, 50),
+    );
+    return rows.map((row) => ({
+      at: row.created_at,
+      actor: row.username,
+      action: row.action,
+      summary: row.summary,
+      oldValues: parseJsonObject(row.old_values),
+      newValues: parseJsonObject(row.new_values),
+    }));
+  }
+}
+
+export interface SubscriptionHistoryEntry {
+  at: string;
+  actor: string;
+  action: string;
+  summary: string;
+  oldValues: Record<string, unknown> | null;
+  newValues: Record<string, unknown> | null;
+}
+
+function parseJsonObject(raw: string | null): Record<string, unknown> | null {
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 // =============================================================================

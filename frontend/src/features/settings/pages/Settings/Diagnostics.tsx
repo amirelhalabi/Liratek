@@ -476,14 +476,14 @@ export default function Diagnostics() {
 
         {negStock.length > 0 && (
           <div className="border border-slate-700 rounded overflow-hidden">
-            <table className="w-full text-left">
+            <table className="w-full text-start">
               <thead className="bg-slate-900 text-slate-400 text-xs uppercase">
                 <tr>
                   <th className="p-2">Product</th>
                   <th className="p-2">Barcode</th>
-                  <th className="p-2 text-right">Stock</th>
-                  <th className="p-2 text-right">Oversold by</th>
-                  <th className="p-2 text-right">Actions</th>
+                  <th className="p-2 text-end">Stock</th>
+                  <th className="p-2 text-end">Oversold by</th>
+                  <th className="p-2 text-end">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -493,13 +493,13 @@ export default function Diagnostics() {
                     <td className="p-2 font-mono text-xs text-slate-400">
                       {p.barcode ?? "—"}
                     </td>
-                    <td className="p-2 text-sm text-right text-red-300">
+                    <td className="p-2 text-sm text-end text-red-300">
                       {p.stock_quantity}
                     </td>
-                    <td className="p-2 text-sm text-right text-slate-300">
+                    <td className="p-2 text-sm text-end text-slate-300">
                       {-p.stock_quantity}
                     </td>
-                    <td className="p-2 text-right">
+                    <td className="p-2 text-end">
                       <button
                         onClick={() => setAdjustingProduct(p)}
                         className="inline-flex items-center gap-1 px-2 py-1 bg-violet-600/20 hover:bg-violet-600/30 text-violet-300 rounded text-xs transition-colors"
@@ -550,7 +550,7 @@ export default function Diagnostics() {
             >
               {dbPath ?? "—"}
               {dbPathSource && (
-                <span className="ml-2 text-slate-500 font-sans text-[10px]">
+                <span className="ms-2 text-slate-500 font-sans text-[10px]">
                   ({dbPathSource})
                 </span>
               )}
@@ -712,7 +712,7 @@ export default function Diagnostics() {
       <div className="space-y-4">
         <h3 className="text-white font-semibold">Sync Errors</h3>
         <div className="border border-slate-700 rounded overflow-hidden">
-          <table className="w-full text-left">
+          <table className="w-full text-start">
             <thead className="bg-slate-900 text-slate-400 text-xs uppercase">
               <tr>
                 <th className="p-2">Time</th>

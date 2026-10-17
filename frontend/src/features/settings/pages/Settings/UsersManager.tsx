@@ -478,7 +478,7 @@ export default function UsersManager() {
             ...(web ? ["Email", "Google", "Sign-in"] : []),
             "Role",
             "Active",
-            { header: "Actions", className: "p-2 text-right" },
+            { header: "Actions", className: "p-2 text-end" },
           ]}
           data={list}
           loading={loading}
@@ -594,7 +594,7 @@ export default function UsersManager() {
                 )}
                 <td className="p-2">{u.role}</td>
                 <td className="p-2">{u.is_active ? "Yes" : "No"}</td>
-                <td className="p-2 text-right space-x-2">
+                <td className="p-2 text-end space-x-2">
                   <button
                     onClick={() => toggleActive(u.id, u.is_active)}
                     className="text-xs px-2 py-1 bg-slate-700 rounded"
@@ -655,7 +655,7 @@ export default function UsersManager() {
                 "Role",
                 "Status",
                 "Expires",
-                { header: "Actions", className: "p-2 text-right" },
+                { header: "Actions", className: "p-2 text-end" },
               ]}
               data={visibleInvites}
               emptyMessage="No invitations"
@@ -666,13 +666,13 @@ export default function UsersManager() {
                   <td className="p-2">
                     {inv.status === "pending" ? "Waiting" : "Expired"}
                     {inv.emailDelivery?.status === "failed" && (
-                      <span className="ml-2 text-xs text-red-400">
+                      <span className="ms-2 text-xs text-red-400">
                         Email not delivered
                       </span>
                     )}
                   </td>
                   <td className="p-2">{formatDay(inv.expiresAt)}</td>
-                  <td className="p-2 text-right space-x-2">
+                  <td className="p-2 text-end space-x-2">
                     <button
                       onClick={() => resendInvite(inv.id)}
                       disabled={busyInviteId === inv.id || !emailConfigured}

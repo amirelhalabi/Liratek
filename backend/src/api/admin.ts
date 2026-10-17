@@ -43,7 +43,12 @@ import {
   type ListSignupInvitationsQuery,
   getSignupInvitationService,
   EMAIL_NOT_CONFIGURED,
+  activateSubscriptionSchema,
+  extendTrialSchema,
+  type SubscriptionStatusView,
+  type SubscriptionChange,
 } from "@liratek/core";
+import { scheduleOfflineRound } from "../offline/processorTimer.js";
 import {
   authenticateJWT,
   requireSuperAdmin,
@@ -776,6 +781,135 @@ router.patch("/subscriptions/:tenantId", (req, res) => {
     res
       .status(400)
       .json(createErrorResponse(ErrorCodes.VALIDATION_ERROR, message));
+  }
+});
+
+// ---------------------------------------------------------------------------
+// LIRA-332 — the owner's trial actions. Separate from Suspend/Activate
+// (`PATCH /tenants/:id`, `tenants.status`), which neither reads nor writes
+// (FR-016). Validated routes, never new keys on the unvalidated PATCH above
+// (research R10). Rules and refusals live in SubscriptionService.
+// ---------------------------------------------------------------------------
+
+/** What an owner trial action records, before and after (FR-022). */
+function trialAuditSnapshot(view: SubscriptionStatusView): Record<string, unknown> {
+  return {
+    standing: view.standing,
+    trialEndsAt: view.trial?.endsAt ?? null,
+    trialLastDay: view.trial?.lastDay ?? null,
+    currentPeriodEnd: view.currentPeriodEnd,
+  };
+}
+
+function tenantIdParam(raw: string | undefined): number | null {
+  const id = Number(raw);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function ownerTrialAction(
+  action: "activate_subscription" | "extend_trial",
+  run: (tenantId: number, body: Record<string, unknown>) => SubscriptionChange,
+  summary: (tenantId: number, body: Record<string, unknown>) => string,
+) {
+  return (req: express.Request, res: express.Response): void => {
+    const tenantId = tenantIdParam(req.params.tenantId);
+    if (tenantId === null) {
+      res
+        .status(400)
+        .json(createErrorResponse(ErrorCodes.VALIDATION_ERROR, "Invalid tenant id"));
+      return;
+    }
+    try {
+      const { before, after } = runWithoutTenant(() => run(tenantId, req.body));
+      getAuditService().logAdminAction({
+        actorUserId: req.user!.userId,
+        actorUsername: req.user!.username,
+        actorRole: req.user!.role,
+        targetTenantId: tenantId,
+        action,
+        entityType: "subscription",
+        entityId: String(tenantId),
+        summary: summary(tenantId, req.body),
+        oldValues: trialAuditSnapshot(before),
+        newValues: trialAuditSnapshot(after),
+      });
+      // A paired PC's events held since the trial ended book on this round
+      // (research R8, owner decision D-332-A).
+      scheduleOfflineRound(tenantId);
+      res.json(createSuccessResponse({ subscription: after }));
+    } catch (error) {
+      if (error instanceof AppError && error.code === "NOT_FOUND") {
+        res
+          .status(404)
+          .json(
+            createErrorResponse(
+              ErrorCodes.NOT_FOUND,
+              "That tenant has no subscription record",
+            ),
+          );
+        return;
+      }
+      if (error instanceof AppError && error.code === "VALIDATION_ERROR") {
+        res
+          .status(400)
+          .json(createErrorResponse(ErrorCodes.VALIDATION_ERROR, error.message));
+        return;
+      }
+      logger.error({ error, tenantId, action }, "Owner trial action failed");
+      res
+        .status(500)
+        .json(createErrorResponse(ErrorCodes.INTERNAL_ERROR, "Failed to update"));
+    }
+  };
+}
+
+// POST /api/admin/subscriptions/:tenantId/activate — body { until: day|null }
+router.post(
+  "/subscriptions/:tenantId/activate",
+  validateRequest(activateSubscriptionSchema),
+  ownerTrialAction(
+    "activate_subscription",
+    (tenantId, body) =>
+      getSubscriptionService().activate(tenantId, (body.until as string | null) ?? null),
+    (tenantId, body) =>
+      body.until
+        ? `Activated subscription for tenant ${tenantId} until ${String(body.until)}`
+        : `Activated subscription for tenant ${tenantId} (no end date)`,
+  ),
+);
+
+// POST /api/admin/subscriptions/:tenantId/extend-trial — body { lastDay }
+router.post(
+  "/subscriptions/:tenantId/extend-trial",
+  validateRequest(extendTrialSchema),
+  ownerTrialAction(
+    "extend_trial",
+    (tenantId, body) =>
+      getSubscriptionService().extendTrial(tenantId, String(body.lastDay)),
+    (tenantId, body) =>
+      `Extended the free trial of tenant ${tenantId} to ${String(body.lastDay)}`,
+  ),
+);
+
+// GET /api/admin/subscriptions/:tenantId/history — FR-022
+router.get("/subscriptions/:tenantId/history", (req, res) => {
+  const tenantId = tenantIdParam(req.params.tenantId);
+  if (tenantId === null) {
+    res
+      .status(400)
+      .json(createErrorResponse(ErrorCodes.VALIDATION_ERROR, "Invalid tenant id"));
+    return;
+  }
+  try {
+    const entries = getAuditService().subscriptionHistory(tenantId);
+    res.json(createSuccessResponse({ entries }));
+  } catch (error) {
+    logger.error({ error, tenantId }, "Subscription history error");
+    res
+      .status(500)
+      .json(
+        createErrorResponse(ErrorCodes.INTERNAL_ERROR, "Failed to load history"),
+      );
   }
 });
 
