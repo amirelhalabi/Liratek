@@ -182,7 +182,14 @@ export function ServiceDebtDetailModal({
               )}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              {formatDateTime(parseDbDate(fs.created_at))}
+              {formatDateTime(parseDbDate(fs.created_at), {
+                year: "numeric",
+                month: "numeric",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+                second: "2-digit",
+              })}
             </p>
           </div>
           <button

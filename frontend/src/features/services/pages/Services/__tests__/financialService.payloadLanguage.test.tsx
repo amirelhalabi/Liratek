@@ -263,6 +263,8 @@ interface Case {
   includingFees?: boolean;
   /** Whish carried for a partner (OMT-base shop) instead of the shop's own. */
   whishThroughPartner?: boolean;
+  /** Online Brokerage: the BINANCE fee charged to the customer. */
+  binanceFee?: number;
 }
 
 function input(id: string): HTMLInputElement {
@@ -308,6 +310,15 @@ async function fillAndSubmit(c: Case): Promise<unknown> {
   fireEvent.change(input("service-amount"), {
     target: { value: c.currency === "LBP" ? "500000" : "100" },
   });
+  if (c.binanceFee) {
+    fireEvent.click(screen.getByTestId("service-binance-charge-toggle"));
+    fireEvent.change(input("binance-supplier"), {
+      target: { value: "Binance" },
+    });
+    fireEvent.change(input("binance-fee"), {
+      target: { value: String(c.binanceFee) },
+    });
+  }
   if (c.whishFee) {
     fireEvent.change(input("service-whish-fee"), {
       target: { value: String(c.whishFee) },
@@ -360,6 +371,20 @@ const OMT_CASES: Case[] = OMT_SERVICE_TYPES.flatMap((omtServiceType) =>
         ),
       ),
   ),
+);
+
+// Online Brokerage with the BINANCE fee charged to the customer: the fee is
+// part of the payment total and travels as the transfer's fee.
+const BROKERAGE_FEE_CASES: Case[] = (["walkIn", "session"] as const).map(
+  (mode): Case => ({
+    name: `OMT ONLINE_BROKERAGE SEND USD BINANCE fee charged ${mode}`,
+    provider: "OMT",
+    serviceType: "SEND",
+    currency: "USD",
+    omtServiceType: "ONLINE_BROKERAGE",
+    mode,
+    binanceFee: 0.37,
+  }),
 );
 
 const PARTNER_CASES: Case[] = (["SEND", "RECEIVE"] as const).flatMap(
@@ -438,13 +463,29 @@ afterEach(async () => {
 
 describe("OMT/Whish payloads are the same in English and Arabic (LIRA-331)", () => {
   it.each(
-    [...OMT_CASES, ...PARTNER_CASES, ...WHISH_CASES].map((c) => [c.name, c]),
+    [
+      ...OMT_CASES,
+      ...BROKERAGE_FEE_CASES,
+      ...PARTNER_CASES,
+      ...WHISH_CASES,
+    ].map((c) => [c.name, c]),
   )("%s", async (_name, c) => {
     await i18n.changeLanguage("en");
     const en = await fillAndSubmit(c as Case);
     await i18n.changeLanguage("ar");
     const ar = await fillAndSubmit(c as Case);
     expect(ar).toEqual(en);
+    if ((c as Case).binanceFee) {
+      // The fee path really ran: it travels as the transfer's fee.
+      const sent = ((en as { formData?: unknown }).formData ?? en) as {
+        omtFee?: number;
+        payFee?: boolean;
+      };
+      expect([sent.payFee, sent.omtFee]).toEqual([
+        true,
+        (c as Case).binanceFee,
+      ]);
+    }
   });
 });
 
