@@ -44,7 +44,7 @@ export function ImeiAddRow({
   inputTestId = "imei-add-input",
   buttonTestId = "imei-add-button",
 }: ImeiAddRowProps) {
-  const { t } = useTranslation("inventory");
+  const { t } = useTranslation(["inventory", "common"]);
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);

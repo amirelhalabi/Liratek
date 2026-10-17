@@ -40,7 +40,7 @@ const COLUMN_KEYS = [
 ] as const;
 
 export function DefectiveItems() {
-  const { t } = useTranslation("warranty");
+  const { t } = useTranslation(["warranty", "common"]);
   const tRef = useRef(t);
   tRef.current = t;
   const api = useApi();

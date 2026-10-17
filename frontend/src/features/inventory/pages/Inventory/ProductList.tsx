@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { useFormat } from "@/i18n/useFormat";
 import logger from "@/utils/logger";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
@@ -189,6 +191,8 @@ function parseToonFile(text: string): ToonRecord[] {
 export default function ProductList() {
   const api = useApi();
   const navigate = useNavigate();
+  const { t } = useTranslation(["inventory", "common"]);
+  const { formatDate } = useFormat();
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -380,7 +384,7 @@ export default function ProductList() {
         loadFilterOptions();
         appEvents.emit(
           "notification:show",
-          "Batch update successful",
+          t("list.toast.batchUpdated"),
           "success",
         );
         // Desktop-only: Windows focus-fix workaround (electron-app main
@@ -390,7 +394,9 @@ export default function ProductList() {
       } else {
         appEvents.emit(
           "notification:show",
-          "Batch update failed: " + (result?.error ?? "Unknown error"),
+          t("list.toast.batchUpdateFailed", {
+            error: result?.error ?? t("list.toast.unknownError"),
+          }),
           "error",
         );
       }
@@ -399,7 +405,9 @@ export default function ProductList() {
       // Error) stringifies to "[object Object]", hiding the real refusal.
       appEvents.emit(
         "notification:show",
-        "Error: " + getApiErrorMessage(err, "Batch update failed"),
+        t("list.toast.errorPrefix", {
+          error: getApiErrorMessage(err, t("list.toast.batchUpdateFailedShort")),
+        }),
         "error",
       );
     } finally {
@@ -422,9 +430,9 @@ export default function ProductList() {
       // last successful result, still rendered).
       appEvents.emit(
         "notification:show",
-        `Failed to load products: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        t("list.toast.loadFailed", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
         "error",
       );
     } finally {
@@ -562,7 +570,7 @@ export default function ProductList() {
       // A newer request (single or batch) opened while we were awaiting —
       // its own result, not ours, owns the dialog now.
       if (token !== deleteProbeToken.current) return;
-      setDeleteUnitWarning(buildUnitDeleteWarning(entries, probeFailed));
+      setDeleteUnitWarning(buildUnitDeleteWarning(entries, probeFailed, t));
     } finally {
       // Only the still-current request may clear the spinner. A superseded
       // probe's `finally` firing LAST would otherwise unstick "Checking…"
@@ -583,7 +591,7 @@ export default function ProductList() {
       const targets = products.filter((p) => selectedIds.has(p.id));
       const { entries, probeFailed } = await probeInStockUnits(targets);
       if (token !== deleteProbeToken.current) return;
-      setDeleteUnitWarning(buildUnitDeleteWarning(entries, probeFailed));
+      setDeleteUnitWarning(buildUnitDeleteWarning(entries, probeFailed, t));
     } finally {
       if (token === deleteProbeToken.current) setCheckingUnits(false);
     }
@@ -592,7 +600,7 @@ export default function ProductList() {
   /** The confirm's base copy plus the IMEI disclosure (or the in-flight
    *  notice), so both dialogs compose their message the same way. */
   const composeDeleteMessage = (base: string): string => {
-    if (checkingUnits) return `${base}\n\nChecking for registered IMEIs…`;
+    if (checkingUnits) return `${base}\n\n${t("list.deleteConfirm.checkingImeis")}`;
     return deleteUnitWarning ? `${base}\n\n${deleteUnitWarning}` : base;
   };
 
@@ -609,7 +617,7 @@ export default function ProductList() {
       if (result && !result.success) {
         appEvents.emit(
           "notification:show",
-          result.error || "Failed to delete product",
+          result.error || t("list.toast.deleteFailed"),
           "error",
         );
         return;
@@ -617,7 +625,7 @@ export default function ProductList() {
 
       appEvents.emit(
         "notification:show",
-        "Product deleted successfully",
+        t("list.toast.deleted"),
         "success",
       );
       loadProducts(); // Refresh list
@@ -632,7 +640,7 @@ export default function ProductList() {
       // discarded here in favor of this hardcoded string.
       appEvents.emit(
         "notification:show",
-        getApiErrorMessage(error, "Failed to delete product"),
+        getApiErrorMessage(error, t("list.toast.deleteFailed")),
         "error",
       );
       logger.error("Failed to delete:", error);
@@ -654,7 +662,7 @@ export default function ProductList() {
       if (!result.success) {
         appEvents.emit(
           "notification:show",
-          result.error || "Failed to delete products",
+          result.error || t("list.toast.deleteManyFailed"),
           "error",
         );
         return;
@@ -663,7 +671,7 @@ export default function ProductList() {
       const deleted = result.deleted ?? ids.length;
       appEvents.emit(
         "notification:show",
-        `${deleted} product${deleted !== 1 ? "s" : ""} deleted`,
+        t("list.toast.deletedMany", { count: deleted }),
         "success",
       );
       closeDeleteConfirms();
@@ -676,7 +684,7 @@ export default function ProductList() {
       // string (a thrown ApiError is a plain object, not an Error).
       appEvents.emit(
         "notification:show",
-        getApiErrorMessage(error, "Failed to delete products"),
+        getApiErrorMessage(error, t("list.toast.deleteManyFailed")),
         "error",
       );
       logger.error("Batch delete failed:", error);
@@ -699,8 +707,8 @@ export default function ProductList() {
     appEvents.emit(
       "notification:show",
       editingProduct
-        ? "Product updated successfully"
-        : "Product created successfully",
+        ? t("list.toast.updated")
+        : t("list.toast.created"),
       "success",
     );
     // Desktop-only: Windows focus-fix workaround (electron-app main
@@ -829,7 +837,7 @@ export default function ProductList() {
       // snapshot against a product that may no longer exist.
       appEvents.emit(
         "notification:show",
-        "This product is no longer in the list — refreshing.",
+        t("list.toast.noLongerInList"),
         "error",
       );
       loadProducts();
@@ -859,7 +867,7 @@ export default function ProductList() {
       if (records.length === 0) {
         appEvents.emit(
           "notification:show",
-          "No records found in file",
+          t("list.toast.noRecords"),
           "error",
         );
         setIsImporting(false);
@@ -885,7 +893,7 @@ export default function ProductList() {
               results.push({
                 name: rec.name,
                 success: false,
-                error: `Barcode already used by: "${conflict.name}"`,
+                error: t("list.toast.barcodeUsedBy", { name: conflict.name }),
               });
               continue;
             }
@@ -911,7 +919,7 @@ export default function ProductList() {
             success: result.success,
           };
           if (!result.success) {
-            importResult.error = result.error ?? "Unknown error";
+            importResult.error = result.error ?? t("list.toast.unknownError");
           }
           results.push(importResult);
         } catch (err) {
@@ -921,7 +929,7 @@ export default function ProductList() {
           results.push({
             name: rec.name,
             success: false,
-            error: getApiErrorMessage(err, "Unknown error"),
+            error: getApiErrorMessage(err, t("list.toast.unknownError")),
           });
         }
       }
@@ -932,14 +940,14 @@ export default function ProductList() {
       if (failed === 0) {
         appEvents.emit(
           "notification:show",
-          `Import Results — ${succeeded} succeeded. All items imported successfully.`,
+          t("list.toast.importAllOk", { ok: succeeded }),
           "success",
           8000,
         );
       } else {
         appEvents.emit(
           "notification:show",
-          `Import Results — ${succeeded} succeeded, ${failed} failed.`,
+          t("list.toast.importSome", { ok: succeeded, failed }),
           "warning",
           8000,
         );
@@ -949,7 +957,10 @@ export default function ProductList() {
           .forEach((r) =>
             appEvents.emit(
               "notification:show",
-              `Failed: ${r.name} — ${r.error}`,
+              t("list.toast.importItemFailed", {
+                name: r.name,
+                error: r.error,
+              }),
               "error",
               10000,
             ),
@@ -966,7 +977,7 @@ export default function ProductList() {
       logger.error("Import failed", { error: err });
       appEvents.emit(
         "notification:show",
-        `Import failed: ${String(err)}`,
+        t("list.toast.importFailed", { error: String(err) }),
         "error",
       );
     } finally {
@@ -988,7 +999,7 @@ export default function ProductList() {
       />
 
       <PageHeader
-        title="Inventory"
+        title={t("list.title")}
         actions={
           <div className="flex items-center gap-2">
             <button
@@ -997,7 +1008,7 @@ export default function ProductList() {
               className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-medium transition-all disabled:opacity-50"
             >
               <Upload size={18} />
-              {isImporting ? "Importing..." : "Import .toon"}
+              {isImporting ? t("list.importing") : t("list.importToon")}
             </button>
             {/* LIRA-143 — entry point for the shop-wide IMEI register
                 (/inventory/units). Deliberately not in the sidebar. */}
@@ -1007,14 +1018,14 @@ export default function ProductList() {
               className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-medium transition-all"
             >
               <Smartphone size={18} />
-              Phone Units
+              {t("list.phoneUnits")}
             </button>
             <button
               onClick={() => setIsFormOpen(true)}
               className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-lg shadow-violet-900/20"
             >
               <Plus size={20} />
-              Add Product
+              {t("list.addProduct")}
             </button>
           </div>
         }
@@ -1029,13 +1040,13 @@ export default function ProductList() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name, barcode..."
+              placeholder={t("list.searchPlaceholder")}
               className="w-full bg-slate-900 border border-slate-700 rounded-lg ps-10 pe-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
             />
           </div>
 
           <MultiSelect
-            label="Category"
+            label={t("list.category")}
             testId="inventory-filter-category"
             className="w-44"
             values={filters.categories}
@@ -1046,7 +1057,7 @@ export default function ProductList() {
           />
 
           <MultiSelect
-            label="Supplier"
+            label={t("list.supplier")}
             testId="inventory-filter-supplier"
             className="w-44"
             values={filters.suppliers}
@@ -1089,7 +1100,7 @@ export default function ProductList() {
                 <button
                   type="button"
                   onClick={() => handleClearChip(chip.key)}
-                  aria-label={`Remove filter ${chip.label}`}
+                  aria-label={t("list.removeFilter", { label: chip.label })}
                   className="text-violet-300 transition-colors hover:text-white"
                 >
                   <X size={12} />
@@ -1102,7 +1113,7 @@ export default function ProductList() {
               data-testid="inventory-filters-clear"
               className="ms-1 rounded-lg px-2 py-1 text-xs text-slate-400 transition-colors hover:bg-slate-700 hover:text-white"
             >
-              Clear all
+              {t("list.clearAll")}
             </button>
           </div>
         )}
@@ -1128,7 +1139,7 @@ export default function ProductList() {
                 <button
                   onClick={() => setSelectedIds(new Set())}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-slate-700/50 px-2 py-1.5 text-xs text-slate-400 hover:bg-slate-700 hover:text-white transition-colors cursor-pointer"
-                  title="Clear selection"
+                  title={t("list.clearSelection")}
                 >
                   <X size={14} />
                 </button>
@@ -1140,7 +1151,7 @@ export default function ProductList() {
                   className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600/20 px-3 py-1.5 text-xs font-medium text-violet-400 hover:bg-violet-600/30 transition-colors cursor-pointer"
                 >
                   <Layers size={14} />
-                  Batch Edit ({selectedIds.size})
+                  {t("list.batchEditCount", { n: selectedIds.size })}
                 </button>
                 <button
                   onClick={requestBatchDelete}
@@ -1148,7 +1159,7 @@ export default function ProductList() {
                   className="inline-flex items-center gap-1.5 rounded-lg bg-red-600/20 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-600/30 transition-colors cursor-pointer"
                 >
                   <Trash2 size={14} />
-                  Delete ({selectedIds.size})
+                  {t("list.deleteCount", { n: selectedIds.size })}
                 </button>
               </div>
             ) : undefined
@@ -1172,51 +1183,51 @@ export default function ProductList() {
               width: "48px",
             },
             {
-              header: "Info",
+              header: t("list.columns.info"),
               sortKey: "name",
               className: "p-4 border-b border-slate-700",
             },
             {
-              header: "Category",
+              header: t("list.columns.category"),
               sortKey: "category",
               className: "p-4 border-b border-slate-700",
             },
             {
-              header: "Supplier",
+              header: t("list.columns.supplier"),
               sortKey: "supplier",
               className: "p-4 border-b border-slate-700",
             },
             {
-              header: "Added",
+              header: t("list.columns.added"),
               sortKey: "created_at",
               className: "p-4 border-b border-slate-700",
               width: "110px",
             },
             {
-              header: "Cost",
+              header: t("list.columns.cost"),
               sortKey: "cost_price",
               className: "p-4 border-b border-slate-700",
               width: "90px",
             },
             {
-              header: "Retail",
+              header: t("list.columns.retail"),
               sortKey: "retail_price",
               className: "p-4 border-b border-slate-700",
               width: "90px",
             },
             {
-              header: "Profit %",
+              header: t("list.columns.profit"),
               sortKey: "profit_percent",
               className: "p-4 border-b border-slate-700",
             },
             {
-              header: "Stock",
+              header: t("list.columns.stock"),
               sortKey: "stock_quantity",
               className: "p-4 border-b border-slate-700",
               width: "90px",
             },
             {
-              header: "Actions",
+              header: t("list.columns.actions"),
               className: "p-4 border-b border-slate-700 text-end",
               width: "90px",
             },
@@ -1248,9 +1259,9 @@ export default function ProductList() {
           }}
           paginate
           pageSize={20}
-          pageLabel="products"
+          pageLabel={t("list.pageLabel")}
           loading={loading}
-          emptyMessage="No products found."
+          emptyMessage={t("list.noProducts")}
           exportExcel
           exportPdf
           exportFilename="products"
@@ -1311,14 +1322,14 @@ export default function ProductList() {
                 </td>
                 <td className="p-4 text-slate-400 text-xs">
                   {product.created_at
-                    ? parseDbDate(product.created_at).toLocaleDateString()
+                    ? formatDate(parseDbDate(product.created_at))
                     : "-"}
                 </td>
                 <td className="p-4 text-slate-400">
                   ${(product.cost_price ?? 0).toFixed(2)}
                   {product.cost_tiers != null && product.cost_tiers > 1 && (
                     <span className="block text-[10px] text-slate-500">
-                      mixed cost
+                      {t("list.mixedCost")}
                     </span>
                   )}
                 </td>
@@ -1340,7 +1351,7 @@ export default function ProductList() {
                   <div
                     className={`font-medium ${(product.min_stock_level ?? 5) > 0 && (product.stock_quantity ?? 0) <= (product.min_stock_level ?? 5) ? "text-red-400" : "text-slate-300"}`}
                   >
-                    {product.stock_quantity ?? 0} units
+                    {t("list.stockUnits", { count: product.stock_quantity ?? 0 })}
                   </div>
                 </td>
                 <td className="p-4 text-end">
@@ -1351,9 +1362,9 @@ export default function ProductList() {
                         setAdjustingProduct(product);
                       }}
                       className="p-2 text-slate-400 hover:text-violet-400 hover:bg-violet-400/10 rounded transition-colors"
-                      title="Adjust stock"
+                      title={t("list.adjustStock")}
                       data-testid={`inventory-adjust-stock-${product.id}`}
-                      aria-label={`Adjust stock for ${product.name}`}
+                      aria-label={t("list.adjustStockFor", { name: product.name })}
                     >
                       <PackagePlus size={16} />
                     </button>
@@ -1363,9 +1374,9 @@ export default function ProductList() {
                         handleEdit(product);
                       }}
                       className="p-2 text-slate-400 hover:text-blue-400 hover:bg-blue-400/10 rounded transition-colors"
-                      title="Edit"
+                      title={t("common:actions.edit")}
                       data-testid={`inventory-edit-${product.id}`}
-                      aria-label={`Edit ${product.name}`}
+                      aria-label={t("list.editName", { name: product.name })}
                     >
                       <Edit2 size={16} />
                     </button>
@@ -1375,7 +1386,7 @@ export default function ProductList() {
                         requestDelete(product);
                       }}
                       data-testid={`inventory-delete-${product.id}`}
-                      aria-label={`Delete ${product.name}`}
+                      aria-label={t("list.deleteName", { name: product.name })}
                       className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded transition-colors"
                     >
                       <Trash2 size={16} />
@@ -1394,13 +1405,17 @@ export default function ProductList() {
           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl">
             <div className="flex items-center justify-between p-6 border-b border-slate-700">
               <div>
-                <h2 className="text-lg font-bold text-white">Batch Edit</h2>
+                <h2 className="text-lg font-bold text-white">
+                  {t("list.batch.title")}
+                </h2>
                 <p className="text-sm text-slate-400 mt-0.5">
-                  Updating{" "}
+                  {t("list.batch.updating")}{" "}
                   <span className="text-violet-400 font-medium">
                     {selectedIds.size}
                   </span>{" "}
-                  selected product{selectedIds.size !== 1 ? "s" : ""}
+                  {t("list.batch.selectedProducts", {
+                    count: selectedIds.size,
+                  })}
                 </p>
               </div>
               <button
@@ -1412,16 +1427,14 @@ export default function ProductList() {
             </div>
             <div className="p-6 space-y-4">
               <p className="text-xs text-slate-500 bg-slate-900/50 rounded-lg px-3 py-2">
-                Only fill in the fields you want to change. Blank fields will be
-                left unchanged. Unique fields (name, barcode, price) cannot be
-                batch-edited.
+                {t("list.batch.hint")}
               </p>
 
               <div className="grid grid-cols-2 gap-4">
                 {/* Category */}
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-1">
-                    Category
+                    {t("list.batch.category")}
                   </label>
                   <input
                     type="text"
@@ -1439,7 +1452,7 @@ export default function ProductList() {
                 {/* Supplier */}
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-1">
-                    Supplier
+                    {t("list.batch.supplier")}
                   </label>
                   <input
                     type="text"
@@ -1450,7 +1463,7 @@ export default function ProductList() {
                         supplier: e.target.value,
                       }))
                     }
-                    placeholder="Supplier name (optional)"
+                    placeholder={t("list.batch.supplierPlaceholder")}
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-violet-500"
                   />
                 </div>
@@ -1458,7 +1471,7 @@ export default function ProductList() {
                 {/* Quantity (unit) */}
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-1">
-                    Quantity
+                    {t("list.batch.quantity")}
                   </label>
                   <input
                     type="text"
@@ -1473,7 +1486,7 @@ export default function ProductList() {
                 {/* Min. Stock Alert */}
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-1">
-                    Min. Stock Alert
+                    {t("list.batch.minStock")}
                   </label>
                   <input
                     type="number"
@@ -1496,7 +1509,7 @@ export default function ProductList() {
                 onClick={() => setShowBatchModal(false)}
                 className="flex-1 px-4 py-2.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors text-sm"
               >
-                Cancel
+                {t("common:actions.cancel")}
               </button>
               <button
                 onClick={handleBatchSave}
@@ -1504,8 +1517,8 @@ export default function ProductList() {
                 className="flex-1 px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium transition-colors text-sm disabled:opacity-50"
               >
                 {batchSaving
-                  ? "Saving…"
-                  : `Update ${selectedIds.size} Products`}
+                  ? t("list.batch.saving")
+                  : t("list.batch.update", { n: selectedIds.size })}
               </button>
             </div>
           </div>
@@ -1549,11 +1562,15 @@ export default function ProductList() {
           inside that window isn't a blind one. */}
       <ConfirmModal
         isOpen={showDeleteConfirm !== null}
-        title="Delete Product"
+        title={t("list.deleteConfirm.title")}
         message={composeDeleteMessage(
-          "Are you sure you want to delete this product? This action cannot be undone.",
+          t("list.deleteConfirm.message"),
         )}
-        confirmLabel={checkingUnits ? "Checking…" : "Confirm"}
+        confirmLabel={
+          checkingUnits
+            ? t("list.deleteConfirm.checking")
+            : t("common:actions.confirm")
+        }
         onConfirm={() =>
           showDeleteConfirm && handleDelete(showDeleteConfirm.id)
         }
@@ -1563,11 +1580,15 @@ export default function ProductList() {
 
       <ConfirmModal
         isOpen={showBatchDeleteConfirm}
-        title="Batch Delete Products"
+        title={t("list.deleteConfirm.batchTitle")}
         message={composeDeleteMessage(
-          `Are you sure you want to delete ${selectedIds.size} selected products? This action cannot be undone.`,
+          t("list.deleteConfirm.batchMessage", { n: selectedIds.size }),
         )}
-        confirmLabel={checkingUnits ? "Checking…" : "Confirm"}
+        confirmLabel={
+          checkingUnits
+            ? t("list.deleteConfirm.checking")
+            : t("common:actions.confirm")
+        }
         onConfirm={handleBatchDelete}
         onCancel={closeDeleteConfirms}
         variant="danger"
@@ -1578,7 +1599,7 @@ export default function ProductList() {
         <div className="fixed bottom-0 start-0 end-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-700 shadow-2xl z-40">
           <div className="flex items-center gap-2 px-4 py-2 overflow-x-auto">
             {minimizedProducts.map((product, index) => {
-              const productName = product.formData.name || "New Product";
+              const productName = product.formData.name || t("list.minimized.newProduct");
               const isEditing = product.editingProduct !== null;
 
               return (
@@ -1593,7 +1614,9 @@ export default function ProductList() {
                       {productName}
                     </div>
                     <div className="text-[10px] text-slate-400">
-                      {isEditing ? "Editing" : "New Product"}
+                      {isEditing
+                        ? t("list.minimized.editing")
+                        : t("list.minimized.newProduct")}
                     </div>
                   </div>
                   {index === minimizedProducts.length - 1 && (
@@ -1602,7 +1625,7 @@ export default function ProductList() {
                   <button
                     onClick={(e) => handleCancelMinimizedProduct(product.id, e)}
                     className="ms-1 p-1 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded transition-colors"
-                    title="Cancel"
+                    title={t("common:actions.cancel")}
                   >
                     <Trash2 size={14} />
                   </button>

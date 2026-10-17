@@ -74,7 +74,7 @@ export default function AdjustStockModal({
   onClose,
   onSuccess,
 }: AdjustStockModalProps) {
-  const { t, i18n } = useTranslation("inventory");
+  const { t, i18n } = useTranslation(["inventory", "common"]);
   const { formatNumber, formatDate, formatDateTime } = useFormat();
   // Arabic only: isolate a bare number expression ("10 → 25") so the bidi
   // algorithm cannot reverse it. English keeps plain text nodes.

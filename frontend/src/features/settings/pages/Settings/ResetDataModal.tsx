@@ -26,7 +26,7 @@ type Status = "idle" | "submitting" | "success";
  * rest of the app visually and functionally.
  */
 export function ResetDataModal({ totalRows, onClose }: ResetDataModalProps) {
-  const { t } = useTranslation("settings");
+  const { t } = useTranslation(["settings", "common"]);
   const api = useApi();
   const [phrase, setPhrase] = useState("");
   const [status, setStatus] = useState<Status>("idle");

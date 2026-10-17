@@ -38,7 +38,7 @@ function errorText(error: unknown, fallback: string): string {
 }
 
 export default function WarrantyLookup() {
-  const { t } = useTranslation("warranty");
+  const { t } = useTranslation(["warranty", "common"]);
   const tRef = useRef(t);
   tRef.current = t;
   const api = useApi();

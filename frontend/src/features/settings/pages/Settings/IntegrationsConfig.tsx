@@ -6,7 +6,7 @@ import PasswordInput from "@/shared/components/PasswordInput";
 import { useTranslation } from "react-i18next";
 
 export default function IntegrationsConfig() {
-  const { t } = useTranslation("settings");
+  const { t } = useTranslation(["settings", "common"]);
   const api = useApi();
   const [whatsAppApiKey, setWhatsAppApiKey] = useState("");
   const [whatsAppPhoneNumberId, setWhatsAppPhoneNumberId] = useState("");

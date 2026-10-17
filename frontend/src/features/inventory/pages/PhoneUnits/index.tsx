@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { useFormat } from "@/i18n/useFormat";
+import { DirIcon } from "@liratek/ui/components/ui/DirIcon";
 import {
   ArrowLeft,
   ChevronLeft,
@@ -44,11 +48,6 @@ import {
   type PhoneUnitsStatusFilter,
 } from "./phoneUnitsLogic";
 
-const STATUS_OPTIONS = [
-  { value: "", label: "All statuses" },
-  { value: "IN_STOCK", label: "In stock" },
-  { value: "SOLD", label: "Sold" },
-];
 
 /**
  * LIRA-143 — the standalone "Phone Units" management view (`/inventory/units`).
@@ -65,6 +64,17 @@ const STATUS_OPTIONS = [
 export default function PhoneUnits() {
   const navigate = useNavigate();
   const api = useApi();
+  const { t } = useTranslation("inventory");
+  const { formatDate } = useFormat();
+  // Option values are the stored status codes; only the labels translate.
+  const statusOptions = useMemo(
+    () => [
+      { value: "", label: t("phoneUnits.statusAll") },
+      { value: "IN_STOCK", label: t("phoneUnits.statusInStock") },
+      { value: "SOLD", label: t("phoneUnits.statusSold") },
+    ],
+    [t],
+  );
 
   // ── Filter state ───────────────────────────────────────────────────────
   const [status, setStatus] = useState<PhoneUnitsStatusFilter>("");
@@ -140,7 +150,7 @@ export default function PhoneUnits() {
   const { data, isLoading, isError } = useUnitListQuery(filters);
   const rows = data?.rows ?? [];
   const total = data?.total ?? 0;
-  const range = computePageRange(filters.offset, rows.length, total);
+  const range = computePageRange(filters.offset, rows.length, total, t);
 
   // ── Expanded story panel ───────────────────────────────────────────────
   const [expandedImei, setExpandedImei] = useState<string | null>(null);
@@ -168,7 +178,9 @@ export default function PhoneUnits() {
     // BEFORE any fetching, and a cancel costs zero requests.
     if (
       total > PHONE_UNITS_EXPORT_MAX_ROWS &&
-      !confirm(exportCapConfirmMessage(total))
+      !confirm(
+        exportCapConfirmMessage(total, PHONE_UNITS_EXPORT_MAX_ROWS, t),
+      )
     ) {
       return;
     }
@@ -200,7 +212,7 @@ export default function PhoneUnits() {
       if (allRows.length === 0) {
         appEvents.emit(
           "notification:show",
-          "Nothing to export — no units match these filters.",
+          t("phoneUnits.nothingToExport"),
           "info",
         );
         return;
@@ -214,14 +226,17 @@ export default function PhoneUnits() {
       if (capped) {
         appEvents.emit(
           "notification:show",
-          `Exported the first ${PHONE_UNITS_EXPORT_MAX_ROWS.toLocaleString()} of ${total.toLocaleString()} matching units.`,
+          t("phoneUnits.exportedCapped", {
+            cap: formatNumber(PHONE_UNITS_EXPORT_MAX_ROWS),
+            total: formatNumber(total),
+          }),
           "warning",
         );
       }
     } catch (err) {
       appEvents.emit(
         "notification:show",
-        err instanceof Error ? err.message : "Failed to export units",
+        err instanceof Error ? err.message : t("phoneUnits.exportFailed"),
         "error",
       );
     } finally {
@@ -237,13 +252,13 @@ export default function PhoneUnits() {
   const deleteUnit = useDeleteUnitMutation(null);
 
   const handleDelete = async (unit: UnitListRowWithWarranty) => {
-    if (!confirm(`Remove unit ${unit.imei}? This cannot be undone.`)) return;
+    if (!confirm(t("phoneUnits.confirmRemove", { imei: unit.imei }))) return;
     try {
       const result = await deleteUnit.mutateAsync(unit.id);
       if (!result.success) {
         appEvents.emit(
           "notification:show",
-          result.error ?? "Failed to delete unit",
+          result.error ?? t("unit.deleteFailed"),
           "error",
         );
         return;
@@ -252,7 +267,7 @@ export default function PhoneUnits() {
     } catch (err) {
       appEvents.emit(
         "notification:show",
-        err instanceof Error ? err.message : "Failed to delete unit",
+        err instanceof Error ? err.message : t("unit.deleteFailed"),
         "error",
       );
     }
@@ -264,8 +279,8 @@ export default function PhoneUnits() {
       className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500"
     >
       <PageHeader
-        title="Phone Units"
-        subtitle="Every registered IMEI — stock status, sale, and warranty"
+        title={t("phoneUnits.title")}
+        subtitle={t("phoneUnits.subtitle")}
         actions={
           <div className="flex items-center gap-2">
             {/* Export ALL rows matching the current filters, not the page on
@@ -277,22 +292,26 @@ export default function PhoneUnits() {
               data-testid="phone-units-export-excel"
               onClick={() => handleExport("excel")}
               disabled={exportDisabled}
-              title="Export every unit matching the current filters to Excel"
+              title={t("phoneUnits.exportExcelTitle")}
               className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600/20 px-3 py-2 text-xs font-medium text-emerald-400 hover:bg-emerald-600/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <FileSpreadsheet size={14} />
-              {exporting === "excel" ? "Exporting…" : "Excel"}
+              {exporting === "excel"
+                ? t("phoneUnits.exporting")
+                : t("phoneUnits.excel")}
             </button>
             <button
               type="button"
               data-testid="phone-units-export-pdf"
               onClick={() => handleExport("pdf")}
               disabled={exportDisabled}
-              title="Export every unit matching the current filters to PDF"
+              title={t("phoneUnits.exportPdfTitle")}
               className="inline-flex items-center gap-1.5 rounded-lg bg-red-600/20 px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-600/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <FileText size={14} />
-              {exporting === "pdf" ? "Exporting…" : "PDF"}
+              {exporting === "pdf"
+                ? t("phoneUnits.exporting")
+                : t("phoneUnits.pdf")}
             </button>
             <button
               type="button"
@@ -300,8 +319,8 @@ export default function PhoneUnits() {
               onClick={() => navigate("/products")}
               className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-medium transition-all"
             >
-              <ArrowLeft size={18} />
-              Back to Inventory
+              <DirIcon icon={ArrowLeft} width={18} height={18} />
+              {t("phoneUnits.back")}
             </button>
           </div>
         }
@@ -314,11 +333,11 @@ export default function PhoneUnits() {
           <input
             type="text"
             data-testid="phone-units-search"
-            aria-label="Search units by IMEI or product"
+            aria-label={t("phoneUnits.searchAria")}
             value={searchInput}
             maxLength={PHONE_UNITS_SEARCH_MAX}
             onChange={(e) => handleSearchInput(e.target.value)}
-            placeholder="Search by IMEI or product..."
+            placeholder={t("phoneUnits.searchPlaceholder")}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg ps-10 pe-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
           />
         </div>
@@ -326,8 +345,8 @@ export default function PhoneUnits() {
         <Select
           value={status}
           onChange={handleStatusChange}
-          options={STATUS_OPTIONS}
-          placeholder="All statuses"
+          options={statusOptions}
+          placeholder={t("phoneUnits.statusAll")}
           className="w-44"
           buttonClassName="py-2"
         />
@@ -340,7 +359,7 @@ export default function PhoneUnits() {
             onChange={(e) => handleDefectiveChange(e.target.checked)}
             className="w-4 h-4 rounded border-slate-600 bg-slate-700 accent-violet-600 cursor-pointer"
           />
-          Defective only
+          {t("phoneUnits.defectiveOnly")}
         </label>
       </div>
 
@@ -359,27 +378,36 @@ export default function PhoneUnits() {
       <div className="flex-1 min-h-0 bg-slate-800 rounded-xl border border-slate-700 overflow-auto shadow-xl">
         <DataTable<UnitListRowWithWarranty>
           columns={[
-            { header: "IMEI", className: "p-3 border-b border-slate-700" },
-            { header: "Product", className: "p-3 border-b border-slate-700" },
+            { header: t("phoneUnits.columns.imei"), className: "p-3 border-b border-slate-700" },
             {
-              header: "Status",
+              header: t("phoneUnits.columns.product"),
+              className: "p-3 border-b border-slate-700",
+            },
+            {
+              header: t("phoneUnits.columns.status"),
               className: "p-3 border-b border-slate-700",
               width: "110px",
             },
             {
-              header: "Defective",
+              header: t("phoneUnits.columns.defective"),
               className: "p-3 border-b border-slate-700",
               width: "110px",
             },
             {
-              header: "Sold",
+              header: t("phoneUnits.columns.sold"),
               className: "p-3 border-b border-slate-700",
               width: "110px",
             },
-            { header: "Client", className: "p-3 border-b border-slate-700" },
-            { header: "Warranty", className: "p-3 border-b border-slate-700" },
             {
-              header: "Actions",
+              header: t("phoneUnits.columns.client"),
+              className: "p-3 border-b border-slate-700",
+            },
+            {
+              header: t("phoneUnits.columns.warranty"),
+              className: "p-3 border-b border-slate-700",
+            },
+            {
+              header: t("phoneUnits.columns.actions"),
               className: "p-3 border-b border-slate-700 text-end",
               width: "80px",
             },
@@ -387,7 +415,7 @@ export default function PhoneUnits() {
           data={rows}
           loading={isLoading}
           emptyMessage={
-            isError ? "Failed to load units." : "No units match these filters."
+            isError ? t("phoneUnits.loadFailed") : t("phoneUnits.noMatch")
           }
           /* No exportExcel/exportPdf here on purpose — DataTable's exporter
              builds from the `data` prop, which on this server-paginated page
@@ -402,11 +430,14 @@ export default function PhoneUnits() {
           renderRow={(unit) => {
             // An in-stock unit reads "Not sold" (plus the model's term, if
             // any); a sold unit shows its verdict (LIRA-296 follow-up).
-            const badge = warrantyDisplayBadge({
+            const badge = warrantyDisplayBadge(
+              {
               warranty: unit.warranty,
               status: unit.status,
               productWarrantyMonths: unit.product_warranty_months,
-            });
+              },
+              t,
+            );
             const isExpanded = expandedImei === unit.imei;
             return (
               <tr
@@ -431,10 +462,10 @@ export default function PhoneUnits() {
                     {unit.product_deleted === 1 && (
                       <span
                         data-testid={`phone-unit-product-deleted-${unit.id}`}
-                        title="This product has been deleted from inventory"
+                        title={t("unit.productDeletedTitle")}
                         className="text-[10px] px-1.5 py-0.5 rounded border bg-slate-700/40 text-slate-400 border-slate-600/40"
                       >
-                        Product deleted
+                        {t("unit.productDeleted")}
                       </span>
                     )}
                   </div>
@@ -443,13 +474,13 @@ export default function PhoneUnits() {
                   <span
                     className={`text-[10px] px-1.5 py-0.5 rounded border ${unitStatusBadgeClass(unit.status)}`}
                   >
-                    {unit.status}
+                    {t(`unit.status.${unit.status}`)}
                   </span>
                 </td>
                 <td className="p-3">
                   {unit.is_defective ? (
                     <span className="text-[10px] px-1.5 py-0.5 rounded border bg-red-500/10 text-red-400 border-red-500/30">
-                      Defective
+                      {t("unit.defective")}
                     </span>
                   ) : (
                     <span className="text-slate-600">—</span>
@@ -457,7 +488,7 @@ export default function PhoneUnits() {
                 </td>
                 <td className="p-3 text-slate-400 text-xs">
                   {unit.sold_at ? (
-                    parseDbDate(unit.sold_at).toLocaleDateString()
+                    formatDate(parseDbDate(unit.sold_at))
                   ) : (
                     <span className="text-slate-600">—</span>
                   )}
@@ -485,8 +516,8 @@ export default function PhoneUnits() {
                       }}
                       disabled={deleteUnit.isPending}
                       className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded transition-colors disabled:opacity-50"
-                      title="Remove unit"
-                      aria-label={`Remove unit ${unit.imei}`}
+                      title={t("unit.remove")}
+                      aria-label={t("unit.removeAria", { imei: unit.imei })}
                     >
                       <Trash2 size={16} />
                     </button>
@@ -506,7 +537,7 @@ export default function PhoneUnits() {
             className="text-sm text-slate-400"
             data-testid="phone-units-range"
           >
-            {range.label} units
+            {t("phoneUnits.rangeUnits", { range: range.label })}
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -514,20 +545,20 @@ export default function PhoneUnits() {
               data-testid="phone-units-prev"
               onClick={() => setPage((p) => Math.max(0, p - 1))}
               disabled={!range.hasPrev}
-              aria-label="Previous page"
+              aria-label={t("phoneUnits.prev")}
               className="p-1.5 rounded bg-slate-700 border border-slate-600 text-slate-300 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              <ChevronLeft size={16} />
+              <DirIcon icon={ChevronLeft} width={16} height={16} />
             </button>
             <button
               type="button"
               data-testid="phone-units-next"
               onClick={() => setPage((p) => p + 1)}
               disabled={!range.hasNext}
-              aria-label="Next page"
+              aria-label={t("phoneUnits.next")}
               className="p-1.5 rounded bg-slate-700 border border-slate-600 text-slate-300 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              <ChevronRight size={16} />
+              <DirIcon icon={ChevronRight} width={16} height={16} />
             </button>
           </div>
         </div>

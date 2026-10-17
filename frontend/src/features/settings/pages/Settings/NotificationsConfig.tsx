@@ -3,7 +3,7 @@ import { appEvents, useApi } from "@liratek/ui";
 import { useTranslation } from "react-i18next";
 
 export default function NotificationsConfig() {
-  const { t } = useTranslation("settings");
+  const { t } = useTranslation(["settings", "common"]);
   const api = useApi();
   const [pollMs, setPollMs] = useState("60000");
   const [warnLow, setWarnLow] = useState(true);

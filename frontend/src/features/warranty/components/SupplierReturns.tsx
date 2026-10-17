@@ -59,7 +59,7 @@ function CloseForm({
   onDone: (error: string | null) => void;
   onCancel: () => void;
 }) {
-  const { t } = useTranslation("warranty");
+  const { t } = useTranslation(["warranty", "common"]);
   const api = useApi();
   const apiRef = useRef(api);
   useEffect(() => {
@@ -161,7 +161,7 @@ function CloseForm({
 }
 
 export function SupplierReturns() {
-  const { t } = useTranslation("warranty");
+  const { t } = useTranslation(["warranty", "common"]);
   const tRef = useRef(t);
   tRef.current = t;
   const api = useApi();

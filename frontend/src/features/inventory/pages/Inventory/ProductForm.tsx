@@ -83,7 +83,7 @@ export default function ProductForm({
   onAdjustStock,
 }: ProductFormProps) {
   useModalFocusFix(true);
-  const { t } = useTranslation("inventory");
+  const { t } = useTranslation(["inventory", "common"]);
   const api = useApi();
   const queryClient = useQueryClient();
   const [isLoading, setIsLoading] = useState(false);

@@ -13,7 +13,7 @@ import { useTranslation } from "react-i18next";
  * a login.
  */
 export default function ProfitsPasswordPanel() {
-  const { t } = useTranslation("settings");
+  const { t } = useTranslation(["settings", "common"]);
   const api = useApi();
   const [isSet, setIsSet] = useState<boolean | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
