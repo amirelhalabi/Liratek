@@ -172,6 +172,8 @@ const ONLINE_ONLY: readonly string[] = [
   "users:set-password",
   "users:set-active",
   "users:set-role",
+  // LIRA-331: a user's own UI language is saved on the user row.
+  "user-preferences:set-language",
   "backup:create",
   "backup:delete",
   "backup:setDir",
@@ -313,6 +315,8 @@ const READ: readonly string[] = [
   "audit:get-recent",
   "audit:search",
   "auth:get-current-user",
+  // LIRA-331: the signed-in user's language preference.
+  "user-preferences:get",
   "auth:list-sessions",
   "backup:getDir",
   "backup:list",
