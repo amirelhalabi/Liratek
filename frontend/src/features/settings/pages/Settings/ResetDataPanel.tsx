@@ -280,7 +280,7 @@ export function ResetDataPanel() {
             {slow && (
               <span
                 data-testid="reset-data-slow"
-                className="ml-2 inline-flex items-center gap-2"
+                className="ms-2 inline-flex items-center gap-2"
               >
                 This is taking longer than usual.
                 <button
@@ -326,7 +326,7 @@ export function ResetDataPanel() {
                     <td className="px-4 py-2 text-sm text-slate-300">
                       {g.label}
                     </td>
-                    <td className="px-4 py-2 text-sm text-white text-right">
+                    <td className="px-4 py-2 text-sm text-white text-end">
                       {g.count.toLocaleString()}
                     </td>
                   </tr>
@@ -338,7 +338,7 @@ export function ResetDataPanel() {
                     <td className="px-4 py-3 text-sm font-semibold text-white">
                       Total rows
                     </td>
-                    <td className="px-4 py-3 text-sm font-bold text-white text-right">
+                    <td className="px-4 py-3 text-sm font-bold text-white text-end">
                       {preview.totalRows.toLocaleString()}
                     </td>
                   </tr>

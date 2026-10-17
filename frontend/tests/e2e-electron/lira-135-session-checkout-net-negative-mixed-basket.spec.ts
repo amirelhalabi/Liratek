@@ -238,7 +238,12 @@ test.describe("LIRA-135 — session checkout, net-negative mixed basket, driven 
 
     // Checkout completion signal: the success view replaces the cart/payment
     // form (checkout always closes the session).
-    await expect(appPage.getByText("Checkout Complete")).toBeVisible({
+    // The success HEADING, not getByText: getByText is a case-insensitive
+    // substring match and also hits the "Checkout complete — N items
+    // processed" toast while it is on screen (strict-mode: 2 elements).
+    await expect(
+      appPage.getByRole("heading", { name: "Checkout Complete", exact: true }),
+    ).toBeVisible({
       timeout: 15_000,
     });
 

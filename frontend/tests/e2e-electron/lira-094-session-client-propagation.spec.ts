@@ -25,6 +25,7 @@
 
 import { test, expect, navigateTo } from "./fixtures";
 import type { Page } from "@playwright/test";
+import { rechargeProviderTab } from "./helpers/rechargeTabs";
 
 // LIRA-297 (web mode): the web app re-polls sessions only every 120s, so a
 // session this spec starts/closes over window.api would not reach the UI in
@@ -152,12 +153,13 @@ async function providerTab(page: Page, label: string) {
       .first()
       .waitFor({ state: "hidden", timeout: 6_000 })
       .catch(() => {});
-    const tab = page
-      .locator("button")
-      .filter({ hasText: new RegExp(`^${label}$`) })
-      .first();
+    const tab = rechargeProviderTab(page, label);
     if (attempt === 0) {
-      await tab.click({ force: true });
+      // A normal click, not `force`: a forced click hits whatever sits at the
+      // tab's coordinates (the shop-line chip once covered MTC and this
+      // opened "Record usage"). If something covers the tab, fall through to
+      // the DOM-level click below.
+      await tab.click({ timeout: 5_000 }).catch(() => {});
     } else {
       // Retry path: something (session hover popup / toast) is covering the
       // tab's pixels — park the mouse away to dismiss hover overlays, then

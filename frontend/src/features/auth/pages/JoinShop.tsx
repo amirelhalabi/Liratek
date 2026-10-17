@@ -42,42 +42,28 @@ import { messageFrom } from "@/api/apiError";
 import { useTheme } from "@/contexts/ThemeContext";
 import logger from "@/utils/logger";
 import PasswordInput from "@/shared/components/PasswordInput";
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 
-const INVITE_INVALID_FALLBACK =
-  "This invite link is not valid. Ask the shop for a new invite.";
-const UNREACHABLE = "Could not reach the server. Please try again.";
 const MIN_USERNAME = 3;
 
-const GOOGLE_START_FAILED =
-  "Joining with Google could not start. Please try again.";
-
 /** Why "Join with Google" did not join (the callback's `google=` value). */
-const JOIN_GOOGLE_TEXT: Record<JoinWithGoogleResult, string> = {
-  email_mismatch:
-    "This invite was sent to a different email. Choose the Google account that uses the invited email, or join with a password.",
-  already_linked:
-    "That Google account is already connected to another user in this shop. Choose another Google account, or join with a password.",
-  invite_invalid: INVITE_INVALID_FALLBACK,
-  shop_not_active:
-    "This shop is not active right now. Ask the shop owner to renew, then use the link again.",
-  username_taken:
-    "That username is already taken in this shop. Choose another one.",
-  email_taken:
-    "A user in this shop already uses this email. Ask the shop owner for help.",
-  cancelled: "Joining with Google was cancelled.",
-  error: "Joining with Google did not work. Please try again.",
+const JOIN_GOOGLE_CODES: Record<JoinWithGoogleResult, true> = {
+  email_mismatch: true,
+  already_linked: true,
+  invite_invalid: true,
+  shop_not_active: true,
+  username_taken: true,
+  email_taken: true,
+  cancelled: true,
+  error: true,
 };
 
-function joinGoogleText(code: string | null): string {
-  return code && code in JOIN_GOOGLE_TEXT
-    ? JOIN_GOOGLE_TEXT[code as JoinWithGoogleResult]
-    : "";
+function joinGoogleCode(code: string | null): JoinWithGoogleResult | null {
+  return code && code in JOIN_GOOGLE_CODES
+    ? (code as JoinWithGoogleResult)
+    : null;
 }
-
-const ROLE_LABEL: Record<UserInviteCheckResult["role"], string> = {
-  admin: "Admin",
-  staff: "Staff",
-};
 
 type Entry =
   | { kind: "loading" }
@@ -85,6 +71,10 @@ type Entry =
   | { kind: "invalid"; message: string };
 
 export default function JoinShop() {
+  const { t } = useTranslation("auth");
+  const { t: tc } = useTranslation("common");
+  const INVITE_INVALID_FALLBACK = t("join.inviteInvalid");
+  const UNREACHABLE = t("shared.unreachable");
   const navigate = useNavigate();
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -100,9 +90,10 @@ export default function JoinShop() {
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   // Back from Google without joining (`google=<reason>`): shown once.
-  const [error, setError] = useState(() =>
-    joinGoogleText(searchParams.get("google")),
-  );
+  const [error, setError] = useState(() => {
+    const code = joinGoogleCode(searchParams.get("google"));
+    return code ? t(`join.google.${code}`) : "";
+  });
   const [googleEnabled, setGoogleEnabled] = useState(false);
   const [startingGoogle, setStartingGoogle] = useState(false);
   const [joined, setJoined] = useState<{ loginUrl: string | null } | null>(
@@ -132,7 +123,7 @@ export default function JoinShop() {
         logger.error("Invite check failed:", err);
         setEntry({ kind: "invalid", message: messageFrom(err, UNREACHABLE) });
       });
-  }, [token]);
+  }, [token, INVITE_INVALID_FALLBACK, UNREACHABLE]);
 
   // Is "Continue with Google" switched on here? Hidden on any doubt.
   useEffect(() => {
@@ -172,7 +163,7 @@ export default function JoinShop() {
         });
         return;
       }
-      setError(messageFrom(res.error, GOOGLE_START_FAILED));
+      setError(messageFrom(res.error, t("join.googleStartFailed")));
     } catch (err) {
       logger.error("Join with Google start failed:", err);
       setError(messageFrom(err, UNREACHABLE));
@@ -208,7 +199,7 @@ export default function JoinShop() {
         setJoined({ loginUrl: res.data?.loginUrl ?? null });
         return;
       }
-      setError(messageFrom(res.error, "Could not create your account"));
+      setError(messageFrom(res.error, t("join.couldNotCreate")));
     } catch (err) {
       logger.error("Invite accept failed:", err);
       setError(messageFrom(err, UNREACHABLE));
@@ -260,9 +251,9 @@ export default function JoinShop() {
 
   const signInFooter = (
     <p className={clsx("mt-4 text-center", subtleClass)}>
-      Already have an account?{" "}
+      {t("shared.alreadyHaveAccount")}{" "}
       <Link to="/login" className="text-orange-500 hover:text-orange-400">
-        Sign in
+        {t("shared.signIn")}
       </Link>
     </p>
   );
@@ -272,11 +263,8 @@ export default function JoinShop() {
       <div className={pageClass}>
         <div className={clsx(cardClass, "text-center")}>
           <CheckCircle2 className="w-10 h-10 text-green-500 mx-auto mb-3" />
-          <h1 className={clsx(headingClass, "mb-2")}>You&apos;re in</h1>
-          <p className={clsx(subtleClass, "mb-6")}>
-            Your account is ready. Sign in with the username and password you
-            just chose.
-          </p>
+          <h1 className={clsx(headingClass, "mb-2")}>{t("join.youreIn")}</h1>
+          <p className={clsx(subtleClass, "mb-6")}>{t("join.readyIntro")}</p>
           {joined.loginUrl ? (
             // A full page load: the shop's own address is another origin.
             <a
@@ -284,14 +272,14 @@ export default function JoinShop() {
               data-testid="join-login-url"
               className="block w-full py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg transition-colors text-center"
             >
-              Go to your shop
+              {t("shared.goToYourShop")}
             </a>
           ) : (
             <button
               onClick={() => navigate("/login")}
               className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg transition-colors"
             >
-              Go to sign in
+              {t("shared.goToSignIn")}
             </button>
           )}
         </div>
@@ -303,7 +291,7 @@ export default function JoinShop() {
     return (
       <div className={pageClass}>
         <div className={clsx(cardClass, "text-center")}>
-          <p className={subtleClass}>Loading...</p>
+          <p className={subtleClass}>{tc("state.loading")}</p>
         </div>
       </div>
     );
@@ -313,7 +301,7 @@ export default function JoinShop() {
     return (
       <div className={pageClass}>
         <div className={cardClass}>
-          <h1 className={clsx(headingClass, "mb-4")}>Join a shop</h1>
+          <h1 className={clsx(headingClass, "mb-4")}>{t("join.title")}</h1>
           {errorBox(entry.message)}
           {signInFooter}
         </div>
@@ -325,12 +313,12 @@ export default function JoinShop() {
   return (
     <div className={pageClass}>
       <form onSubmit={handleSubmit} className={cardClass}>
-        <h1 className={clsx(headingClass, "mb-1")}>Join {invite.shopName}</h1>
+        <h1 className={clsx(headingClass, "mb-1")}>
+          {t("join.joinShop", { shop: invite.shopName })}
+        </h1>
         <p className={clsx(subtleClass, "mb-6")}>
-          You were invited as {ROLE_LABEL[invite.role]}.{" "}
-          {googleEnabled
-            ? "Choose your username, then join with Google or with a password."
-            : "Choose your username and password."}
+          {t("join.invitedAs", { role: t(`join.roles.${invite.role}`) })}{" "}
+          {googleEnabled ? t("join.chooseWithGoogle") : t("join.chooseOnly")}
         </p>
 
         {error && errorBox(error)}
@@ -338,7 +326,7 @@ export default function JoinShop() {
         <div className="space-y-4">
           <div>
             <label className={labelClass} htmlFor="join-email">
-              Email
+              {t("shared.email")}
             </label>
             <input
               id="join-email"
@@ -352,7 +340,7 @@ export default function JoinShop() {
 
           <div>
             <label className={labelClass} htmlFor="join-username">
-              Username *
+              {t("join.usernameRequired")}
             </label>
             <input
               id="join-username"
@@ -365,7 +353,7 @@ export default function JoinShop() {
               autoFocus
             />
             <p className={hintClass}>
-              At least {MIN_USERNAME} characters. You will use it to sign in.
+              {t("join.usernameHint", { min: MIN_USERNAME })}
             </p>
           </div>
 
@@ -383,21 +371,23 @@ export default function JoinShop() {
                     : "border-gray-300 bg-white text-gray-900 hover:bg-gray-50",
                 )}
               >
-                {startingGoogle ? "Opening Google..." : "Join with Google"}
+                {startingGoogle
+                  ? t("join.openingGoogle")
+                  : t("join.joinWithGoogle")}
               </button>
               <p className={hintClass}>
-                Use the Google account for {invite.email}. No password needed;
-                you can set one later with &quot;Forgot password&quot;.
+                {t("join.googleHint")} <Ltr>{invite.email}</Ltr>
+                {t("join.googleHintEnd")}
               </p>
               <p className={clsx("mt-4 text-center text-xs", subtleClass)}>
-                or choose a password
+                {t("join.orChoosePassword")}
               </p>
             </div>
           )}
 
           <div>
             <label className={labelClass} htmlFor="join-password">
-              Password *
+              {t("join.passwordRequired")}
             </label>
             <PasswordInput
               label=""
@@ -415,10 +405,7 @@ export default function JoinShop() {
                 {passwordProblems.join(" ")}
               </p>
             ) : (
-              <p className={hintClass}>
-                At least 8 characters, with an uppercase letter, a lowercase
-                letter, a number and a symbol.
-              </p>
+              <p className={hintClass}>{t("join.passwordRule")}</p>
             )}
           </div>
         </div>
@@ -429,7 +416,7 @@ export default function JoinShop() {
           disabled={!canSubmit}
           className="mt-6 w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold rounded-lg transition-colors"
         >
-          {submitting ? "Creating your account..." : "Create my account"}
+          {submitting ? t("join.creatingAccount") : t("join.createAccount")}
         </button>
 
         {signInFooter}

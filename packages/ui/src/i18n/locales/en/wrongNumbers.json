@@ -1,1 +1,62 @@
-{}
+{
+  "dialog": {
+    "title": "Wrong number",
+    "creditsTitle": "Credits received",
+    "close": "Close",
+    "loading": "Loading…",
+    "notFound": "This wrong-number record was not found.",
+    "another": "Another card was sent to a wrong number"
+  },
+  "status": {
+    "WAITING": "Waiting for credits",
+    "PARTLY_RECOVERED": "Partly recovered",
+    "RECOVERED": "Recovered",
+    "VOIDED": "Undone"
+  },
+  "credits": {
+    "wrongNumber": "Wrong number {{number}}",
+    "rightNumber": " · right number {{number}}",
+    "cardCost": "Card cost",
+    "creditsBack": "Credits back",
+    "creditsBackValue": "${{recovered}} of ${{total}}",
+    "loss": "Loss",
+    "creditLine": "+${{amount}} on {{line}} · ",
+    "amountLabel": "Credits that arrived ($, up to {{max}})",
+    "lineLabel": "On shop line",
+    "noLine": "No active {{carrier}} shop line",
+    "primary": " (primary)",
+    "saving": "Saving...",
+    "save": "Save credits received",
+    "enterCredits": "Enter the credits that arrived and the shop line.",
+    "saveFailed": "Could not save the credits."
+  },
+  "panel": {
+    "introSale": "The sale stays as it is — it is the recharge of the right number. The wasted card is recorded as a loss from your {{provider}} balance.",
+    "intro": "The wasted card is recorded as a loss from your {{provider}} balance.",
+    "loadingCards": "Loading cards...",
+    "loadFailed": "Could not load the cards: {{error}}",
+    "loadFailedDefault": "Could not load the cards.",
+    "retry": "Retry",
+    "cardSent": "Card that was sent",
+    "fromSale": " · from this sale",
+    "noCard": "No MTC or Alfa card from {{provider}}",
+    "pickHint": "Pick the card that was sent.",
+    "wrongNumber": "Wrong number (optional)",
+    "rightNumber": "Customer's right number",
+    "creditsCame": "Credits already came back",
+    "creditsArrived": "Credits that arrived ($)",
+    "lineLabel": "On shop line",
+    "noLine": "No active {{carrier}} shop line",
+    "primary": " (primary)",
+    "loss": "Loss {{amount}}.",
+    "lossWithCredits": "Loss {{amount}} — the card carried ${{credits}}; credits sent back reduce it.",
+    "pickToSee": "Pick the card to see the loss.",
+    "saving": "Saving...",
+    "save": "Record wrong number",
+    "cancel": "Cancel",
+    "pickCard": "Pick the MTC or Alfa card that was sent.",
+    "enterRight": "Enter the customer's right number.",
+    "enterCredits": "Enter the credits that arrived and the shop line.",
+    "saveFailed": "Could not record the wrong number."
+  }
+}

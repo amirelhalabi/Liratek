@@ -18,10 +18,8 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import clsx from "clsx";
 import { AlertCircle, Store } from "lucide-react";
-import {
-  EMAIL_ALREADY_HAS_SHOP_MESSAGE,
-  type GoogleAuthErrorCode,
-} from "@liratek/core";
+import type { GoogleAuthErrorCode } from "@liratek/core";
+import { useTranslation } from "react-i18next";
 import EmailHasShopNotice from "@/features/auth/components/EmailHasShopNotice";
 import { googleChooseShop } from "@/api/backendApi";
 import { messageFrom } from "@/api/apiError";
@@ -32,23 +30,18 @@ import {
   navigateAway,
 } from "@/features/auth/utils/browserNavigation";
 
-const ERROR_TEXT: Record<GoogleAuthErrorCode, string> = {
-  no_account:
-    "No LiraTek account is connected to this Google account. Sign in with your username and password, then connect Google in My account — or create a new shop.",
-  already_connected:
-    "This Google account is already connected to a LiraTek shop. Sign in with Google instead, or use a different Google account to create a new shop.",
-  signup_limit:
-    "Today's limit for new shops has been reached. Please try again tomorrow. If you already have a shop, sign in instead.",
-  cancelled: "Google sign-in was cancelled.",
-  expired: "This Google sign-in took too long. Please try again.",
-  failed: "Google sign-in did not work. Please try again.",
-  not_configured: "Google sign-in is not available.",
+/** Every code the backend may send (GOOGLE_AUTH_ERRORS). Codes, never text. */
+const ERROR_CODES: Record<GoogleAuthErrorCode, true> = {
+  no_account: true,
+  already_connected: true,
+  signup_limit: true,
+  cancelled: true,
+  expired: true,
+  failed: true,
+  not_configured: true,
   // Shown by <EmailHasShopNotice> (with its Sign in link), not errorBox.
-  email_has_shop: EMAIL_ALREADY_HAS_SHOP_MESSAGE,
+  email_has_shop: true,
 };
-
-const CHOOSE_FAILED =
-  "This Google sign-in has expired. Please continue with Google again.";
 
 interface ChooseShop {
   tenantId: number;
@@ -70,10 +63,12 @@ function shopsFrom(ticket: string | null): ChooseShop[] {
 }
 
 function isErrorCode(value: string | null): value is GoogleAuthErrorCode {
-  return value !== null && value in ERROR_TEXT;
+  return value !== null && value in ERROR_CODES;
 }
 
 export default function GoogleAuth() {
+  const { t } = useTranslation("auth");
+  const CHOOSE_FAILED = t("googleAuth.chooseFailed");
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [params] = useState(() => hashQuery());
@@ -109,7 +104,10 @@ export default function GoogleAuth() {
     "text-2xl font-bold mb-4",
     dark ? "text-white" : "text-gray-900",
   );
-  const subtleClass = clsx("text-sm", dark ? "text-slate-400" : "text-gray-600");
+  const subtleClass = clsx(
+    "text-sm",
+    dark ? "text-slate-400" : "text-gray-600",
+  );
 
   const errorBox = (message: string) => (
     <div
@@ -124,26 +122,32 @@ export default function GoogleAuth() {
   const footer = (
     <p className={clsx("mt-4 text-center", subtleClass)}>
       <Link to="/login" className="text-orange-500 hover:text-orange-400">
-        Sign in
+        {t("shared.signIn")}
       </Link>
       {errorParam === "no_account" && (
         <>
           {" · "}
           <Link to="/signup" className="text-orange-500 hover:text-orange-400">
-            Sign up
+            {t("shared.signUp")}
           </Link>
         </>
       )}
     </p>
   );
 
+  // email_has_shop never reaches errorBox (the branch below shows the notice).
+  const errorCode: Exclude<GoogleAuthErrorCode, "email_has_shop"> =
+    isErrorCode(errorParam) && errorParam !== "email_has_shop"
+      ? errorParam
+      : "failed";
+
   let body: React.ReactNode;
   if (ticket && shops.length > 0) {
     body = (
       <>
-        <h1 className={headingClass}>Choose your shop</h1>
+        <h1 className={headingClass}>{t("googleAuth.chooseShop")}</h1>
         <p className={clsx(subtleClass, "mb-4")}>
-          Your Google account is connected in more than one shop.
+          {t("googleAuth.connectedMany")}
         </p>
         {chooseError && errorBox(chooseError)}
         <div className="space-y-2">
@@ -154,7 +158,7 @@ export default function GoogleAuth() {
               disabled={busy !== null}
               onClick={() => choose(shop)}
               className={clsx(
-                "flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors disabled:opacity-60",
+                "flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-start transition-colors disabled:opacity-60",
                 dark
                   ? "border-slate-600 text-white hover:bg-slate-700"
                   : "border-gray-300 text-gray-900 hover:bg-gray-50",
@@ -173,13 +177,11 @@ export default function GoogleAuth() {
   } else {
     body = (
       <>
-        <h1 className={headingClass}>Continue with Google</h1>
+        <h1 className={headingClass}>{t("shared.continueWithGoogle")}</h1>
         {errorParam === "email_has_shop" ? (
           <EmailHasShopNotice className="mb-4" />
         ) : (
-          errorBox(
-            isErrorCode(errorParam) ? ERROR_TEXT[errorParam] : ERROR_TEXT.failed,
-          )
+          errorBox(t(`googleAuth.errors.${errorCode}`))
         )}
       </>
     );

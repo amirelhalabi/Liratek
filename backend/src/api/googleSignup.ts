@@ -177,6 +177,8 @@ function handleGoogleSignup(req: Request, res: Response): void {
         contactEmailVerifiedAt: ticket.verifiedAt,
         // Marks the shop as a Google sign-up: the daily cap counts it.
         googleSignupAt: now,
+        // LIRA-332 (FR-001): a public sign-up starts a 14-day free trial.
+        trial: { source: "google" },
       }),
     ) as TenantEntity;
 

@@ -1,5 +1,19 @@
 import { NO_CONNECTION } from "@/api/client";
 
+/** LIRA-332: a write refused because the shop's free trial has ended. */
+export const TRIAL_ENDED = "TRIAL_ENDED";
+export const TRIAL_ENDED_MESSAGE =
+  "Your free trial has ended. Contact LiraTek on WhatsApp to activate.";
+
+/**
+ * Words for a refused action (save, sell, add a client). Known codes get
+ * shop-owner wording; anything else is already the server's own sentence.
+ */
+export function actionErrorMessage(code: string): string {
+  if (code === TRIAL_ENDED) return TRIAL_ENDED_MESSAGE;
+  return code;
+}
+
 /** Shop-owner wording for each refusal (contracts/mobile-api.md). Never reveals which shops exist. */
 export function signInErrorMessage(code: string): string {
   switch (code) {

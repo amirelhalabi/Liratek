@@ -1,1 +1,46 @@
-{}
+{
+  "title": "My account",
+  "password": "Password",
+  "emailLoadFailed": "Could not load account email.",
+  "profile": {
+    "label": "Profile",
+    "photo": "Account photo",
+    "roles": {
+      "admin": "Admin",
+      "staff": "Staff"
+    }
+  },
+  "changePassword": {
+    "title": "Change password",
+    "current": "Current password",
+    "new": "New password",
+    "confirm": "Confirm new password",
+    "enterCurrent": "Enter your current password.",
+    "mismatch": "Passwords do not match.",
+    "failed": "Could not change the password.",
+    "changed": "Password changed.",
+    "changedOneDevice": "Password changed. {{count}} other device was signed out.",
+    "changedDevices": "Password changed. {{count}} other devices were signed out.",
+    "cancel": "Cancel"
+  },
+  "display": {
+    "title": "Display (this device)",
+    "hint": "Saved on this device only",
+    "navStyle": "Navigation Style",
+    "leftPanel": "Left Panel",
+    "pageView": "Page View",
+    "active": "Active",
+    "itemsPerRow": "Items per row",
+    "navHint": "Left Panel shows a sidebar for navigation. Page View shows a home screen with cards.",
+    "posDisplay": "POS Product Display",
+    "showImages": "Show Images",
+    "tableView": "Table View",
+    "posHint": "Show Images displays products as image cards. Table View shows a compact list with pagination.",
+    "autofill": "Auto-fill Payment Amount",
+    "autofillHint": "Automatically fill the payment amount in POS checkout when the modal opens",
+    "size": "Size",
+    "sizeHint": "To make things bigger or smaller, use your browser's zoom: Ctrl + / Ctrl − (⌘ + / ⌘ − on a Mac).",
+    "uiScale": "UI Scale",
+    "uiScaleHint": "Scale the entire app UI. Use a smaller scale on POS screens to fit more content, or a larger scale for touch displays."
+  }
+}

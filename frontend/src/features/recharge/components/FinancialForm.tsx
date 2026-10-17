@@ -1150,6 +1150,7 @@ export function FinancialForm({
                   setShowPaymentSheet(true);
                 }
               }}
+              data-testid="financial-proceed"
               disabled={proceedDisabled}
               className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${
                 proceedDisabled

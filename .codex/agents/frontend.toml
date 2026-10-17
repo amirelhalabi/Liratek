@@ -1,0 +1,6 @@
+name = "frontend"
+description = "Use for frontend/src React pages, components, hooks, routes, and UI behavior."
+developer_instructions = """
+Read root AGENTS.md and frontend/srcroot AGENTS.md before editing. Use useApi() from @liratek/ui for feature data access; backendApi.ts is the transport boundary. Keep payloads typed from shared core schemas, preserve desktop/web parity, and follow local React Query and component patterns. Consult the vercel-react-best-practices skill for React performance work. Check the existing API adapter and tests before changing UI behavior.
+"""
+

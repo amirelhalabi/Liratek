@@ -431,7 +431,7 @@ export default function UpdatesPanel() {
                         {asset.name}
                       </span>
                     </div>
-                    <span className="text-slate-500 shrink-0 ml-3">
+                    <span className="text-slate-500 shrink-0 ms-3">
                       {formatBytes(asset.size)}
                     </span>
                   </div>

@@ -19,6 +19,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import GoogleAccountPanel from "@/features/settings/pages/Settings/GoogleAccountPanel";
 import SignedInDevices from "@/features/settings/pages/Settings/SignedInDevices";
 import ProfileSection from "@/features/account/components/ProfileSection";
@@ -34,6 +35,7 @@ import { messageFrom } from "@/api/apiError";
 
 export default function MyAccount() {
   const desktop = isElectron();
+  const { t } = useTranslation("account");
   const [accountEmail, setAccountEmail] = useState<OwnEmailView | null>(null);
   const [emailLoaded, setEmailLoaded] = useState(false);
   const [emailLoadError, setEmailLoadError] = useState<string | null>(null);
@@ -49,29 +51,29 @@ export default function MyAccount() {
           setEmailLoadError(null);
         } else {
           setEmailLoadError(
-            messageFrom(res.error, "Could not load account email."),
+            messageFrom(res.error, t("emailLoadFailed")),
           );
         }
         setEmailLoaded(true);
       })
       .catch((error) => {
         if (cancelled) return;
-        setEmailLoadError(messageFrom(error, "Could not load account email."));
+        setEmailLoadError(messageFrom(error, t("emailLoadFailed")));
         setEmailLoaded(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [desktop]);
+  }, [desktop, t]);
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-auto animate-in fade-in duration-500">
-      <h1 className="sr-only">My account</h1>
+      <h1 className="sr-only">{t("title")}</h1>
       <ProfileSection email={accountEmail?.email ?? null} />
       {desktop ? (
         // LIRA-293: desktop users always have a password (no Google there).
         <section
-          aria-label="Password"
+          aria-label={t("password")}
           className="rounded-xl border border-slate-700 bg-slate-800 p-4 pb-6"
         >
           <ChangePasswordForm />

@@ -27,7 +27,7 @@ export function ExpandingIconButton({
       {...rest}
     >
       <Icon size={20} className="shrink-0" aria-hidden="true" />
-      <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-200 group-hover:max-w-40 group-hover:ml-2 group-hover:opacity-100 group-focus-visible:max-w-40 group-focus-visible:ml-2 group-focus-visible:opacity-100">
+      <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-200 group-hover:max-w-40 group-hover:ms-2 group-hover:opacity-100 group-focus-visible:max-w-40 group-focus-visible:ms-2 group-focus-visible:opacity-100">
         {label}
       </span>
     </button>

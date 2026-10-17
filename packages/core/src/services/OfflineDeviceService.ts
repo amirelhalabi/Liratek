@@ -11,7 +11,12 @@
  * cursor and id range kept; the old key stops working).
  */
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { runWithTenant } from "../db/tenantContext.js";
+import {
+  getCurrentTenantId,
+  runWithTenant,
+  runWithoutTenant,
+} from "../db/tenantContext.js";
+import { getSubscriptionService } from "./SubscriptionService.js";
 import { MIGRATIONS } from "../db/migrations/index.js";
 import { getOfflineSnapshotTtlMs } from "../config/env.js";
 import { OFFLINE_PC_MAX } from "../offline/idRange.js";
@@ -73,9 +78,21 @@ export interface CheckinResult {
     maxOfflineIds: Record<string, number>;
     heldItems: Array<{ eventId: string; label: string; amount: number | null }>;
     renumberUnsent: boolean;
+    /**
+     * LIRA-332: the shop's free trial, so the PC refuses new offline work
+     * once it has ended (research R8). null: not on a trial, or unknown.
+     */
+    trial: PcTrialState | null;
   };
   error?: string;
   code?: string;
+}
+
+/** LIRA-332: what a paired PC is told about its shop's free trial. */
+export interface PcTrialState {
+  standing: "trial" | "trial_ended";
+  /** ISO UTC end instant. */
+  endsAt: string;
 }
 
 export interface OfflineDeviceServiceDeps {
@@ -88,6 +105,16 @@ export interface OfflineDeviceServiceDeps {
   serverSchemaVersion?: () => number;
   /** The platform's status for a shop; defaults to UserRepository.getTenantStatus. */
   shopStatus?: (tenantId: number) => "active" | "suspended" | "archived" | null;
+  /** LIRA-332: the shop's trial for check-in; defaults to SubscriptionService. */
+  trialStatus?: (tenantId: number) => PcTrialState | null;
+}
+
+/** LIRA-332 default: the trial part of the shop's subscription view. */
+function defaultTrialStatus(tenantId: number): PcTrialState | null {
+  const view = runWithoutTenant(() => getSubscriptionService().statusFor(tenantId));
+  if (!view?.trial) return null;
+  if (view.standing !== "trial" && view.standing !== "trial_ended") return null;
+  return { standing: view.standing, endsAt: view.trial.endsAt };
 }
 
 
@@ -104,8 +131,10 @@ export class OfflineDeviceService {
   private readonly reviews: OfflineReviewRepository;
   private readonly schemaVersion: () => number;
   private readonly shopStatus: NonNullable<OfflineDeviceServiceDeps["shopStatus"]>;
+  private readonly trialStatus: NonNullable<OfflineDeviceServiceDeps["trialStatus"]>;
 
   constructor(deps: OfflineDeviceServiceDeps) {
+    this.trialStatus = deps.trialStatus ?? defaultTrialStatus;
     this.mobileAuth = deps.mobileAuth;
     this.auth = deps.auth;
     this.devices = deps.devices ?? getOfflineDeviceRepository();
@@ -307,7 +336,18 @@ export class OfflineDeviceService {
         maxOfflineIds,
         heldItems,
         renumberUnsent: this.reviews.findPendingRenumber(deviceId) !== null,
+        trial: this.trialFor(getCurrentTenantId()),
       },
     };
+  }
+
+  /** Never throws: an unknown trial state lets the PC work (fail open). */
+  private trialFor(tenantId: number): PcTrialState | null {
+    try {
+      return this.trialStatus(tenantId);
+    } catch (error) {
+      offlineLogger.warn({ error, tenantId }, "trial lookup failed at check-in");
+      return null;
+    }
   }
 }

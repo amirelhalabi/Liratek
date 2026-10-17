@@ -38,7 +38,10 @@
     "assets/shots/recharge.png"
   ],
   "notes": "",
-  "media": [],
+  "media": [
+    "media/slide-01.jpg"
+  ],
   "public_urls": [],
-  "published_id": null
+  "published_id": null,
+  "rendered_at": "2026-10-16T20:16:57.659Z"
 }
