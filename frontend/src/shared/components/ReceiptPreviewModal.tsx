@@ -1,5 +1,6 @@
 import { Printer, X } from "lucide-react";
 import { printReceipt } from "@/shared/utils/printReceipt";
+import { useTranslation } from "react-i18next";
 
 export interface ReceiptPreviewModalProps {
   /** The monospace receipt body (from formatReceipt58mm/80mm or buildServiceReceiptText). */
@@ -23,6 +24,7 @@ export function ReceiptPreviewModal({
   logo,
   onClose,
 }: ReceiptPreviewModalProps) {
+  const { t } = useTranslation("shared");
   const handlePrint = async () => {
     await printReceipt({
       text,
@@ -47,7 +49,7 @@ export function ReceiptPreviewModal({
         <div className="p-6 border-b border-slate-700 flex justify-between items-center">
           <h2 className="text-2xl font-bold text-white flex items-center gap-2">
             <Printer size={24} className="text-blue-400" />
-            Receipt Preview
+            {t("receiptPreview.title")}
           </h2>
           <button
             onClick={onClose}
@@ -81,14 +83,14 @@ export function ReceiptPreviewModal({
             onClick={onClose}
             className="flex-1 px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg font-medium transition-colors"
           >
-            Close
+            {t("common:actions.close")}
           </button>
           <button
             onClick={handlePrint}
             className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold active:scale-95 transition-all flex items-center justify-center gap-2"
           >
             <Printer size={18} />
-            Print
+            {t("common:actions.print")}
           </button>
         </div>
       </div>

@@ -15,6 +15,7 @@
 
 import { useEffect, useState } from "react";
 import { AlertTriangle, Clock } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import {
   getSubscriptionStatus,
   type SubscriptionStatusView,
@@ -29,6 +30,7 @@ import logger from "@/utils/logger";
 const REFRESH_MS = 15 * 60 * 1000;
 
 export function SubscriptionBanner() {
+  const { t } = useTranslation("shared");
   const [view, setView] = useState<SubscriptionStatusView | null>(null);
 
   useEffect(() => {
@@ -64,9 +66,12 @@ export function SubscriptionBanner() {
       >
         <Clock className="w-4 h-4 shrink-0" />
         <span>
-          <strong>Payment overdue.</strong> Everything still works
-          {view.graceEndsAt ? ` until ${view.graceEndsAt.slice(0, 10)}` : ""}.
-          Please settle the subscription to avoid going read-only.
+          <strong>{t("subscription.overdue")}</strong>{" "}
+          {view.graceEndsAt
+            ? t("subscription.graceUntil", {
+                date: view.graceEndsAt.slice(0, 10),
+              })
+            : t("subscription.grace")}
         </span>
       </div>
     );
@@ -80,9 +85,8 @@ export function SubscriptionBanner() {
     >
       <AlertTriangle className="w-4 h-4 shrink-0" />
       <span>
-        <strong>Read-only.</strong> You can still view, search and export
-        everything — including what customers owe you — but new entries are
-        paused until the subscription is settled.
+        <strong>{t("subscription.readOnly")}</strong>{" "}
+        {t("subscription.readOnlyBody")}
       </span>
     </div>
   );

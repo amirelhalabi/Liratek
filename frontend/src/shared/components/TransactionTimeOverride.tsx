@@ -8,6 +8,7 @@
  */
 
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface TransactionTimeOverrideProps {
   value?: string | undefined;
@@ -39,6 +40,7 @@ export function TransactionTimeOverride({
   value,
   onChange,
 }: TransactionTimeOverrideProps) {
+  const { t } = useTranslation("shared");
   const [expanded, setExpanded] = useState(!!value);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -67,7 +69,7 @@ export function TransactionTimeOverride({
         className="flex items-center gap-1 text-xs text-slate-400 hover:text-white transition-colors mt-1"
       >
         <span>⏱</span>
-        <span>Set custom time</span>
+        <span>{t("txnTime.set")}</span>
       </button>
     );
   }
@@ -75,7 +77,7 @@ export function TransactionTimeOverride({
   return (
     <div className="flex items-center gap-2 mt-1 flex-wrap">
       <label className="text-xs text-slate-400 whitespace-nowrap">
-        Transaction time:
+        {t("txnTime.label")}
       </label>
       <input
         type="datetime-local"
@@ -91,7 +93,7 @@ export function TransactionTimeOverride({
         onClick={handleClear}
         className="text-xs text-red-400 hover:text-red-300 transition-colors"
       >
-        ✕ Clear
+        {t("txnTime.clear")}
       </button>
     </div>
   );

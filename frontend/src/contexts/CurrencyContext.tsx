@@ -14,6 +14,7 @@ import React, {
   useRef,
 } from "react";
 import { useApi } from "@liratek/ui";
+import { formatNumber } from "@liratek/ui/i18n/format";
 import { useAuth } from "@/features/auth/context/AuthContext";
 
 export interface CurrencyInfo {
@@ -132,7 +133,7 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({
       const safeAmt = isNaN(safe) ? 0 : safe;
       const decimals = getDecimals(currencyCode);
       const sym = getSymbol(currencyCode);
-      const formatted = safeAmt.toLocaleString(undefined, {
+      const formatted = formatNumber(safeAmt, {
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals,
       });
