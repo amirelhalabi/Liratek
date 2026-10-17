@@ -10,6 +10,9 @@
  * item is paid; this list only shows them and reports a tick change.
  */
 import type { OpenDebtItem, DebtItemRef } from "@liratek/core";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 
 interface DebtItemPickerProps {
   items: OpenDebtItem[];
@@ -30,7 +33,7 @@ const sameRef = (a: DebtItemRef, b: DebtItemRef): boolean =>
   a.kind === b.kind && a.id === b.id;
 
 const fmtUsd = (n: number): string => `$${n.toFixed(2).replace(/\.00$/, "")}`;
-const fmtLbp = (n: number): string => `${Math.round(n).toLocaleString()} LBP`;
+const fmtLbp = (n: number): string => `${formatNumber(Math.round(n))} LBP`;
 
 /** One amount in the item's own currency (or both, for a mixed item). */
 function money(usd: number, lbp: number, hasUsd: boolean, hasLbp: boolean) {
@@ -49,6 +52,7 @@ export default function DebtItemPicker({
   coverage,
   rate,
 }: DebtItemPickerProps) {
+  const { t } = useTranslation("debts");
   if (items.length === 0) return null;
 
   // Group basket items under their session; everything else stands alone,
@@ -76,7 +80,7 @@ export default function DebtItemPicker({
         key={`${item.kind}-${item.id}`}
         data-testid={`debt-item-${item.kind}-${item.id}`}
         className={`flex flex-col py-1.5 text-sm cursor-pointer ${
-          indent ? "pl-4" : ""
+          indent ? "ps-4" : ""
         }`}
       >
         <span className="flex items-center gap-2">
@@ -91,15 +95,15 @@ export default function DebtItemPicker({
           </span>
           {item.isPrimary && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-900/40 text-sky-300 shrink-0">
-              Cash drawer
+              {t("picker.cashDrawer")}
             </span>
           )}
           <span className="font-mono text-slate-300 shrink-0">
-            {money(item.openUsd, item.openLbp, hasUsd, hasLbp)}
+            <Ltr>{money(item.openUsd, item.openLbp, hasUsd, hasLbp)}</Ltr>
             {hasLbp && !hasUsd && rate > 0 && (
               <span className="text-slate-500">
                 {" "}
-                (≈ {fmtUsd(item.openLbp / rate)})
+                (≈ <Ltr>{fmtUsd(item.openLbp / rate)}</Ltr>)
               </span>
             )}
           </span>
@@ -107,18 +111,24 @@ export default function DebtItemPicker({
         {tick && (
           <span
             data-testid={`debt-item-pays-${item.kind}-${item.id}`}
-            className="pl-6 text-[11px] text-slate-400"
+            className="ps-6 text-[11px] text-slate-400"
           >
             {tick.auto && (
-              <span className="text-emerald-400">added by the amount · </span>
+              <span className="text-emerald-400">
+                {t("picker.addedByAmount")}{" "}
+              </span>
             )}
-            pays {money(take.usd, take.lbp, hasUsd, hasLbp)} · leaves{" "}
-            {money(
-              item.openUsd - take.usd,
-              item.openLbp - take.lbp,
-              hasUsd,
-              hasLbp,
-            )}
+            {t("picker.pays")}{" "}
+            <Ltr>{money(take.usd, take.lbp, hasUsd, hasLbp)}</Ltr> ·{" "}
+            {t("picker.leaves")}{" "}
+            <Ltr>
+              {money(
+                item.openUsd - take.usd,
+                item.openLbp - take.lbp,
+                hasUsd,
+                hasLbp,
+              )}
+            </Ltr>
           </span>
         )}
       </label>
@@ -134,7 +144,7 @@ export default function DebtItemPicker({
     >
       <div className="flex items-center justify-between mb-1">
         <span className="text-xs font-medium text-slate-300 uppercase tracking-wider">
-          Open debt — what is this payment for?
+          {t("picker.title")}
         </span>
         {selected.length > 0 && (
           <button
@@ -142,7 +152,7 @@ export default function DebtItemPicker({
             onClick={onClear}
             className="text-[11px] text-slate-400 hover:text-slate-200"
           >
-            Clear
+            {t("picker.clear")}
           </button>
         )}
       </div>
@@ -151,7 +161,7 @@ export default function DebtItemPicker({
           g.sessionId != null ? (
             <div key={`session-${g.sessionId}-${gi}`} className="py-1">
               <div className="text-xs text-slate-400 py-1">
-                Session #{g.sessionId} basket
+                {t("picker.sessionBasket", { id: g.sessionId })}
               </div>
               {g.items.map((i) => row(i, true))}
             </div>
@@ -165,11 +175,11 @@ export default function DebtItemPicker({
           data-testid="debt-item-picker-hint"
           className="text-[11px] text-amber-400 mt-1"
         >
-          Tick what this payment is for
+          {t("picker.tickHint")}
         </p>
       ) : (
         <p className="text-[11px] text-slate-500 mt-1">
-          A smaller amount pays the cash-drawer items first, then the oldest.
+          {t("picker.orderHint")}
         </p>
       )}
     </div>

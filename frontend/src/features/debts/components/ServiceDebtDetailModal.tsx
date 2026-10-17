@@ -11,6 +11,11 @@
  */
 
 import { X } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { useFormat } from "@/i18n/useFormat";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { formatPaidAmount } from "../utils/salePaidFormat";
@@ -64,20 +69,23 @@ interface Props {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const METHOD_LABEL: Record<string, string> = {
-  CASH: "Cash",
-  DEBT: "Debt",
-  OMT: "OMT Wallet",
-  WHISH: "WHISH Wallet",
-  BINANCE: "Binance",
-  PM_FEE: "Wallet Surcharge (PM fee)",
-  RESERVE: "Cash Reserve",
-  TRANSFER: "Internal Transfer",
-  COMMISSION: "Commission",
-};
+const METHOD_LABEL_KEY = {
+  CASH: "serviceModal.method.CASH",
+  DEBT: "serviceModal.method.DEBT",
+  OMT: "serviceModal.method.OMT",
+  WHISH: "serviceModal.method.WHISH",
+  BINANCE: "serviceModal.method.BINANCE",
+  PM_FEE: "serviceModal.method.PM_FEE",
+  RESERVE: "serviceModal.method.RESERVE",
+  TRANSFER: "serviceModal.method.TRANSFER",
+  COMMISSION: "serviceModal.method.COMMISSION",
+} as const;
 
-function methodLabel(method: string): string {
-  return METHOD_LABEL[method] ?? method;
+/** A method's label; an unknown method code shows as-is. */
+function methodLabel(method: string, t: TFunction<"debts">): string {
+  return method in METHOD_LABEL_KEY
+    ? t(METHOD_LABEL_KEY[method as keyof typeof METHOD_LABEL_KEY])
+    : method;
 }
 
 /** Payment methods shown as customer-facing legs (skip internal accounting rows) */
@@ -99,6 +107,8 @@ export function ServiceDebtDetailModal({
   isCreditor = false,
   onClose,
 }: Props) {
+  const { t } = useTranslation("debts");
+  const { formatDateTime } = useFormat();
   useModalFocusFix(true);
   // OMT and OMT_APP store their fee in omt_fee; WHISH/WHISH_APP in whish_fee.
   // Matching on "OMT" alone made OMT_APP read the (null) whish_fee, so the
@@ -119,7 +129,7 @@ export function ServiceDebtDetailModal({
    */
   const fmtCurrency = (amount: number, currencyCode: string): string => {
     if (currencyCode === "LBP") {
-      return `${Math.abs(amount).toLocaleString()} LBP`;
+      return `${formatNumber(Math.abs(amount))} LBP`;
     }
     return `$${Math.abs(amount).toFixed(2)}`;
   };
@@ -166,13 +176,13 @@ export function ServiceDebtDetailModal({
                 {fs.service_type}
               </span>
               {fs.omt_service_type && (
-                <span className="ml-2 text-xs bg-slate-700 text-slate-300 px-2 py-0.5 rounded-full">
+                <span className="ms-2 text-xs bg-slate-700 text-slate-300 px-2 py-0.5 rounded-full">
                   {fs.omt_service_type}
                 </span>
               )}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              {parseDbDate(fs.created_at).toLocaleString()}
+              <Ltr>{formatDateTime(parseDbDate(fs.created_at))}</Ltr>
             </p>
           </div>
           <button
@@ -187,30 +197,38 @@ export function ServiceDebtDetailModal({
           {/* Transaction summary */}
           <div className="bg-slate-800/60 rounded-xl p-3 space-y-1.5 border border-slate-700/40">
             <div className="flex justify-between text-sm">
-              <span className="text-slate-400">Send Amount</span>
+              <span className="text-slate-400">
+                {t("serviceModal.sendAmount")}
+              </span>
               <span className="font-mono text-white font-semibold">
-                {fmtCurrency(fs.amount, fs.currency)}
+                <Ltr>{fmtCurrency(fs.amount, fs.currency)}</Ltr>
               </span>
             </div>
             {providerFee > 0 && (
               <div className="flex justify-between text-sm">
-                <span className="text-amber-400">{fs.provider} Fee</span>
+                <span className="text-amber-400">
+                  {t("serviceModal.providerFee", { provider: fs.provider })}
+                </span>
                 <span className="font-mono text-amber-300">
-                  +{fmtCurrency(providerFee, fs.currency)}
+                  <Ltr>+{fmtCurrency(providerFee, fs.currency)}</Ltr>
                 </span>
               </div>
             )}
             <div className="flex justify-between text-sm border-t border-slate-700/50 pt-1.5 mt-1">
-              <span className="text-slate-300 font-medium">Total Charged</span>
+              <span className="text-slate-300 font-medium">
+                {t("serviceModal.totalCharged")}
+              </span>
               <span className="font-mono text-white font-bold">
-                {fmtCurrency(totalCharged, fs.currency)}
+                <Ltr>{fmtCurrency(totalCharged, fs.currency)}</Ltr>
               </span>
             </div>
             {pmFee > 0 && (
               <div className="flex justify-between text-sm">
-                <span className="text-violet-400">Shop Surcharge (PM fee)</span>
+                <span className="text-violet-400">
+                  {t("serviceModal.shopSurcharge")}
+                </span>
                 <span className="font-mono text-violet-300">
-                  +{fmtCurrency(pmFee, fs.currency)}
+                  <Ltr>+{fmtCurrency(pmFee, fs.currency)}</Ltr>
                 </span>
               </div>
             )}
@@ -219,7 +237,7 @@ export function ServiceDebtDetailModal({
           {/* Payment breakdown */}
           <div>
             <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-              Payment Breakdown
+              {t("serviceModal.paymentBreakdown")}
             </h3>
             <div className="space-y-1.5">
               {customerPayments.map((p) => {
@@ -267,13 +285,11 @@ export function ServiceDebtDetailModal({
                               : "text-slate-300"
                         }`}
                       >
-                        {isDebt
-                          ? isCreditor
-                            ? "Account Charge"
-                            : methodLabel(p.method)
-                          : methodLabel(p.method)}
+                        {isDebt && isCreditor
+                          ? t("serviceModal.accountCharge")
+                          : methodLabel(p.method, t)}
                         {isDebt && fs.client_name && (
-                          <span className={`${debtSubText} font-normal ml-1`}>
+                          <span className={`${debtSubText} font-normal ms-1`}>
                             ({fs.client_name})
                           </span>
                         )}
@@ -288,9 +304,11 @@ export function ServiceDebtDetailModal({
                             : "text-emerald-400"
                       }`}
                     >
-                      {p.currency_code === "USD" ? "$" : ""}
-                      {Math.abs(p.amount).toFixed(2)}
-                      {p.currency_code !== "USD" ? ` ${p.currency_code}` : ""}
+                      <Ltr>
+                        {p.currency_code === "USD" ? "$" : ""}
+                        {Math.abs(p.amount).toFixed(2)}
+                        {p.currency_code !== "USD" ? ` ${p.currency_code}` : ""}
+                      </Ltr>
                     </span>
                   </div>
                 );
@@ -314,10 +332,12 @@ export function ServiceDebtDetailModal({
                       <span
                         className={`text-sm font-medium ${isCreditor ? "text-sky-300" : "text-red-300"}`}
                       >
-                        {isCreditor ? "Account Charge" : "Debt"}
+                        {isCreditor
+                          ? t("serviceModal.accountCharge")
+                          : t("serviceModal.method.DEBT")}
                         {fs.client_name && (
                           <span
-                            className={`${isCreditor ? "text-sky-400/70" : "text-red-400/70"} font-normal ml-1`}
+                            className={`${isCreditor ? "text-sky-400/70" : "text-red-400/70"} font-normal ms-1`}
                           >
                             ({fs.client_name})
                           </span>
@@ -327,7 +347,7 @@ export function ServiceDebtDetailModal({
                     <span
                       className={`font-mono text-sm font-bold ${isCreditor ? "text-sky-400" : "text-red-400"}`}
                     >
-                      {formatPaidAmount(debtAmountUsd, debtAmountLbp)}
+                      <Ltr>{formatPaidAmount(debtAmountUsd, debtAmountLbp)}</Ltr>
                     </span>
                   </div>
                 )}
@@ -336,12 +356,12 @@ export function ServiceDebtDetailModal({
             {/* Summary line */}
             {(totalPaidUsd > 0 || totalPaidLbp > 0) && (
               <div className="flex justify-between text-xs text-slate-500 mt-2 px-1">
-                <span>Paid (excl. account)</span>
+                <span>{t("serviceModal.paidExclAccount")}</span>
                 <span
                   className="font-mono"
                   data-testid="service-debt-paid-total"
                 >
-                  {formatPaidAmount(totalPaidUsd, totalPaidLbp)}
+                  <Ltr>{formatPaidAmount(totalPaidUsd, totalPaidLbp)}</Ltr>
                 </span>
               </div>
             )}
@@ -350,13 +370,15 @@ export function ServiceDebtDetailModal({
                 className={`flex justify-between text-xs px-1 ${isCreditor ? "text-sky-400" : "text-red-400"}`}
               >
                 <span>
-                  {isCreditor ? "Charged to account" : "Remaining debt"}
+                  {isCreditor
+                    ? t("serviceModal.chargedToAccount")
+                    : t("serviceModal.remainingDebt")}
                 </span>
                 <span
                   className="font-mono"
                   data-testid="service-debt-remaining"
                 >
-                  {formatPaidAmount(debtAmountUsd, debtAmountLbp)}
+                  <Ltr>{formatPaidAmount(debtAmountUsd, debtAmountLbp)}</Ltr>
                 </span>
               </div>
             )}
@@ -366,17 +388,21 @@ export function ServiceDebtDetailModal({
           {(fs.client_name || fs.phone_number || fs.reference_number) && (
             <div className="bg-slate-800/40 rounded-xl p-3 space-y-1 border border-slate-700/30">
               <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                Client Info
+                {t("serviceModal.clientInfo")}
               </h3>
               {fs.client_name && (
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">Name</span>
+                  <span className="text-slate-500">
+                    {t("serviceModal.name")}
+                  </span>
                   <span className="text-slate-200">{fs.client_name}</span>
                 </div>
               )}
               {fs.phone_number && (
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">Phone</span>
+                  <span className="text-slate-500">
+                    {t("serviceModal.phone")}
+                  </span>
                   <span className="text-slate-200 font-mono">
                     {fs.phone_number}
                   </span>
@@ -384,7 +410,9 @@ export function ServiceDebtDetailModal({
               )}
               {fs.reference_number && (
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">Reference</span>
+                  <span className="text-slate-500">
+                    {t("serviceModal.reference")}
+                  </span>
                   <span className="text-slate-200 font-mono">
                     {fs.reference_number}
                   </span>

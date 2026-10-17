@@ -13,6 +13,9 @@
 import { useEffect, useState } from "react";
 import { X, ShoppingCart } from "lucide-react";
 import { useApi } from "@liratek/ui";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 
 // ─── Types (mirror electron.d.ts session.cartGet / session.getTransactions) ──
@@ -65,6 +68,7 @@ export function SessionDebtDetailModal({
   onClose,
 }: Props) {
   const api = useApi();
+  const { t } = useTranslation("debts");
   useModalFocusFix(true);
   const [cartItems, setCartItems] = useState<SessionCartItem[]>([]);
   const [transactions, setTransactions] = useState<SessionTransactionRow[]>([]);
@@ -98,7 +102,7 @@ export function SessionDebtDetailModal({
 
   const fmt = (amount: number, currency: string): string =>
     currency === "LBP"
-      ? `${Math.round(Math.abs(amount)).toLocaleString()} LBP`
+      ? `${formatNumber(Math.round(Math.abs(amount)))} LBP`
       : `$${Math.abs(amount).toFixed(2)}`;
 
   // Customer-perspective signed amount, matching the session basket view
@@ -140,7 +144,11 @@ export function SessionDebtDetailModal({
     );
 
   const itemsHeading =
-    mode === "payouts" ? "Payouts" : mode === "charges" ? "Charges" : "Items";
+    mode === "payouts"
+      ? t("sessionModal.payouts")
+      : mode === "charges"
+        ? t("sessionModal.charges")
+        : t("sessionModal.items");
   const summaryUsd = Math.abs(debtAmountUsd);
   const summaryLbp = Math.abs(debtAmountLbp);
 
@@ -158,7 +166,7 @@ export function SessionDebtDetailModal({
           <div className="flex items-center gap-2">
             <ShoppingCart size={16} className="text-indigo-400" />
             <h2 className="text-base font-bold text-white">
-              Session #{sessionId} Basket
+              {t("sessionModal.title", { id: sessionId })}
             </h2>
           </div>
           <button
@@ -172,13 +180,14 @@ export function SessionDebtDetailModal({
         <div className="p-5 space-y-4">
           {loading ? (
             <p className="text-xs text-slate-500 text-center py-4">
-              Loading basket items...
+              {t("sessionModal.loading")}
             </p>
           ) : displayCartItems.length === 0 &&
             displayTransactions.length === 0 ? (
             <p className="text-xs text-slate-500 text-center py-4">
-              No {mode === "payouts" ? "payouts" : "items"} found for this
-              session.
+              {mode === "payouts"
+                ? t("sessionModal.noPayouts")
+                : t("sessionModal.noItems")}
             </p>
           ) : (
             <div>
@@ -201,9 +210,9 @@ export function SessionDebtDetailModal({
                           </span>
                         </div>
                         <span
-                          className={`font-mono text-sm font-semibold shrink-0 ml-2 ${amountColor(item.amount)}`}
+                          className={`font-mono text-sm font-semibold shrink-0 ms-2 ${amountColor(item.amount)}`}
                         >
-                          {fmtSigned(item.amount, item.currency)}
+                          <Ltr>{fmtSigned(item.amount, item.currency)}</Ltr>
                         </span>
                       </div>
                     ))
@@ -215,7 +224,10 @@ export function SessionDebtDetailModal({
                         <span className="text-sm text-slate-300 capitalize">
                           {tx.transaction_type}
                         </span>
-                        <span className="font-mono text-sm font-semibold">
+                        <span
+                          dir="ltr"
+                          className="font-mono text-sm font-semibold"
+                        >
                           {nonZero(tx.amount_usd) && (
                             <span className={amountColor(tx.amount_usd)}>
                               {fmtSigned(tx.amount_usd, "USD")}
@@ -259,10 +271,10 @@ export function SessionDebtDetailModal({
                 }`}
               >
                 {mode === "payouts"
-                  ? "Credited to Account"
+                  ? t("sessionModal.creditedToAccount")
                   : isCreditor
-                    ? "Charged to Account"
-                    : "Basket Debt"}
+                    ? t("sessionModal.chargedToAccount")
+                    : t("sessionModal.basketDebt")}
               </span>
               <span
                 className={`font-mono text-sm font-bold ${
@@ -273,9 +285,11 @@ export function SessionDebtDetailModal({
                       : "text-red-400"
                 }`}
               >
-                {summaryUsd > 0.005 && fmt(summaryUsd, "USD")}
-                {summaryUsd > 0.005 && summaryLbp > 0.5 && " + "}
-                {summaryLbp > 0.5 && fmt(summaryLbp, "LBP")}
+                <Ltr>
+                  {summaryUsd > 0.005 && fmt(summaryUsd, "USD")}
+                  {summaryUsd > 0.005 && summaryLbp > 0.5 && " + "}
+                  {summaryLbp > 0.5 && fmt(summaryLbp, "LBP")}
+                </Ltr>
               </span>
             </div>
           )}

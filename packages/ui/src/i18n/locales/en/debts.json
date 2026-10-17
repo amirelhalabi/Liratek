@@ -1,5 +1,141 @@
 {
   "page": {
     "title": "Debts"
+  },
+  "picker": {
+    "cashDrawer": "Cash drawer",
+    "addedByAmount": "added by the amount ·",
+    "pays": "pays",
+    "leaves": "leaves",
+    "title": "Open debt — what is this payment for?",
+    "clear": "Clear",
+    "sessionBasket": "Session #{{id}} basket",
+    "tickHint": "Tick what this payment is for",
+    "orderHint": "A smaller amount pays the cash-drawer items first, then the oldest."
+  },
+  "sessionModal": {
+    "payouts": "Payouts",
+    "charges": "Charges",
+    "items": "Items",
+    "title": "Session #{{id}} Basket",
+    "loading": "Loading basket items...",
+    "noPayouts": "No payouts found for this session.",
+    "noItems": "No items found for this session.",
+    "creditedToAccount": "Credited to Account",
+    "chargedToAccount": "Charged to Account",
+    "basketDebt": "Basket Debt"
+  },
+  "serviceModal": {
+    "method": {
+      "CASH": "Cash",
+      "DEBT": "Debt",
+      "OMT": "OMT Wallet",
+      "WHISH": "WHISH Wallet",
+      "BINANCE": "Binance",
+      "PM_FEE": "Wallet Surcharge (PM fee)",
+      "RESERVE": "Cash Reserve",
+      "TRANSFER": "Internal Transfer",
+      "COMMISSION": "Commission"
+    },
+    "sendAmount": "Send Amount",
+    "providerFee": "{{provider}} Fee",
+    "totalCharged": "Total Charged",
+    "shopSurcharge": "Shop Surcharge (PM fee)",
+    "paymentBreakdown": "Payment Breakdown",
+    "accountCharge": "Account Charge",
+    "paidExclAccount": "Paid (excl. account)",
+    "chargedToAccount": "Charged to account",
+    "remainingDebt": "Remaining debt",
+    "clientInfo": "Client Info",
+    "name": "Name",
+    "phone": "Phone",
+    "reference": "Reference"
+  },
+  "importValidation": {
+    "section": {
+      "1": "Client Listed But No Matching Page Found",
+      "2": "Page Found But Client Not Listed",
+      "3": "Phone Missing In Client List",
+      "4": "Phone Missing On Client Page",
+      "5": "Phone Differs Between List And Page"
+    },
+    "action": {
+      "keep": "Keep",
+      "discard": "Discard",
+      "link": "Link to...",
+      "manual_phone": "Enter phone",
+      "merge": "Merge into...",
+      "use_list_phone": "Use list phone",
+      "use_page_phone": "Use page phone"
+    },
+    "title": "Import Validation",
+    "issuesOne": "{{count}} issue found — review before importing",
+    "issuesMany": "{{count}} issues found — review before importing",
+    "listNames": "List Names:",
+    "pages": "Pages:",
+    "case": "Case {{n}}:",
+    "noIssues": "No issues",
+    "col": {
+      "clientName": "Client Name",
+      "phones": "Phones",
+      "phone": "Phone",
+      "entries": "Entries",
+      "action": "Action",
+      "details": "Details"
+    },
+    "stat": {
+      "kept": "{{count}} kept",
+      "discarded": "{{count}} discarded",
+      "linked": "{{count}} linked",
+      "manualPhone": "{{count}} manual phone",
+      "merged": "{{count}} merged",
+      "useList": "{{count}} use list phone",
+      "usePage": "{{count}} use page phone"
+    },
+    "cancel": "Cancel",
+    "confirm": "Confirm & Continue",
+    "detail": {
+      "entriesLost": "{{count}} entries will be lost",
+      "skipped": "Will be skipped",
+      "createNoEntries": "Create client with no debt entries",
+      "importAsIs": "Import as-is",
+      "createNoPhone": "Will create client without phone",
+      "useListPhone": "Will use list phone:",
+      "usePagePhone": "Will use page phone:",
+      "selectPage": "Select page...",
+      "selectListEntry": "Select list entry...",
+      "selectClient": "Select client...",
+      "phonePlaceholder": "e.g. 03/123456",
+      "noPhone": "no phone"
+    }
+  },
+  "importCleanup": {
+    "action": {
+      "merge": "Merge into...",
+      "manual": "Enter phone",
+      "keep": "Keep (no phone)",
+      "discard": "Discard"
+    },
+    "title": "Clean Up Import Data",
+    "needAttentionOne": "{{count}} client need attention ({{entries}} entries)",
+    "needAttentionMany": "{{count}} clients need attention ({{entries}} entries)",
+    "total": "Total:",
+    "clientsCount": "{{count}} clients",
+    "withPhone": "With phone:",
+    "withoutPhone": "Without phone:",
+    "entriesLabel": "Entries:",
+    "col": {
+      "clientName": "Client Name",
+      "entries": "Entries",
+      "action": "Action",
+      "details": "Details"
+    },
+    "selectClient": "Select client...",
+    "entriesLost": "{{count}} entries will be lost",
+    "keepHint": "Will create client without phone",
+    "footer": "{{discard}} will be discarded, {{merge}} will be merged, {{manual}} manual phone, {{keep}} kept as-is",
+    "cancel": "Cancel",
+    "confirm": "Confirm & Import",
+    "phonePlaceholder": "e.g. 03/123456"
   }
 }
