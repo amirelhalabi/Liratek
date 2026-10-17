@@ -922,6 +922,9 @@ router.post(
               ...signupProvisionFields(req.body),
               contactEmail: invite.email,
               contactEmailVerifiedAt: now,
+              // LIRA-332 (FR-001): every public sign-up starts a 14-day free
+              // trial, whether the shop asked for the link or the owner sent it.
+              trial: { source: "invite_link" },
             }),
         ),
       );

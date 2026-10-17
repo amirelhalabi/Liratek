@@ -214,6 +214,29 @@ export class AuditRepository extends BaseRepository<AuditLogEntity> {
 
     return { rows, total };
   }
+
+  /**
+   * LIRA-332 (FR-022): the owner's history of one shop's subscription — the
+   * PLATFORM rows `AuditService.logAdminAction` writes (`tenant_id IS NULL`,
+   * target shop in `metadata.targetTenantId`), never the shop-note copies.
+   * The caller runs it in platform scope (`runWithoutTenant`), so in
+   * per-tenant mode it reads the platform file.
+   */
+  listSubscriptionHistory(targetTenantId: number, limit = 50): AuditLogEntity[] {
+    const n = Math.min(Math.max(Number(limit), 1), 200);
+    return this.db
+      .prepare(
+        `SELECT * FROM audit_log
+          /* tenant-exempt: control-plane rows (tenant_id NULL); the shop is
+             matched on the target tenant the platform row records */
+          WHERE tenant_id IS NULL
+            AND entity_type = 'subscription'
+            AND json_extract(metadata, '$.targetTenantId') = ?
+          ORDER BY id DESC
+          LIMIT ?`,
+      )
+      .all(targetTenantId, n) as AuditLogEntity[];
+  }
 }
 
 // =============================================================================

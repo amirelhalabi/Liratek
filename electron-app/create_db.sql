@@ -62,10 +62,16 @@ CREATE TABLE IF NOT EXISTS tenant_subscriptions (
     entitled_modules TEXT,
     notes TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    -- v220 (LIRA-332): free trial. UTC instants; NULL = not on a trial. The
+    -- desktop is never on a trial (its seed row below leaves both NULL).
+    trial_started_at DATETIME,
+    trial_ends_at DATETIME
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_subscriptions_tenant
     ON tenant_subscriptions(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_tenant_subscriptions_trial_ends
+    ON tenant_subscriptions(trial_ends_at) WHERE trial_ends_at IS NOT NULL;
 -- PARTIAL: license_key is the desktop identity, so two shops must never
 -- share one, but most rows have none.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_subscriptions_key
@@ -3149,4 +3155,7 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- Whish App USD prices for shops that already have a catalog.
     (218, 'whish_app_usd_prices'),
     -- v219 allows 'SPLIT' in partner_ledger.settlement_method (declared above).
-    (219, 'partner_ledger_split_settlement_method');
+    (219, 'partner_ledger_split_settlement_method'),
+    -- v220 (LIRA-332) adds tenant_subscriptions.trial_started_at /
+    -- trial_ends_at + idx_tenant_subscriptions_trial_ends, declared above.
+    (220, 'tenant_subscriptions_trial');

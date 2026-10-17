@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { Platform } from "react-native";
 
 import { PageBackground } from "@/components/PageBackground";
+import { TrialStrip } from "@/components/TrialStrip";
 import { useModuleGates } from "@/data/useModuleGates";
 import { useTheme } from "@/theme/ThemeProvider";
 import { debtsTabVisible, sellTabVisible } from "@/utils/moduleGates";
@@ -46,6 +47,8 @@ export default function AppLayout() {
       : {};
   return (
     <PageBackground>
+      {/* LIRA-332: free-trial days left / trial ended, above every tab. */}
+      <TrialStrip />
       <NativeTabs tintColor={t.accent} minimizeBehavior="onScrollDown" {...androidBar}>
         <NativeTabs.Trigger name="(home)" contentStyle={content}>
           <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>

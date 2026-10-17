@@ -16,4 +16,6 @@ export const queryKeys = {
   rates: (shop: string) => [shop, "rates"] as const,
   // LIRA-307: the shop's enabled modules (Settings → Modules). Memory only, never persisted.
   modules: (shop: string) => [shop, "modules"] as const,
+  // LIRA-332: the shop's free-trial status (the trial strip). Memory only.
+  subscription: (shop: string) => [shop, "subscription"] as const,
 };

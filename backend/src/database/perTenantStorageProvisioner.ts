@@ -76,6 +76,7 @@ import type Database from "better-sqlite3";
 import {
   TenantRepository,
   adminEmailFields,
+  payingSubscriptionSeed,
   type TenantEntity,
   type TenantStorageProvisioner,
   type CreateTenantStorageInput,
@@ -124,6 +125,9 @@ export interface PlatformSubscriptionRepoLike {
       status: SubscriptionStatus;
       current_period_end: string | null;
       entitled_modules: string | null;
+      /** LIRA-332: present only when the seed carries a trial. */
+      trial_started_at?: string | null;
+      trial_ends_at?: string | null;
     },
   ): unknown;
   deleteForTenant(tenantId: number): void;
@@ -221,12 +225,13 @@ export function createPerTenantStorageProvisioner(
         const provisioning = opts.platformTenantRepo.update(row.id, {
           status: "provisioning",
         });
-        opts.platformSubscriptionRepo.createForTenant(row.id, {
-          plan: "standard",
-          status: "active",
-          current_period_end: null,
-          entitled_modules: null,
-        });
+        // LIRA-332: the same seed the shared-mode provisioner uses, chosen
+        // once by TenantProvisioningService (rule 14). In the SAME platform
+        // transaction as the tenant row.
+        opts.platformSubscriptionRepo.createForTenant(
+          row.id,
+          input.subscriptionSeed ?? payingSubscriptionSeed(),
+        );
         return provisioning ?? row;
       });
 
