@@ -39,6 +39,17 @@ import { fetchInStockUnitsCached } from "@/features/sales/hooks/useProductUnits"
 import { toSaleItems } from "@/features/sales/utils/saleItems";
 import { localDay } from "@/shared/utils/localDay";
 
+/** LIRA-331: the date+time shape `toLocaleString()` printed before, so
+ *  English is unchanged; Arabic follows the language. */
+const LEGACY_DATE_TIME: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+};
+
 export default function POS() {
   const { t } = useTranslation("sales");
   const { formatDateTime } = useFormat();
@@ -283,7 +294,9 @@ export default function POS() {
         prev.map((item) => {
           if (getCartLineKey(item) !== lineKey) return item;
           const { warranty_months_edit: _current, ...rest } = item;
-          return months == null ? rest : { ...rest, warranty_months_edit: months };
+          return months == null
+            ? rest
+            : { ...rest, warranty_months_edit: months };
         }),
       );
     },
@@ -575,11 +588,7 @@ export default function POS() {
           setCartItems([]);
           setCurrentDraftId(undefined);
         }
-        appEvents.emit(
-          "notification:show",
-          t("pos.draftSaved"),
-          "success",
-        );
+        appEvents.emit("notification:show", t("pos.draftSaved"), "success");
         appEvents.emit("checkout:closed");
         // Windows focus fix
         window.api?.display?.fixFocus();
@@ -596,10 +605,7 @@ export default function POS() {
       // discarded here in favor of this hardcoded string.
       appEvents.emit(
         "notification:show",
-        getApiErrorMessage(
-          error,
-          t("pos.saveDraftUnexpected"),
-        ),
+        getApiErrorMessage(error, t("pos.saveDraftUnexpected")),
         "error",
       );
     }
@@ -750,11 +756,7 @@ export default function POS() {
         setCurrentDraftId(undefined);
         setPendingCheckoutData(null);
         setRefreshSalesKey((k) => k + 1);
-        appEvents.emit(
-          "notification:show",
-          t("pos.saleCompleted"),
-          "success",
-        );
+        appEvents.emit("notification:show", t("pos.saleCompleted"), "success");
         // LIRA-296 P3: e.g. a serial item sold without picking its unit.
         emitSaleWarnings(result);
         // Emit event to refresh dashboard immediately
@@ -775,10 +777,7 @@ export default function POS() {
       // discarded here in favor of this hardcoded string.
       appEvents.emit(
         "notification:show",
-        getApiErrorMessage(
-          error,
-          t("pos.saleUnexpected"),
-        ),
+        getApiErrorMessage(error, t("pos.saleUnexpected")),
         "error",
       );
     }
@@ -938,7 +937,10 @@ export default function POS() {
                       </div>
                       <div className="text-xs text-slate-500">
                         {draft.created_at
-                          ? formatDateTime(parseDbDate(draft.created_at))
+                          ? formatDateTime(
+                              parseDbDate(draft.created_at),
+                              LEGACY_DATE_TIME,
+                            )
                           : t("pos.unknownDate")}{" "}
                         {t("pos.draftItems", {
                           count: draft.items?.length || 0,

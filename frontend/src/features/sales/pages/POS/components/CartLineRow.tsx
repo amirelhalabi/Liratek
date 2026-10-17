@@ -92,7 +92,10 @@ function WarrantyControl({
           aria-label={t("line.saveWarranty")}
           onClick={() => {
             const n = Number(value);
-            if (value.trim() === "" || !warrantyMonthsSchema.safeParse(n).success) {
+            if (
+              value.trim() === "" ||
+              !warrantyMonthsSchema.safeParse(n).success
+            ) {
               setInvalid(true);
               return;
             }

@@ -75,6 +75,17 @@ interface SaleDetailModalProps {
   onRefunded?: () => void;
 }
 
+/** LIRA-331: the date+time shape `toLocaleString()` printed before, so
+ *  English is unchanged; Arabic follows the language. */
+const LEGACY_DATE_TIME: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+};
+
 export default function SaleDetailModal({
   saleId,
   onClose,
@@ -240,11 +251,7 @@ export default function SaleDetailModal({
     sessionRefundKindRef.current = null;
     setSessionRefundUnits([]);
     if (kind?.kind === "sale") {
-      appEvents.emit(
-        "notification:show",
-        t("detail.saleRefunded"),
-        "success",
-      );
+      appEvents.emit("notification:show", t("detail.saleRefunded"), "success");
       appEvents.emit("sale:completed", { refunded: true, saleId });
       onRefunded?.();
       onClose();
@@ -556,7 +563,8 @@ export default function SaleDetailModal({
 
   const formatTime = (dateStr: string) => {
     const d = parseDbDate(dateStr);
-    return formatDateTime(d);
+    // Same shape toLocaleString() printed in English (10/17/2026, 2:05:00 PM).
+    return formatDateTime(d, LEGACY_DATE_TIME);
   };
 
   // LIRA-232 round-2 review (finding 3) — `sale.status` is the PRIMARY
@@ -830,7 +838,8 @@ export default function SaleDetailModal({
                             className={`text-sm font-mono shrink-0 ${isFullyRefunded ? "text-red-400 line-through" : "text-slate-300"}`}
                           >
                             <Ltr>
-                              ${(item.quantity * item.sold_price_usd).toFixed(2)}
+                              $
+                              {(item.quantity * item.sold_price_usd).toFixed(2)}
                             </Ltr>
                           </span>
 

@@ -159,7 +159,12 @@ jest.mock("@/features/recharge/components/PaymentSheet", () => ({
           data-testid="stub-payout-lines"
           onClick={() =>
             props.onPaymentChange([
-              { id: "P1", method: "CASH", currencyCode: "LBP", amount: 8_900_000 },
+              {
+                id: "P1",
+                method: "CASH",
+                currencyCode: "LBP",
+                amount: 8_900_000,
+              },
             ])
           }
         />

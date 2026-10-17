@@ -1292,11 +1292,7 @@ export default function Exchange() {
             logger.error("Failed to link exchange to session:", err);
           }
         }
-        appEvents.emit(
-          "notification:show",
-          t("toast.processed"),
-          "success",
-        );
+        appEvents.emit("notification:show", t("toast.processed"), "success");
         setAmountIn(0);
         setAmountOut("");
         setLastEditedSide("in");
@@ -2206,10 +2202,16 @@ export default function Exchange() {
         {...(effectiveResult
           ? {
               subtitle: t("sheet.subtitle", {
-                amount: formatAmount(effectiveResult.totalAmountOut, toCurrency),
+                amount: formatAmount(
+                  effectiveResult.totalAmountOut,
+                  toCurrency,
+                ),
               }),
               confirmLabel: t("sheet.confirm", {
-                amount: formatAmount(effectiveResult.totalAmountOut, toCurrency),
+                amount: formatAmount(
+                  effectiveResult.totalAmountOut,
+                  toCurrency,
+                ),
               }),
             }
           : {})}

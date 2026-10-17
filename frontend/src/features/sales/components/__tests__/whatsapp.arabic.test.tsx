@@ -116,9 +116,7 @@ describe("WhatsApp controls in Arabic (LIRA-331)", () => {
       "RCP-42",
     );
     expect(screen.getByRole("button", { name: "إغلاق" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /طباعة/ }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /طباعة/ })).toBeInTheDocument();
   });
 
   it("the WhatsApp message stays English: the same link in both languages", async () => {

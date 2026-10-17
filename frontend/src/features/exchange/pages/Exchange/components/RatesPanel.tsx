@@ -186,7 +186,10 @@ export function RatesPanel({
                     <p className="text-sm font-bold text-white font-mono">
                       {row.to_code}
                     </p>
-                    <p className="text-[10px] text-slate-500 truncate" dir="ltr">
+                    <p
+                      className="text-[10px] text-slate-500 truncate"
+                      dir="ltr"
+                    >
                       {rateDirectionLabel(row)}
                     </p>
                   </div>

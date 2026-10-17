@@ -37,7 +37,9 @@ function renderRow(i: CartItem) {
   const onSetWarranty = jest.fn();
   render(
     <QueryClientProvider
-      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
     >
       <CartLineRow
         item={i}
@@ -55,8 +57,22 @@ function renderRow(i: CartItem) {
 beforeEach(() => {
   jest.clearAllMocks();
   mockApi.getCategoriesFull.mockResolvedValue([
-    { id: 2, name: "Accessories", sort_order: 0, is_active: 1, tracks_imei_units: 0, warranty_months: 1 },
-    { id: 3, name: "Cables", sort_order: 1, is_active: 1, tracks_imei_units: 0, warranty_months: null },
+    {
+      id: 2,
+      name: "Accessories",
+      sort_order: 0,
+      is_active: 1,
+      tracks_imei_units: 0,
+      warranty_months: 1,
+    },
+    {
+      id: 3,
+      name: "Cables",
+      sort_order: 1,
+      is_active: 1,
+      tracks_imei_units: 0,
+      warranty_months: null,
+    },
   ]);
 });
 
@@ -79,12 +95,16 @@ describe("CartLineRow — per-line warranty (LIRA-296)", () => {
 
   it("shows the till edit instead of the default", async () => {
     renderRow(item({ warranty_months: 3, warranty_months_edit: 6 }));
-    expect(await screen.findByText("Warranty: 6 months (edited)")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Warranty: 6 months (edited)"),
+    ).toBeInTheDocument();
   });
 
   it("editing reports the new length for this line", async () => {
     const { onSetWarranty } = renderRow(item({ warranty_months: 3 }));
-    fireEvent.click(await screen.findByRole("button", { name: "Edit warranty" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Edit warranty" }),
+    );
     const box = screen.getByLabelText("Warranty months for Charger");
     // LIRA-331: a text box (inputMode numeric) so Arabic digits are accepted.
     expect(box).toHaveValue("3");
@@ -95,7 +115,9 @@ describe("CartLineRow — per-line warranty (LIRA-296)", () => {
 
   it("refuses more than 60 months", async () => {
     const { onSetWarranty } = renderRow(item({ warranty_months: 3 }));
-    fireEvent.click(await screen.findByRole("button", { name: "Edit warranty" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Edit warranty" }),
+    );
     fireEvent.change(screen.getByLabelText("Warranty months for Charger"), {
       target: { value: "61" },
     });
@@ -108,7 +130,9 @@ describe("CartLineRow — per-line warranty (LIRA-296)", () => {
     const { onSetWarranty } = renderRow(
       item({ warranty_months: 3, warranty_months_edit: 6 }),
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Edit warranty" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Edit warranty" }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Use default" }));
     expect(onSetWarranty).toHaveBeenCalledWith("1", null);
   });

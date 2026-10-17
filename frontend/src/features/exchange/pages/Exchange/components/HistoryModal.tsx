@@ -456,7 +456,10 @@ export function HistoryModal({
                   className: "px-4 py-3 text-end",
                   sortKey: "amount_out",
                 },
-                { header: t("history.via"), className: "px-4 py-3 text-center" },
+                {
+                  header: t("history.via"),
+                  className: "px-4 py-3 text-center",
+                },
                 {
                   header: t("history.statusHeader"),
                   className: "px-4 py-3 text-center",
@@ -591,8 +594,7 @@ export function HistoryModal({
                       </td>
                       <td className="px-4 py-3 text-sm font-bold text-red-400 text-end font-mono">
                         <Ltr>
-                          {formatNumber(Number(tx.amount_out))}{" "}
-                          {tx.to_currency}
+                          {formatNumber(Number(tx.amount_out))} {tx.to_currency}
                         </Ltr>
                       </td>
                       <td className="px-4 py-3 text-center">

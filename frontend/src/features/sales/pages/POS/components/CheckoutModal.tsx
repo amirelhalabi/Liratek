@@ -552,9 +552,7 @@ export default function CheckoutModal({
    *  multi-currency summary branch below — fmtTotal above stays the
    *  single-currency formatter for the byte-identical original case). */
   const fmtMoneyFor = (v: number, curr: string) =>
-    curr === "LBP"
-      ? `${formatNumber(Math.round(v))} LBP`
-      : `$${v.toFixed(2)}`;
+    curr === "LBP" ? `${formatNumber(Math.round(v))} LBP` : `$${v.toFixed(2)}`;
   const effectiveExchangeRate = parseFloat(customExchangeRate) || exchangeRate;
   // Total paid, converted into the job's currency for settlement comparison.
   const totalPaidInTotalCurrency = isLbpTotal
@@ -1452,7 +1450,9 @@ export default function CheckoutModal({
                 disabled={isLoading}
                 className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-lg shadow-lg shadow-emerald-900/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
               >
-                {isLoading ? t("checkout.processing") : t("checkout.completeSale")}
+                {isLoading
+                  ? t("checkout.processing")
+                  : t("checkout.completeSale")}
               </button>
             </div>
           </div>

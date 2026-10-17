@@ -31,9 +31,7 @@ export function SendOnWhatsAppControl({
 
   const typedCheck = toWhatsAppNumber(typed);
   const liveInvalid =
-    typed.trim() !== "" && !typedCheck.ok
-      ? t("whatsapp.numberInvalid")
-      : null;
+    typed.trim() !== "" && !typedCheck.ok ? t("whatsapp.numberInvalid") : null;
   const message =
     sender.status === "error"
       ? t("whatsapp.loadFailed")

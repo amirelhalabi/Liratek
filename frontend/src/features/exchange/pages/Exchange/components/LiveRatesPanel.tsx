@@ -242,9 +242,7 @@ export function LiveRatesPanel({
             ))}
           </div>
         ) : rows.length === 0 ? (
-          <p className="p-4 text-xs text-slate-500">
-            {t("live.noRates")}
-          </p>
+          <p className="p-4 text-xs text-slate-500">{t("live.noRates")}</p>
         ) : filtered.length === 0 ? (
           <p className="p-4 text-xs text-slate-500">
             {t("live.noMatch", { search })}
