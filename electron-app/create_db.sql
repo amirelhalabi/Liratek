@@ -183,7 +183,10 @@ CREATE TABLE IF NOT EXISTS users (
     is_active BOOLEAN DEFAULT 1, email TEXT DEFAULT NULL, email_verified_at TEXT DEFAULT NULL,
     -- v202 (LIRA-291): 1 = the user has a usable password. Only a user who
     -- joined with Google starts at 0; every password write sets it back to 1.
-    has_password INTEGER NOT NULL DEFAULT 1
+    has_password INTEGER NOT NULL DEFAULT 1,
+    -- v220 (LIRA-331): the person's own UI language. NULL = follow the shop
+    -- default (system_settings.ui_default_language, missing = 'en').
+    language TEXT DEFAULT NULL CHECK (language IS NULL OR language IN ('en','ar'))
 );
 
 -- Seed admin user if not exists
@@ -3149,4 +3152,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- Whish App USD prices for shops that already have a catalog.
     (218, 'whish_app_usd_prices'),
     -- v219 allows 'SPLIT' in partner_ledger.settlement_method (declared above).
-    (219, 'partner_ledger_split_settlement_method');
+    (219, 'partner_ledger_split_settlement_method'),
+    -- v220 (LIRA-331) adds users.language (declared above).
+    (220, 'users_language');

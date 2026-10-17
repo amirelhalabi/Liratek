@@ -697,6 +697,12 @@ export type {
   OwnEmailView,
   OwnEmailChangeResult,
 } from "./UserEmailService.js";
+// LIRA-331: a user's own UI language.
+export {
+  UserPreferencesService,
+  getUserPreferencesService,
+  resetUserPreferencesService,
+} from "./UserPreferencesService.js";
 
 // [auth-C] exports
 export {

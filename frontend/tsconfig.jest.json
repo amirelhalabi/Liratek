@@ -24,7 +24,8 @@
       "@/config/*": ["./src/config/*"],
       "@shared/*": ["../packages/core/src/*"],
       "@liratek/core": ["../packages/core/src/index.ts"],
-      "@liratek/ui": ["../packages/ui/src/index.ts"]
+      "@liratek/ui": ["../packages/ui/src/index.ts"],
+      "@liratek/ui/*": ["../packages/ui/src/*"]
     }
   },
   "include": [

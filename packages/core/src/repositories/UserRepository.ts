@@ -8,6 +8,8 @@
 import { BaseRepository, type FindOptions } from "./BaseRepository.js";
 import { getCurrentTenantId, runWithoutTenant } from "../db/tenantContext.js";
 import { DatabaseError, EmailTakenInShopError } from "../utils/errors.js";
+import type { Language } from "../constants/languages.js";
+import { isLanguage } from "../utils/effectiveLanguage.js";
 
 /**
  * How a username is matched, everywhere. Defined once (rule 14) because the
@@ -750,6 +752,47 @@ export class UserRepository extends BaseRepository<UserEntity> {
       return row?.has_password === 1;
     } catch (error) {
       throw new DatabaseError("Failed to read whether the user has a password", {
+        cause: error,
+        entityId: userId,
+      });
+    }
+  }
+
+  /**
+   * A CURRENT-shop user's own UI language (v220, LIRA-331), or null when they
+   * never chose (they follow the shop default) or are not a user of this shop.
+   */
+  getLanguage(userId: number): Language | null {
+    try {
+      const row = this.queryOne<{ language: string | null }>(
+        `SELECT language FROM ${this.tableName} WHERE id = ? AND tenant_id = ?`,
+        userId,
+        getCurrentTenantId(),
+      );
+      return isLanguage(row?.language) ? row.language : null;
+    } catch (error) {
+      throw new DatabaseError("Failed to read the user's language", {
+        cause: error,
+        entityId: userId,
+      });
+    }
+  }
+
+  /**
+   * Sets a CURRENT-shop user's own UI language. False when the id is not a
+   * user of this shop (nothing written). The only writer of users.language.
+   */
+  setLanguage(userId: number, language: Language): boolean {
+    try {
+      const result = this.execute(
+        `UPDATE ${this.tableName} SET language = ? WHERE id = ? AND tenant_id = ?`,
+        language,
+        userId,
+        getCurrentTenantId(),
+      );
+      return result.changes > 0;
+    } catch (error) {
+      throw new DatabaseError("Failed to save the user's language", {
         cause: error,
         entityId: userId,
       });

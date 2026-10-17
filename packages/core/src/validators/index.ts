@@ -78,3 +78,5 @@ export * from "./paymentMethod.js";
 export * from "./drawerTopUp.js";
 // LIRA-306: offline desktop fallback (pairing, events, manifest, review).
 export * from "./offline.js";
+// LIRA-331: a user's own UI language.
+export * from "./userPreferences.js";

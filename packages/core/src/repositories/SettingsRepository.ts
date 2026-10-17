@@ -1,6 +1,13 @@
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import {
+  DEFAULT_LANGUAGE,
+  RECEIPT_LANGUAGE_SETTING_KEY,
+  UI_DEFAULT_LANGUAGE_SETTING_KEY,
+  type Language,
+} from "../constants/languages.js";
+import { isLanguage } from "../utils/effectiveLanguage.js";
 
 export interface SettingEntity {
   id?: number;
@@ -78,6 +85,24 @@ export class SettingsRepository {
     } catch {
       return "OMT";
     }
+  }
+
+  /**
+   * LIRA-331: the shop's default UI language. No seed row: missing (or an
+   * unknown value) reads as English (FR-005).
+   */
+  getUiDefaultLanguage(): Language {
+    const value = this.getSettingValue(UI_DEFAULT_LANGUAGE_SETTING_KEY);
+    return isLanguage(value) ? value : DEFAULT_LANGUAGE;
+  }
+
+  /**
+   * LIRA-331: the language receipts print in, whatever the cashier's own
+   * language (FR-021). Missing reads as English (FR-023).
+   */
+  getReceiptLanguage(): Language {
+    const value = this.getSettingValue(RECEIPT_LANGUAGE_SETTING_KEY);
+    return isLanguage(value) ? value : DEFAULT_LANGUAGE;
   }
 
   /**

@@ -13,6 +13,11 @@ import {
   WARRANTY_TERMS_SETTING_KEY,
   warrantyTermsTextSchema,
 } from "../validators/warranty.js";
+import { languageSchema } from "../validators/userPreferences.js";
+import {
+  RECEIPT_LANGUAGE_SETTING_KEY,
+  UI_DEFAULT_LANGUAGE_SETTING_KEY,
+} from "../constants/languages.js";
 
 /**
  * Per-key value rules for the generic settings pipe. Keys not listed accept
@@ -21,11 +26,16 @@ import {
  */
 const SETTING_VALUE_SCHEMAS: Record<string, z.ZodType<string>> = {
   [WARRANTY_TERMS_SETTING_KEY]: warrantyTermsTextSchema,
+  // LIRA-331: the shop's default UI language and receipt language.
+  [UI_DEFAULT_LANGUAGE_SETTING_KEY]: languageSchema,
+  [RECEIPT_LANGUAGE_SETTING_KEY]: languageSchema,
 };
 
 export interface SettingResult {
   success: boolean;
   error?: string;
+  /** "VALIDATION_ERROR" when a per-key value rule refused the value. */
+  code?: string;
 }
 
 /**
@@ -197,6 +207,7 @@ export class SettingsService {
           success: false,
           error:
             parsed.error.issues[0]?.message ?? `Invalid value for '${key}'`,
+          code: "VALIDATION_ERROR",
         };
       }
     }

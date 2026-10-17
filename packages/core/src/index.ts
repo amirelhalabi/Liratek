@@ -41,6 +41,10 @@ export * from "./utils/barcode.js";
 export * from "./utils/payments.js";
 export * from "./utils/saleMargin.js";
 export * from "./utils/formatMoney.js";
+// LIRA-331: UI language (pure leaves, also exported from browser.ts).
+export * from "./constants/languages.js";
+export * from "./utils/effectiveLanguage.js";
+export * from "./messages/serverMessages.js";
 export * from "./utils/visibleDrawerCurrencies.js";
 export * from "./utils/currency.js";
 export * from "./utils/currencyConverter.js";

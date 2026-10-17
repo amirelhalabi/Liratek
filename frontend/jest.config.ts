@@ -9,7 +9,9 @@ process.env.TZ = "Asia/Beirut";
 const config: Config = {
   preset: "ts-jest",
   testEnvironment: "jsdom",
-  roots: ["<rootDir>/src"],
+  // LIRA-331: packages/ui has no runner of its own; its tests (i18n
+  // formatters, Ltr/DirIcon, …) run here.
+  roots: ["<rootDir>/src", "<rootDir>/../packages/ui/src"],
   testRegex: "(/__tests__/.*|(\\.|/)(test|spec))\\.tsx?$",
   moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json"],
   setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
@@ -42,6 +44,10 @@ const config: Config = {
     // now that a frontend module really loads core instead of mocking it.
     "^(\\.{1,2}/.*)\\.js$": "$1",
     "^@liratek/ui$": "<rootDir>/../packages/ui/src/index.ts",
+    // LIRA-331: i18n helpers are imported by subpath (`@liratek/ui/i18n/…`),
+    // never from the barrel, so the ~400 suites that jest.mock("@liratek/ui")
+    // with a fixed export list keep rendering converted components.
+    "^@liratek/ui/(.*)$": "<rootDir>/../packages/ui/src/$1",
   },
 };
 

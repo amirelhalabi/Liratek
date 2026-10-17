@@ -14884,6 +14884,25 @@ DROP TABLE IF EXISTS supplier_settlement_coverage;`);
       );
     },
   },
+  {
+    version: 220,
+    name: "users_language",
+    description:
+      "LIRA-331: users.language, the UI language a person chose for " +
+      "themselves ('en' or 'ar'). NULL = never chose: they follow the shop " +
+      "default (system_settings.ui_default_language, missing = 'en'). Every " +
+      "existing user starts NULL, so nothing changes until someone picks a " +
+      "language. Display only: no money table is touched.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(
+        `ALTER TABLE users ADD COLUMN language TEXT DEFAULT NULL CHECK (language IS NULL OR language IN ('en','ar'))`,
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(`ALTER TABLE users DROP COLUMN language`);
+    },
+  },
 ];
 
 /** v219 — partner_ledger.settlement_method's allowed values. */

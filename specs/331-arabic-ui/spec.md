@@ -21,6 +21,15 @@ Today nothing in the apps can show a second language. The one display choice a u
 - Q: Receipt language (FR-021, User Story 3) — accept the spec's decision of one shop "receipt language" setting, default English? → A: Accepted as written.
 - Q: Does a user's language choice sync between the desktop app and the web app? → A: No; accepted as written in Assumptions (separate accounts, per-user within each app).
 
+### Session 2026-10-17 (owner decisions OD-1…OD-6, research.md R12)
+
+- OD-1: Yes. The two signup links in `landing/ar.html` carry `?lang=ar`. This overrides the Assumption "landing pages are not changed" for those two links only.
+- OD-2: System-stored English text (transaction summaries, ledger notes) is shown as stored. Only type/direction/badge labels are translated.
+- OD-3: System-seeded names (drawers, payment methods, categories) are translated only while the stored value still equals its seed.
+- OD-4: Arabic stays hidden behind a switch until P2 is done. The owner can preview it per device.
+- OD-5: Lebanese month names (كانون الثاني، شباط، آذار…).
+- OD-6: Signup, invitation and password-reset emails stay English for now.
+
 ## User Scenarios & Testing _(mandatory)_
 
 ### User Story 1 - A cashier works the whole day in Arabic on desktop or web (Priority: P1)

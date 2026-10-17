@@ -17,17 +17,29 @@ export default defineConfig({
   // Use relative paths for Electron file:// protocol
   base: "./",
   resolve: {
-    alias: {
+    // An ordered list: the first match wins, so the `@liratek/ui/<file>`
+    // subpath (LIRA-331 i18n helpers) must come before the bare barrel.
+    alias: [
       // @liratek/core: browser-safe entry (excludes Node.js-only modules)
-      "@liratek/core": path.resolve(
-        __dirname,
-        "../packages/core/src/browser.ts",
-      ),
-      "@liratek/ui": path.resolve(__dirname, "../packages/ui/src/index.ts"),
-      "@shared": path.resolve(__dirname, "../packages/core/src"),
+      {
+        find: "@liratek/core",
+        replacement: path.resolve(__dirname, "../packages/core/src/browser.ts"),
+      },
+      {
+        find: /^@liratek\/ui\/(.+)$/,
+        replacement: `${path.resolve(__dirname, "../packages/ui/src")}/$1`,
+      },
+      {
+        find: "@liratek/ui",
+        replacement: path.resolve(__dirname, "../packages/ui/src/index.ts"),
+      },
+      {
+        find: "@shared",
+        replacement: path.resolve(__dirname, "../packages/core/src"),
+      },
       // General @/ alias - this will match all @/... imports
-      "@": path.resolve(__dirname, "./src"),
-    },
+      { find: "@", replacement: path.resolve(__dirname, "./src") },
+    ],
   },
   server: {
     port: 5173,
