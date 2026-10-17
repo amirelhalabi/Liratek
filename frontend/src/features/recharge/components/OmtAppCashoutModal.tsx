@@ -59,7 +59,7 @@ export function OmtAppCashoutModal({
   walletBalance,
   formatAmount,
 }: OmtAppCashoutModalProps) {
-  const { t } = useTranslation("rechargeFinancial");
+  const { t } = useTranslation(["rechargeFinancial", "common"]);
   useModalFocusFix(isOpen);
 
   const [amount, setAmount] = useState("");
@@ -203,9 +203,7 @@ export function OmtAppCashoutModal({
               from the shared core commission function, never re-typed here. */}
           <div className="rounded-xl bg-slate-900/50 border border-slate-700/50 p-4 space-y-2">
             <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-400">
-                {t("cashout.commission")}
-              </span>
+              <span className="text-slate-400">{t("cashout.commission")}</span>
               <span
                 data-testid="omt-app-cashout-commission-preview"
                 className="text-white font-mono font-medium"
@@ -247,10 +245,7 @@ export function OmtAppCashoutModal({
               data-testid="omt-app-cashout-submit"
               onClick={handleSubmit}
               disabled={
-                isSubmitting ||
-                !amount ||
-                parsedAmount <= 0 ||
-                exceedsWallet
+                isSubmitting || !amount || parsedAmount <= 0 || exceedsWallet
               }
               className="flex-1 px-4 py-2.5 text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg bg-violet-600 hover:bg-violet-500 shadow-violet-500/20"
             >

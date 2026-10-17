@@ -657,7 +657,7 @@ function KatshFormInner({
   isAdmin,
   onCartCountChange,
 }: KatshFormProps) {
-  const { t } = useTranslation("recharge");
+  const { t } = useTranslation(["recharge", "common"]);
   const api = useApi();
   const queryClient = useQueryClient();
   const {
@@ -2049,7 +2049,9 @@ function KatshFormInner({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={t("katsh.searchPlaceholder", { provider: activeProvider })}
+            placeholder={t("katsh.searchPlaceholder", {
+              provider: activeProvider,
+            })}
             className={`w-full px-4 py-2.5 ps-10 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none ${billAccent.brand.searchFocus} transition-all`}
           />
           <svg
@@ -2753,7 +2755,8 @@ function KatshFormInner({
                               owed: selfChargeValidityProjection?.owedApplied,
                               requested:
                                 selfChargeValidityProjection?.requestedDays,
-                              applied: selfChargeValidityProjection?.appliedDays,
+                              applied:
+                                selfChargeValidityProjection?.appliedDays,
                             })
                           : t("katsh.owedPayoff", {
                               owed: selfChargeValidityProjection?.owedApplied,

@@ -1104,6 +1104,7 @@ export default function MobileRecharge() {
       setIsSubmitting(false);
     }
   }, [
+    t,
     activeProvider,
     telecomAmount,
     telecomPrice,
@@ -1137,39 +1138,42 @@ export default function MobileRecharge() {
     telecomExtra,
   ]);
 
-  const refreshTopUpDrawers = useCallback(async (destinationDrawer: string) => {
-    const requestId = ++topUpDrawersRequestRef.current;
-    setTopUpDrawersLoading(true);
-    setTopUpDrawersError(null);
-    try {
-      const drawers = await apiRef.current.getRechargeDrawerBalances();
-      if (topUpDrawersRequestRef.current !== requestId) return;
-      setDrawerBalances(drawers ?? []);
-      // Functional update: a modal closed meanwhile (null) stays closed.
-      setTopUpData((prev) =>
-        prev && prev.destinationDrawer === destinationDrawer
-          ? {
-              ...prev,
-              availableDrawers: (drawers ?? []).filter(
-                (d) => d.name !== destinationDrawer,
-              ),
-            }
-          : prev,
-      );
-    } catch (error) {
-      if (topUpDrawersRequestRef.current !== requestId) return;
-      // LIRA-247: show the real reason; shop-day: inside the modal, with
-      // Retry, instead of a blocking alert.
-      logger.error("Failed to load drawer balances:", error);
-      setTopUpDrawersError(
-        getApiErrorMessage(error, t("page.drawerBalancesFailed")),
-      );
-    } finally {
-      if (topUpDrawersRequestRef.current === requestId) {
-        setTopUpDrawersLoading(false);
+  const refreshTopUpDrawers = useCallback(
+    async (destinationDrawer: string) => {
+      const requestId = ++topUpDrawersRequestRef.current;
+      setTopUpDrawersLoading(true);
+      setTopUpDrawersError(null);
+      try {
+        const drawers = await apiRef.current.getRechargeDrawerBalances();
+        if (topUpDrawersRequestRef.current !== requestId) return;
+        setDrawerBalances(drawers ?? []);
+        // Functional update: a modal closed meanwhile (null) stays closed.
+        setTopUpData((prev) =>
+          prev && prev.destinationDrawer === destinationDrawer
+            ? {
+                ...prev,
+                availableDrawers: (drawers ?? []).filter(
+                  (d) => d.name !== destinationDrawer,
+                ),
+              }
+            : prev,
+        );
+      } catch (error) {
+        if (topUpDrawersRequestRef.current !== requestId) return;
+        // LIRA-247: show the real reason; shop-day: inside the modal, with
+        // Retry, instead of a blocking alert.
+        logger.error("Failed to load drawer balances:", error);
+        setTopUpDrawersError(
+          getApiErrorMessage(error, t("page.drawerBalancesFailed")),
+        );
+      } finally {
+        if (topUpDrawersRequestRef.current === requestId) {
+          setTopUpDrawersLoading(false);
+        }
       }
-    }
-  }, []);
+    },
+    [t],
+  );
 
   const handleTopUpClick = useCallback(async () => {
     if (!activeProvider) return;
@@ -1275,7 +1279,7 @@ export default function MobileRecharge() {
         "success",
       );
     },
-    [topUpData, activeConfig, loadFinancialData, loadDrawerBalances, api],
+    [topUpData, activeConfig, loadFinancialData, loadDrawerBalances, api, t],
   );
 
   // Katsh/iPick/OMT App: supplier extends credit — no cash leaves any drawer.
@@ -1315,7 +1319,7 @@ export default function MobileRecharge() {
         "success",
       );
     },
-    [topUpData, loadFinancialData, loadDrawerBalances, api],
+    [topUpData, loadFinancialData, loadDrawerBalances, api, t],
   );
 
   // LIRA-192: "Cash Out to OMT" — OMT_App wallet balance goes DOWN, the OMT
@@ -1343,7 +1347,7 @@ export default function MobileRecharge() {
         "success",
       );
     },
-    [loadFinancialData, loadDrawerBalances, api],
+    [loadFinancialData, loadDrawerBalances, api, t],
   );
 
   // Whish App: top up from a partner's credit line
@@ -1373,7 +1377,7 @@ export default function MobileRecharge() {
         "success",
       );
     },
-    [loadFinancialData, loadDrawerBalances, api],
+    [loadFinancialData, loadDrawerBalances, api, t],
   );
 
   // Whish App: buy credits from a client (client transfers credits, shop pays
@@ -1397,7 +1401,7 @@ export default function MobileRecharge() {
         "success",
       );
     },
-    [loadFinancialData, loadDrawerBalances, api],
+    [loadFinancialData, loadDrawerBalances, api, t],
   );
 
   const resetGiftForm = useCallback(() => {
@@ -1535,11 +1539,7 @@ export default function MobileRecharge() {
         alert(result.error || t("page.alfaGiftFailed"));
         return;
       }
-      appEvents.emit(
-        "notification:show",
-        t("page.alfaGiftDone"),
-        "success",
-      );
+      appEvents.emit("notification:show", t("page.alfaGiftDone"), "success");
       void autoPrintReceipt({
         type: "RECHARGE",
         sourceTable: "recharges",
@@ -1567,6 +1567,7 @@ export default function MobileRecharge() {
       setIsSubmitting(false);
     }
   }, [
+    t,
     giftTierKey,
     giftAmountUsd,
     giftPriceLbp,
@@ -1834,11 +1835,7 @@ export default function MobileRecharge() {
         }
       }
 
-      appEvents.emit(
-        "notification:show",
-        t("page.cryptoDone"),
-        "success",
-      );
+      appEvents.emit("notification:show", t("page.cryptoDone"), "success");
       setCryptoAmount("");
       setCryptoClientName("");
       setCryptoClientPhone("");
@@ -1868,6 +1865,7 @@ export default function MobileRecharge() {
       setIsSubmitting(false);
     }
   }, [
+    t,
     cryptoType,
     cryptoAmount,
     cryptoFeeIncluded,

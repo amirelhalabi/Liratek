@@ -108,11 +108,7 @@ export function WalletExchangePanel({
       onDone();
     } catch (error) {
       logger.error("Wallet exchange failed:", error);
-      appEvents.emit(
-        "notification:show",
-        t("walletExchange.failed"),
-        "error",
-      );
+      appEvents.emit("notification:show", t("walletExchange.failed"), "error");
     } finally {
       setIsSubmitting(false);
     }

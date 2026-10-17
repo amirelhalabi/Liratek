@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
 import { User, Hash, Phone } from "lucide-react";
 import {
   ServiceTypeTabs,
@@ -131,6 +133,7 @@ export function CryptoForm({
   onExchangeRateChange,
   onTransactionTimeChange,
 }: CryptoFormProps) {
+  const { t } = useTranslation("rechargeFinancial");
   const [showPaymentSheet, setShowPaymentSheet] = useState(false);
   // The rate the payment sheet is actually converting at (seeded rate, or
   // the cashier's edit of its "1 USD =" field). The "≈ X LBP" line below
@@ -293,11 +296,7 @@ export function CryptoForm({
   const handleForPartnerSubmit = async () => {
     if (!cryptoAmount || parsedAmount <= 0) return;
     if (!selectedPartnerId) {
-      appEvents.emit(
-        "notification:show",
-        "Select a partner for this transaction.",
-        "warning",
-      );
+      appEvents.emit("notification:show", t("crypto.selectPartner"), "warning");
       return;
     }
 
@@ -319,17 +318,13 @@ export function CryptoForm({
       if (!result?.success) {
         appEvents.emit(
           "notification:show",
-          result?.error || "Failed to process partner transaction",
+          result?.error || t("crypto.partnerFailed"),
           "error",
         );
         return;
       }
 
-      appEvents.emit(
-        "notification:show",
-        "Partner crypto transaction recorded successfully",
-        "success",
-      );
+      appEvents.emit("notification:show", t("crypto.partnerDone"), "success");
       setCryptoAmount("");
       setCryptoFee("");
       setCryptoDescription("");
@@ -341,7 +336,7 @@ export function CryptoForm({
       // to this generic string and hide the real reason.
       appEvents.emit(
         "notification:show",
-        getApiErrorMessage(err, "Failed to process partner transaction"),
+        getApiErrorMessage(err, t("crypto.partnerFailed")),
         "error",
       );
     } finally {
@@ -360,8 +355,8 @@ export function CryptoForm({
       {/* Send / Cash Out Tabs */}
       <ServiceTypeTabs
         options={[
-          { id: "SEND", label: "Send Crypto", iconKey: "Send" },
-          { id: "RECEIVE", label: "Cash Out", iconKey: "Package" },
+          { id: "SEND", label: t("crypto.send"), iconKey: "Send" },
+          { id: "RECEIVE", label: t("crypto.cashOut"), iconKey: "Package" },
         ]}
         value={cryptoType}
         onChange={(val) => setCryptoType(val as "SEND" | "RECEIVE")}
@@ -372,8 +367,8 @@ export function CryptoForm({
       />
       <p className="text-xs text-slate-400 text-center -mt-3 mb-1">
         {cryptoType === "SEND"
-          ? "Sending USDT from shop Binance account"
-          : "Receiving USDT to shop Binance account"}
+          ? t("crypto.sendingHint")
+          : t("crypto.receivingHint")}
       </p>
 
       {/* Amount Input */}
@@ -382,7 +377,7 @@ export function CryptoForm({
           htmlFor="crypto-amount"
           className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
         >
-          Amount (USDT)
+          {t("crypto.amountUsdt")}
         </label>
         <div className="relative">
           <DecimalInput
@@ -403,7 +398,7 @@ export function CryptoForm({
       {/* Fee + Summary */}
       <div className="rounded-xl bg-slate-900/50 border border-slate-700/50 p-4 space-y-2">
         <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">
-          Transaction Fee
+          {t("crypto.transactionFee")}
         </h3>
 
         <div>
@@ -411,7 +406,7 @@ export function CryptoForm({
             htmlFor="crypto-fee"
             className="block text-xs text-slate-400 mb-1"
           >
-            Fee Amount — Optional
+            {t("crypto.feeAmountOptional")}
           </label>
           <div className="relative">
             <span className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
@@ -437,7 +432,9 @@ export function CryptoForm({
               onChange={(e) => setFeeIncluded(e.target.checked)}
               className={`w-4 h-4 rounded border-slate-600 bg-slate-900 ${brand.text} ${brand.focusRing}`}
             />
-            <span className="text-sm font-medium">Fee included in amount</span>
+            <span className="text-sm font-medium">
+              {t("crypto.feeIncluded")}
+            </span>
           </label>
         ) : (
           /* RECEIVE (Cash Out): three-way "who pays the fee" choice
@@ -445,11 +442,11 @@ export function CryptoForm({
              OmtWhishAppTransferForm.tsx's Phase D radio group). */
           <div
             role="radiogroup"
-            aria-label="Fee paid by"
+            aria-label={t("crypto.feePaidBy")}
             className="pt-1 space-y-1.5"
           >
             <span className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">
-              Fee paid by
+              {t("crypto.feePaidBy")}
             </span>
             <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
               <input
@@ -464,7 +461,7 @@ export function CryptoForm({
                 className={`w-4 h-4 border-slate-600 bg-slate-900 ${brand.text} ${brand.focusRing}`}
               />
               <span className="text-sm font-medium">
-                Sender (added to payout)
+                {t("crypto.feeSender")}
               </span>
             </label>
             <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
@@ -479,7 +476,9 @@ export function CryptoForm({
                 }}
                 className={`w-4 h-4 border-slate-600 bg-slate-900 ${brand.text} ${brand.focusRing}`}
               />
-              <span className="text-sm font-medium">Deducted from payout</span>
+              <span className="text-sm font-medium">
+                {t("crypto.feeDeducted")}
+              </span>
             </label>
             {/* Mode C has no walk-in fee to collect for a partner
                 transaction (no counter cash at all) and is never wired for
@@ -499,7 +498,7 @@ export function CryptoForm({
                   className={`w-4 h-4 border-slate-600 bg-slate-900 ${brand.text} ${brand.focusRing}`}
                 />
                 <span className="text-sm font-medium">
-                  Customer pays separately
+                  {t("crypto.feeSeparate")}
                 </span>
               </label>
             )}
@@ -510,25 +509,27 @@ export function CryptoForm({
         {cryptoType === "RECEIVE" ? (
           <>
             <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-700/50">
-              <span className="text-slate-300 font-medium">USDT Received:</span>
+              <span className="text-slate-300 font-medium">
+                {t("crypto.usdtReceivedColon")}
+              </span>
               <span className="text-white font-mono font-bold">
                 {receiveUsdt.toFixed(2)} USDT
               </span>
             </div>
             <div className="flex items-center justify-between text-xs pt-1">
-              <span className="text-slate-400">Shop Fee:</span>
+              <span className="text-slate-400">{t("crypto.shopFeeColon")}</span>
               <span
                 className={`font-mono font-bold ${fee > 0 ? "text-emerald-400" : "text-slate-500"}`}
               >
                 {feeCollectedSeparately && fee > 0
-                  ? "collected separately: "
+                  ? t("crypto.collectedSeparately")
                   : ""}
                 ${fee.toFixed(2)}
               </span>
             </div>
             <div className="flex items-center justify-between text-xs pt-1">
               <span className="text-slate-300 font-medium">
-                Customer Payout:
+                {t("crypto.customerPayoutColon")}
               </span>
               <span className="text-white font-mono font-bold">
                 ${payout.toFixed(2)}
@@ -538,13 +539,17 @@ export function CryptoForm({
         ) : (
           <>
             <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-700/50">
-              <span className="text-slate-300 font-medium">USDT Sent:</span>
+              <span className="text-slate-300 font-medium">
+                {t("crypto.usdtSentColon")}
+              </span>
               <span className="text-white font-mono font-bold">
                 {sendUsdt.toFixed(2)} USDT
               </span>
             </div>
             <div className="flex items-center justify-between text-xs pt-1">
-              <span className="text-slate-400">Shop Profit (Fee):</span>
+              <span className="text-slate-400">
+                {t("crypto.shopProfitFeeColon")}
+              </span>
               <span
                 className={`font-mono font-bold ${fee > 0 ? "text-emerald-400" : "text-slate-500"}`}
               >
@@ -552,7 +557,9 @@ export function CryptoForm({
               </span>
             </div>
             <div className="flex items-center justify-between text-xs pt-1">
-              <span className="text-slate-300 font-medium">Customer Pays:</span>
+              <span className="text-slate-300 font-medium">
+                {t("crypto.customerPaysColon")}
+              </span>
               <span className="text-white font-mono font-bold">
                 ${sendTotal.toFixed(2)}
               </span>
@@ -593,7 +600,8 @@ export function CryptoForm({
                 htmlFor="crypto-client"
                 className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
               >
-                <User size={12} /> Client Name {activeSession && "• Session"}
+                <User size={12} /> {t("crypto.clientName")}{" "}
+                {activeSession && t("crypto.sessionBadge")}
               </label>
               <ClientAutocompleteInput
                 id="crypto-client"
@@ -613,7 +621,7 @@ export function CryptoForm({
                   setPaymentInputKey((k) => k + 1);
                 }}
                 className={`w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none ${brand.focusBorder} transition-all`}
-                placeholder="Optional"
+                placeholder={t("crypto.optional")}
               />
             </div>
             <div>
@@ -621,7 +629,7 @@ export function CryptoForm({
                 htmlFor="crypto-client-phone"
                 className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
               >
-                <Phone size={12} /> Phone
+                <Phone size={12} /> {t("crypto.phone")}
               </label>
               <ClientAutocompleteInput
                 id="crypto-client-phone"
@@ -639,7 +647,7 @@ export function CryptoForm({
                 }}
                 searchByPhone
                 className={`w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white font-mono focus:outline-none ${brand.focusBorder} transition-all`}
-                placeholder="Registers new client"
+                placeholder={t("crypto.registersNewClient")}
               />
             </div>
           </>
@@ -649,7 +657,7 @@ export function CryptoForm({
             htmlFor="crypto-description"
             className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
           >
-            <Hash size={12} /> Notes
+            <Hash size={12} /> {t("crypto.notes")}
           </label>
           <input
             id="crypto-description"
@@ -657,7 +665,7 @@ export function CryptoForm({
             value={cryptoDescription}
             onChange={(e) => setCryptoDescription(e.target.value)}
             className={`w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none ${brand.focusBorder} transition-all`}
-            placeholder="Wallet, reference..."
+            placeholder={t("crypto.notesPlaceholder")}
           />
         </div>
       </div>
@@ -667,9 +675,9 @@ export function CryptoForm({
 
       <TransactionTimeOverride
         value={transactionTime}
-        onChange={(t) => {
-          setTransactionTime(t);
-          onTransactionTimeChange?.(t);
+        onChange={(time) => {
+          setTransactionTime(time);
+          onTransactionTimeChange?.(time);
         }}
       />
 
@@ -678,7 +686,9 @@ export function CryptoForm({
         <div className="flex items-center justify-between gap-3">
           <div className="leading-tight">
             <div className="text-xs text-slate-400">
-              {cryptoType === "RECEIVE" ? "Payout" : "Total"}:{" "}
+              {cryptoType === "RECEIVE"
+                ? t("crypto.payoutColon")
+                : t("crypto.totalColon")}{" "}
               <span className="text-emerald-400 font-mono font-semibold">
                 $
                 {cryptoType === "RECEIVE"
@@ -689,10 +699,10 @@ export function CryptoForm({
             {lbpEquivalentRate > 0 && parsedAmount > 0 && (
               <div className="text-xs text-slate-500 font-mono">
                 ≈{" "}
-                {(
+                {formatNumber(
                   (cryptoType === "RECEIVE" ? payout : sendTotal) *
-                  lbpEquivalentRate
-                ).toLocaleString()}{" "}
+                    lbpEquivalentRate,
+                )}{" "}
                 LBP
               </div>
             )}
@@ -726,10 +736,10 @@ export function CryptoForm({
               }`}
             >
               {forPartner
-                ? "Submit to Partner"
+                ? t("crypto.submitToPartner")
                 : cryptoType === "RECEIVE"
-                  ? "Confirm Cash Out"
-                  : "Proceed to Pay"}
+                  ? t("crypto.confirmCashOut")
+                  : t("crypto.proceedToPay")}
             </button>
           </div>
         </div>
@@ -739,12 +749,18 @@ export function CryptoForm({
           collects no cash, so show a short notice instead. */}
       {forPartner ? (
         <ForPartnerNotice testId="crypto-partner-no-payment-notice">
-          Partner transaction: nothing is collected now — the partner will{" "}
-          {cryptoType === "RECEIVE" ? "be credited" : "owe"}{" "}
-          <span className="font-bold">
-            ${(cryptoType === "RECEIVE" ? payout : sendTotal).toFixed(2)}
-          </span>
-          , settled on the Partners page.
+          <Trans
+            t={t}
+            i18nKey={
+              cryptoType === "RECEIVE"
+                ? "crypto.partnerNoticeCredited"
+                : "crypto.partnerNoticeOwe"
+            }
+            values={{
+              amount: `$${(cryptoType === "RECEIVE" ? payout : sendTotal).toFixed(2)}`,
+            }}
+            components={{ bold: <span className="font-bold" /> }}
+          />
         </ForPartnerNotice>
       ) : (
         <PaymentSheet
@@ -756,36 +772,56 @@ export function CryptoForm({
           // over, short, or owes to an account with no client.
           confirmDisabled={customerSectionBlocksSubmit}
           title={
-            cryptoType === "RECEIVE" ? "Confirm Cash Out" : "Confirm Payment"
+            cryptoType === "RECEIVE"
+              ? t("crypto.confirmCashOut")
+              : t("sheet.confirmPayment")
           }
           subtitle={
             cryptoType === "RECEIVE"
-              ? `Cash Out — Payout $${payout.toFixed(2)}`
-              : `Crypto — $${(sendCustomerPays + sendExtra).toFixed(2)}`
+              ? t("crypto.sheetSubtitleCashOut", {
+                  amount: `$${payout.toFixed(2)}`,
+                })
+              : t("crypto.sheetSubtitleSend", {
+                  amount: `$${(sendCustomerPays + sendExtra).toFixed(2)}`,
+                })
           }
           accentColor={brand.button}
           confirmLabel={
             cryptoType === "RECEIVE"
-              ? `Confirm Cash Out $${payout.toFixed(2)}`
-              : `Pay $${(sendCustomerPays + sendExtra).toFixed(2)}`
+              ? t("crypto.confirmCashOutAmount", {
+                  amount: `$${payout.toFixed(2)}`,
+                })
+              : t("sheet.pay", {
+                  amount: `$${(sendCustomerPays + sendExtra).toFixed(2)}`,
+                })
           }
           summary={
             cryptoType === "RECEIVE"
               ? [
                   ...(cryptoClientName.trim()
-                    ? [{ label: "Client", value: cryptoClientName.trim() }]
+                    ? [
+                        {
+                          label: t("crypto.client"),
+                          value: cryptoClientName.trim(),
+                        },
+                      ]
                     : []),
                   ...(cryptoClientPhone.trim()
-                    ? [{ label: "Phone", value: cryptoClientPhone.trim() }]
+                    ? [
+                        {
+                          label: t("crypto.phone"),
+                          value: cryptoClientPhone.trim(),
+                        },
+                      ]
                     : []),
                   {
-                    label: "USDT Received",
+                    label: t("crypto.usdtReceived"),
                     value: `${receiveUsdt.toFixed(2)} USDT`,
                   },
                   ...(fee > 0
                     ? [
                         {
-                          label: "Shop Fee",
+                          label: t("crypto.shopFee"),
                           // After the discount (LIRA-269) — what is booked.
                           value: `−$${commission.toFixed(2)}`,
                           color: "text-emerald-400",
@@ -793,22 +829,35 @@ export function CryptoForm({
                       ]
                     : []),
                   {
-                    label: "Customer Payout",
+                    label: t("crypto.customerPayout"),
                     value: `$${payout.toFixed(2)}`,
                   },
                 ]
               : [
                   ...(cryptoClientName.trim()
-                    ? [{ label: "Client", value: cryptoClientName.trim() }]
+                    ? [
+                        {
+                          label: t("crypto.client"),
+                          value: cryptoClientName.trim(),
+                        },
+                      ]
                     : []),
                   ...(cryptoClientPhone.trim()
-                    ? [{ label: "Phone", value: cryptoClientPhone.trim() }]
+                    ? [
+                        {
+                          label: t("crypto.phone"),
+                          value: cryptoClientPhone.trim(),
+                        },
+                      ]
                     : []),
-                  { label: "USDT Sent", value: `${sendUsdt.toFixed(2)} USDT` },
+                  {
+                    label: t("crypto.usdtSent"),
+                    value: `${sendUsdt.toFixed(2)} USDT`,
+                  },
                   ...(fee > 0
                     ? [
                         {
-                          label: "Fee",
+                          label: t("crypto.fee"),
                           // After the discount — what is booked.
                           value: `$${commission.toFixed(2)}`,
                           color: "text-amber-400",
@@ -818,14 +867,14 @@ export function CryptoForm({
                   ...(sendExtra > 0
                     ? [
                         {
-                          label: "Extra",
+                          label: t("crypto.extra"),
                           value: `+$${sendExtra.toFixed(2)}`,
                           color: "text-emerald-400",
                         },
                       ]
                     : []),
                   {
-                    label: "Customer Pays",
+                    label: t("crypto.customerPays"),
                     value: `$${(sendCustomerPays + sendExtra).toFixed(2)}`,
                   },
                 ]
@@ -885,7 +934,7 @@ export function CryptoForm({
           {...(showCustomerSection
             ? {
                 counterFlow: {
-                  label: "Customer pays",
+                  label: t("crypto.customerPaysSection"),
                   totalAmount: customerTotal,
                   currency: "USD",
                   seedLines: customerSeedLines,
@@ -912,7 +961,7 @@ export function CryptoForm({
             cryptoClientPhone.trim() &&
             !cryptoClientId && (
               <p className="text-xs text-orange-300/80 px-1">
-                New client will be created on confirm.
+                {t("crypto.newClientOnConfirm")}
               </p>
             )}
         </PaymentSheet>
@@ -954,7 +1003,7 @@ export function CryptoForm({
           provider="Binance"
           onClose={() => setShowHistory(false)}
           onRefresh={loadCryptoData}
-          profitLabel="Fees"
+          profitLabel={t("crypto.fees")}
           onUpdateMetadata={async (id, data) => {
             // Migrated off raw window.api (rule 19) onto the shared
             // updateFinancialMetadata adapter fn, which also has a REST

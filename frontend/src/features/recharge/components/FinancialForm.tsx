@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
+import { Trans, useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
 import { ChevronDown, Phone, Search, X, Plus } from "lucide-react";
 import {
   appEvents,
@@ -131,6 +133,7 @@ export function FinancialForm({
   currency = "LBP",
   onCurrencyChange,
 }: FinancialFormProps) {
+  const { t } = useTranslation("rechargeFinancial");
   const api = useApi();
   const isUsd = currency === "USD";
   // The active provider's brand colours the selected card, its −/+ buttons
@@ -139,8 +142,8 @@ export function FinancialForm({
   /** Money as the active currency shows it: "$10.00" or "897,000 LBP". */
   const money = (n: number) =>
     isUsd
-      ? `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-      : `${n.toLocaleString()} LBP`;
+      ? `$${formatNumber(n, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : `${formatNumber(n)} LBP`;
   /**
    * The item as the active currency sells it, or null when it does not sell
    * in that currency (LIRA-324; rule lives in @liratek/core, rule 14). In USD
@@ -486,13 +489,13 @@ export function FinancialForm({
     try {
       const res = await api.createMobileServiceItem(built.payload);
       if (!res.success) {
-        setAddItemError(res.error ?? "Failed to create item");
+        setAddItemError(res.error ?? t("financial.createItemFailed"));
         return;
       }
       setNewItemForm(null);
       await onRefreshItems?.();
     } catch {
-      setAddItemError("Create failed");
+      setAddItemError(t("financial.createFailed"));
     }
   };
   const cancelNewItem = () => {
@@ -534,7 +537,7 @@ export function FinancialForm({
         activeConfig?.label || activeProvider || "Financial";
       const label =
         itemLabels.length > 60
-          ? `${providerLabel} (${cartItems.length} items) - ${money(totalPrice)}`
+          ? `${providerLabel} (${cartItems.length} items) - ${money(totalPrice)}` // i18n-exempt: stored session-cart label (data)
           : `${providerLabel}: ${itemLabels}`;
 
       // Store each line item for replay at checkout
@@ -597,7 +600,7 @@ export function FinancialForm({
       if (result.success) {
         appEvents.emit(
           "notification:show",
-          "Basket paid successfully",
+          t("financial.basketPaid"),
           "success",
         );
         clearBasket();
@@ -806,13 +809,13 @@ export function FinancialForm({
             }
           } else {
             logger.error("Financial submit failed:", result?.error);
-            alert(result?.error || "Failed to process item");
+            alert(result?.error || t("financial.itemFailed"));
             allSucceeded = false;
             break;
           }
         } catch (err) {
           logger.error("Financial submit error:", err);
-          alert("Failed to process item");
+          alert(t("financial.itemFailed"));
           allSucceeded = false;
           break;
         }
@@ -821,11 +824,7 @@ export function FinancialForm({
     }
 
     if (allSucceeded) {
-      appEvents.emit(
-        "notification:show",
-        "Transactions processed successfully",
-        "success",
-      );
+      appEvents.emit("notification:show", t("financial.processed"), "success");
       void autoPrintReceipt({
         type: "FINANCIAL_SERVICE",
         provider: activeProvider,
@@ -880,7 +879,7 @@ export function FinancialForm({
     }
     if (cart.size === 0 || isSubmittingPartner) return;
     if (!partnerId) {
-      alert("Select a partner for this order.");
+      alert(t("financial.selectPartner"));
       return;
     }
 
@@ -924,13 +923,13 @@ export function FinancialForm({
 
           if (!result?.success) {
             logger.error("Partner financial submit failed:", result?.error);
-            alert(result?.error || "Failed to process item");
+            alert(result?.error || t("financial.itemFailed"));
             allSucceeded = false;
             break;
           }
         } catch (err) {
           logger.error("Partner financial submit error:", err);
-          alert("Failed to process item");
+          alert(t("financial.itemFailed"));
           allSucceeded = false;
           break;
         }
@@ -941,7 +940,7 @@ export function FinancialForm({
     if (allSucceeded) {
       appEvents.emit(
         "notification:show",
-        "Partner transactions processed successfully",
+        t("financial.partnerProcessed"),
         "success",
       );
       setCart(new Map());
@@ -960,7 +959,7 @@ export function FinancialForm({
   const handleBasketPartnerSubmit = async () => {
     if (basketLines.length === 0 || isSubmittingPartner) return;
     if (!partnerId) {
-      alert("Select a partner for this order.");
+      alert(t("financial.selectPartner"));
       return;
     }
     setIsSubmittingPartner(true);
@@ -973,7 +972,7 @@ export function FinancialForm({
     if (result.success) {
       appEvents.emit(
         "notification:show",
-        "Partner order submitted successfully",
+        t("financial.partnerSubmitted"),
         "success",
       );
       // Everything was booked: empty the whole basket (For Partner off).
@@ -1030,8 +1029,16 @@ export function FinancialForm({
             <div className="flex-1">
               <ServiceTypeTabs
                 options={[
-                  { id: "SEND", label: "Money In", iconKey: "Send" },
-                  { id: "RECEIVE", label: "Money Out", iconKey: "Package" },
+                  {
+                    id: "SEND",
+                    label: t("financial.moneyIn"),
+                    iconKey: "Send",
+                  },
+                  {
+                    id: "RECEIVE",
+                    label: t("financial.moneyOut"),
+                    iconKey: "Package",
+                  },
                 ]}
                 value={serviceType || "SEND"}
                 onChange={(val) => setServiceType?.(val as ServiceType)}
@@ -1068,7 +1075,14 @@ export function FinancialForm({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={`Search ${activeProvider === "iPick" ? "iPick" : activeProvider === "Katsh" ? "Katsh" : "Whish App"} items...`}
+                placeholder={t("financial.searchPlaceholder", {
+                  provider:
+                    activeProvider === "iPick"
+                      ? "iPick"
+                      : activeProvider === "Katsh"
+                        ? "Katsh"
+                        : "Whish App",
+                })}
                 className={`w-full px-4 py-2.5 ps-10 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none ${brand.searchFocus} transition-all`}
               />
               <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
@@ -1076,7 +1090,7 @@ export function FinancialForm({
                 <button
                   onClick={() => setSearchQuery("")}
                   className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
-                  aria-label="Clear search"
+                  aria-label={t("financial.clearSearch")}
                   type="button"
                 >
                   <X className="w-4 h-4" />
@@ -1088,7 +1102,7 @@ export function FinancialForm({
             {totalItems > 0 && (
               <div className="text-end leading-tight">
                 <div className="text-xs text-white font-bold">
-                  {totalItems} items
+                  {t("financial.itemsCount", { n: totalItems })}
                 </div>
                 <div className="text-xs text-emerald-400 font-mono font-semibold">
                   {money(totalPrice)}
@@ -1096,7 +1110,7 @@ export function FinancialForm({
                 {exchangeRate > 0 && (
                   <div className="text-xs text-slate-400 font-mono">
                     {isUsd
-                      ? `${Math.round(totalPrice * exchangeRate).toLocaleString()} LBP`
+                      ? `${formatNumber(Math.round(totalPrice * exchangeRate))} LBP`
                       : `$${(totalPrice / exchangeRate).toFixed(2)}`}
                   </div>
                 )}
@@ -1163,10 +1177,10 @@ export function FinancialForm({
               }`}
             >
               {forPartner
-                ? "Submit to Partner"
+                ? t("financial.submitToPartner")
                 : activeSession
-                  ? "Add to Cart"
-                  : "Proceed to Pay"}
+                  ? t("financial.addToCart")
+                  : t("financial.proceedToPay")}
             </button>
           </div>
         </div>
@@ -1181,22 +1195,21 @@ export function FinancialForm({
             contentClassName="flex items-center justify-between gap-3 flex-wrap"
           >
             {partnerShared ? (
-              <span>
-                Partner order: nothing is collected now — everything in the
-                basket, on every tab, goes on the partner&apos;s account at full
-                price, settled on the Partners page.
-              </span>
+              <span>{t("financial.partnerNoticeShared")}</span>
             ) : (
               <span>
-                Partner order: nothing is collected now — the full{" "}
-                <span className="font-bold">{money(totalPrice)}</span> goes on
-                the partner&apos;s account, settled on the Partners page.
+                <Trans
+                  t={t}
+                  i18nKey="financial.partnerNotice"
+                  values={{ amount: money(totalPrice) }}
+                  components={{ bold: <span className="font-bold" /> }}
+                />
               </span>
             )}
             {hasTransferUnit && (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-orange-700 dark:text-orange-300/80 uppercase tracking-wider">
-                  Paid from
+                  {t("financial.paidFrom")}
                 </span>
                 <Select
                   value={partnerPaidFromMethod}
@@ -1271,7 +1284,7 @@ export function FinancialForm({
                           }}
                           className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
                           type="button"
-                          title="Add item"
+                          title={t("financial.addItem")}
                         >
                           <Plus className="w-3.5 h-3.5" />
                         </button>
@@ -1376,7 +1389,7 @@ export function FinancialForm({
                                 )}
                                 <div className="mt-2 flex items-center justify-between">
                                   <span className="text-xs text-slate-400">
-                                    Cost:
+                                    {t("financial.costColon")}
                                   </span>
                                   <span className="text-xs text-white font-mono">
                                     {money(cost)}
@@ -1384,7 +1397,7 @@ export function FinancialForm({
                                 </div>
                                 <div className="flex items-center justify-between">
                                   <span className="text-xs text-slate-400">
-                                    Sell:
+                                    {t("financial.sellColon")}
                                   </span>
                                   <span className="text-xs text-emerald-400 font-mono">
                                     {money(sellPrice)}
@@ -1404,7 +1417,7 @@ export function FinancialForm({
               (newItemForm?.isNewCategory ? (
                 <div className="bg-slate-800 rounded-xl border border-slate-700/50 p-4">
                   <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
-                    New category
+                    {t("financial.newCategory")}
                   </h3>
                   <NewServiceItemInlineForm
                     form={newItemForm}
@@ -1428,10 +1441,10 @@ export function FinancialForm({
                     );
                   }}
                   className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white px-2 py-1 rounded hover:bg-slate-700/50 transition-colors"
-                  title="New category"
+                  title={t("financial.newCategory")}
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  New category
+                  {t("financial.newCategory")}
                 </button>
               ))}
           </div>
@@ -1441,7 +1454,7 @@ export function FinancialForm({
         {activeProvider === "OMT_APP" && (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center text-slate-500">
-              <p className="text-sm">OMT App money transfer coming soon</p>
+              <p className="text-sm">{t("financial.omtComingSoon")}</p>
             </div>
           </div>
         )}
@@ -1451,7 +1464,9 @@ export function FinancialForm({
           onClose={() => setShowPaymentSheet(false)}
           onConfirm={handleSubmit}
           isSubmitting={localSubmitting}
-          title={activeSession ? "Add to Cart" : "Confirm Payment"}
+          title={
+            activeSession ? t("financial.addToCart") : t("sheet.confirmPayment")
+          }
           accentColor={
             activeProvider === "WHISH_APP"
               ? PROVIDER_BRANDS.WHISH.button
@@ -1464,13 +1479,16 @@ export function FinancialForm({
                 // LIRA-326 — every provider's picks, paid once. A discount
                 // only on a one-currency basket (never converted), capped at
                 // the basket's profit and spread over the sales by profit.
-                subtitle: `${basketSheet.count} items — ${basketSheet.totals
-                  .map((t) =>
-                    t.currency === "LBP"
-                      ? `${Math.round(t.amount).toLocaleString()} LBP`
-                      : `$${t.amount.toFixed(2)}`,
-                  )
-                  .join(" + ")}`,
+                subtitle: t("financial.itemsSubtitle", {
+                  n: basketSheet.count,
+                  amount: basketSheet.totals
+                    .map((tot) =>
+                      tot.currency === "LBP"
+                        ? `${formatNumber(Math.round(tot.amount))} LBP`
+                        : `$${tot.amount.toFixed(2)}`,
+                    )
+                    .join(" + "),
+                }),
                 items: basketSheet.items,
                 totals: basketSheet.totals,
                 totalAmount: basketSheet.totalAmount,
@@ -1480,7 +1498,10 @@ export function FinancialForm({
                 maxDiscount: basketSheet.maxDiscount,
               }
             : {
-                subtitle: `${totalItems} items — ${money(totalPrice)}`,
+                subtitle: t("financial.itemsSubtitle", {
+                  n: totalItems,
+                  amount: money(totalPrice),
+                }),
                 items: sheetItems,
                 totalAmount: totalPrice,
                 totalAmountCurrency: currency,
@@ -1535,7 +1556,7 @@ export function FinancialForm({
         >
           <div className="space-y-2">
             <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              Client Name
+              {t("financial.clientName")}
             </label>
             <ClientAutocompleteInput
               type="text"
@@ -1553,7 +1574,7 @@ export function FinancialForm({
                 setInitialPaymentMethod("CUSTOMER_ACCOUNT");
                 setPaymentInputKey((k) => k + 1);
               }}
-              placeholder="Client name (optional)"
+              placeholder={t("financial.clientNameOptional")}
               className={`w-full mt-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none ${brand.focusBorder}`}
             />
             <div className="relative">
@@ -1565,13 +1586,13 @@ export function FinancialForm({
                 inputMode="numeric"
                 value={clientPhone}
                 onChange={(e) => setClientPhone(e.target.value)}
-                placeholder="Phone number (registers a new client)"
+                placeholder={t("financial.phonePlaceholder")}
                 className={`w-full bg-slate-800 border border-slate-600 rounded-lg ps-10 pe-3 py-2 text-sm text-white font-mono focus:outline-none ${brand.focusBorder}`}
               />
             </div>
             {clientName.trim() && clientPhone.trim() && !clientId && (
               <p className="text-xs text-violet-300/80 px-1">
-                New client will be created on confirm.
+                {t("financial.newClientOnConfirm")}
               </p>
             )}
           </div>
@@ -1627,9 +1648,12 @@ export function FinancialForm({
       )}
       <ConfirmModal
         isOpen={pendingCurrency !== null}
-        title={`Switch to ${pendingCurrency ?? ""}?`}
-        message={`Your selected items are priced in ${currency}. Switching to ${pendingCurrency ?? ""} clears them.`}
-        confirmLabel="Clear and switch"
+        title={t("financial.switchTitle", { currency: pendingCurrency ?? "" })}
+        message={t("financial.switchMessage", {
+          from: currency,
+          to: pendingCurrency ?? "",
+        })}
+        confirmLabel={t("financial.switchConfirm")}
         variant="warning"
         onCancel={() => setPendingCurrency(null)}
         onConfirm={() => {
