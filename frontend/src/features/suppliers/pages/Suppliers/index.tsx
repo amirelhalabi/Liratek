@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { formatNumber } from "@liratek/ui/i18n/format";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { useFormat } from "@/i18n/useFormat";
 import {
   appEvents,
@@ -755,9 +756,11 @@ function AccountLedgerTable({
                     : balanceColor(row.amount_usd)
                 }`}
               >
-                {row.amount_usd !== 0
-                  ? `${row.amount_usd > 0 ? "+" : ""}${row.amount_usd.toFixed(2)}`
-                  : "—"}
+                <Ltr>
+                  {row.amount_usd !== 0
+                    ? `${row.amount_usd > 0 ? "+" : ""}${row.amount_usd.toFixed(2)}`
+                    : "—"}
+                </Ltr>
               </div>
               <div
                 className={`text-end font-mono whitespace-nowrap ${
@@ -766,9 +769,11 @@ function AccountLedgerTable({
                     : balanceColor(row.amount_lbp)
                 }`}
               >
-                {row.amount_lbp !== 0
-                  ? `${row.amount_lbp > 0 ? "+" : ""}${formatNumber(row.amount_lbp)}`
-                  : "—"}
+                <Ltr>
+                  {row.amount_lbp !== 0
+                    ? `${row.amount_lbp > 0 ? "+" : ""}${formatNumber(row.amount_lbp)}`
+                    : "—"}
+                </Ltr>
               </div>
               <div
                 className="text-slate-300 line-clamp-2 break-words text-xs min-w-0"
@@ -2438,11 +2443,13 @@ export default function SuppliersPage() {
                                     )
                               }`}
                             >
-                              {row.amount_usd !== 0
-                                ? `${row.amount_usd > 0 ? "+" : ""}$${row.amount_usd.toFixed(2)}`
-                                : row.amount_lbp !== 0
-                                  ? `${row.amount_lbp > 0 ? "+" : ""}${formatNumber(row.amount_lbp)} LBP`
-                                  : "—"}
+                              <Ltr>
+                                {row.amount_usd !== 0
+                                  ? `${row.amount_usd > 0 ? "+" : ""}$${row.amount_usd.toFixed(2)}`
+                                  : row.amount_lbp !== 0
+                                    ? `${row.amount_lbp > 0 ? "+" : ""}${formatNumber(row.amount_lbp)} LBP`
+                                    : "—"}
+                              </Ltr>
                             </div>
                             <div className="col-span-2 text-end text-xs text-slate-400">
                               {formatDateTime(
@@ -3154,11 +3161,13 @@ export default function SuppliersPage() {
                                 showUsdCommission ? commissionTitle : undefined
                               }
                             >
-                              {row.amount_usd !== 0
-                                ? `${row.amount_usd > 0 ? "+" : ""}${row.amount_usd.toFixed(2)}`
-                                : showUsdCommission
-                                  ? commissionUsd.toFixed(2)
-                                  : "—"}
+                              <Ltr>
+                                {row.amount_usd !== 0
+                                  ? `${row.amount_usd > 0 ? "+" : ""}${row.amount_usd.toFixed(2)}`
+                                  : showUsdCommission
+                                    ? commissionUsd.toFixed(2)
+                                    : "—"}
+                              </Ltr>
                             </div>
                             <div
                               className={`col-span-2 text-end font-mono ${
@@ -3172,11 +3181,13 @@ export default function SuppliersPage() {
                                 showLbpCommission ? commissionTitle : undefined
                               }
                             >
-                              {row.amount_lbp !== 0
-                                ? `${row.amount_lbp > 0 ? "+" : ""}${formatNumber(row.amount_lbp)}`
-                                : showLbpCommission
-                                  ? formatNumber(Math.round(commissionLbp))
-                                  : "—"}
+                              <Ltr>
+                                {row.amount_lbp !== 0
+                                  ? `${row.amount_lbp > 0 ? "+" : ""}${formatNumber(row.amount_lbp)}`
+                                  : showLbpCommission
+                                    ? formatNumber(Math.round(commissionLbp))
+                                    : "—"}
+                              </Ltr>
                             </div>
                           </>
                         );

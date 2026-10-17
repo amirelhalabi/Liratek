@@ -220,7 +220,7 @@
     "smsLbp": "رسالة OMT تقول (LBP)",
     "typeSmsFigure": "اكتب الرقم من الرسالة",
     "matches": "مطابق",
-    "offBy": "فرق {{money}}"
+    "offBy": "فرق <ltr>{{money}}</ltr>"
   },
   "status": {
     "partial": "جزئي",

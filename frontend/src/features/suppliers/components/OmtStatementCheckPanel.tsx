@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { formatNumber } from "@liratek/ui/i18n/format";
 import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import type { OmtCoveredType } from "@liratek/core";
@@ -120,9 +121,17 @@ function DiffBadge({
         matches ? "text-emerald-400" : "text-amber-400"
       }`}
     >
-      {matches
-        ? t("statement.matches")
-        : t("statement.offBy", { money: format(diff) })}
+      {matches ? (
+        t("statement.matches")
+      ) : (
+        <Trans
+          t={t}
+          i18nKey="statement.offBy"
+          values={{ money: format(diff) }}
+          // The same element <Ltr> renders: amounts keep their sign on the left.
+          components={{ ltr: <bdi dir="ltr" /> }}
+        />
+      )}
     </span>
   );
 }
@@ -196,10 +205,10 @@ export function OmtStatementCheckPanel({
         <div className="text-slate-400">{t("statement.grossOwed")}</div>
         <div />
         <div data-testid="omt-statement-gross-usd" className="text-slate-200">
-          {formatUsd(grossUsd)}
+          <Ltr>{formatUsd(grossUsd)}</Ltr>
         </div>
         <div data-testid="omt-statement-gross-lbp" className="text-slate-200">
-          {formatLbp(grossLbp)}
+          <Ltr>{formatLbp(grossLbp)}</Ltr>
         </div>
 
         <div className="text-slate-400">
@@ -210,13 +219,13 @@ export function OmtStatementCheckPanel({
           data-testid="omt-statement-commission-usd"
           className="text-slate-200"
         >
-          {formatUsd(commissionUsd)}
+          <Ltr>{formatUsd(commissionUsd)}</Ltr>
         </div>
         <div
           data-testid="omt-statement-commission-lbp"
           className="text-slate-200"
         >
-          {formatLbp(commissionLbp)}
+          <Ltr>{formatLbp(commissionLbp)}</Ltr>
         </div>
 
         <div className="text-slate-300 font-semibold border-t border-slate-700/60 pt-1">
@@ -227,13 +236,13 @@ export function OmtStatementCheckPanel({
           data-testid="omt-statement-expected-usd"
           className="text-white font-semibold"
         >
-          {formatUsd(expectedUsd)}
+          <Ltr>{formatUsd(expectedUsd)}</Ltr>
         </div>
         <div
           data-testid="omt-statement-expected-lbp"
           className="text-white font-semibold"
         >
-          {formatLbp(expectedLbp)}
+          <Ltr>{formatLbp(expectedLbp)}</Ltr>
         </div>
       </div>
 

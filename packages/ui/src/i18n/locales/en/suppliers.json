@@ -220,7 +220,7 @@
     "smsLbp": "OMT SMS says (LBP)",
     "typeSmsFigure": "Type the SMS figure",
     "matches": "Matches",
-    "offBy": "Off by {{money}}"
+    "offBy": "Off by <ltr>{{money}}</ltr>"
   },
   "status": {
     "partial": "Partial",

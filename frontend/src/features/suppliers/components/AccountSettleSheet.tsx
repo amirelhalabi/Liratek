@@ -3,6 +3,7 @@ import { appEvents, MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { formatNumber } from "@liratek/ui/i18n/format";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { useFormat } from "@/i18n/useFormat";
 import type { AccountSettleAllocResult, OmtCoveredType } from "@liratek/core";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
@@ -1187,7 +1188,7 @@ function PickTransfers({
                   )}
                 </div>
                 <div className="col-span-3 text-end font-mono text-white">
-                  {rowRemainingLabel(row)}
+                  <Ltr>{rowRemainingLabel(row)}</Ltr>
                 </div>
                 <div className="col-span-4 text-slate-400">
                   {formatDateTime(parseDbDate(row.created_at), {

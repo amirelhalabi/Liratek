@@ -234,7 +234,7 @@ Each test builds the payload through the real builder or screen with `lng=en` an
 - [ ] T064 [P] [US1] `settings`, except `MobileServicesManager.tsx`/`CategoriesManager.tsx` and the T031 selects. Namespace `settings`.
 - [ ] T065 [P] [US1] `settings` catalog: `MobileServicesManager.tsx` (123 KB) and `CategoriesManager.tsx`. Namespace `settingsCatalog`.
 - [x] T066 [P] [US1] `suppliers` + `partners`. Namespaces `suppliers`, `partners`. Depends on T049.
-- [x] T067 [P] [US1] `profits`, with charts reversed in RTL. Namespace `profits`. (The Profits page draws no charts, so there was nothing to reverse.)
+- [x] T067 [P] [US1] `profits`, with charts reversed in RTL. Namespace `profits`. (The only chart on the page is the dashboard's `CommissionsChart`, which belongs to the `dashboard` namespace and T058.)
 - [x] T068 [P] [US1] `audit` (Transactions viewer, detail panel, cells): type/direction/badge labels translated; stored `summary` shown as stored (OD-2, T090). Namespace `audit`.
 - [x] T069 [P] [US1] `admin` + `phoneLines` + `wrongNumbers` + `offline`. Namespaces `admin`, `phoneLines`, `wrongNumbers`, `offline`. (Includes the free-trial admin texts: Plan editor and Tenants plan column. `shared/components/SubscriptionBanner.tsx` belongs to the `shared` namespace, not done here.)
 
