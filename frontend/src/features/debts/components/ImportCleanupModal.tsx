@@ -1,4 +1,6 @@
 import { useState, useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import {
   AlertTriangle,
@@ -74,12 +76,12 @@ function nameSimilarity(a: string, b: string): number {
 
 const SIMILARITY_THRESHOLD = 0.4;
 
-const ACTION_LABELS: Record<ResolutionAction, string> = {
-  merge: "Merge into...",
-  manual: "Enter phone",
-  keep: "Keep (no phone)",
-  discard: "Discard",
-};
+const ACTION_LABEL_KEYS = {
+  merge: "importCleanup.action.merge",
+  manual: "importCleanup.action.manual",
+  keep: "importCleanup.action.keep",
+  discard: "importCleanup.action.discard",
+} as const satisfies Record<ResolutionAction, string>;
 
 const ACTION_COLORS: Record<ResolutionAction, string> = {
   merge: "bg-sky-500/20 text-sky-400 border-sky-500/40",
@@ -93,6 +95,7 @@ export function ImportCleanupModal({
   onConfirm,
   onCancel,
 }: ImportCleanupModalProps) {
+  const { t } = useTranslation("debts");
   useModalFocusFix(true);
   // Separate flagged (no phone) and valid (has phone) clients
   const flaggedIndices = useMemo(
@@ -221,6 +224,10 @@ export function ImportCleanupModal({
     0,
   );
 
+  const countByAction = (action: ResolutionAction): number =>
+    flaggedIndices.filter((fi) => resolutions.get(fi)?.action === action)
+      .length;
+
   return (
     <div
       className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
@@ -242,12 +249,15 @@ export function ImportCleanupModal({
             </div>
             <div>
               <h2 className="text-lg font-bold text-white">
-                Clean Up Import Data
+                {t("importCleanup.title")}
               </h2>
               <p className="text-sm text-slate-400">
-                {flaggedIndices.length} client
-                {flaggedIndices.length !== 1 ? "s" : ""} need attention (
-                {flaggedEntries} entries)
+                {t(
+                  flaggedIndices.length !== 1
+                    ? "importCleanup.needAttentionMany"
+                    : "importCleanup.needAttentionOne",
+                  { count: flaggedIndices.length, entries: flaggedEntries },
+                )}
               </p>
             </div>
           </div>
@@ -262,27 +272,33 @@ export function ImportCleanupModal({
         {/* Summary bar */}
         <div className="px-6 py-3 border-b border-slate-700/50 bg-slate-800/30 flex gap-6 text-sm">
           <div>
-            <span className="text-slate-500">Total:</span>{" "}
+            <span className="text-slate-500">{t("importCleanup.total")}</span>{" "}
             <span className="text-white font-medium">
-              {clients.length} clients
+              {t("importCleanup.clientsCount", { count: clients.length })}
             </span>
           </div>
           <div>
-            <span className="text-slate-500">With phone:</span>{" "}
+            <span className="text-slate-500">
+              {t("importCleanup.withPhone")}
+            </span>{" "}
             <span className="text-emerald-400 font-medium">
               {clients.length - flaggedIndices.length}
             </span>
           </div>
           <div>
-            <span className="text-slate-500">Without phone:</span>{" "}
+            <span className="text-slate-500">
+              {t("importCleanup.withoutPhone")}
+            </span>{" "}
             <span className="text-amber-400 font-medium">
               {flaggedIndices.length}
             </span>
           </div>
           <div>
-            <span className="text-slate-500">Entries:</span>{" "}
+            <span className="text-slate-500">
+              {t("importCleanup.entriesLabel")}
+            </span>{" "}
             <span className="text-white font-medium">
-              {totalEntries.toLocaleString()}
+              {formatNumber(totalEntries)}
             </span>
           </div>
         </div>
@@ -291,11 +307,15 @@ export function ImportCleanupModal({
         <div className="flex-1 overflow-y-auto px-6 py-4">
           <table className="w-full">
             <thead className="sticky top-0 bg-slate-900">
-              <tr className="text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                <th className="pb-3 pr-3">Client Name</th>
-                <th className="pb-3 pr-3 w-16 text-center">Entries</th>
-                <th className="pb-3 pr-3">Action</th>
-                <th className="pb-3">Details</th>
+              <tr className="text-start text-xs font-medium text-slate-500 uppercase tracking-wider">
+                <th className="pb-3 pe-3">
+                  {t("importCleanup.col.clientName")}
+                </th>
+                <th className="pb-3 pe-3 w-16 text-center">
+                  {t("importCleanup.col.entries")}
+                </th>
+                <th className="pb-3 pe-3">{t("importCleanup.col.action")}</th>
+                <th className="pb-3">{t("importCleanup.col.details")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-700/30">
@@ -311,21 +331,21 @@ export function ImportCleanupModal({
                 return (
                   <tr key={fi} className="hover:bg-slate-800/30">
                     {/* Name */}
-                    <td className="py-3 pr-3">
+                    <td className="py-3 pe-3">
                       <div className="font-medium text-white text-sm">
                         {client.name}
                       </div>
                     </td>
 
                     {/* Entries count */}
-                    <td className="py-3 pr-3 text-center">
+                    <td className="py-3 pe-3 text-center">
                       <span className="text-sm text-slate-400">
                         {client.entries.length}
                       </span>
                     </td>
 
                     {/* Action selector */}
-                    <td className="py-3 pr-3">
+                    <td className="py-3 pe-3">
                       <div className="flex flex-wrap gap-1">
                         {(
                           [
@@ -345,18 +365,18 @@ export function ImportCleanupModal({
                             }`}
                           >
                             {action === "merge" && (
-                              <GitMerge size={10} className="inline mr-1" />
+                              <GitMerge size={10} className="inline me-1" />
                             )}
                             {action === "manual" && (
-                              <Phone size={10} className="inline mr-1" />
+                              <Phone size={10} className="inline me-1" />
                             )}
                             {action === "keep" && (
-                              <UserPlus size={10} className="inline mr-1" />
+                              <UserPlus size={10} className="inline me-1" />
                             )}
                             {action === "discard" && (
-                              <Trash2 size={10} className="inline mr-1" />
+                              <Trash2 size={10} className="inline me-1" />
                             )}
-                            {ACTION_LABELS[action]}
+                            {t(ACTION_LABEL_KEYS[action])}
                           </button>
                         ))}
                       </div>
@@ -374,7 +394,9 @@ export function ImportCleanupModal({
                           }
                           className="w-full bg-slate-800 border border-slate-600 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-sky-500"
                         >
-                          <option value={-1}>Select client...</option>
+                          <option value={-1}>
+                            {t("importCleanup.selectClient")}
+                          </option>
                           {sug.map((m) => (
                             <option key={m.index} value={m.index}>
                               {m.name} ({m.phone}) —{" "}
@@ -402,18 +424,20 @@ export function ImportCleanupModal({
                               manualPhone: e.target.value,
                             })
                           }
-                          placeholder="e.g. 03/123456"
+                          placeholder={t("importCleanup.phonePlaceholder")}
                           className="w-full bg-slate-800 border border-slate-600 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-amber-500"
                         />
                       )}
                       {res.action === "discard" && (
                         <span className="text-xs text-red-400/60">
-                          {client.entries.length} entries will be lost
+                          {t("importCleanup.entriesLost", {
+                            count: client.entries.length,
+                          })}
                         </span>
                       )}
                       {res.action === "keep" && (
                         <span className="text-xs text-slate-500">
-                          Will create client without phone
+                          {t("importCleanup.keepHint")}
                         </span>
                       )}
                     </td>
@@ -427,44 +451,26 @@ export function ImportCleanupModal({
         {/* Footer */}
         <div className="px-6 py-4 border-t border-slate-700 flex items-center justify-between">
           <div className="text-xs text-slate-500">
-            {
-              flaggedIndices.filter(
-                (fi) => resolutions.get(fi)?.action === "discard",
-              ).length
-            }{" "}
-            will be discarded,{" "}
-            {
-              flaggedIndices.filter(
-                (fi) => resolutions.get(fi)?.action === "merge",
-              ).length
-            }{" "}
-            will be merged,{" "}
-            {
-              flaggedIndices.filter(
-                (fi) => resolutions.get(fi)?.action === "manual",
-              ).length
-            }{" "}
-            manual phone,{" "}
-            {
-              flaggedIndices.filter(
-                (fi) => resolutions.get(fi)?.action === "keep",
-              ).length
-            }{" "}
-            kept as-is
+            {t("importCleanup.footer", {
+              discard: countByAction("discard"),
+              merge: countByAction("merge"),
+              manual: countByAction("manual"),
+              keep: countByAction("keep"),
+            })}
           </div>
           <div className="flex gap-3">
             <button
               onClick={onCancel}
               className="px-5 py-2.5 rounded-xl font-bold text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
             >
-              Cancel
+              {t("importCleanup.cancel")}
             </button>
             <button
               onClick={handleConfirm}
               className="px-5 py-2.5 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/20 active:scale-95 transition-all flex items-center gap-2"
             >
               <Check size={18} />
-              Confirm & Import
+              {t("importCleanup.confirm")}
             </button>
           </div>
         </div>

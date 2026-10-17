@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx";
+import type { TFunction } from "i18next";
 import type { ApiAdapter, DebtLedgerEntity } from "@liratek/ui";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 
@@ -164,6 +165,62 @@ function splitBySign(history: DebtLedgerEntity[]): {
 }
 
 /**
+ * LIRA-331 (FR-024): the cosmetic headings of a client page, in the
+ * exporting user's language. The import never reads these cells (it starts
+ * at row 3 and only looks at dates and amounts). What it DOES read stays
+ * English and is not part of this set: the "List Name" sheet and its "NAME"
+ * header, and the "TOTAL ON ACCOUNT" / "TOTAL PAID" markers it uses to skip
+ * the footer. Row descriptions are re-imported as notes, so they stay as
+ * stored too.
+ */
+export interface DebtExportHeadings {
+  customerName: string;
+  mobile: string;
+  date: string;
+  usd: string;
+  lbp: string;
+  description: string;
+  paidUsd: string;
+  paidLbp: string;
+  balanceUsd: string;
+  balanceLbp: string;
+}
+
+/** The headings of the template the import was built from. */
+export const ENGLISH_EXPORT_HEADINGS: DebtExportHeadings = {
+  customerName: "CUSTOMER NAME :",
+  mobile: "mobile # ",
+  date: "DATE",
+  usd: "USD",
+  lbp: "LBP",
+  description: "DESCRIPTION", // i18n-exempt: English template default
+  paidUsd: "PAID IN USD",
+  paidLbp: "PAID IN LBP",
+  balanceUsd: "Balance Remaining in USD",
+  balanceLbp: "Balance Remaining in LBP",
+};
+
+/** The headings from the `debts` catalog — what the Accounts page passes. */
+export function debtExportHeadings(t: TFunction<"debts">): DebtExportHeadings {
+  return {
+    customerName: t("export.customerName"),
+    mobile: t("export.mobile"),
+    date: t("export.date"),
+    usd: t("export.usd"),
+    lbp: t("export.lbp"),
+    description: t("export.description"),
+    paidUsd: t("export.paidUsd"),
+    paidLbp: t("export.paidLbp"),
+    balanceUsd: t("export.balanceUsd"),
+    balanceLbp: t("export.balanceLbp"),
+  };
+}
+
+/** Footer markers the import skips by text ("total") — never translated. */
+const TOTAL_ON_ACCOUNT = "TOTAL ON ACCOUNT"; // i18n-exempt: import marker
+const TOTAL_PAID = "TOTAL PAID"; // i18n-exempt: import marker
+
+/**
  * One client's page, in the same layout the Excel import reads:
  *   row 1  CUSTOMER NAME : | <name> | mobile # | <phone>
  *   row 2  DATE | USD | LBP | DESCRIPTION | | DATE | PAID IN USD | PAID IN LBP | DESCRIPTION
@@ -174,21 +231,24 @@ function splitBySign(history: DebtLedgerEntity[]): {
  * = total on account − total paid = the ledger's sum, i.e. the same balance
  * the Debts page shows.
  */
-function buildClientSheet(client: DebtExportClient): XLSX.WorkSheet {
+function buildClientSheet(
+  client: DebtExportClient,
+  h: DebtExportHeadings,
+): XLSX.WorkSheet {
   const { left: debts, right: payments } = splitBySign(client.history);
 
   const rows: (XLSX.CellObject | string | null)[][] = [
-    ["CUSTOMER NAME :", client.name, "mobile # ", client.phone],
+    [h.customerName, client.name, h.mobile, client.phone],
     [
-      "DATE",
-      "USD",
-      "LBP",
-      "DESCRIPTION",
+      h.date,
+      h.usd,
+      h.lbp,
+      h.description,
       null,
-      "DATE",
-      "PAID IN USD",
-      "PAID IN LBP",
-      "DESCRIPTION",
+      h.date,
+      h.paidUsd,
+      h.paidLbp,
+      h.description,
     ],
   ];
 
@@ -222,12 +282,12 @@ function buildClientSheet(client: DebtExportClient): XLSX.WorkSheet {
 
   rows.push([]);
   rows.push([
-    "TOTAL ON ACCOUNT",
+    TOTAL_ON_ACCOUNT,
     sumCell("B", firstDataRow, lastDataRow, onAccountUsd),
     sumCell("C", firstDataRow, lastDataRow, onAccountLbp),
     null,
     null,
-    "TOTAL PAID",
+    TOTAL_PAID,
     sumCell("G", firstDataRow, lastDataRow, paidUsd),
     sumCell("H", firstDataRow, lastDataRow, paidLbp),
   ]);
@@ -236,7 +296,7 @@ function buildClientSheet(client: DebtExportClient): XLSX.WorkSheet {
     null,
     null,
     null,
-    "Balance Remaining in USD",
+    h.balanceUsd,
     { t: "n", f: `B${totalRow}-G${totalRow}`, v: onAccountUsd - paidUsd },
   ]);
   rows.push([]);
@@ -244,7 +304,7 @@ function buildClientSheet(client: DebtExportClient): XLSX.WorkSheet {
     null,
     null,
     null,
-    "Balance Remaining in LBP",
+    h.balanceLbp,
     { t: "n", f: `C${totalRow}-H${totalRow}`, v: onAccountLbp - paidLbp },
   ]);
 
@@ -266,9 +326,12 @@ function buildClientSheet(client: DebtExportClient): XLSX.WorkSheet {
 /**
  * The whole accounts workbook in the import template: a "List Name" sheet
  * (NAME | Phone, one row per client) followed by one sheet per client.
+ * `headings` are the page headings in the exporting user's language
+ * (default English); numbers stay numeric cells either way.
  */
 export function buildDebtExportWorkbook(
   clients: DebtExportClient[],
+  headings: DebtExportHeadings = ENGLISH_EXPORT_HEADINGS,
 ): XLSX.WorkBook {
   const wb = XLSX.utils.book_new();
   wb.Custprops = { [EXPORT_MARKER_PROP]: EXPORT_MARKER_VERSION };
@@ -284,7 +347,7 @@ export function buildDebtExportWorkbook(
   for (const client of clients) {
     XLSX.utils.book_append_sheet(
       wb,
-      buildClientSheet(client),
+      buildClientSheet(client, headings),
       sheetNameFor(client.name, used),
     );
   }

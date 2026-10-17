@@ -1,4 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import {
   AlertTriangle,
@@ -121,7 +124,7 @@ const MATCH_THRESHOLD = 0.6;
 const SECTION_CONFIG: Record<
   IssueCategory,
   {
-    label: string;
+    labelKey: `importValidation.section.${IssueCategory}`;
     color: string;
     badgeColor: string;
     icon: typeof FileQuestion;
@@ -129,35 +132,35 @@ const SECTION_CONFIG: Record<
   }
 > = {
   1: {
-    label: "Client Listed But No Matching Page Found",
+    labelKey: "importValidation.section.1",
     color: "text-orange-400",
     badgeColor: "bg-orange-500/20 text-orange-400",
     icon: FileQuestion,
     actions: ["link", "keep", "discard"],
   },
   2: {
-    label: "Page Found But Client Not Listed",
+    labelKey: "importValidation.section.2",
     color: "text-purple-400",
     badgeColor: "bg-purple-500/20 text-purple-400",
     icon: FileX2,
     actions: ["keep", "link", "discard"],
   },
   3: {
-    label: "Phone Missing In Client List",
+    labelKey: "importValidation.section.3",
     color: "text-amber-400",
     badgeColor: "bg-amber-500/20 text-amber-400",
     icon: PhoneOff,
     actions: ["manual_phone", "merge", "keep", "discard"],
   },
   4: {
-    label: "Phone Missing On Client Page",
+    labelKey: "importValidation.section.4",
     color: "text-red-400",
     badgeColor: "bg-red-500/20 text-red-400",
     icon: PhoneOff,
     actions: ["manual_phone", "merge", "keep", "discard"],
   },
   5: {
-    label: "Phone Differs Between List And Page",
+    labelKey: "importValidation.section.5",
     color: "text-cyan-400",
     badgeColor: "bg-cyan-500/20 text-cyan-400",
     icon: ArrowLeftRight,
@@ -165,15 +168,15 @@ const SECTION_CONFIG: Record<
   },
 };
 
-const ACTION_LABELS: Record<ResolutionAction, string> = {
-  keep: "Keep",
-  discard: "Discard",
-  link: "Link to...",
-  manual_phone: "Enter phone",
-  merge: "Merge into...",
-  use_list_phone: "Use list phone",
-  use_page_phone: "Use page phone",
-};
+const ACTION_LABEL_KEYS = {
+  keep: "importValidation.action.keep",
+  discard: "importValidation.action.discard",
+  link: "importValidation.action.link",
+  manual_phone: "importValidation.action.manual_phone",
+  merge: "importValidation.action.merge",
+  use_list_phone: "importValidation.action.use_list_phone",
+  use_page_phone: "importValidation.action.use_page_phone",
+} as const satisfies Record<ResolutionAction, string>;
 
 const ACTION_COLORS: Record<ResolutionAction, string> = {
   keep: "bg-slate-500/20 text-slate-400 border-slate-500/40",
@@ -205,6 +208,7 @@ export function ImportValidationModal({
   onConfirm,
   onCancel,
 }: ImportValidationModalProps) {
+  const { t } = useTranslation("debts");
   useModalFocusFix(true);
   // -------------------------------------------------------------------------
   // Cross-reference: build match maps
@@ -713,11 +717,15 @@ export function ImportValidationModal({
             </div>
             <div>
               <h2 className="text-lg font-bold text-white">
-                Import Validation
+                {t("importValidation.title")}
               </h2>
               <p className="text-sm text-slate-400">
-                {totalIssues} issue{totalIssues !== 1 ? "s" : ""} found — review
-                before importing
+                {t(
+                  totalIssues !== 1
+                    ? "importValidation.issuesMany"
+                    : "importValidation.issuesOne",
+                  { count: totalIssues },
+                )}
               </p>
             </div>
           </div>
@@ -732,18 +740,24 @@ export function ImportValidationModal({
         {/* Summary bar */}
         <div className="px-6 py-3 border-b border-slate-700/50 bg-slate-800/30 flex gap-6 text-sm flex-wrap">
           <div>
-            <span className="text-slate-500">List Names:</span>{" "}
+            <span className="text-slate-500">
+              {t("importValidation.listNames")}
+            </span>{" "}
             <span className="text-white font-medium">
               {listNameEntries.length}
             </span>
           </div>
           <div>
-            <span className="text-slate-500">Pages:</span>{" "}
+            <span className="text-slate-500">
+              {t("importValidation.pages")}
+            </span>{" "}
             <span className="text-white font-medium">{parsedPages.length}</span>
           </div>
           {([1, 2, 3, 4, 5] as IssueCategory[]).map((cat) => (
             <div key={cat}>
-              <span className="text-slate-500">Case {cat}:</span>{" "}
+              <span className="text-slate-500">
+                {t("importValidation.case", { n: cat })}
+              </span>{" "}
               <span
                 className={`font-medium ${issuesByCategory[cat].length > 0 ? SECTION_CONFIG[cat].color : "text-emerald-400"}`}
               >
@@ -769,7 +783,7 @@ export function ImportValidationModal({
                 {/* Section header */}
                 <button
                   onClick={() => toggleSection(cat)}
-                  className="w-full flex items-center gap-3 px-4 py-3 bg-slate-800/50 hover:bg-slate-800 transition-colors text-left"
+                  className="w-full flex items-center gap-3 px-4 py-3 bg-slate-800/50 hover:bg-slate-800 transition-colors text-start"
                 >
                   {isExpanded ? (
                     <ChevronDown size={16} className="text-slate-400" />
@@ -778,7 +792,7 @@ export function ImportValidationModal({
                   )}
                   <SectionIcon size={16} className={config.color} />
                   <span className={`font-medium text-sm ${config.color}`}>
-                    {config.label}
+                    {t(config.labelKey)}
                   </span>
                   <span
                     className={`px-2 py-0.5 rounded-full text-xs font-bold ${config.badgeColor}`}
@@ -786,8 +800,8 @@ export function ImportValidationModal({
                     {sectionIssues.length}
                   </span>
                   {sectionIssues.length === 0 && (
-                    <span className="text-xs text-emerald-400/60 ml-auto">
-                      No issues
+                    <span className="text-xs text-emerald-400/60 ms-auto">
+                      {t("importValidation.noIssues")}
                     </span>
                   )}
                 </button>
@@ -797,16 +811,24 @@ export function ImportValidationModal({
                   <div className="border-t border-slate-700/30">
                     <table className="w-full">
                       <thead>
-                        <tr className="text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                          <th className="px-4 py-2 pr-3">Client Name</th>
-                          <th className="px-4 py-2 pr-3 w-24">
-                            {cat === 5 ? "Phones" : "Phone"}
+                        <tr className="text-start text-xs font-medium text-slate-500 uppercase tracking-wider">
+                          <th className="px-4 py-2 pe-3">
+                            {t("importValidation.col.clientName")}
                           </th>
-                          <th className="px-4 py-2 pr-3 w-20 text-center">
-                            Entries
+                          <th className="px-4 py-2 pe-3 w-24">
+                            {cat === 5
+                              ? t("importValidation.col.phones")
+                              : t("importValidation.col.phone")}
                           </th>
-                          <th className="px-4 py-2 pr-3">Action</th>
-                          <th className="px-4 py-2">Details</th>
+                          <th className="px-4 py-2 pe-3 w-20 text-center">
+                            {t("importValidation.col.entries")}
+                          </th>
+                          <th className="px-4 py-2 pe-3">
+                            {t("importValidation.col.action")}
+                          </th>
+                          <th className="px-4 py-2">
+                            {t("importValidation.col.details")}
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-700/20">
@@ -823,19 +845,19 @@ export function ImportValidationModal({
                               key={issue.id}
                               className="hover:bg-slate-800/30"
                             >
-                              <td className="px-4 py-2.5 pr-3">
+                              <td className="px-4 py-2.5 pe-3">
                                 <span className="font-medium text-white text-sm">
                                   {issue.name}
                                 </span>
                               </td>
-                              <td className="px-4 py-2.5 pr-3">
+                              <td className="px-4 py-2.5 pe-3">
                                 {cat === 5 ? (
                                   <div className="flex flex-col gap-0.5">
                                     <span className="text-xs text-emerald-400 font-mono">
-                                      L: {issue.listPhone}
+                                      L: <Ltr>{issue.listPhone}</Ltr>
                                     </span>
                                     <span className="text-xs text-teal-400 font-mono">
-                                      P: {issue.pagePhone}
+                                      P: <Ltr>{issue.pagePhone}</Ltr>
                                     </span>
                                   </div>
                                 ) : (
@@ -846,7 +868,7 @@ export function ImportValidationModal({
                                   </span>
                                 )}
                               </td>
-                              <td className="px-4 py-2.5 pr-3 text-center">
+                              <td className="px-4 py-2.5 pe-3 text-center">
                                 {issue.entryCount === 0 ? (
                                   <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-500/20 text-red-400">
                                     0
@@ -857,7 +879,7 @@ export function ImportValidationModal({
                                   </span>
                                 )}
                               </td>
-                              <td className="px-4 py-2.5 pr-3">
+                              <td className="px-4 py-2.5 pe-3">
                                 <div className="flex flex-wrap gap-1">
                                   {config.actions.map((action) => {
                                     const Icon = ACTION_ICONS[action];
@@ -875,9 +897,9 @@ export function ImportValidationModal({
                                       >
                                         <Icon
                                           size={10}
-                                          className="inline mr-1"
+                                          className="inline me-1"
                                         />
-                                        {ACTION_LABELS[action]}
+                                        {t(ACTION_LABEL_KEYS[action])}
                                       </button>
                                     );
                                   })}
@@ -894,6 +916,7 @@ export function ImportValidationModal({
                                   clientsWithPhone,
                                   parsedPages,
                                   listNameEntries,
+                                  t,
                                 )}
                               </td>
                             </tr>
@@ -911,16 +934,42 @@ export function ImportValidationModal({
         {/* Footer */}
         <div className="px-6 py-4 border-t border-slate-700 flex items-center justify-between">
           <div className="text-xs text-slate-500 flex gap-4 flex-wrap">
-            <span>{summaryStats.kept} kept</span>
-            <span>{summaryStats.discarded} discarded</span>
-            <span>{summaryStats.linked} linked</span>
-            <span>{summaryStats.manualPhone} manual phone</span>
-            <span>{summaryStats.merged} merged</span>
+            <span>
+              {t("importValidation.stat.kept", { count: summaryStats.kept })}
+            </span>
+            <span>
+              {t("importValidation.stat.discarded", {
+                count: summaryStats.discarded,
+              })}
+            </span>
+            <span>
+              {t("importValidation.stat.linked", {
+                count: summaryStats.linked,
+              })}
+            </span>
+            <span>
+              {t("importValidation.stat.manualPhone", {
+                count: summaryStats.manualPhone,
+              })}
+            </span>
+            <span>
+              {t("importValidation.stat.merged", {
+                count: summaryStats.merged,
+              })}
+            </span>
             {summaryStats.useList > 0 && (
-              <span>{summaryStats.useList} use list phone</span>
+              <span>
+                {t("importValidation.stat.useList", {
+                  count: summaryStats.useList,
+                })}
+              </span>
             )}
             {summaryStats.usePage > 0 && (
-              <span>{summaryStats.usePage} use page phone</span>
+              <span>
+                {t("importValidation.stat.usePage", {
+                  count: summaryStats.usePage,
+                })}
+              </span>
             )}
           </div>
           <div className="flex gap-3">
@@ -928,14 +977,14 @@ export function ImportValidationModal({
               onClick={onCancel}
               className="px-5 py-2.5 rounded-xl font-bold text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
             >
-              Cancel
+              {t("importValidation.cancel")}
             </button>
             <button
               onClick={handleConfirm}
               className="px-5 py-2.5 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/20 active:scale-95 transition-all flex items-center gap-2"
             >
               <Check size={18} />
-              Confirm & Continue
+              {t("importValidation.confirm")}
             </button>
           </div>
         </div>
@@ -964,13 +1013,16 @@ function renderDetails(
   clientsWithPhone: { index: number; name: string; phone: string }[],
   parsedPages: ParsedClientPage[],
   listNameEntries: ListNameEntry[],
+  t: TFunction<"debts">,
 ) {
   if (res.action === "discard") {
     return (
       <span className="text-xs text-red-400/60">
         {issue.entryCount > 0
-          ? `${issue.entryCount} entries will be lost`
-          : "Will be skipped"}
+          ? t("importValidation.detail.entriesLost", {
+              count: issue.entryCount,
+            })
+          : t("importValidation.detail.skipped")}
       </span>
     );
   }
@@ -979,10 +1031,10 @@ function renderDetails(
     return (
       <span className="text-xs text-slate-500">
         {category === 1
-          ? "Create client with no debt entries"
+          ? t("importValidation.detail.createNoEntries")
           : issue.phone
-            ? "Import as-is"
-            : "Will create client without phone"}
+            ? t("importValidation.detail.importAsIs")
+            : t("importValidation.detail.createNoPhone")}
       </span>
     );
   }
@@ -990,8 +1042,8 @@ function renderDetails(
   if (res.action === "use_list_phone") {
     return (
       <span className="text-xs text-emerald-400">
-        Will use list phone:{" "}
-        <span className="font-mono">{issue.listPhone}</span>
+        {t("importValidation.detail.useListPhone")}{" "}
+        <Ltr className="font-mono">{issue.listPhone}</Ltr>
       </span>
     );
   }
@@ -999,8 +1051,8 @@ function renderDetails(
   if (res.action === "use_page_phone") {
     return (
       <span className="text-xs text-teal-400">
-        Will use page phone:{" "}
-        <span className="font-mono">{issue.pagePhone}</span>
+        {t("importValidation.detail.usePagePhone")}{" "}
+        <Ltr className="font-mono">{issue.pagePhone}</Ltr>
       </span>
     );
   }
@@ -1016,7 +1068,7 @@ function renderDetails(
           }
           className="w-full bg-slate-800 border border-slate-600 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-sky-500"
         >
-          <option value={-1}>Select page...</option>
+          <option value={-1}>{t("importValidation.detail.selectPage")}</option>
           {sug.map((m) => (
             <option key={m.index} value={m.index}>
               {m.name} — {Math.round(m.similarity * 100)}%
@@ -1043,11 +1095,15 @@ function renderDetails(
           }
           className="w-full bg-slate-800 border border-slate-600 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-sky-500"
         >
-          <option value={-1}>Select list entry...</option>
+          <option value={-1}>
+            {t("importValidation.detail.selectListEntry")}
+          </option>
           {sug.map((m) => (
             <option key={m.index} value={m.index}>
-              {m.name} ({listNameEntries[m.index].phone || "no phone"}) —{" "}
-              {Math.round(m.similarity * 100)}%
+              {m.name} (
+              {listNameEntries[m.index].phone ||
+                t("importValidation.detail.noPhone")}
+              ) — {Math.round(m.similarity * 100)}%
             </option>
           ))}
           {listNameEntries
@@ -1055,7 +1111,7 @@ function renderDetails(
             .filter((l) => !sug.some((s) => s.index === l.index))
             .map((l) => (
               <option key={l.index} value={l.index}>
-                {l.name} ({l.phone || "no phone"})
+                {l.name} ({l.phone || t("importValidation.detail.noPhone")})
               </option>
             ))}
         </select>
@@ -1069,7 +1125,7 @@ function renderDetails(
         type="text"
         value={res.manualPhone}
         onChange={(e) => updateRes(issue.id, { manualPhone: e.target.value })}
-        placeholder="e.g. 03/123456"
+        placeholder={t("importValidation.detail.phonePlaceholder")}
         className="w-full bg-slate-800 border border-slate-600 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-amber-500"
       />
     );
@@ -1084,7 +1140,7 @@ function renderDetails(
         }
         className="w-full bg-slate-800 border border-slate-600 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-violet-500"
       >
-        <option value={-1}>Select client...</option>
+        <option value={-1}>{t("importValidation.detail.selectClient")}</option>
         {clientsWithPhone.map((c) => (
           <option key={c.index} value={c.index}>
             {c.name} ({c.phone})

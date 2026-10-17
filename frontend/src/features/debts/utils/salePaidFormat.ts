@@ -1,3 +1,5 @@
+import { formatNumber } from "@liratek/ui/i18n/format";
+
 /**
  * Display helpers for the Sale Details modal (Debts page).
  *
@@ -8,7 +10,7 @@
 export function formatPaidAmount(usd: number, lbp: number): string {
   const parts: string[] = [];
   if (usd > 0) parts.push(`$${usd.toFixed(2)}`);
-  if (lbp > 0) parts.push(`${lbp.toLocaleString()} LBP`);
+  if (lbp > 0) parts.push(`${formatNumber(lbp)} LBP`);
   return parts.length ? parts.join(" + ") : "$0.00";
 }
 

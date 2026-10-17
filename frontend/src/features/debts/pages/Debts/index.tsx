@@ -1,4 +1,11 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
+import { translateServerError } from "@liratek/ui/i18n/serverMessage";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { useFormat } from "@/i18n/useFormat";
 import logger from "@/utils/logger";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import * as XLSX from "xlsx";
@@ -82,6 +89,7 @@ import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteI
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import {
   buildDebtExportWorkbook,
+  debtExportHeadings,
   exportedRowDate,
   isLiraTekAccountsExport,
   isPaymentLedgerType,
@@ -99,10 +107,54 @@ type DebtAgingBuckets = {
 };
 
 type DebtFilter = "ongoing" | "closed" | "all";
+
+/**
+ * LIRA-331 — display label of a debt_ledger `transaction_type`. The stored
+ * value stays the code every comparison on this page uses; only the badge
+ * text is translated. An unknown type shows as stored.
+ */
+const LEDGER_TYPE_KEYS = {
+  "Sale Debt": "ledgerType.saleDebt",
+  "Recharge Debt": "ledgerType.rechargeDebt",
+  "Service Debt": "ledgerType.serviceDebt",
+  "Custom Service Debt": "ledgerType.customServiceDebt",
+  "Loto Debt": "ledgerType.lotoDebt",
+  "Maintenance Debt": "ledgerType.maintenanceDebt",
+  "Exchange Debt": "ledgerType.exchangeDebt",
+  "Session Debt": "ledgerType.sessionDebt",
+  "Manual Debt": "ledgerType.manualDebt",
+  "Imported Debt": "ledgerType.importedDebt",
+  Repayment: "ledgerType.repayment",
+  "Debt Discount": "ledgerType.debtDiscount",
+  "Refund Reversal": "ledgerType.refundReversal",
+  CREDIT_DEPOSIT: "ledgerType.creditDeposit",
+  CREDIT_USED: "ledgerType.creditUsed",
+} as const;
+
+function ledgerTypeLabel(type: string, t: TFunction<"debts">): string {
+  return type in LEDGER_TYPE_KEYS
+    ? t(LEDGER_TYPE_KEYS[type as keyof typeof LEDGER_TYPE_KEYS])
+    : type;
+}
+
+/** en-US `toLocaleDateString()` / `toLocaleTimeString()` shapes. */
+const SHORT_DATE: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+};
+const LONG_TIME: Intl.DateTimeFormatOptions = {
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+};
 type SortOrder = "desc" | "asc";
 
 export default function Debts() {
   const api = useApi();
+  const { t } = useTranslation("debts");
+  const { t: tc } = useTranslation("common");
+  const { formatDate, formatTime, formatDateTime } = useFormat();
   const { user } = useAuth();
   // CQ-10: standalone write-off is admin-only (D4) — bundled repayment
   // discounts stay admin+staff, same as the flow they're attached to.
@@ -564,7 +616,7 @@ export default function Debts() {
       logger.debug("Transaction data received:", { transaction });
 
       if (!transaction || transaction.source_table !== "sales") {
-        alert(`Transaction #${transactionId} is not a sale or was not found.`);
+        alert(t("saleDetails.notASale", { id: transactionId }));
         return;
       }
 
@@ -575,9 +627,7 @@ export default function Debts() {
       logger.debug("Sale data received:", { sale });
 
       if (!sale) {
-        alert(
-          `Sale #${saleId} not found. This debt entry may reference a deleted or non-existent sale.`,
-        );
+        alert(t("saleDetails.notFound", { id: saleId }));
         return;
       }
 
@@ -587,7 +637,7 @@ export default function Debts() {
       setSelectedSale({
         ...sale,
         items: items.map((item: any) => ({
-          product_name: item.name || "Unknown Product",
+          product_name: item.name || t("saleDetails.unknownProduct"),
           quantity: item.quantity || 0,
           price_per_unit: item.sold_price_usd || 0,
           subtotal: (item.sold_price_usd || 0) * (item.quantity || 0),
@@ -597,9 +647,7 @@ export default function Debts() {
     } catch (error) {
       logger.error("Failed to load sale details:", error);
       console.error("Sale details error:", error);
-      alert(
-        "Failed to load sale details. The data might be corrupted or the transaction ID is invalid.",
-      );
+      alert(t("saleDetails.loadFailed"));
     }
   };
 
@@ -812,14 +860,16 @@ export default function Debts() {
   const repayForgiveOverLbp = repayDiscountLbpNum > dueLbp + 0.5;
   const repayForgiveCapNote =
     repayForgiveOverUsd || repayForgiveOverLbp
-      ? `Capped to max (${[
-          repayForgiveOverUsd ? `$${dueUsd.toFixed(2)}` : "",
-          repayForgiveOverLbp
-            ? `${Math.round(dueLbp).toLocaleString()} LBP`
-            : "",
-        ]
-          .filter(Boolean)
-          .join(" + ")})`
+      ? t("forgive.cappedToMax", {
+          amount: [
+            repayForgiveOverUsd ? `$${dueUsd.toFixed(2)}` : "",
+            repayForgiveOverLbp
+              ? `${formatNumber(Math.round(dueLbp))} LBP`
+              : "",
+          ]
+            .filter(Boolean)
+            .join(" + "),
+        })
       : undefined;
 
   // LIRA-318 (owner decision 2026-10-13, review follow-up) — the forgive
@@ -866,7 +916,7 @@ export default function Debts() {
     const fmtMix = (usd: number, lbp: number) =>
       [
         usd > 0.004 || lbp <= 0.5 ? `$${usd.toFixed(2)}` : "",
-        lbp > 0.5 ? `${Math.round(lbp).toLocaleString()} LBP` : "",
+        lbp > 0.5 ? `${formatNumber(Math.round(lbp))} LBP` : "",
       ]
         .filter(Boolean)
         .join(" + ");
@@ -876,14 +926,14 @@ export default function Debts() {
     // In the payment's own currency when it is a single one.
     const target =
       lineCcys.size === 1 && lineCcys.has("LBP")
-        ? `${Math.round(repayForgiveCapLbp + repayForgiveCapUsd * rate).toLocaleString()} LBP`
+        ? `${formatNumber(Math.round(repayForgiveCapLbp + repayForgiveCapUsd * rate))} LBP`
         : lineCcys.size === 1 && lineCcys.has("USD")
           ? `$${(repayForgiveCapUsd + repayForgiveCapLbp / rate).toFixed(2)}`
           : fmtMix(repayForgiveCapUsd, repayForgiveCapLbp);
-    return `Lower the payment to ${target} to forgive ${fmtMix(
-      repayAppliedDiscountUsd,
-      repayAppliedDiscountLbp,
-    )}.`;
+    return t("forgive.lowerPaymentHint", {
+      target,
+      forgive: fmtMix(repayAppliedDiscountUsd, repayAppliedDiscountLbp),
+    });
   })();
 
   const repayPlan = (() => {
@@ -989,7 +1039,7 @@ export default function Debts() {
     const fmt = (usd: number, lbp: number): string =>
       [
         usd > 0.004 ? `$${usd.toFixed(2).replace(/\.00$/, "")}` : "",
-        lbp > 0.5 ? `${Math.round(lbp).toLocaleString()} LBP` : "",
+        lbp > 0.5 ? `${formatNumber(Math.round(lbp))} LBP` : "",
       ]
         .filter(Boolean)
         .join(" + ");
@@ -1004,8 +1054,8 @@ export default function Debts() {
       systemLabel:
         repayOpenItems.find((i) => i.primaryDrawer)?.primaryDrawer ===
         "Whish_System"
-          ? "Whish Cash Drawer"
-          : "OMT Cash Drawer",
+          ? t("repay.whishCashDrawer")
+          : t("repay.omtCashDrawer"),
       systemText: routed ? fmt(result.routedUsd, result.routedLbp) : "",
       generalText: routed
         ? fmt(
@@ -1025,7 +1075,7 @@ export default function Debts() {
 
     const validLines = repayPaymentLines.filter((l) => l.amount > 0);
     if (validLines.length === 0) {
-      alert("Please enter a repayment amount.");
+      alert(t("repay.enterAmount"));
       return;
     }
 
@@ -1063,9 +1113,7 @@ export default function Debts() {
       const cashOutRate = repayModalRate ?? EXCHANGE_RATE;
       const rateNeeded = paidLBP > 0 || creditLbp > 0;
       if (rateNeeded && !(Number.isFinite(cashOutRate) && cashOutRate > 0)) {
-        alert(
-          "Exchange rate unavailable — set today's USD/LBP rate before a cash out involving LBP.",
-        );
+        alert(t("repay.rateMissingCashOut"));
         return;
       }
       // Kept change (payer "payout", owner decision 2026-10-07): the sheet
@@ -1161,9 +1209,7 @@ export default function Debts() {
       needsConversion &&
       !(Number.isFinite(conversionRate) && conversionRate > 0)
     ) {
-      alert(
-        "Exchange rate unavailable — set today's USD/LBP rate before taking a cross-currency repayment.",
-      );
+      alert(t("repay.rateMissingCross"));
       return;
     }
 
@@ -1184,9 +1230,7 @@ export default function Debts() {
     const { keptUsd, keptLbp, reduceUsd, reduceLbp } = computeRepayFigures();
 
     if (!Number.isFinite(reduceUsd) || !Number.isFinite(reduceLbp)) {
-      alert(
-        "Could not compute the repayment amount — check the entered lines.",
-      );
+      alert(t("repay.computeFailed"));
       return;
     }
 
@@ -1248,12 +1292,14 @@ export default function Debts() {
         appEvents.emit(
           "notification:show",
           hasDiscount
-            ? `Repayment processed (discount $${repayAppliedDiscountUsd.toFixed(2)}${
-                repayAppliedDiscountLbp > 0
-                  ? ` + ${repayAppliedDiscountLbp.toLocaleString()} LBP`
-                  : ""
-              })`
-            : "Repayment processed!",
+            ? t("repay.processedWithDiscount", {
+                discount: `$${repayAppliedDiscountUsd.toFixed(2)}${
+                  repayAppliedDiscountLbp > 0
+                    ? ` + ${formatNumber(repayAppliedDiscountLbp)} LBP`
+                    : ""
+                }`,
+              })
+            : t("repay.processed"),
           "success",
         );
         // LIRA-212 Tier A: let TopBar's session balance badge refresh live.
@@ -1314,79 +1360,94 @@ export default function Debts() {
   // ---------------------------------------------------------------------------
   // Excel Import — execute the actual import to backend
   // ---------------------------------------------------------------------------
-  const executeImport = useCallback(async (clients: ImportClient[]) => {
-    setShowCleanup(false);
-    setParsedClients(null);
-    setIsImporting(true);
+  const executeImport = useCallback(
+    async (clients: ImportClient[]) => {
+      setShowCleanup(false);
+      setParsedClients(null);
+      setIsImporting(true);
 
-    try {
-      // Filter out clients with no debt entries
-      const clientsWithEntries = clients.filter((c) => c.entries.length > 0);
-      const skippedEmpty = clients.length - clientsWithEntries.length;
+      try {
+        // Filter out clients with no debt entries
+        const clientsWithEntries = clients.filter((c) => c.entries.length > 0);
+        const skippedEmpty = clients.length - clientsWithEntries.length;
 
-      if (clientsWithEntries.length === 0) {
-        alert("No clients with debt entries to import.");
-        setIsImporting(false);
-        return;
-      }
-
-      const clients_ = clientsWithEntries;
-      const totalEntries = clients_.reduce((s, c) => s + c.entries.length, 0);
-      const withoutPhone = clients_.filter((c) => !c.phone).length;
-
-      if (
-        !confirm(
-          `Final confirmation:\n• ${clients_.length} clients (${withoutPhone} without phone)${skippedEmpty > 0 ? `\n• ${skippedEmpty} clients skipped (no entries)` : ""}\n• ${totalEntries} debt/payment entries\n\nProceed with import?`,
-        )
-      ) {
-        setIsImporting(false);
-        return;
-      }
-
-      // Through the adapter, not `window.api` — this was the last raw IPC call
-      // on the import path, and it is why importing in a browser died with
-      // "Cannot read properties of undefined (reading 'clients')": `window.api`
-      // does not exist there. The adapter picks IPC on desktop and the REST
-      // route on web (rule 19a).
-      const result = await api.importClientDebts(clients_);
-
-      if (result.success && result.result) {
-        const r = result.result;
-        alert(
-          `Import Complete!\n\n` +
-            `\u2022 Clients created: ${r.clientsCreated}\n` +
-            `\u2022 Clients already existed: ${r.clientsSkipped}\n` +
-            `\u2022 Clients discarded (no phone): ${r.clientsDiscarded}\n` +
-            `\u2022 Debt entries imported: ${r.entriesImported}\n` +
-            (r.duplicatesSkipped > 0
-              ? `\u2022 Duplicates skipped (already imported): ${r.duplicatesSkipped}\n`
-              : "") +
-            (r.errors.length > 0
-              ? `\n\u26A0\uFE0F ${r.errors.length} errors occurred. Check console for details.`
-              : ""),
-        );
-        if (r.errors.length > 0) {
-          logger.error("Import errors:", { errors: r.errors });
+        if (clientsWithEntries.length === 0) {
+          alert(t("import.noClientsWithEntries"));
+          setIsImporting(false);
+          return;
         }
-        loadDebtors();
-        // Imported rows are also Debts-page account writes (reviewer finding
-        // — minor #3): if the active session's client is among them, the
-        // TopBar balance badge (LIRA-212 Tier A) must not stay stale until
-        // the next sale or manual reload.
-        appEvents.emit("debt:changed");
-      } else {
-        alert("Import failed: " + (result.error ?? "Unknown error"));
+
+        const clients_ = clientsWithEntries;
+        const totalEntries = clients_.reduce((s, c) => s + c.entries.length, 0);
+        const withoutPhone = clients_.filter((c) => !c.phone).length;
+
+        if (
+          !confirm(
+            [
+              t("import.finalConfirm.title"),
+              t("import.finalConfirm.clients", {
+                count: clients_.length,
+                withoutPhone,
+              }),
+              ...(skippedEmpty > 0
+                ? [t("import.finalConfirm.skipped", { count: skippedEmpty })]
+                : []),
+              t("import.finalConfirm.entries", { count: totalEntries }),
+              "",
+              t("import.finalConfirm.proceed"),
+            ].join("\n"),
+          )
+        ) {
+          setIsImporting(false);
+          return;
+        }
+
+        // Through the adapter, not `window.api` — this was the last raw IPC call
+        // on the import path, and it is why importing in a browser died with
+        // "Cannot read properties of undefined (reading 'clients')": `window.api`
+        // does not exist there. The adapter picks IPC on desktop and the REST
+        // route on web (rule 19a).
+        const result = await api.importClientDebts(clients_);
+
+        if (result.success && result.result) {
+          const r = result.result;
+          alert(
+            `Import Complete!\n\n` +
+              `\u2022 Clients created: ${r.clientsCreated}\n` +
+              `\u2022 Clients already existed: ${r.clientsSkipped}\n` +
+              `\u2022 Clients discarded (no phone): ${r.clientsDiscarded}\n` +
+              `\u2022 Debt entries imported: ${r.entriesImported}\n` +
+              (r.duplicatesSkipped > 0
+                ? `\u2022 Duplicates skipped (already imported): ${r.duplicatesSkipped}\n`
+                : "") +
+              (r.errors.length > 0
+                ? `\n\u26A0\uFE0F ${r.errors.length} errors occurred. Check console for details.`
+                : ""),
+          );
+          if (r.errors.length > 0) {
+            logger.error("Import errors:", { errors: r.errors });
+          }
+          loadDebtors();
+          // Imported rows are also Debts-page account writes (reviewer finding
+          // — minor #3): if the active session's client is among them, the
+          // TopBar balance badge (LIRA-212 Tier A) must not stay stale until
+          // the next sale or manual reload.
+          appEvents.emit("debt:changed");
+        } else {
+          alert("Import failed: " + (result.error ?? "Unknown error"));
+        }
+      } catch (err) {
+        // LIRA-247: `String(err)` on a thrown ApiError (a plain object, not an
+        // Error) stringifies to "[object Object]", hiding the real refusal —
+        // the same trap this file's other catches already guard against.
+        logger.error("Excel import failed", { error: err });
+        alert("Failed to import: " + getApiErrorMessage(err, "Unknown error"));
+      } finally {
+        setIsImporting(false);
       }
-    } catch (err) {
-      // LIRA-247: `String(err)` on a thrown ApiError (a plain object, not an
-      // Error) stringifies to "[object Object]", hiding the real refusal —
-      // the same trap this file's other catches already guard against.
-      logger.error("Excel import failed", { error: err });
-      alert("Failed to import: " + getApiErrorMessage(err, "Unknown error"));
-    } finally {
-      setIsImporting(false);
-    }
-  }, []);
+    },
+    [t],
+  );
 
   // ---------------------------------------------------------------------------
   // Excel Export — every client with account history, in the import template
@@ -1397,11 +1458,11 @@ export default function Debts() {
       const clients = await loadAccountsForExport(apiRef.current);
 
       if (clients.length === 0) {
-        alert("No client accounts to export.");
+        alert(t("export.noAccounts"));
         return;
       }
 
-      const wb = buildDebtExportWorkbook(clients);
+      const wb = buildDebtExportWorkbook(clients, debtExportHeadings(t));
       const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" });
       const now = new Date();
       const day = [
@@ -1421,7 +1482,7 @@ export default function Debts() {
     } finally {
       setIsExporting(false);
     }
-  }, []);
+  }, [t]);
 
   // ---------------------------------------------------------------------------
   // Excel Import — parse file and show cleanup modal if needed
@@ -1632,7 +1693,7 @@ export default function Debts() {
         });
 
         if (pages.length === 0 && listNameClients.length === 0) {
-          alert("No client data found in the Excel file.");
+          alert(t("import.noData"));
           setIsImporting(false);
           return;
         }
@@ -1684,7 +1745,7 @@ export default function Debts() {
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     },
-    [executeImport],
+    [executeImport, t],
   );
 
   const filteredDebtors = debtors.filter((d) => {
@@ -1728,10 +1789,11 @@ export default function Debts() {
       />
 
       <PageHeader
-        title="Accounts"
+        title={t("page.title")}
         actions={
           <div className="flex items-center gap-2">
             <button
+              data-testid="debts-add-entry-open"
               onClick={() => {
                 setCreditMoveCash(true);
                 setShowCreditModal(true);
@@ -1739,7 +1801,7 @@ export default function Debts() {
               className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-medium transition-all"
             >
               <Plus size={18} />
-              Add Credit / Debt
+              {t("page.addEntry")}
             </button>
             <button
               onClick={() => fileInputRef.current?.click()}
@@ -1747,7 +1809,7 @@ export default function Debts() {
               className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-medium transition-all disabled:opacity-50"
             >
               <Upload size={18} />
-              {isImporting ? "Importing..." : "Import Excel"}
+              {isImporting ? t("page.importing") : t("page.importExcel")}
             </button>
             <button
               onClick={handleExportExcel}
@@ -1755,7 +1817,7 @@ export default function Debts() {
               className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-medium transition-all disabled:opacity-50"
             >
               <Download size={18} />
-              {isExporting ? "Exporting..." : "Export Excel"}
+              {isExporting ? t("page.exporting") : t("page.exportExcel")}
             </button>
           </div>
         }
@@ -1767,15 +1829,15 @@ export default function Debts() {
           <div className="p-4 border-b border-slate-700 space-y-4">
             <div className="relative">
               <Search
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400"
                 size={18}
               />
               <input
                 type="text"
-                placeholder="Search client..."
+                placeholder={t("page.searchClient")}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-10 pr-4 py-2 text-white focus:outline-none focus:border-red-500"
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg ps-10 pe-4 py-2 text-white focus:outline-none focus:border-red-500"
               />
             </div>
             {/* New filter dropdown */}
@@ -1787,9 +1849,9 @@ export default function Debts() {
                   setSelectedClient(null); // Reset selected client
                 }}
                 options={[
-                  { value: "ongoing", label: "Ongoing" },
-                  { value: "closed", label: "Closed" },
-                  { value: "all", label: "All" },
+                  { value: "ongoing", label: t("filter.ongoing") },
+                  { value: "closed", label: t("filter.closed") },
+                  { value: "all", label: t("filter.all") },
                 ]}
                 ringColor="ring-red-500"
               />
@@ -1811,7 +1873,7 @@ export default function Debts() {
                 <button
                   key={client.id}
                   onClick={() => setSelectedClient(client)}
-                  className={`w-full text-left px-3 py-4 rounded-lg border transition-all ${
+                  className={`w-full text-start px-3 py-4 rounded-lg border transition-all ${
                     isMixed
                       ? isSelected
                         ? "bg-slate-500/10 border-slate-400/50 shadow-md"
@@ -1831,10 +1893,11 @@ export default function Debts() {
                     </div>
                     <div className="flex justify-between items-baseline gap-2 mt-1.5">
                       <span className="text-sm text-slate-400 truncate min-w-0">
-                        {client.phone_number || "No Phone"}
+                        {client.phone_number || t("page.noPhone")}
                       </span>
                       <span className="flex items-baseline gap-2 shrink-0">
                         <span
+                          dir="ltr"
                           className={`font-bold text-sm ${
                             client.total_debt_usd < -0.01
                               ? "text-emerald-400"
@@ -1847,6 +1910,7 @@ export default function Debts() {
                         </span>
                         {client.total_debt_lbp !== 0 && (
                           <span
+                            dir="ltr"
                             className={`font-bold text-sm ${
                               client.total_debt_lbp < -0.5
                                 ? "text-emerald-400"
@@ -1855,8 +1919,7 @@ export default function Debts() {
                                   : "text-slate-400"
                             }`}
                           >
-                            {Math.abs(client.total_debt_lbp).toLocaleString()}{" "}
-                            LBP
+                            {formatNumber(Math.abs(client.total_debt_lbp))} LBP
                           </span>
                         )}
                       </span>
@@ -1867,7 +1930,7 @@ export default function Debts() {
             })}
             {filteredDebtors.length === 0 && (
               <div className="text-center text-slate-500 py-8">
-                No debtors found.
+                {t("page.noDebtors")}
               </div>
             )}
           </div>
@@ -1885,7 +1948,7 @@ export default function Debts() {
                       {selectedClient.full_name}
                     </h2>
                     <span className="text-sm text-slate-400">
-                      {selectedClient.phone_number || "No Phone"}
+                      {selectedClient.phone_number || t("page.noPhone")}
                     </span>
                   </div>
 
@@ -1914,7 +1977,7 @@ export default function Debts() {
                     }`}
                   >
                     <span className="text-xs font-medium text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                      Balance
+                      {t("page.balance")}
                     </span>
                     {clientDetailsLoading ? (
                       <span className="font-mono text-2xl font-bold text-slate-500">
@@ -1922,6 +1985,7 @@ export default function Debts() {
                       </span>
                     ) : (
                       <span
+                        dir="ltr"
                         className={`font-mono text-2xl font-bold ${balanceTextColor(-netUsd, BALANCE_EPS)}`}
                       >
                         {netUsd < 0 ? "+" : "-"}${Math.abs(netUsd).toFixed(2)}
@@ -1931,10 +1995,11 @@ export default function Debts() {
                       <>
                         <span className="text-slate-600 text-lg">|</span>
                         <span
+                          dir="ltr"
                           className={`font-mono text-2xl font-bold ${balanceTextColor(-netLbp, BALANCE_EPS)}`}
                         >
                           {netLbp < 0 ? "+" : "-"}
-                          {Math.abs(netLbp).toLocaleString()} LBP
+                          {formatNumber(Math.abs(netLbp))} LBP
                         </span>
                       </>
                     )}
@@ -1949,6 +2014,7 @@ export default function Debts() {
                   <div className="shrink-0 flex items-center gap-2">
                     {hasDebt && (
                       <button
+                        data-testid="debts-settle-open"
                         onClick={() => {
                           setRepayMode("repay");
                           setRepayPaymentLines([]);
@@ -1962,11 +2028,12 @@ export default function Debts() {
                         className="px-6 py-2 rounded-lg font-bold shadow-lg active:scale-95 transition-all flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/20"
                       >
                         <ArrowDownLeft size={20} />
-                        Settle Debt
+                        {t("page.settleDebt")}
                       </button>
                     )}
                     {hasCredit && (
                       <button
+                        data-testid="debts-cashout-open"
                         onClick={() => {
                           setRepayMode("cashout");
                           setRepayPaymentLines([]);
@@ -1977,13 +2044,14 @@ export default function Debts() {
                         className="px-6 py-2 rounded-lg font-bold shadow-lg active:scale-95 transition-all flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white shadow-red-900/20"
                       >
                         <ArrowUpRight size={20} />
-                        Cash Out
+                        {t("page.cashOut")}
                       </button>
                     )}
                     {/* CQ-10 (D4): standalone write-off — admin-only, pure
                         forgiveness with no cash movement. */}
                     {hasDebt && isAdmin && (
                       <button
+                        data-testid="debts-writeoff-open"
                         onClick={() => {
                           setWriteOffAmountUsd("");
                           setWriteOffAmountLbp("");
@@ -1991,10 +2059,10 @@ export default function Debts() {
                           setShowWriteOffModal(true);
                         }}
                         className="px-4 py-2 rounded-lg font-bold shadow-lg active:scale-95 transition-all flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-slate-200"
-                        title="Forgive part of the debt with no cash movement"
+                        title={t("page.writeOffTitle")}
                       >
                         <Eraser size={18} />
-                        Write off
+                        {t("page.writeOff")}
                       </button>
                     )}
                   </div>
@@ -2015,59 +2083,59 @@ export default function Debts() {
                     <div className="flex items-center gap-1.5 mb-1.5">
                       <Clock size={12} className="text-slate-500" />
                       <span className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">
-                        Aging
+                        {t("aging.title")}
                       </span>
                     </div>
                     <div className="grid grid-cols-4 gap-2">
                       <div className="bg-slate-900/50 rounded-lg px-3 py-1.5 border border-green-900/30">
                         <div className="text-[10px] text-green-400 font-medium mb-0.5">
-                          Current
+                          {t("aging.current")}
                         </div>
                         <div className="text-xs font-bold text-white">
                           ${aging.current.usd.toFixed(2)}
                         </div>
                         {aging.current.lbp > 0 && (
                           <div className="text-[10px] text-slate-400">
-                            {aging.current.lbp.toLocaleString()} LBP
+                            {formatNumber(aging.current.lbp)} LBP
                           </div>
                         )}
                       </div>
                       <div className="bg-slate-900/50 rounded-lg px-3 py-1.5 border border-yellow-900/30">
                         <div className="text-[10px] text-yellow-400 font-medium mb-0.5">
-                          31–60 days
+                          {t("aging.days_31_60")}
                         </div>
                         <div className="text-xs font-bold text-white">
                           ${aging.days_31_60.usd.toFixed(2)}
                         </div>
                         {aging.days_31_60.lbp > 0 && (
                           <div className="text-[10px] text-slate-400">
-                            {aging.days_31_60.lbp.toLocaleString()} LBP
+                            {formatNumber(aging.days_31_60.lbp)} LBP
                           </div>
                         )}
                       </div>
                       <div className="bg-slate-900/50 rounded-lg px-3 py-1.5 border border-orange-900/30">
                         <div className="text-[10px] text-orange-400 font-medium mb-0.5">
-                          61–90 days
+                          {t("aging.days_61_90")}
                         </div>
                         <div className="text-xs font-bold text-white">
                           ${aging.days_61_90.usd.toFixed(2)}
                         </div>
                         {aging.days_61_90.lbp > 0 && (
                           <div className="text-[10px] text-slate-400">
-                            {aging.days_61_90.lbp.toLocaleString()} LBP
+                            {formatNumber(aging.days_61_90.lbp)} LBP
                           </div>
                         )}
                       </div>
                       <div className="bg-slate-900/50 rounded-lg px-3 py-1.5 border border-red-900/30">
                         <div className="text-[10px] text-red-400 font-medium mb-0.5">
-                          Over 90 days
+                          {t("aging.over_90")}
                         </div>
                         <div className="text-xs font-bold text-white">
                           ${aging.over_90.usd.toFixed(2)}
                         </div>
                         {aging.over_90.lbp > 0 && (
                           <div className="text-[10px] text-slate-400">
-                            {aging.over_90.lbp.toLocaleString()} LBP
+                            {formatNumber(aging.over_90.lbp)} LBP
                           </div>
                         )}
                       </div>
@@ -2081,7 +2149,7 @@ export default function Debts() {
                   data-testid="debts-client-loading"
                   className="flex-1 flex items-center justify-center text-slate-400"
                 >
-                  Loading {selectedClient.full_name}'s account...
+                  {t("page.loadingAccount", { name: selectedClient.full_name })}
                 </div>
               ) : (
                 <div className="flex-1 flex gap-4 p-4 overflow-hidden">
@@ -2090,10 +2158,10 @@ export default function Debts() {
                     <div className="px-4 py-2.5 border-b border-slate-700/50 flex items-center justify-between">
                       <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider">
                         {accountFraming === "mixed"
-                          ? "Purchases & Charges"
+                          ? t("history.purchasesAndCharges")
                           : accountFraming === "creditor"
-                            ? "Charges"
-                            : "Purchases"}
+                            ? t("history.charges")
+                            : t("history.purchases")}
                       </h3>
                       <span className="text-xs text-slate-500">
                         {debtEntries.length}
@@ -2108,7 +2176,7 @@ export default function Debts() {
                                 onClick={toggleDateSort}
                                 className="flex items-center gap-1 hover:text-slate-200 transition-colors"
                               >
-                                Date
+                                {t("history.date")}
                                 {dateSortOrder === "desc" ? (
                                   <ChevronDown
                                     size={14}
@@ -2125,22 +2193,20 @@ export default function Debts() {
                             className: "px-4 py-2 text-xs font-medium",
                           },
                           {
-                            header: "Note",
+                            header: t("history.note"),
                             className: "px-3 py-2 text-xs font-medium",
                           },
                           {
-                            header: "User",
+                            header: t("history.user"),
                             className: "px-3 py-2 text-xs font-medium",
                           },
                           {
                             header: "USD",
-                            className:
-                              "px-3 py-2 text-xs font-medium text-right",
+                            className: "px-3 py-2 text-xs font-medium text-end",
                           },
                           {
                             header: "LBP",
-                            className:
-                              "px-3 py-2 text-xs font-medium text-right",
+                            className: "px-3 py-2 text-xs font-medium text-end",
                           },
                         ]}
                         data={debtEntries}
@@ -2148,9 +2214,9 @@ export default function Debts() {
                         exportPdf
                         exportFilename="debt-purchases"
                         className="w-full"
-                        theadClassName="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-left text-slate-400 border-b border-slate-700/50"
+                        theadClassName="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-start text-slate-400 border-b border-slate-700/50"
                         tbodyClassName="divide-y divide-slate-700/30"
-                        emptyMessage="No purchases on debt"
+                        emptyMessage={t("history.noPurchases")}
                         renderRow={(item) => {
                           const isRefunded = Boolean(item.is_refunded);
                           return (
@@ -2160,20 +2226,22 @@ export default function Debts() {
                                 className={`hover:bg-slate-800/50${isRefunded ? " opacity-50" : ""}`}
                               >
                                 <td className="px-4 py-2.5 text-slate-300 text-sm whitespace-nowrap">
-                                  {parseDbDate(
-                                    item.created_at,
-                                  ).toLocaleDateString()}
+                                  {formatDate(
+                                    parseDbDate(item.created_at),
+                                    SHORT_DATE,
+                                  )}
                                   <div className="text-[10px] text-slate-500">
-                                    {parseDbDate(
-                                      item.created_at,
-                                    ).toLocaleTimeString()}
+                                    {formatTime(
+                                      parseDbDate(item.created_at),
+                                      LONG_TIME,
+                                    )}
                                   </div>
                                 </td>
                                 <td className="px-3 py-2.5 text-slate-400 text-sm">
                                   <div className="flex flex-col gap-1">
                                     {isRefunded && (
                                       <span className="inline-flex items-center self-start rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                                        Refunded
+                                        {t("history.refunded")}
                                       </span>
                                     )}
                                     {item.transaction_type &&
@@ -2208,16 +2276,13 @@ export default function Debts() {
                                             "Custom Service Debt" && (
                                             <Briefcase
                                               size={10}
-                                              className="mr-1"
+                                              className="me-1"
                                             />
                                           )}
-                                          {item.transaction_type ===
-                                          "CREDIT_DEPOSIT"
-                                            ? "Credit Deposit"
-                                            : item.transaction_type ===
-                                                "CREDIT_USED"
-                                              ? "Credit Used"
-                                              : item.transaction_type}
+                                          {ledgerTypeLabel(
+                                            item.transaction_type,
+                                            t,
+                                          )}
                                         </span>
                                       )}
                                     <div className="flex items-center gap-1.5">
@@ -2248,7 +2313,7 @@ export default function Debts() {
                                               )
                                             }
                                             className="shrink-0 p-1 rounded bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 transition-all"
-                                            title="View Sale Details"
+                                            title={t("history.viewSale")}
                                           >
                                             <Eye size={13} />
                                           </button>
@@ -2265,7 +2330,7 @@ export default function Debts() {
                                               )
                                             }
                                             className="shrink-0 p-1 rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 transition-all"
-                                            title="View Transaction Details"
+                                            title={t("history.viewTransaction")}
                                           >
                                             <Eye size={13} />
                                           </button>
@@ -2295,7 +2360,7 @@ export default function Debts() {
                                               )
                                             }
                                             className="shrink-0 p-1 rounded bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 transition-all"
-                                            title="View Basket Items"
+                                            title={t("history.viewBasket")}
                                           >
                                             <Eye size={13} />
                                           </button>
@@ -2309,10 +2374,10 @@ export default function Debts() {
                                       ) && (
                                         <div
                                           data-testid={`basket-open-items-${item.id}`}
-                                          className="mt-0.5 pl-2 border-l border-indigo-500/30 text-[11px] leading-snug"
+                                          className="mt-0.5 ps-2 border-s border-indigo-500/30 text-[11px] leading-snug"
                                         >
                                           <div className="text-slate-500">
-                                            Still open:
+                                            {t("history.stillOpen")}
                                           </div>
                                           {clientOpenItems
                                             .filter(
@@ -2327,13 +2392,16 @@ export default function Debts() {
                                                 <span className="truncate text-slate-300">
                                                   {o.label}
                                                 </span>
-                                                <span className="font-mono text-red-300 shrink-0">
+                                                <span
+                                                  dir="ltr"
+                                                  className="font-mono text-red-300 shrink-0"
+                                                >
                                                   {[
                                                     o.openUsd > 0.004
                                                       ? `$${o.openUsd.toFixed(2)}`
                                                       : "",
                                                     o.openLbp > 0.5
-                                                      ? `${Math.round(o.openLbp).toLocaleString()} LBP`
+                                                      ? `${formatNumber(Math.round(o.openLbp))} LBP`
                                                       : "",
                                                   ]
                                                     .filter(Boolean)
@@ -2349,7 +2417,7 @@ export default function Debts() {
                                   {item.created_by_username || "—"}
                                 </td>
                                 <td
-                                  className={`px-3 py-2.5 text-right font-mono text-sm font-bold ${item.transaction_type === "CREDIT_DEPOSIT" ? "text-emerald-400" : item.transaction_type === "CREDIT_USED" ? "text-orange-400" : "text-red-400"}`}
+                                  className={`px-3 py-2.5 text-end font-mono text-sm font-bold ${item.transaction_type === "CREDIT_DEPOSIT" ? "text-emerald-400" : item.transaction_type === "CREDIT_USED" ? "text-orange-400" : "text-red-400"}`}
                                 >
                                   {Math.abs(item.amount_usd) > 0 ? (
                                     `$${Math.abs(item.amount_usd).toFixed(2)}`
@@ -2358,10 +2426,10 @@ export default function Debts() {
                                   )}
                                 </td>
                                 <td
-                                  className={`px-3 py-2.5 text-right font-mono text-sm font-bold ${item.transaction_type === "CREDIT_DEPOSIT" ? "text-emerald-400" : item.transaction_type === "CREDIT_USED" ? "text-orange-400" : "text-red-400"}`}
+                                  className={`px-3 py-2.5 text-end font-mono text-sm font-bold ${item.transaction_type === "CREDIT_DEPOSIT" ? "text-emerald-400" : item.transaction_type === "CREDIT_USED" ? "text-orange-400" : "text-red-400"}`}
                                 >
                                   {Math.abs(item.amount_lbp) > 0 ? (
-                                    `${Math.abs(item.amount_lbp).toLocaleString()}`
+                                    formatNumber(Math.abs(item.amount_lbp))
                                   ) : (
                                     <span className="text-slate-600">-</span>
                                   )}
@@ -2376,18 +2444,21 @@ export default function Debts() {
                     <div className="px-4 py-2.5 border-t border-slate-700/50 bg-slate-900/80 flex justify-between items-center">
                       <span className="text-xs font-bold text-slate-400 uppercase">
                         {accountFraming === "mixed"
-                          ? "Total Debited"
+                          ? t("history.totalDebited")
                           : accountFraming === "creditor"
-                            ? "Total Charged"
-                            : "Total Owed"}
+                            ? t("history.totalCharged")
+                            : t("history.totalOwed")}
                       </span>
                       <div className="flex gap-3">
                         <span className="font-mono text-sm font-bold text-red-400">
                           ${debtTotals.usd.toFixed(2)}
                         </span>
                         {debtTotals.lbp > 0 && (
-                          <span className="font-mono text-sm font-bold text-red-400">
-                            {debtTotals.lbp.toLocaleString()} LBP
+                          <span
+                            dir="ltr"
+                            className="font-mono text-sm font-bold text-red-400"
+                          >
+                            {formatNumber(debtTotals.lbp)} LBP
                           </span>
                         )}
                       </div>
@@ -2417,7 +2488,7 @@ export default function Debts() {
                                 onClick={toggleDateSort}
                                 className="flex items-center gap-1 hover:text-slate-200 transition-colors"
                               >
-                                Date
+                                {t("history.date")}
                                 {dateSortOrder === "desc" ? (
                                   <ChevronDown
                                     size={14}
@@ -2434,22 +2505,20 @@ export default function Debts() {
                             className: "px-4 py-2 text-xs font-medium",
                           },
                           {
-                            header: "Note",
+                            header: t("history.note"),
                             className: "px-3 py-2 text-xs font-medium",
                           },
                           {
-                            header: "User",
+                            header: t("history.user"),
                             className: "px-3 py-2 text-xs font-medium",
                           },
                           {
                             header: "USD",
-                            className:
-                              "px-3 py-2 text-xs font-medium text-right",
+                            className: "px-3 py-2 text-xs font-medium text-end",
                           },
                           {
                             header: "LBP",
-                            className:
-                              "px-3 py-2 text-xs font-medium text-right",
+                            className: "px-3 py-2 text-xs font-medium text-end",
                           },
                         ]}
                         data={paymentEntries}
@@ -2457,9 +2526,9 @@ export default function Debts() {
                         exportPdf
                         exportFilename="debt-payments"
                         className="w-full"
-                        theadClassName="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-left text-slate-400 border-b border-slate-700/50"
+                        theadClassName="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-start text-slate-400 border-b border-slate-700/50"
                         tbodyClassName="divide-y divide-slate-700/30"
-                        emptyMessage="No payments recorded"
+                        emptyMessage={t("history.noPayments")}
                         renderRow={(item) => {
                           const isRefunded = Boolean(item.is_refunded);
                           return (
@@ -2469,13 +2538,15 @@ export default function Debts() {
                                 className={`hover:bg-slate-800/50${isRefunded ? " opacity-50" : ""}`}
                               >
                                 <td className="px-4 py-2.5 text-slate-300 text-sm whitespace-nowrap">
-                                  {parseDbDate(
-                                    item.created_at,
-                                  ).toLocaleDateString()}
+                                  {formatDate(
+                                    parseDbDate(item.created_at),
+                                    SHORT_DATE,
+                                  )}
                                   <div className="text-[10px] text-slate-500">
-                                    {parseDbDate(
-                                      item.created_at,
-                                    ).toLocaleTimeString()}
+                                    {formatTime(
+                                      parseDbDate(item.created_at),
+                                      LONG_TIME,
+                                    )}
                                   </div>
                                 </td>
                                 <td className="px-3 py-2.5 text-slate-400 text-sm">
@@ -2483,14 +2554,14 @@ export default function Debts() {
                                     {item.transaction_type ===
                                       "CREDIT_DEPOSIT" && (
                                       <span className="inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-400/10 text-emerald-400">
-                                        Credit Deposit
+                                        {t("ledgerType.creditDeposit")}
                                       </span>
                                     )}
                                     <span className="flex items-center gap-1">
                                       {item.note || "-"}
                                       {isRefunded && (
-                                        <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                                          Refunded
+                                        <span className="ms-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                                          {t("history.refunded")}
                                         </span>
                                       )}
                                       {item.session_id &&
@@ -2506,7 +2577,7 @@ export default function Debts() {
                                               )
                                             }
                                             className="shrink-0 p-1 rounded bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 transition-all"
-                                            title="View Basket Items"
+                                            title={t("history.viewBasket")}
                                           >
                                             <Eye size={13} />
                                           </button>
@@ -2517,16 +2588,16 @@ export default function Debts() {
                                 <td className="px-3 py-2.5 text-slate-400 text-sm whitespace-nowrap">
                                   {item.created_by_username || "—"}
                                 </td>
-                                <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-emerald-400">
+                                <td className="px-3 py-2.5 text-end font-mono text-sm font-bold text-emerald-400">
                                   {Math.abs(item.amount_usd) > 0 ? (
                                     `$${Math.abs(item.amount_usd).toFixed(2)}`
                                   ) : (
                                     <span className="text-slate-600">-</span>
                                   )}
                                 </td>
-                                <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-emerald-400">
+                                <td className="px-3 py-2.5 text-end font-mono text-sm font-bold text-emerald-400">
                                   {Math.abs(item.amount_lbp) > 0 ? (
-                                    `${Math.abs(item.amount_lbp).toLocaleString()}`
+                                    formatNumber(Math.abs(item.amount_lbp))
                                   ) : (
                                     <span className="text-slate-600">-</span>
                                   )}
@@ -2541,18 +2612,21 @@ export default function Debts() {
                     <div className="px-4 py-2.5 border-t border-slate-700/50 bg-slate-900/80 flex justify-between items-center">
                       <span className="text-xs font-bold text-slate-400 uppercase">
                         {accountFraming === "mixed"
-                          ? "Total Credited"
+                          ? t("history.totalCredited")
                           : accountFraming === "creditor"
-                            ? "Total Deposited"
-                            : "Total Paid"}
+                            ? t("history.totalDeposited")
+                            : t("history.totalPaid")}
                       </span>
                       <div className="flex gap-3">
                         <span className="font-mono text-sm font-bold text-emerald-400">
                           ${paymentTotals.usd.toFixed(2)}
                         </span>
                         {paymentTotals.lbp > 0 && (
-                          <span className="font-mono text-sm font-bold text-emerald-400">
-                            {paymentTotals.lbp.toLocaleString()} LBP
+                          <span
+                            dir="ltr"
+                            className="font-mono text-sm font-bold text-emerald-400"
+                          >
+                            {formatNumber(paymentTotals.lbp)} LBP
                           </span>
                         )}
                       </div>
@@ -2566,7 +2640,7 @@ export default function Debts() {
               <div className="w-16 h-16 bg-slate-700/50 rounded-full flex items-center justify-center mb-4">
                 <User size={32} className="opacity-50" />
               </div>
-              <p>Select a client to view details</p>
+              <p>{t("page.selectClient")}</p>
             </div>
           )}
         </div>
@@ -2653,12 +2727,16 @@ export default function Debts() {
         {showRepaymentModal && (
           <CounterpartySettleModal
             title={
-              repayMode === "cashout" ? "Cash Out Credit" : "Process Repayment"
+              repayMode === "cashout"
+                ? t("repay.cashOutTitle")
+                : t("repay.repayTitle")
             }
             onCancel={() => setShowRepaymentModal(false)}
             onConfirm={handleProcessRepayment}
             confirmLabel={
-              repayMode === "cashout" ? "Confirm Cash Out" : "Confirm Payment"
+              repayMode === "cashout"
+                ? t("repay.confirmCashOut")
+                : t("repay.confirmPayment")
             }
             // LIRA-308 decision 3 — nothing ticked, nothing to confirm.
             // LIRA-318 — or a forgive on top of a payment that already
@@ -2782,12 +2860,12 @@ export default function Debts() {
                     ...(hasDebt
                       ? {
                           totalBeforeDiscount: repayGrossTotals,
-                          afterDiscountLabel: "After Forgive",
+                          afterDiscountLabel: t("forgive.afterForgive"),
                           discountMovesPayment: false,
-                          owedLabel: "Client will owe",
+                          owedLabel: t("forgive.clientWillOwe"),
                           discountRow: (
                             <DiscountLine
-                              label="Forgive (no cash)"
+                              label={t("forgive.label")}
                               testId="debt-forgive-line"
                               capNote={repayForgiveCapNote}
                               hint={
@@ -2803,30 +2881,29 @@ export default function Debts() {
                               reason={{
                                 value: repayDiscountReason,
                                 onChange: setRepayDiscountReason,
-                                placeholder: "Reason (optional)...",
+                                placeholder: t("forgive.reasonPlaceholder"),
                                 testId: "debt-forgive-reason",
                               }}
                             >
                               <span className="relative">
-                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-emerald-400 text-xs">
+                                <span className="absolute start-2 top-1/2 -translate-y-1/2 text-emerald-400 text-xs">
                                   $
                                 </span>
                                 <input
                                   type="text"
                                   inputMode="decimal"
                                   data-testid="debt-forgive-usd"
-                                  aria-label="Forgive USD"
+                                  aria-label={t("forgive.usd")}
                                   value={repayDiscountUsd}
                                   onChange={(e) => {
-                                    const raw = e.target.value.replace(
-                                      /,/g,
-                                      "",
-                                    );
+                                    const raw = normalizeDigits(
+                                      e.target.value,
+                                    ).replace(/,/g, "");
                                     if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
                                       setRepayDiscountUsd(raw);
                                     }
                                   }}
-                                  className={`${discountFieldClass(repayForgiveOverUsd)} pl-5`}
+                                  className={`${discountFieldClass(repayForgiveOverUsd)} ps-5`}
                                   placeholder="0.00"
                                 />
                               </span>
@@ -2835,13 +2912,12 @@ export default function Debts() {
                                   type="text"
                                   inputMode="numeric"
                                   data-testid="debt-forgive-lbp"
-                                  aria-label="Forgive LBP"
+                                  aria-label={t("forgive.lbp")}
                                   value={repayDiscountLbp}
                                   onChange={(e) => {
-                                    const raw = e.target.value.replace(
-                                      /,/g,
-                                      "",
-                                    );
+                                    const raw = normalizeDigits(
+                                      e.target.value,
+                                    ).replace(/,/g, "");
                                     if (raw === "" || /^\d+$/.test(raw)) {
                                       setRepayDiscountLbp(raw);
                                     }
@@ -2908,7 +2984,7 @@ export default function Debts() {
               ...(repayMode === "cashout"
                 ? {
                     payoutExcessToAccount: true,
-                    accountLabel: "the client's credit",
+                    accountLabel: t("repay.clientsCredit"),
                   }
                 : {}),
               ...(repayMode === "cashout" && creditUsd <= 0 && creditLbp > 0
@@ -2952,30 +3028,32 @@ export default function Debts() {
                 className="bg-slate-800/50 border border-slate-700/40 rounded-xl px-3 py-2 text-sm"
               >
                 <div className="text-xs font-medium text-slate-300 mb-1">
-                  Goes to
+                  {t("repay.goesTo")}
                 </div>
                 {repayPreview.systemText && (
                   <div className="flex items-center justify-between">
                     <span className="text-slate-400">
                       {repayPreview.systemLabel}
                     </span>
-                    <span className="font-mono text-emerald-400">
+                    <span dir="ltr" className="font-mono text-emerald-400">
                       {repayPreview.systemText}
                     </span>
                   </div>
                 )}
                 {repayPreview.generalText && (
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-400">General</span>
-                    <span className="font-mono text-emerald-400">
+                    <span className="text-slate-400">{t("repay.general")}</span>
+                    <span dir="ltr" className="font-mono text-emerald-400">
                       {repayPreview.generalText}
                     </span>
                   </div>
                 )}
                 {repayPreview.creditText && (
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-400">Account credit</span>
-                    <span className="font-mono text-emerald-400">
+                    <span className="text-slate-400">
+                      {t("repay.accountCredit")}
+                    </span>
+                    <span dir="ltr" className="font-mono text-emerald-400">
                       {repayPreview.creditText}
                     </span>
                   </div>
@@ -2987,7 +3065,7 @@ export default function Debts() {
                 htmlFor="repay-note"
                 className="block text-xs font-medium text-slate-400 mb-1 uppercase"
               >
-                Note
+                {t("repay.note")}
               </label>
               <input
                 id="repay-note"
@@ -2995,7 +3073,7 @@ export default function Debts() {
                 value={repayNote}
                 onChange={(e) => setRepayNote(e.target.value)}
                 className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-emerald-500"
-                placeholder="Optional note..."
+                placeholder={t("repay.notePlaceholder")}
               />
             </div>
 
@@ -3024,23 +3102,26 @@ export default function Debts() {
               onMouseDown={(e) => e.stopPropagation()}
             >
               <h3 className="text-xl font-bold text-white mb-1">
-                Write off debt
+                {t("writeOff.title")}
               </h3>
               <p className="text-xs text-slate-400 mb-4">
-                {selectedClient.full_name} — forgives part of the debt with no
-                cash movement.
+                {t("writeOff.subtitle", { name: selectedClient.full_name })}
               </p>
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
-                    Amount (USD) — owed ${dueUsd.toFixed(2)}
+                    {t("writeOff.amountUsd")} <Ltr>${dueUsd.toFixed(2)}</Ltr>
                   </label>
                   <input
                     type="text"
                     inputMode="decimal"
+                    data-testid="debts-writeoff-usd"
                     value={writeOffAmountUsd}
                     onChange={(e) => {
-                      const raw = e.target.value.replace(/,/g, "");
+                      const raw = normalizeDigits(e.target.value).replace(
+                        /,/g,
+                        "",
+                      );
                       if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
                         setWriteOffAmountUsd(raw);
                       }
@@ -3051,14 +3132,18 @@ export default function Debts() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
-                    Amount (LBP) — owed {dueLbp.toLocaleString()}
+                    {t("writeOff.amountLbp")} <Ltr>{formatNumber(dueLbp)}</Ltr>
                   </label>
                   <input
                     type="text"
                     inputMode="numeric"
+                    data-testid="debts-writeoff-lbp"
                     value={writeOffAmountLbp}
                     onChange={(e) => {
-                      const raw = e.target.value.replace(/,/g, "");
+                      const raw = normalizeDigits(e.target.value).replace(
+                        /,/g,
+                        "",
+                      );
                       if (raw === "" || /^\d+$/.test(raw)) {
                         setWriteOffAmountLbp(raw);
                       }
@@ -3069,14 +3154,15 @@ export default function Debts() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
-                    Reason
+                    {t("writeOff.reason")}
                   </label>
                   <input
                     type="text"
+                    data-testid="debts-writeoff-reason"
                     value={writeOffReason}
                     onChange={(e) => setWriteOffReason(e.target.value)}
                     className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500"
-                    placeholder="Optional reason..."
+                    placeholder={t("writeOff.reasonPlaceholder")}
                   />
                 </div>
 
@@ -3085,9 +3171,10 @@ export default function Debts() {
                     onClick={() => setShowWriteOffModal(false)}
                     className="flex-1 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
                   >
-                    Cancel
+                    {tc("actions.cancel")}
                   </button>
                   <button
+                    data-testid="debts-writeoff-confirm"
                     disabled={
                       writeOffSubmitting ||
                       (writeOffAppliedUsd <= 0 && writeOffAppliedLbp <= 0)
@@ -3110,7 +3197,7 @@ export default function Debts() {
                         if (result.success) {
                           appEvents.emit(
                             "notification:show",
-                            "Debt written off.",
+                            t("writeOff.done"),
                             "success",
                           );
                           // LIRA-212 Tier A: let TopBar's session balance badge refresh live.
@@ -3120,22 +3207,26 @@ export default function Debts() {
                           loadHistory(selectedClient.id);
                           loadLedgerBalance(selectedClient.id);
                         } else {
-                          alert("Error: " + result.error);
+                          alert(
+                            t("errors.withMessage", {
+                              message: translateServerError(result, t),
+                            }),
+                          );
                         }
                       } catch (error) {
                         logger.error("Debt write-off failed", { error });
                         // LIRA-247: surface the real refusal reason (e.g. a
                         // role check) instead of this hardcoded string.
-                        alert(
-                          getApiErrorMessage(error, "Failed to write off debt"),
-                        );
+                        alert(getApiErrorMessage(error, t("writeOff.failed")));
                       } finally {
                         setWriteOffSubmitting(false);
                       }
                     }}
                     className="flex-1 py-3 rounded-xl font-bold disabled:bg-slate-700 disabled:text-slate-500 text-white shadow-lg active:scale-95 transition-all bg-orange-600 hover:bg-orange-500 shadow-orange-900/20"
                   >
-                    {writeOffSubmitting ? "Processing..." : "Write off"}
+                    {writeOffSubmitting
+                      ? t("writeOff.processing")
+                      : t("page.writeOff")}
                   </button>
                 </div>
               </div>
@@ -3158,7 +3249,9 @@ export default function Debts() {
               onMouseDown={(e) => e.stopPropagation()}
             >
               <h3 className="text-xl font-bold text-white mb-4">
-                {creditDirection === "credit" ? "Add Credit" : "Add Debt"}
+                {creditDirection === "credit"
+                  ? t("entry.addCredit")
+                  : t("entry.addDebt")}
               </h3>
               <div className="space-y-4">
                 {/* Credit / Debt toggle */}
@@ -3172,16 +3265,20 @@ export default function Debts() {
                   options={[
                     {
                       id: "credit",
-                      label: "Credit",
+                      label: t("entry.credit"),
                       iconKey: "ArrowUpCircle",
                     },
-                    { id: "debt", label: "Debt", iconKey: "DollarSign" },
+                    {
+                      id: "debt",
+                      label: t("entry.debt"),
+                      iconKey: "DollarSign",
+                    },
                   ]}
                 />
                 {/* Client Search */}
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
-                    Client
+                    {t("entry.client")}
                   </label>
                   {creditSelectedClient ? (
                     <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2">
@@ -3208,7 +3305,7 @@ export default function Debts() {
                           full_name: client.full_name,
                         })
                       }
-                      placeholder="Search client by name or phone..."
+                      placeholder={t("entry.searchClient")}
                       className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
                       showDebtBadge
                     />
@@ -3218,14 +3315,18 @@ export default function Debts() {
                 {/* Amount USD */}
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
-                    Amount (USD)
+                    {t("entry.amountUsd")}
                   </label>
                   <input
                     type="text"
                     inputMode="decimal"
+                    data-testid="debts-entry-usd"
                     value={creditAmountUsd}
                     onChange={(e) => {
-                      const raw = e.target.value.replace(/,/g, "");
+                      const raw = normalizeDigits(e.target.value).replace(
+                        /,/g,
+                        "",
+                      );
                       if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
                         const parts = raw.split(".");
                         parts[0] = parts[0].replace(
@@ -3243,14 +3344,18 @@ export default function Debts() {
                 {/* Amount LBP */}
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
-                    Amount (LBP)
+                    {t("entry.amountLbp")}
                   </label>
                   <input
                     type="text"
                     inputMode="numeric"
+                    data-testid="debts-entry-lbp"
                     value={creditAmountLbp}
                     onChange={(e) => {
-                      const raw = e.target.value.replace(/,/g, "");
+                      const raw = normalizeDigits(e.target.value).replace(
+                        /,/g,
+                        "",
+                      );
                       if (raw === "" || /^\d+$/.test(raw)) {
                         setCreditAmountLbp(
                           raw.replace(/\B(?=(\d{3})+(?!\d))/g, ","),
@@ -3265,14 +3370,15 @@ export default function Debts() {
                 {/* Note */}
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
-                    Note
+                    {t("entry.note")}
                   </label>
                   <input
                     type="text"
+                    data-testid="debts-entry-note"
                     value={creditNote}
                     onChange={(e) => setCreditNote(e.target.value)}
                     className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-emerald-500"
-                    placeholder="Optional note..."
+                    placeholder={t("entry.notePlaceholder")}
                   />
                 </div>
 
@@ -3289,13 +3395,12 @@ export default function Debts() {
                     className="mt-0.5 accent-emerald-500"
                   />
                   <span className="text-xs text-slate-300">
-                    <span className="font-medium text-white">Cash moved</span> —
-                    this entry moves the drawer:{" "}
+                    <span className="font-medium text-white">
+                      {t("entry.cashMoved")}
+                    </span>{" "}
                     {creditDirection === "credit"
-                      ? "cash IN from the customer"
-                      : "cash OUT to the customer (advance)"}
-                    . Untick for a paper-only ledger correction (no drawer
-                    change).
+                      ? t("entry.cashMovedIn")
+                      : t("entry.cashMovedOut")}
                   </span>
                 </label>
 
@@ -3304,9 +3409,10 @@ export default function Debts() {
                     onClick={() => setShowCreditModal(false)}
                     className="flex-1 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
                   >
-                    Cancel
+                    {tc("actions.cancel")}
                   </button>
                   <button
+                    data-testid="debts-entry-confirm"
                     disabled={
                       !creditSelectedClient ||
                       (parseFloat(creditAmountUsd.replace(/,/g, "")) <= 0 &&
@@ -3331,8 +3437,8 @@ export default function Debts() {
                         appEvents.emit(
                           "notification:show",
                           creditDirection === "credit"
-                            ? "Credit added successfully!"
-                            : "Debt added successfully!",
+                            ? t("entry.creditAdded")
+                            : t("entry.debtAdded"),
                           "success",
                         );
                         // LIRA-212 Tier A: let TopBar's session balance badge refresh live.
@@ -3351,7 +3457,11 @@ export default function Debts() {
                           loadLedgerBalance(selectedClient.id);
                         }
                       } else {
-                        alert("Error: " + result.error);
+                        alert(
+                          t("errors.withMessage", {
+                            message: translateServerError(result, t),
+                          }),
+                        );
                       }
                     }}
                     className={`flex-1 py-3 rounded-xl font-bold disabled:bg-slate-700 disabled:text-slate-500 text-white shadow-lg active:scale-95 transition-all ${
@@ -3360,7 +3470,9 @@ export default function Debts() {
                         : "bg-red-600 hover:bg-red-500 shadow-red-900/20"
                     }`}
                   >
-                    {creditDirection === "credit" ? "Add Credit" : "Add Debt"}
+                    {creditDirection === "credit"
+                      ? t("entry.addCredit")
+                      : t("entry.addDebt")}
                   </button>
                 </div>
               </div>
@@ -3376,7 +3488,7 @@ export default function Debts() {
             {/* Header */}
             <div className="flex items-center justify-between p-6 border-b border-slate-700">
               <h2 className="text-xl font-bold text-white">
-                Sale Details - #{selectedSale.id}
+                {t("saleDetails.title", { id: selectedSale.id })}
               </h2>
               <button
                 onClick={() => {
@@ -3394,14 +3506,21 @@ export default function Debts() {
               {/* Sale Info */}
               <div className="flex gap-4 p-4 bg-slate-900 rounded-lg">
                 <div className="flex-[2]">
-                  <p className="text-slate-500 text-sm">Date</p>
+                  <p className="text-slate-500 text-sm">
+                    {t("saleDetails.date")}
+                  </p>
                   <p className="text-white font-medium">
-                    {parseDbDate(selectedSale.created_at).toLocaleString()}
+                    {formatDateTime(parseDbDate(selectedSale.created_at), {
+                      ...SHORT_DATE,
+                      ...LONG_TIME,
+                    })}
                   </p>
                 </div>
                 <div className="flex-1">
-                  <p className="text-slate-500 text-sm">Total Amount</p>
-                  <p className="text-white font-medium">
+                  <p className="text-slate-500 text-sm">
+                    {t("saleDetails.totalAmount")}
+                  </p>
+                  <p dir="ltr" className="text-white font-medium">
                     $
                     {(
                       selectedSale.final_amount_usd ||
@@ -3411,8 +3530,10 @@ export default function Debts() {
                   </p>
                 </div>
                 <div className="flex-1">
-                  <p className="text-slate-500 text-sm">Amount Paid</p>
-                  <p className="text-emerald-400 font-medium">
+                  <p className="text-slate-500 text-sm">
+                    {t("saleDetails.amountPaid")}
+                  </p>
+                  <p dir="ltr" className="text-emerald-400 font-medium">
                     {formatPaidAmount(
                       selectedSale.paid_usd || 0,
                       selectedSale.paid_lbp || 0,
@@ -3423,25 +3544,27 @@ export default function Debts() {
 
               {/* Items Table */}
               <div>
-                <h3 className="text-lg font-semibold text-white mb-3">Items</h3>
+                <h3 className="text-lg font-semibold text-white mb-3">
+                  {t("saleDetails.items")}
+                </h3>
                 <div className="overflow-x-auto">
                   <DataTable
                     columns={[
                       {
-                        header: "Product",
+                        header: t("saleDetails.product"),
                         className: "pb-3 text-sm font-medium",
                       },
                       {
-                        header: "Qty",
+                        header: t("saleDetails.qty"),
                         className: "pb-3 text-sm font-medium text-center",
                       },
                       {
-                        header: "Price",
-                        className: "pb-3 text-sm font-medium text-right",
+                        header: t("saleDetails.price"),
+                        className: "pb-3 text-sm font-medium text-end",
                       },
                       {
-                        header: "Subtotal",
-                        className: "pb-3 text-sm font-medium text-right",
+                        header: t("saleDetails.subtotal"),
+                        className: "pb-3 text-sm font-medium text-end",
                       },
                     ]}
                     data={selectedSale.items}
@@ -3454,10 +3577,10 @@ export default function Debts() {
                         <td className="py-3 text-slate-300 text-center">
                           {item.quantity}
                         </td>
-                        <td className="py-3 text-slate-300 text-right">
+                        <td className="py-3 text-slate-300 text-end">
                           ${item.price_per_unit.toFixed(2)}
                         </td>
-                        <td className="py-3 text-white font-medium text-right">
+                        <td className="py-3 text-white font-medium text-end">
                           ${item.subtotal.toFixed(2)}
                         </td>
                       </tr>
@@ -3470,15 +3593,15 @@ export default function Debts() {
               <div className="border-t border-slate-700 pt-4 space-y-2">
                 {(selectedSale.discount_usd || 0) > 0 && (
                   <div className="flex justify-between text-slate-400">
-                    <span>Discount:</span>
-                    <span className="text-amber-400 font-medium">
+                    <span>{t("saleDetails.discount")}</span>
+                    <span dir="ltr" className="text-amber-400 font-medium">
                       -${(selectedSale.discount_usd || 0).toFixed(2)}
                     </span>
                   </div>
                 )}
                 <div className="flex justify-between text-slate-400">
-                  <span>Total Amount:</span>
-                  <span className="text-white font-medium">
+                  <span>{t("saleDetails.totalAmountColon")}</span>
+                  <span dir="ltr" className="text-white font-medium">
                     $
                     {(
                       selectedSale.final_amount_usd ||
@@ -3488,8 +3611,8 @@ export default function Debts() {
                   </span>
                 </div>
                 <div className="flex justify-between text-slate-400">
-                  <span>Amount Paid:</span>
-                  <span className="text-emerald-400 font-medium">
+                  <span>{t("saleDetails.amountPaidColon")}</span>
+                  <span dir="ltr" className="text-emerald-400 font-medium">
                     {formatPaidAmount(
                       selectedSale.paid_usd || 0,
                       selectedSale.paid_lbp || 0,
@@ -3497,8 +3620,10 @@ export default function Debts() {
                   </span>
                 </div>
                 <div className="flex justify-between text-lg font-bold border-t border-slate-700 pt-2">
-                  <span className="text-white">Outstanding Debt:</span>
-                  <span className="text-red-400">
+                  <span className="text-white">
+                    {t("saleDetails.outstandingDebt")}
+                  </span>
+                  <span dir="ltr" className="text-red-400">
                     ${saleOutstandingUsd(selectedSale).toFixed(2)}
                   </span>
                 </div>

@@ -2743,6 +2743,7 @@ export default function Services() {
                   <label className="flex items-center gap-2 text-purple-300 cursor-pointer mb-3">
                     <input
                       type="checkbox"
+                      data-testid="service-binance-charge-toggle"
                       checked={payFee}
                       onChange={(e) => setPayFee(e.target.checked)}
                       className="w-4 h-4 rounded border-purple-700 bg-slate-950 text-purple-600 focus:ring-purple-500"
