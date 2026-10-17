@@ -27,22 +27,41 @@ import type { SafeSession } from "@liratek/core";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { messageFrom } from "@/api/apiError";
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { useFormat } from "@/i18n/useFormat";
 
 /** `device_type` values are internal ("electron" | "web" | "mobile" |
  * "unknown" | "impersonation") — map them to the label an operator reads. */
-const DEVICE_TYPE_LABELS: Record<string, string> = {
-  electron: "Desktop app",
-  web: "Web browser",
-  mobile: "Mobile",
-  impersonation: "Impersonated session",
-  unknown: "Unknown device",
-};
+const DEVICE_TYPE_KEYS = {
+  electron: "devices.type.electron",
+  web: "devices.type.web",
+  mobile: "devices.type.mobile",
+  impersonation: "devices.type.impersonation",
+  unknown: "devices.type.unknown",
+} as const;
 
-function deviceLabel(session: SafeSession): string {
-  return DEVICE_TYPE_LABELS[session.device_type] ?? session.device_type;
-}
+/** Full timestamp, the same text `Date#toLocaleString()` gave in English. */
+const DATE_TIME = {
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+} as const;
 
 export default function SignedInDevices() {
+  const { t } = useTranslation("settings");
+  const { formatDateTime } = useFormat();
+  const deviceLabel = (session: SafeSession): string =>
+    session.device_type in DEVICE_TYPE_KEYS
+      ? t(
+          DEVICE_TYPE_KEYS[
+            session.device_type as keyof typeof DEVICE_TYPE_KEYS
+          ],
+        )
+      : session.device_type;
   const api = useApi();
   const { logout } = useAuth();
   const [sessions, setSessions] = useState<SafeSession[]>([]);
@@ -61,7 +80,7 @@ export default function SignedInDevices() {
       const rows = await api.listUserSessions();
       setSessions(rows);
     } catch (e) {
-      setError(messageFrom(e, "Failed to load signed-in devices"));
+      setError(messageFrom(e, t("devices.loadFailed")));
     } finally {
       setLoading(false);
     }
@@ -72,24 +91,24 @@ export default function SignedInDevices() {
   }, [load]);
 
   const handleRevoke = async (session: SafeSession) => {
-    if (!confirm("End this session? That device will be signed out.")) return;
+    if (!confirm(t("devices.revokeConfirm"))) return;
     setRevokingId(session.id);
     try {
       const res = await api.revokeSession(session.id);
       if (!res.success) {
         appEvents.emit(
           "notification:show",
-          res.error || "Failed to end session",
+          res.error || t("devices.revokeFailed"),
           "error",
         );
         return;
       }
-      appEvents.emit("notification:show", "Session ended", "success");
+      appEvents.emit("notification:show", t("devices.revoked"), "success");
       await load();
     } catch (e) {
       appEvents.emit(
         "notification:show",
-        messageFrom(e, "Failed to end session"),
+        messageFrom(e, t("devices.revokeFailed")),
         "error",
       );
     } finally {
@@ -99,9 +118,7 @@ export default function SignedInDevices() {
 
   const handleRevokeOthers = async () => {
     if (
-      !confirm(
-        "Sign out every other device? This device stays signed in; every other session for your account ends.",
-      )
+      !confirm(t("devices.revokeOthersConfirm"))
     )
       return;
     setRevokingOthers(true);
@@ -110,7 +127,7 @@ export default function SignedInDevices() {
       if (!res.success) {
         appEvents.emit(
           "notification:show",
-          res.error || "Failed to sign out other devices",
+          res.error || t("devices.revokeOthersFailed"),
           "error",
         );
         return;
@@ -119,15 +136,15 @@ export default function SignedInDevices() {
       appEvents.emit(
         "notification:show",
         count > 0
-          ? `Signed out ${count} other device(s)`
-          : "No other devices were signed in",
+          ? t("devices.revokedOthers", { n: count })
+          : t("devices.noOthers"),
         "success",
       );
       await load();
     } catch (e) {
       appEvents.emit(
         "notification:show",
-        messageFrom(e, "Failed to sign out other devices"),
+        messageFrom(e, t("devices.revokeOthersFailed")),
         "error",
       );
     } finally {
@@ -141,15 +158,16 @@ export default function SignedInDevices() {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-slate-400 text-sm">
-          Review your active sessions. Sign out of devices you no longer use.
-          To sign out this device, use its Sign out button.
+          {t("devices.intro")}
         </p>
         <button
           onClick={handleRevokeOthers}
           disabled={revokingOthers || otherSessionsCount === 0}
           className="shrink-0 px-3 py-1.5 rounded bg-red-600/80 hover:bg-red-600 disabled:opacity-40 disabled:hover:bg-red-600/80 text-white text-sm transition-colors"
         >
-          {revokingOthers ? "Signing out…" : "Sign out everywhere else"}
+          {revokingOthers
+            ? t("devices.signingOut")
+            : t("devices.signOutOthers")}
         </button>
       </div>
 
@@ -162,14 +180,14 @@ export default function SignedInDevices() {
       <div className="border border-slate-700 rounded-lg overflow-hidden">
         <DataTable
           columns={[
-            "Device",
-            "IP Address",
-            "Last Activity",
-            { header: "Actions", className: "p-2 text-end" },
+            t("devices.col.device"),
+            t("devices.col.ip"),
+            t("devices.col.lastActivity"),
+            { header: t("devices.col.actions"), className: "p-2 text-end" },
           ]}
           data={sessions}
           loading={loading}
-          emptyMessage="No signed-in devices"
+          emptyMessage={t("devices.empty")}
           renderRow={(s) => (
             <tr key={s.id} className="border-t border-slate-800">
               <td className="p-2">
@@ -177,7 +195,7 @@ export default function SignedInDevices() {
                   <span className="text-white">{deviceLabel(s)}</span>
                   {s.is_current && (
                     <span className="px-2 py-0.5 rounded text-xs font-medium bg-violet-600/20 text-violet-400">
-                      This device
+                      {t("devices.thisDevice")}
                     </span>
                   )}
                 </div>
@@ -188,10 +206,10 @@ export default function SignedInDevices() {
                 )}
               </td>
               <td className="p-2 text-slate-300 font-mono text-xs">
-                {s.ip_address || "—"}
+                <Ltr>{s.ip_address || "—"}</Ltr>
               </td>
               <td className="p-2 text-slate-300">
-                {parseDbDate(s.last_activity_at).toLocaleString()}
+                {formatDateTime(parseDbDate(s.last_activity_at), DATE_TIME)}
               </td>
               <td className="p-2 text-end">
                 {s.is_current ? (
@@ -199,7 +217,7 @@ export default function SignedInDevices() {
                     onClick={() => logout()}
                     className="text-xs px-2 py-1 bg-slate-700 rounded text-white"
                   >
-                    Sign out
+                    {t("devices.signOut")}
                   </button>
                 ) : (
                   <button
@@ -207,7 +225,7 @@ export default function SignedInDevices() {
                     disabled={revokingId === s.id}
                     className="text-xs px-2 py-1 bg-red-600/80 hover:bg-red-600 disabled:opacity-40 disabled:hover:bg-red-600/80 rounded text-white transition-colors"
                   >
-                    {revokingId === s.id ? "Ending…" : "Revoke"}
+                    {revokingId === s.id ? t("devices.ending") : t("devices.revoke")}
                   </button>
                 )}
               </td>

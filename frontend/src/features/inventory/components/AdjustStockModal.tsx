@@ -1,4 +1,7 @@
 import { useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { useFormat } from "@/i18n/useFormat";
 import { X, PackagePlus, History, Loader2, Layers } from "lucide-react";
 import { appEvents } from "@liratek/ui";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
@@ -71,6 +74,11 @@ export default function AdjustStockModal({
   onClose,
   onSuccess,
 }: AdjustStockModalProps) {
+  const { t, i18n } = useTranslation("inventory");
+  const { formatNumber, formatDate, formatDateTime } = useFormat();
+  // Arabic only: isolate a bare number expression ("10 → 25") so the bidi
+  // algorithm cannot reverse it. English keeps plain text nodes.
+  const rtl = i18n.dir() === "rtl";
   const [mode, setMode] = useState<AdjustMode>("set");
   const [quantity, setQuantity] = useState("");
   const [reason, setReason] = useState("");
@@ -147,19 +155,19 @@ export default function AdjustStockModal({
 
     const trimmedReason = reason.trim();
     if (!trimmedReason) {
-      setFormError("Reason is required");
+      setFormError(t("adjust.error.reasonRequired"));
       return;
     }
     if (!Number.isFinite(parsedQuantity) || !Number.isInteger(parsedQuantity)) {
-      setFormError("Enter a whole number");
+      setFormError(t("adjust.error.wholeNumber"));
       return;
     }
     if (mode === "set" && parsedQuantity < 0) {
-      setFormError("Stock quantity cannot be negative");
+      setFormError(t("adjust.error.negative"));
       return;
     }
     if (mode === "delta" && parsedQuantity === 0) {
-      setFormError("Delta must be non-zero");
+      setFormError(t("adjust.error.deltaZero"));
       return;
     }
 
@@ -169,7 +177,7 @@ export default function AdjustStockModal({
     if (increase > 0) {
       const parsedUnitCost = unitCost.trim() === "" ? NaN : Number(unitCost);
       if (!Number.isFinite(parsedUnitCost) || parsedUnitCost < 0) {
-        setFormError("Enter a valid unit cost");
+        setFormError(t("adjust.error.unitCost"));
         return;
       }
     }
@@ -205,7 +213,7 @@ export default function AdjustStockModal({
       }
 
       if (!result.success) {
-        setFormError(result.error ?? "Failed to adjust stock");
+        setFormError(result.error ?? t("adjust.error.failed"));
         return;
       }
 
@@ -213,7 +221,7 @@ export default function AdjustStockModal({
 
       appEvents.emit(
         "notification:show",
-        `Stock adjusted for "${product.name}"`,
+        t("adjust.toast.adjusted", { name: product.name }),
         "success",
       );
 
@@ -232,7 +240,7 @@ export default function AdjustStockModal({
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.error("Failed to adjust stock:", err);
-      setFormError(message || "Failed to adjust stock");
+      setFormError(message || t("adjust.error.failed"));
     }
   }
 
@@ -242,7 +250,7 @@ export default function AdjustStockModal({
       if (!result.success) {
         return {
           success: false,
-          error: result.error ?? "Failed to register unit",
+          error: result.error ?? t("unit.registerFailed"),
         };
       }
       setScannedImeis((prev) => [...prev, imei]);
@@ -250,7 +258,11 @@ export default function AdjustStockModal({
       if (drift && !drift.matches) {
         appEvents.emit(
           "notification:show",
-          `Unit count drift on "${product.name}": ${drift.inStockUnits} in stock vs ${drift.stockQuantity} on the product record — check when convenient.`,
+          t("adjust.toast.drift", {
+            name: product.name,
+            inStock: drift.inStockUnits,
+            stockQty: drift.stockQuantity,
+          }),
           "warning",
         );
       }
@@ -258,7 +270,7 @@ export default function AdjustStockModal({
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.error("Failed to register product unit:", err);
-      return { success: false, error: message || "Failed to register unit" };
+      return { success: false, error: message || t("unit.registerFailed") };
     }
   }
 
@@ -269,19 +281,23 @@ export default function AdjustStockModal({
           <div>
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
               <PackagePlus size={18} className="text-violet-400" />
-              Adjust Stock
+              {t("adjust.title")}
             </h2>
             <p className="text-sm text-slate-400 mt-0.5">
               {product.name}{" "}
               <span className="text-slate-500">
-                ({product.barcode || "no barcode"})
+                ({product.barcode ? (
+                  <Ltr>{product.barcode}</Ltr>
+                ) : (
+                  t("adjust.noBarcode")
+                )})
               </span>
             </p>
           </div>
           <button
             onClick={handleDismiss}
             className="text-slate-400 hover:text-white"
-            aria-label="Close"
+            aria-label={t("common:actions.close")}
           >
             <X size={20} />
           </button>
@@ -289,9 +305,11 @@ export default function AdjustStockModal({
 
         <div className="p-6 space-y-4 overflow-y-auto">
           <div className="flex items-center justify-between bg-slate-900/50 rounded-lg px-3 py-2">
-            <span className="text-xs text-slate-400">Current stock</span>
+            <span className="text-xs text-slate-400">
+              {t("adjust.currentStock")}
+            </span>
             <span className="text-sm font-semibold text-white">
-              {currentStock} units
+              {t("adjust.units", { count: currentStock })}
             </span>
           </div>
 
@@ -299,30 +317,32 @@ export default function AdjustStockModal({
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="text-xs text-slate-400 block mb-1">
-                  Adjustment mode
+                  {t("adjust.mode")}
                 </label>
                 <div className="flex gap-2">
                   <button
                     type="button"
                     onClick={() => setMode("set")}
+                    data-testid="adjust-mode-set"
                     className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                       mode === "set"
                         ? "bg-violet-600 text-white"
                         : "bg-slate-900 text-slate-400 border border-slate-700 hover:bg-slate-700"
                     }`}
                   >
-                    Set exact quantity
+                    {t("adjust.setExact")}
                   </button>
                   <button
                     type="button"
                     onClick={() => setMode("delta")}
+                    data-testid="adjust-mode-delta"
                     className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                       mode === "delta"
                         ? "bg-violet-600 text-white"
                         : "bg-slate-900 text-slate-400 border border-slate-700 hover:bg-slate-700"
                     }`}
                   >
-                    Add / remove (+/-)
+                    {t("adjust.addRemove")}
                   </button>
                 </div>
               </div>
@@ -330,22 +350,37 @@ export default function AdjustStockModal({
               <div>
                 <label className="text-xs text-slate-400 block mb-1">
                   {mode === "set"
-                    ? "New quantity *"
-                    : "Delta (e.g. -5 or 10) *"}
+                    ? t("adjust.newQuantity")
+                    : t("adjust.deltaLabel")}
                 </label>
                 <input
                   type="number"
                   step={1}
+                  data-testid="adjust-quantity"
                   value={quantity}
                   onChange={(e) => setQuantity(e.target.value)}
-                  placeholder={mode === "set" ? "0" : "+10 or -5"}
+                  placeholder={
+                    mode === "set" ? "0" : t("adjust.deltaPlaceholder")
+                  }
                   className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
                 />
                 {previewNewQuantity !== null && (
                   <p className="text-xs text-slate-500 mt-1">
-                    New stock: {currentStock} {mode === "set" ? "→" : "+"}{" "}
-                    {mode === "delta" ? quantity : ""}{" "}
-                    {mode === "delta" ? "=" : ""} {previewNewQuantity} units
+                    {t("adjust.newStock")}{" "}
+                    {rtl ? (
+                      <Ltr>
+                        {mode === "set"
+                          ? `${currentStock} → ${previewNewQuantity}`
+                          : `${currentStock} + ${quantity} = ${previewNewQuantity}`}
+                      </Ltr>
+                    ) : (
+                      <>
+                        {currentStock} {mode === "set" ? "→" : "+"}{" "}
+                        {mode === "delta" ? quantity : ""}{" "}
+                        {mode === "delta" ? "=" : ""} {previewNewQuantity}
+                      </>
+                    )}{" "}
+                    {t("adjust.unitsWord", { count: previewNewQuantity })}
                   </p>
                 )}
               </div>
@@ -353,13 +388,14 @@ export default function AdjustStockModal({
               {isIncrease ? (
                 <div>
                   <label className="text-xs text-slate-400 block mb-1">
-                    Unit cost ($) *
+                    {t("adjust.unitCost")}
                   </label>
                   <div className="flex items-start gap-3">
                     <input
                       type="number"
                       step="0.01"
                       min={0}
+                      data-testid="adjust-unit-cost"
                       value={unitCost}
                       onChange={(e) => setUnitCost(e.target.value)}
                       className="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
@@ -372,12 +408,13 @@ export default function AdjustStockModal({
                       <label className="flex items-start gap-2 pt-2.5 shrink-0 max-w-[55%]">
                         <input
                           type="checkbox"
+                          data-testid="adjust-old-stock"
                           checked={isOldStock}
                           onChange={(e) => setIsOldStock(e.target.checked)}
                           className="mt-0.5 accent-violet-600"
                         />
                         <span className="text-xs text-slate-400 leading-snug">
-                          Old stock — don't add to supplier debt
+                          {t("adjust.oldStock")}
                         </span>
                       </label>
                     )}
@@ -392,16 +429,17 @@ export default function AdjustStockModal({
                     openRecordedDebts.length > 0 && (
                       <div className="mt-2">
                         <label className="text-xs text-slate-400 block mb-1">
-                          Attach to a recorded debt (optional)
+                          {t("adjust.attachDebt")}
                         </label>
                         <select
+                          data-testid="adjust-recorded-debt"
                           value={attachToRecordedDebtId}
                           onChange={(e) =>
                             setAttachToRecordedDebtId(e.target.value)
                           }
                           className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
                         >
-                          <option value="">— Book a new debt —</option>
+                          <option value="">{t("adjust.bookNewDebt")}</option>
                           {openRecordedDebts.map((d) => (
                             <option key={d.id} value={d.id}>
                               {d.amount_usd > 0
@@ -411,7 +449,7 @@ export default function AdjustStockModal({
                                 ? " + "
                                 : ""}
                               {d.amount_lbp > 0
-                                ? `${Math.round(d.amount_lbp).toLocaleString()} LBP`
+                                ? `${formatNumber(Math.round(d.amount_lbp))} LBP`
                                 : ""}
                               {d.note ? ` — ${d.note}` : ""}
                             </option>
@@ -420,33 +458,31 @@ export default function AdjustStockModal({
                       </div>
                     )}
                   <p className="text-xs text-slate-500 mt-1">
-                    Books a delivery: raises stock, sets this as the product's
-                    new cost, and{" "}
                     {attachToRecordedDebtId
-                      ? "attaches it to the recorded debt above — no new debt booked"
+                      ? t("adjust.deliveryAttach")
                       : product.supplier?.trim()
-                        ? "adds what you owe the supplier (unless marked old stock)"
-                        : "adds nothing to any supplier balance (no supplier set)"}
-                    .
+                        ? t("adjust.deliverySupplier")
+                        : t("adjust.deliveryNoSupplier")}
                   </p>
                 </div>
               ) : (
                 mode === "delta" &&
                 previewNewQuantity !== null && (
                   <p className="text-xs text-slate-500">
-                    A decrease does not change what you owe the supplier.
+                    {t("adjust.decreaseNote")}
                   </p>
                 )
               )}
 
               <div>
                 <label className="text-xs text-slate-400 block mb-1">
-                  Reason *
+                  {t("adjust.reason")}
                 </label>
                 <textarea
+                  data-testid="adjust-reason"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
-                  placeholder="e.g. Physical recount, damaged goods, supplier correction…"
+                  placeholder={t("adjust.reasonPlaceholder")}
                   rows={2}
                   className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500 resize-none"
                 />
@@ -464,16 +500,17 @@ export default function AdjustStockModal({
                   onClick={handleDismiss}
                   className="flex-1 px-4 py-2.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors text-sm"
                 >
-                  Cancel
+                  {t("common:actions.cancel")}
                 </button>
                 <button
                   type="submit"
+                  data-testid="adjust-submit"
                   disabled={adjustStock.isPending || receiveStock.isPending}
                   className="flex-1 px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium transition-colors text-sm disabled:opacity-50"
                 >
                   {adjustStock.isPending || receiveStock.isPending
-                    ? "Saving…"
-                    : "Apply Adjustment"}
+                    ? t("adjust.saving")
+                    : t("adjust.apply")}
                 </button>
               </div>
             </form>
@@ -482,8 +519,7 @@ export default function AdjustStockModal({
           {step === "intake" && (
             <div className="space-y-4" data-testid="stock-intake-step">
               <p className="text-sm text-slate-300">
-                Scan {pendingIncrease} IMEI{pendingIncrease === 1 ? "" : "s"}{" "}
-                for the new stock — optional.
+                {t("adjust.scanPrompt", { count: pendingIncrease })}
               </p>
               <ImeiAddRow
                 onAdd={handleAddImei}
@@ -497,11 +533,11 @@ export default function AdjustStockModal({
                       key={imei}
                       className="flex items-center justify-between bg-slate-900/50 rounded-lg px-3 py-2 text-sm"
                     >
-                      <span className="font-mono text-white truncate">
+                      <Ltr className="font-mono text-white truncate">
                         {imei}
-                      </span>
+                      </Ltr>
                       <span className="text-[10px] px-1.5 py-0.5 rounded border bg-sky-500/10 text-sky-400 border-sky-500/30 shrink-0">
-                        Added
+                        {t("adjust.added")}
                       </span>
                     </div>
                   ))}
@@ -512,7 +548,7 @@ export default function AdjustStockModal({
                 onClick={onSuccess}
                 className="w-full px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium transition-colors text-sm"
               >
-                Done
+                {t("adjust.done")}
               </button>
             </div>
           )}
@@ -523,10 +559,10 @@ export default function AdjustStockModal({
             <div className="border-t border-slate-700 pt-4">
               <h3 className="text-sm font-semibold text-white flex items-center gap-2 mb-2">
                 <Layers size={14} className="text-slate-400" />
-                Cost Batches
+                {t("adjust.batches")}
               </h3>
               <p className="text-xs text-slate-500 mb-2">
-                Oldest stock sells first — batches are listed oldest to newest.
+                {t("adjust.batchesHint")}
               </p>
               <div className="space-y-2 max-h-32 overflow-y-auto">
                 {batches.map((batch) => (
@@ -535,11 +571,17 @@ export default function AdjustStockModal({
                     className="flex items-center justify-between bg-slate-900/50 rounded-lg px-3 py-2 text-xs"
                   >
                     <span className="text-white font-semibold">
-                      {batch.quantity_remaining} units @ $
-                      {batch.unit_cost_usd.toFixed(2)}
+                      {t("adjust.batchLine", {
+                        count: batch.quantity_remaining,
+                        cost: batch.unit_cost_usd.toFixed(2),
+                      })}
                     </span>
                     <span className="text-slate-500">
-                      {parseDbDate(batch.created_at).toLocaleDateString()}
+                      {formatDate(parseDbDate(batch.created_at), {
+                        year: "numeric",
+                        month: "numeric",
+                        day: "numeric",
+                      })}
                     </span>
                   </div>
                 ))}
@@ -550,25 +592,25 @@ export default function AdjustStockModal({
           <div className="border-t border-slate-700 pt-4">
             <h3 className="text-sm font-semibold text-white flex items-center gap-2 mb-3">
               <History size={14} className="text-slate-400" />
-              Adjustment History
+              {t("adjust.history")}
             </h3>
 
             {historyLoading && (
               <div className="flex items-center gap-2 text-slate-400 text-sm py-4 justify-center">
                 <Loader2 size={16} className="animate-spin" />
-                Loading history…
+                {t("adjust.loadingHistory")}
               </div>
             )}
 
             {!historyLoading && historyError && (
               <p className="text-sm text-red-400 text-center py-4">
-                Failed to load adjustment history.
+                {t("adjust.historyFailed")}
               </p>
             )}
 
             {!historyLoading && !historyError && adjustments.length === 0 && (
               <p className="text-sm text-slate-500 text-center py-4">
-                No adjustments recorded yet.
+                {t("adjust.noHistory")}
               </p>
             )}
 
@@ -581,6 +623,7 @@ export default function AdjustStockModal({
                   >
                     <div className="flex items-center justify-between">
                       <span
+                        dir="ltr"
                         className={`font-semibold ${
                           adj.delta > 0 ? "text-green-400" : "text-red-400"
                         }`}
@@ -594,12 +637,21 @@ export default function AdjustStockModal({
                         ({adj.old_quantity} → {adj.new_quantity})
                       </span>
                       <span className="text-slate-500">
-                        {parseDbDate(adj.created_at).toLocaleString()}
+                        {formatDateTime(parseDbDate(adj.created_at), {
+                          year: "numeric",
+                          month: "numeric",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                          second: "2-digit",
+                        })}
                       </span>
                     </div>
                     <p className="text-slate-300 mt-1">{adj.reason}</p>
                     <p className="text-slate-500 mt-0.5">
-                      by {adj.username ?? "Unknown user"}
+                      {t("adjust.by", {
+                        name: adj.username ?? t("adjust.unknownUser"),
+                      })}
                     </p>
                   </div>
                 ))}

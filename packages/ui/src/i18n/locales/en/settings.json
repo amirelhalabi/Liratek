@@ -1,5 +1,87 @@
 {
   "page": {
     "title": "Settings"
+  },
+  "notifications": {
+    "pollTooLow": "Poll interval must be >= 10000",
+    "saved": "Notification preferences saved",
+    "saveFailed": "Failed to save",
+    "pollInterval": "Polling Interval (ms)",
+    "lowStock": "Low-stock warnings",
+    "reset": "Reset"
+  },
+  "profitsPassword": {
+    "tooShort": "Password must be at least {{min}} characters",
+    "mismatch": "Passwords do not match",
+    "saved": "Profits password saved",
+    "saveFailed": "Failed to save password",
+    "intro": "This password is required from EVERYONE — including admins — on every visit to the Profits page. A correct password unlocks Profits for 15 minutes; navigating away locks it again immediately.",
+    "checking": "Checking status...",
+    "unknown": "Unable to check status",
+    "isSet": "Password is set",
+    "notSet": "No password set",
+    "new": "New password",
+    "confirm": "Confirm password",
+    "save": "Save Password"
+  },
+  "devices": {
+    "type": {
+      "electron": "Desktop app",
+      "web": "Web browser",
+      "mobile": "Mobile",
+      "impersonation": "Impersonated session",
+      "unknown": "Unknown device"
+    },
+    "loadFailed": "Failed to load signed-in devices",
+    "revokeConfirm": "End this session? That device will be signed out.",
+    "revokeFailed": "Failed to end session",
+    "revoked": "Session ended",
+    "revokeOthersConfirm": "Sign out every other device? This device stays signed in; every other session for your account ends.",
+    "revokeOthersFailed": "Failed to sign out other devices",
+    "revokedOthers": "Signed out {{n}} other device(s)",
+    "noOthers": "No other devices were signed in",
+    "intro": "Review your active sessions. Sign out of devices you no longer use. To sign out this device, use its Sign out button.",
+    "signingOut": "Signing out…",
+    "signOutOthers": "Sign out everywhere else",
+    "col": {
+      "device": "Device",
+      "ip": "IP Address",
+      "lastActivity": "Last Activity",
+      "actions": "Actions"
+    },
+    "empty": "No signed-in devices",
+    "thisDevice": "This device",
+    "signOut": "Sign out",
+    "ending": "Ending…",
+    "revoke": "Revoke"
+  },
+  "resetModal": {
+    "failed": "Reset failed",
+    "title": "Reset all data?",
+    "done": "Done — {{n}} rows removed. Reloading...",
+    "deletesBefore": "This permanently deletes",
+    "deletesAfter": "rows of operational data. Your shop's setup is kept. This cannot be undone. (A backup is taken first on desktop.)",
+    "typeBefore": "Type",
+    "typeAfter": "below to confirm.",
+    "resetting": "Resetting...",
+    "confirm": "Reset everything"
+  },
+  "integrations": {
+    "saved": "Integration settings saved!",
+    "saveFailed": "Failed to save settings.",
+    "sent": "Message sent! ID: {{id}}",
+    "unknownError": "Unknown error",
+    "title": "Integrations",
+    "intro": "Configure external service integrations for WhatsApp messaging.",
+    "accessToken": "Access Token",
+    "accessTokenPlaceholder": "Enter access token from Meta Developer dashboard...",
+    "phoneNumberId": "Phone Number ID",
+    "phoneNumberIdPlaceholder": "Enter Phone Number ID from Meta dashboard...",
+    "phoneNumberIdHint": "Found in Meta Developer Dashboard > WhatsApp > API Setup. This is the numeric ID, not the phone number itself.",
+    "test": "Test Connection",
+    "recipient": "Recipient Phone Number",
+    "recipientPlaceholder": "e.g. 76901610",
+    "sending": "Sending...",
+    "sendTest": "Send Test"
   }
 }
