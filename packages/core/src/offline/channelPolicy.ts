@@ -357,6 +357,7 @@ const READ: readonly string[] = [
   "db:get-settings",
   "db:get-today-expenses",
   "debt:client-balance",
+  "debt:get-all-history",
   "debt:get-client-history",
   "debt:get-client-total",
   "debt:get-debtors",
