@@ -1,4 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import { useQueryClient } from "@tanstack/react-query";
 import logger from "@/utils/logger";
 import { X, Save, Printer, Minus, Sparkles, PackagePlus } from "lucide-react";
@@ -80,6 +83,7 @@ export default function ProductForm({
   onAdjustStock,
 }: ProductFormProps) {
   useModalFocusFix(true);
+  const { t } = useTranslation(["inventory", "common"]);
   const api = useApi();
   const queryClient = useQueryClient();
   const [isLoading, setIsLoading] = useState(false);
@@ -425,7 +429,9 @@ ${labels}
         logger.error(`Silent print failed: ${result?.error}`);
         appEvents.emit(
           "notification:show",
-          "Barcode printing failed: " + (result?.error || "Unknown error"),
+          t("form.toast.printFailed", {
+            error: result?.error || t("form.toast.unknownError"),
+          }),
           "error",
         );
       }
@@ -438,7 +444,7 @@ ${labels}
       if (!printWindow) {
         appEvents.emit(
           "notification:show",
-          "Popup blocked. Please allow popups to print barcodes.",
+          t("form.toast.popupBlocked"),
           "error",
         );
         return;
@@ -469,7 +475,7 @@ ${labels}
         }, 100);
       });
     }
-  }, [formData.barcode, printCopies, api]);
+  }, [formData.barcode, printCopies, api, t]);
 
   // LIRA-309 — load an existing line's details when editing it.
   const productId = product?.id;
@@ -512,11 +518,11 @@ ${labels}
     const lineCreditsValue = lineCredits.trim() === "" ? 0 : Number(lineCredits);
     if (wantsLineDetails) {
       if (lineCarrier === "") {
-        setError("Choose the line's carrier (MTC or Alfa).");
+        setError(t("form.error.chooseCarrier"));
         return false;
       }
       if (!Number.isFinite(lineCreditsValue) || lineCreditsValue < 0) {
-        setError("Line credit must be zero or more.");
+        setError(t("form.error.lineCreditMin"));
         return false;
       }
     }
@@ -558,7 +564,7 @@ ${labels}
         if (wantsLineDetails && savedId == null) {
           appEvents.emit(
             "notification:show",
-            "Product saved, but the line details were not: open the line on the Phone Lines page to add them.",
+            t("form.toast.lineNotSavedNoId"),
             "warning",
           );
         } else if (wantsLineDetails && savedId != null && lineCarrier !== "") {
@@ -573,17 +579,16 @@ ${labels}
             if (!lineRes.success) {
               appEvents.emit(
                 "notification:show",
-                `Product saved, but the line details were not: ${lineRes.error ?? "unknown error"}`,
+                t("form.toast.lineNotSaved", {
+                  error: lineRes.error ?? t("form.toast.lineNotSavedUnknown"),
+                }),
                 "warning",
               );
             }
           } catch (err) {
             appEvents.emit(
               "notification:show",
-              getApiErrorMessage(
-                err,
-                "Product saved, but the line details were not.",
-              ),
+              getApiErrorMessage(err, t("form.toast.lineNotSavedShort")),
               "warning",
             );
           }
@@ -616,13 +621,13 @@ ${labels}
       // (e.g. "Selling price must be greater than cost price") once the REST
       // write routes answer envelope-parity 200s instead of a thrown 4xx
       // (rule 19c; see backend/src/api/inventory.ts's PUT /products/:id).
-      setError(result.error || "Failed to save product");
+      setError(result.error || t("form.error.saveFailed"));
       return false;
     } catch (err) {
       logger.error("Operation failed", { error: err });
       // LIRA-247: a thrown ApiError (a web 403 role refusal, a network
       // failure) used to be discarded here in favor of this generic string.
-      setError(getApiErrorMessage(err, "An unexpected error occurred"));
+      setError(getApiErrorMessage(err, t("form.error.unexpected")));
       return false;
     } finally {
       setIsLoading(false);
@@ -713,7 +718,7 @@ ${labels}
       >
         <div className="shrink-0 flex justify-between items-center p-6 border-b border-slate-700 bg-slate-800">
           <h2 className="text-xl font-bold text-white">
-            {product ? "Edit Product" : "New Product"}
+            {product ? t("form.editTitle") : t("form.newTitle")}
           </h2>
           <div className="flex items-center gap-2">
             {onMinimize && (
@@ -726,7 +731,7 @@ ${labels}
                   })
                 }
                 className="text-slate-400 hover:text-white p-1"
-                title="Minimize"
+                title={t("form.minimize")}
               >
                 <Minus size={24} />
               </button>
@@ -745,16 +750,16 @@ ${labels}
             {duplicateInfo && (
               <div className="bg-slate-950 border border-amber-500/40 rounded-lg p-4 text-sm">
                 <div className="font-semibold text-amber-300 mb-1">
-                  Duplicate Barcode Detected
+                  {t("form.duplicate.title")}
                 </div>
                 <div className="text-slate-300">
-                  The barcode{" "}
-                  <span className="font-mono">{duplicateInfo.attempted}</span>{" "}
-                  already exists.
+                  {t("form.duplicate.before")}{" "}
+                  <Ltr className="font-mono">{duplicateInfo.attempted}</Ltr>{" "}
+                  {t("form.duplicate.after")}
                 </div>
                 <div className="text-slate-400 mt-1">
-                  Suggested:{" "}
-                  <span className="font-mono">{duplicateInfo.suggested}</span>
+                  {t("form.duplicate.suggested")}{" "}
+                  <Ltr className="font-mono">{duplicateInfo.suggested}</Ltr>
                 </div>
                 <div className="mt-3 flex gap-2">
                   {/* LIRA-207 (#13): a lines-category collision is a SAME
@@ -776,7 +781,7 @@ ${labels}
                       }}
                       className="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-medium"
                     >
-                      Duplicate Barcode
+                      {t("form.duplicate.use")}
                     </button>
                   )}
                   <button
@@ -784,7 +789,7 @@ ${labels}
                     onClick={() => setDuplicateInfo(null)}
                     className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
                   >
-                    Cancel
+                    {t("common:actions.cancel")}
                   </button>
                 </div>
               </div>
@@ -802,7 +807,7 @@ ${labels}
                   htmlFor="product-name"
                   className="block text-sm font-medium text-slate-400 mb-1"
                 >
-                  Product Name
+                  {t("form.name")}
                 </label>
                 <input
                   id="product-name"
@@ -821,7 +826,7 @@ ${labels}
                   htmlFor="product-barcode"
                   className="block text-sm font-medium text-slate-400 mb-1"
                 >
-                  {categoryIsLines ? "Number" : "Barcode"}
+                  {categoryIsLines ? t("form.number") : t("form.barcode")}
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -835,14 +840,16 @@ ${labels}
                         e.preventDefault();
                       }
                     }}
-                    placeholder={categoryIsLines ? "e.g. 03 123 456" : undefined}
+                    placeholder={
+                      categoryIsLines ? t("form.numberPlaceholder") : undefined
+                    }
                     className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
                   />
                   <button
                     type="button"
                     onClick={handleGenerateBarcode}
                     disabled={isGenerating}
-                    title="Generate barcode"
+                    title={t("form.generateBarcode")}
                     className="px-3 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1 text-sm"
                   >
                     <Sparkles size={16} />
@@ -854,7 +861,7 @@ ${labels}
                   htmlFor="product-category"
                   className="block text-sm font-medium text-slate-400 mb-1"
                 >
-                  Category
+                  {t("form.category")}
                 </label>
                 <input
                   id="product-category"
@@ -867,7 +874,7 @@ ${labels}
                       category: e.target.value,
                     }))
                   }
-                  placeholder="Select or type category name"
+                  placeholder={t("form.categoryPlaceholder")}
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600 focus:outline-none"
                 />
                 <datalist id="category-options">
@@ -882,7 +889,7 @@ ${labels}
                 <div className="flex gap-2">
                   <div className="flex-1">
                     <label className="block text-sm font-medium text-slate-400 mb-1">
-                      Supplier
+                      {t("form.supplier")}
                     </label>
                     <input
                       type="text"
@@ -894,7 +901,7 @@ ${labels}
                           supplier: e.target.value,
                         }))
                       }
-                      placeholder="Select or type supplier name"
+                      placeholder={t("form.supplierPlaceholder")}
                       className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600 focus:outline-none"
                     />
                     {/* Sourced from the curated `product_suppliers` table
@@ -910,7 +917,7 @@ ${labels}
                   </div>
                   <div className="shrink-0">
                     <label className="block text-sm font-medium text-slate-400 mb-1">
-                      Old
+                      {t("form.old")}
                     </label>
                     {/* mt-[11px] centres the 16px box against the 38px input
                         beside it — not cosmetic spacing. */}
@@ -926,13 +933,11 @@ ${labels}
                       disabled={!!product}
                       title={
                         product
-                          ? "Old stock only applies when adding a new product — editing never books supplier debt"
-                          : "Old stock — don't add to supplier debt"
+                          ? t("form.oldStockEditTitle")
+                          : t("form.oldStock")
                       }
                       aria-label={
-                        product
-                          ? "Old stock only applies when adding a new product"
-                          : "Old stock — don't add to supplier debt"
+                        product ? t("form.oldStockEditAria") : t("form.oldStock")
                       }
                       className="w-4 h-4 mt-[11px] rounded border-slate-600 bg-slate-700 accent-violet-600 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     />
@@ -946,7 +951,7 @@ ${labels}
                   htmlFor="product-cost-price"
                   className="block text-sm font-medium text-slate-400 mb-1"
                 >
-                  Cost Price ($)
+                  {t("form.costPrice")}
                 </label>
                 <DecimalInput
                   id="product-cost-price"
@@ -964,7 +969,7 @@ ${labels}
                   htmlFor="product-retail-price"
                   className="block text-sm font-medium text-slate-400 mb-1"
                 >
-                  Retail Price ($)
+                  {t("form.retailPrice")}
                 </label>
                 <DecimalInput
                   id="product-retail-price"
@@ -984,7 +989,7 @@ ${labels}
                   htmlFor="product-stock"
                   className="block text-sm font-medium text-slate-400 mb-1"
                 >
-                  Quantity
+                  {t("form.quantity")}
                 </label>
                 <div className="flex items-stretch gap-2">
                   <input
@@ -1021,22 +1026,21 @@ ${labels}
                       className="shrink-0 flex items-center gap-1.5 px-3 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-violet-400"
                     >
                       <PackagePlus size={16} />
-                      Adjust Stock
+                      {t("form.adjustStock")}
                     </button>
                   )}
                 </div>
                 {product && (
                   <p id="product-stock-help" className="text-xs text-slate-500 mt-1">
                     {onAdjustStock
-                      ? "Quantity changes are booked as a stock adjustment — use Adjust Stock."
-                      : 'Use "Adjust Stock" from the product list to change quantity.'}
+                      ? t("form.stockHelpAdjust")
+                      : t("form.stockHelpList")}
                   </p>
                 )}
                 {confirmDiscardForAdjust && onAdjustStock && (
                   <div className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 space-y-2">
                     <p className="text-xs text-amber-200">
-                      This product has unsaved changes. Opening Adjust Stock
-                      closes this form and discards them.
+                      {t("form.unsaved")}
                     </p>
                     <div className="flex gap-2">
                       {/* LIRA-224 — the primary action: save the edits
@@ -1051,7 +1055,9 @@ ${labels}
                         data-testid="product-form-save-and-adjust"
                         className="px-2 py-1 rounded bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium disabled:opacity-50"
                       >
-                        {isLoading ? "Saving…" : "Save & adjust"}
+                        {isLoading
+                          ? t("form.savingEllipsis")
+                          : t("form.saveAndAdjust")}
                       </button>
                       <button
                         type="button"
@@ -1061,14 +1067,14 @@ ${labels}
                         }}
                         className="px-2 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium"
                       >
-                        Discard &amp; adjust
+                        {t("form.discardAndAdjust")}
                       </button>
                       <button
                         type="button"
                         onClick={() => setConfirmDiscardForAdjust(false)}
                         className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs"
                       >
-                        Keep editing
+                        {t("form.keepEditing")}
                       </button>
                     </div>
                   </div>
@@ -1080,7 +1086,7 @@ ${labels}
                   htmlFor="product-min-stock"
                   className="block text-sm font-medium text-slate-400 mb-1"
                 >
-                  Min. Stock Alert
+                  {t("form.minStock")}
                 </label>
                 <input
                   id="product-min-stock"
@@ -1098,7 +1104,7 @@ ${labels}
                   htmlFor="product-warranty-months"
                   className="block text-sm font-medium text-slate-400 mb-1"
                 >
-                  Warranty (months)
+                  {t("form.warranty")}
                 </label>
                 <input
                   id="product-warranty-months"
@@ -1107,7 +1113,7 @@ ${labels}
                   step={1}
                   value={warrantyMonths}
                   onChange={(e) => setWarrantyMonths(e.target.value)}
-                  placeholder="No warranty"
+                  placeholder={t("form.noWarranty")}
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
                 />
               </div>
@@ -1120,7 +1126,7 @@ ${labels}
                       htmlFor="product-line-carrier"
                       className="block text-sm font-medium text-slate-400 mb-1"
                     >
-                      Carrier
+                      {t("form.carrier")}
                     </label>
                     <select
                       id="product-line-carrier"
@@ -1130,7 +1136,7 @@ ${labels}
                       }
                       className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
                     >
-                      <option value="">Choose…</option>
+                      <option value="">{t("form.choose")}</option>
                       <option value="mtc">MTC</option>
                       <option value="alfa">Alfa</option>
                     </select>
@@ -1140,7 +1146,7 @@ ${labels}
                       htmlFor="product-line-expiry"
                       className="block text-sm font-medium text-slate-400 mb-1"
                     >
-                      Line expiry date
+                      {t("form.lineExpiry")}
                     </label>
                     <input
                       id="product-line-expiry"
@@ -1155,15 +1161,16 @@ ${labels}
                       htmlFor="product-line-credits"
                       className="block text-sm font-medium text-slate-400 mb-1"
                     >
-                      Line credit ($)
+                      {t("form.lineCredit")}
                     </label>
                     <input
                       id="product-line-credits"
-                      type="number"
-                      min={0}
-                      step="0.01"
+                      type="text"
+                      inputMode="decimal"
                       value={lineCredits}
-                      onChange={(e) => setLineCredits(e.target.value)}
+                      onChange={(e) =>
+                        setLineCredits(normalizeDigits(e.target.value))
+                      }
                       placeholder="0"
                       className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
                     />
@@ -1184,8 +1191,9 @@ ${labels}
                 />
               ) : (
                 <div className="text-xs text-slate-400 bg-slate-950/50 border border-slate-700 rounded-lg px-3 py-2">
-                  Save the product first to register its {categorySerialLabel}{" "}
-                  units.
+                  {t("form.saveFirst", {
+                    label: t(`unit.serial.${categorySerialLabel}`),
+                  })}
                 </div>
               ))}
           </div>
@@ -1195,17 +1203,19 @@ ${labels}
               {formData.barcode?.trim() && (
                 <>
                   <input
-                    type="number"
-                    min={1}
-                    max={999}
+                    type="text"
+                    inputMode="numeric"
                     value={printCopies}
                     onChange={(e) =>
                       setPrintCopies(
-                        Math.max(1, parseInt(e.target.value, 10) || 1),
+                        Math.max(
+                          1,
+                          parseInt(normalizeDigits(e.target.value), 10) || 1,
+                        ),
                       )
                     }
                     className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-center text-sm focus:ring-2 focus:ring-violet-600"
-                    title="Number of copies to print"
+                    title={t("form.copies")}
                   />
                   <button
                     type="button"
@@ -1213,7 +1223,7 @@ ${labels}
                     className="flex items-center gap-2 px-4 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
                   >
                     <Printer size={18} />
-                    Print Barcode
+                    {t("form.printBarcode")}
                   </button>
                 </>
               )}
@@ -1224,7 +1234,7 @@ ${labels}
                 onClick={onClose}
                 className="px-4 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
               >
-                Cancel
+                {t("common:actions.cancel")}
               </button>
               <button
                 type="submit"
@@ -1232,7 +1242,7 @@ ${labels}
                 className="flex items-center gap-2 px-6 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
               >
                 <Save size={18} />
-                {isLoading ? "Saving..." : "Save Product"}
+                {isLoading ? t("common:state.saving") : t("form.saveProduct")}
               </button>
             </div>
           </div>

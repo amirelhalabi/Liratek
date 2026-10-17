@@ -1,4 +1,15 @@
+import type { TFunction } from "i18next";
 import { unitWarrantyDisplay } from "@liratek/core";
+import { i18n } from "@/i18n/setup";
+
+/** LIRA-331 — the translator these display helpers take. Callers rendering on
+ *  screen pass the component's `t`; omitted, the copy is English (exports and
+ *  existing callers), never the ambient language. */
+export type InventoryT = TFunction<"inventory">;
+
+export function englishInventoryT(): InventoryT {
+  return i18n.getFixedT("en", "inventory");
+}
 
 /**
  * Product-unit (phone IMEI) frontend-only pure logic — LIRA-143 Phase 6b
@@ -81,30 +92,37 @@ export interface WarrantyBadge {
   className: string;
 }
 
-export function warrantyBadgeInfo(warranty: WarrantyStatus): {
+export function warrantyBadgeInfo(
+  warranty: WarrantyStatus,
+  t: InventoryT = englishInventoryT(),
+): {
   label: string;
   className: string;
 } {
   switch (warranty.state) {
     case "COVERED":
       return {
-        label: warranty.until ? `Covered (until ${warranty.until})` : "Covered",
+        label: warranty.until
+          ? t("warranty.coveredUntil", { date: warranty.until })
+          : t("warranty.covered"),
         className: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
       };
     case "EXPIRED":
       return {
-        label: warranty.until ? `Expired (${warranty.until})` : "Expired",
+        label: warranty.until
+          ? t("warranty.expiredOn", { date: warranty.until })
+          : t("warranty.expired"),
         className: "bg-amber-500/10 text-amber-400 border-amber-500/30",
       };
     case "VOID":
       return {
-        label: "Void (refunded)",
+        label: t("warranty.void"),
         className: "bg-amber-500/10 text-amber-400 border-amber-500/30",
       };
     case "NONE":
     default:
       return {
-        label: "No warranty",
+        label: t("warranty.none"),
         className: "bg-slate-700/40 text-slate-400 border-slate-600/40",
       };
   }
@@ -122,9 +140,12 @@ export interface WarrantyBadgeInput {
 /** "Not sold" in sky: informative, deliberately NOT the emerald of real
  *  coverage, because nothing is covered yet. When the model grants a term,
  *  it says what the next sale will carry (owner-reported 2026-08-26). */
-function notSoldBadge(months: number): WarrantyBadge {
+function notSoldBadge(months: number, t: InventoryT): WarrantyBadge {
   return {
-    label: months > 0 ? `Not sold (${months} mo from sale)` : "Not sold",
+    label:
+      months > 0
+        ? t("warranty.notSoldTerm", { months })
+        : t("warranty.notSold"),
     className: "bg-sky-500/10 text-sky-400 border-sky-500/30",
   };
 }
@@ -151,11 +172,14 @@ function modelTermMonths(input: WarrantyBadgeInput): number {
  * Supersedes the 2026-08-26/27 split ("N mo — starts at sale" in the table,
  * an override outranking it, and the story card keeping "Void (refunded)").
  */
-export function warrantyDisplayBadge(input: WarrantyBadgeInput): WarrantyBadge {
+export function warrantyDisplayBadge(
+  input: WarrantyBadgeInput,
+  t: InventoryT = englishInventoryT(),
+): WarrantyBadge {
   if (unitWarrantyDisplay(input) === "NOT_SOLD") {
-    return notSoldBadge(modelTermMonths(input));
+    return notSoldBadge(modelTermMonths(input), t);
   }
-  return warrantyBadgeInfo(input.warranty);
+  return warrantyBadgeInfo(input.warranty, t);
 }
 
 // =============================================================================
@@ -190,52 +214,52 @@ export interface UnitDeleteEntry {
 export function buildUnitDeleteWarning(
   entries: UnitDeleteEntry[],
   probeFailed = false,
+  t: InventoryT = englishInventoryT(),
 ): string | null {
   const withUnits = entries.filter((e) => e.imeis.length > 0);
   const totalImeis = withUnits.reduce((sum, e) => sum + e.imeis.length, 0);
 
   if (totalImeis === 0) {
-    return probeFailed
-      ? "Some products could not be checked for registered IMEIs — any that exist will be removed too."
-      : null;
+    return probeFailed ? t("deleteWarning.probeFailed") : null;
   }
 
-  const plural = totalImeis === 1 ? "" : "s";
   const lines: string[] = [];
 
   if (entries.length === 1) {
     lines.push(
-      `Deleting this product also removes ${totalImeis} registered in-stock IMEI${plural}: ${formatImeiList(
-        withUnits[0]!.imeis,
-      )}`,
+      t("deleteWarning.single", {
+        count: totalImeis,
+        list: formatImeiList(withUnits[0]!.imeis, t),
+      }),
     );
   } else {
     lines.push(
-      `Deleting these products also removes ${totalImeis} registered in-stock IMEI${plural} across ${withUnits.length} product${
-        withUnits.length === 1 ? "" : "s"
-      }:`,
+      t("deleteWarning.multi", {
+        count: totalImeis,
+        across: t("deleteWarning.across", { count: withUnits.length }),
+      }),
     );
     for (const entry of withUnits) {
-      const label = entry.name?.trim() ? entry.name.trim() : "Unnamed product";
+      const label = entry.name?.trim()
+        ? entry.name.trim()
+        : t("deleteWarning.unnamed");
       lines.push(
-        `• ${label} (${entry.imeis.length}): ${formatImeiList(entry.imeis)}`,
+        `• ${label} (${entry.imeis.length}): ${formatImeiList(entry.imeis, t)}`,
       );
     }
   }
 
   if (probeFailed) {
-    lines.push(
-      "Some products could not be checked for registered IMEIs — any that exist will be removed too.",
-    );
+    lines.push(t("deleteWarning.probeFailed"));
   }
 
   return lines.join("\n");
 }
 
 /** Comma-joined IMEIs, truncated past {@link UNIT_DELETE_IMEI_PREVIEW_MAX}. */
-function formatImeiList(imeis: string[]): string {
+function formatImeiList(imeis: string[], t: InventoryT): string {
   if (imeis.length <= UNIT_DELETE_IMEI_PREVIEW_MAX) return imeis.join(", ");
   const shown = imeis.slice(0, UNIT_DELETE_IMEI_PREVIEW_MAX);
   const hidden = imeis.length - shown.length;
-  return `${shown.join(", ")} … and ${hidden} more`;
+  return t("deleteWarning.more", { list: shown.join(", "), n: hidden });
 }

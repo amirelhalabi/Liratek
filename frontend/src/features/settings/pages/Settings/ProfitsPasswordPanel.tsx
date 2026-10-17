@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { appEvents, useApi } from "@liratek/ui";
 import { PROFITS_PASSWORD_MIN_LENGTH } from "@liratek/core";
+import { useTranslation } from "react-i18next";
 
 /**
  * Settings › Profits Password (PROFITS_GATE_CONTRACT.md). Only an admin
@@ -12,6 +13,7 @@ import { PROFITS_PASSWORD_MIN_LENGTH } from "@liratek/core";
  * a login.
  */
 export default function ProfitsPasswordPanel() {
+  const { t } = useTranslation(["settings", "common"]);
   const api = useApi();
   const [isSet, setIsSet] = useState<boolean | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
@@ -41,12 +43,12 @@ export default function ProfitsPasswordPanel() {
     setError(null);
     if (newPassword.length < PROFITS_PASSWORD_MIN_LENGTH) {
       setError(
-        `Password must be at least ${PROFITS_PASSWORD_MIN_LENGTH} characters`,
+        t("profitsPassword.tooShort", { min: PROFITS_PASSWORD_MIN_LENGTH }),
       );
       return;
     }
     if (newPassword !== confirmPassword) {
-      setError("Passwords do not match");
+      setError(t("profitsPassword.mismatch"));
       return;
     }
     setSaving(true);
@@ -57,15 +59,17 @@ export default function ProfitsPasswordPanel() {
         setConfirmPassword("");
         appEvents.emit(
           "notification:show",
-          "Profits password saved",
+          t("profitsPassword.saved"),
           "success",
         );
         await loadStatus();
       } else {
-        setError(res.error || "Failed to save password");
+        setError(res.error || t("profitsPassword.saveFailed"));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save password");
+      setError(
+        err instanceof Error ? err.message : t("profitsPassword.saveFailed"),
+      );
     } finally {
       setSaving(false);
     }
@@ -74,9 +78,7 @@ export default function ProfitsPasswordPanel() {
   return (
     <div data-testid="profits-password-panel" className="space-y-4 max-w-md">
       <p className="text-sm text-slate-400">
-        This password is required from EVERYONE — including admins — on every
-        visit to the Profits page. A correct password unlocks Profits for 15
-        minutes; navigating away locks it again immediately.
+        {t("profitsPassword.intro")}
       </p>
 
       <div
@@ -84,12 +86,12 @@ export default function ProfitsPasswordPanel() {
         className="text-sm text-slate-300"
       >
         {statusLoading
-          ? "Checking status..."
+          ? t("profitsPassword.checking")
           : isSet === null
-            ? "Unable to check status"
+            ? t("profitsPassword.unknown")
             : isSet
-              ? "Password is set"
-              : "No password set"}
+              ? t("profitsPassword.isSet")
+              : t("profitsPassword.notSet")}
       </div>
 
       {error && (
@@ -100,7 +102,7 @@ export default function ProfitsPasswordPanel() {
 
       <div>
         <label className="text-xs text-slate-400 block mb-1">
-          New password
+          {t("profitsPassword.new")}
         </label>
         <input
           type="password"
@@ -113,7 +115,7 @@ export default function ProfitsPasswordPanel() {
 
       <div>
         <label className="text-xs text-slate-400 block mb-1">
-          Confirm password
+          {t("profitsPassword.confirm")}
         </label>
         <input
           type="password"
@@ -130,7 +132,7 @@ export default function ProfitsPasswordPanel() {
         data-testid="profits-password-save"
         className="w-full py-3 bg-violet-600 hover:bg-violet-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold rounded-lg transition-colors"
       >
-        {saving ? "Saving..." : "Save Password"}
+        {saving ? t("common:state.saving") : t("profitsPassword.save")}
       </button>
     </div>
   );

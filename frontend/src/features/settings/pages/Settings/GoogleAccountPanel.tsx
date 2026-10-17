@@ -30,6 +30,8 @@
  */
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import {
   GOOGLE_ACCOUNT_IN_OTHER_SHOP_MESSAGE,
   SET_PASSWORD_FIRST_MESSAGE,
@@ -54,23 +56,27 @@ import {
   submitPostForm,
 } from "@/features/auth/utils/browserNavigation";
 
-const RESULT_TEXT: Record<string, { ok: boolean; text: string }> = {
-  linked: {
-    ok: true,
-    text: "Google is now connected. You can sign in with it.",
-  },
-  already_linked: {
-    ok: false,
-    text: "That Google account is already connected to another user in this shop, or you already have one connected.",
-  },
-  // Deprecated (LIRA-288): no longer sent; kept for one release.
-  in_other_shop: { ok: false, text: GOOGLE_ACCOUNT_IN_OTHER_SHOP_MESSAGE },
-  error: {
-    ok: false,
-    text: "Google could not be connected. Please try again.",
-  },
-  cancelled: { ok: false, text: "Connecting Google was cancelled." },
-};
+/** The `?google=<code>` result codes the OAuth callback hands back. */
+function resultText(
+  code: string,
+  t: TFunction<["settings", "common"]>,
+): { ok: boolean; text: string } | null {
+  switch (code) {
+    case "linked":
+      return { ok: true, text: t("google.result.linked") };
+    case "already_linked":
+      return { ok: false, text: t("google.result.already_linked") };
+    // Deprecated (LIRA-288): no longer sent; kept for one release.
+    case "in_other_shop":
+      return { ok: false, text: GOOGLE_ACCOUNT_IN_OTHER_SHOP_MESSAGE };
+    case "error":
+      return { ok: false, text: t("google.result.error") };
+    case "cancelled":
+      return { ok: false, text: t("google.result.cancelled") };
+    default:
+      return null;
+  }
+}
 
 interface LinkState {
   enabled: boolean;
@@ -81,10 +87,6 @@ interface LinkState {
 
 type OpenAction = "email" | "password" | "set-password" | null;
 
-const PASSWORD_SET_TEXT =
-  "Password set. You can now sign in with your username and this password.";
-const EMAIL_CHANGE_SENT_TEXT =
-  "Open the link we sent to confirm the new address. Your account email stays the same until then.";
 
 function ChangeEmailForm({
   onCancel,
@@ -93,6 +95,7 @@ function ChangeEmailForm({
   onCancel: () => void;
   onSent: (email: string) => void;
 }) {
+  const { t } = useTranslation(["settings", "common"]);
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -104,12 +107,12 @@ function ChangeEmailForm({
     try {
       const res = await requestEmailChange({ email: value.trim() });
       if (!res.success || !res.data) {
-        setError(messageFrom(res.error, "Could not change the email."));
+        setError(messageFrom(res.error, t("google.changeEmailFailed")));
         return;
       }
       onSent(res.data.pendingEmail);
     } catch (err) {
-      setError(messageFrom(err, "Could not change the email."));
+      setError(messageFrom(err, t("google.changeEmailFailed")));
     } finally {
       setBusy(false);
     }
@@ -118,14 +121,14 @@ function ChangeEmailForm({
   return (
     <form
       onSubmit={submit}
-      aria-label="Change email"
+      aria-label={t("google.changeEmail")}
       className="mt-3 space-y-3"
     >
       <label
         htmlFor="change-email-new"
         className="block text-xs text-slate-400"
       >
-        New email
+        {t("google.newEmail")}
         <input
           id="change-email-new"
           type="email"
@@ -142,7 +145,7 @@ function ChangeEmailForm({
           disabled={busy || !value.trim()}
           className="rounded bg-violet-600 px-3 py-1.5 text-sm text-white hover:bg-violet-500 disabled:opacity-60"
         >
-          Send confirmation link
+          {t("google.sendLink")}
         </button>
         <button
           type="button"
@@ -150,7 +153,7 @@ function ChangeEmailForm({
           disabled={busy}
           className="rounded px-3 py-1.5 text-sm text-slate-300 hover:text-white disabled:opacity-60"
         >
-          Cancel
+          {t("common:actions.cancel")}
         </button>
       </div>
     </form>
@@ -166,6 +169,7 @@ export default function GoogleAccountPanel({
   emailLoaded?: boolean;
   emailLoadError?: string | null;
 } = {}) {
+  const { t } = useTranslation(["settings", "common"]);
   const [state, setState] = useState<LinkState | null>(null);
   const [loadedEmail, setLoadedEmail] = useState<OwnEmailView | null>(null);
   const [loadedEmailLoaded, setLoadedEmailLoaded] = useState(false);
@@ -182,7 +186,7 @@ export default function GoogleAccountPanel({
     () => {
       if (isElectron()) return null;
       const result = hashQuery().get("google");
-      return result ? (RESULT_TEXT[result] ?? null) : null;
+      return result ? resultText(result, t) : null;
     },
   );
 
@@ -233,7 +237,7 @@ export default function GoogleAccountPanel({
         } else {
           setLoadedEmailLoaded(true);
           setLoadedEmailError(
-            messageFrom(res.error, "Could not load account email."),
+            messageFrom(res.error, t("google.loadEmailFailed")),
           );
         }
       })
@@ -241,14 +245,14 @@ export default function GoogleAccountPanel({
         if (!cancelled) {
           setLoadedEmailLoaded(true);
           setLoadedEmailError(
-            messageFrom(err, "Could not load account email."),
+            messageFrom(err, t("google.loadEmailFailed")),
           );
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [externalEmailLoaded]);
+  }, [externalEmailLoaded, t]);
 
   if (!state) return null;
 
@@ -275,10 +279,13 @@ export default function GoogleAccountPanel({
       }
       setNotice({
         ok: false,
-        text: messageFrom(res.error, RESULT_TEXT.error!.text),
+        text: messageFrom(res.error, t("google.result.error")),
       });
     } catch (err) {
-      setNotice({ ok: false, text: messageFrom(err, RESULT_TEXT.error!.text) });
+      setNotice({
+        ok: false,
+        text: messageFrom(err, t("google.result.error")),
+      });
     } finally {
       setBusy(false);
     }
@@ -292,7 +299,7 @@ export default function GoogleAccountPanel({
     }
     if (
       !confirm(
-        "Disconnect Google? You will sign in with your username and password.",
+        t("google.disconnectConfirm"),
       )
     ) {
       return;
@@ -304,14 +311,14 @@ export default function GoogleAccountPanel({
       if (!res.success) {
         setNotice({
           ok: false,
-          text: messageFrom(res.error, "Could not disconnect Google."),
+          text: messageFrom(res.error, t("google.disconnectFailed")),
         });
       }
       await load();
     } catch (err) {
       setNotice({
         ok: false,
-        text: messageFrom(err, "Could not disconnect Google."),
+        text: messageFrom(err, t("google.disconnectFailed")),
       });
     } finally {
       setBusy(false);
@@ -327,7 +334,7 @@ export default function GoogleAccountPanel({
       return;
     }
     if (newPassword !== confirmPassword) {
-      setFormError("Passwords do not match.");
+      setFormError(t("google.mismatch"));
       return;
     }
     setBusy(true);
@@ -335,16 +342,16 @@ export default function GoogleAccountPanel({
     try {
       const res = await setInitialPassword({ password: newPassword });
       if (!res.success) {
-        setFormError(messageFrom(res.error, "Could not set the password."));
+        setFormError(messageFrom(res.error, t("google.setPasswordFailed")));
         return;
       }
       setNewPassword("");
       setConfirmPassword("");
       setOpenAction(null);
-      setNotice({ ok: true, text: PASSWORD_SET_TEXT });
+      setNotice({ ok: true, text: t("google.passwordSet") });
       await load();
     } catch (err) {
-      setFormError(messageFrom(err, "Could not set the password."));
+      setFormError(messageFrom(err, t("google.setPasswordFailed")));
     } finally {
       setBusy(false);
     }
@@ -352,7 +359,7 @@ export default function GoogleAccountPanel({
 
   return (
     <section
-      aria-label="Sign-in options"
+      aria-label={t("google.section")}
       className="mb-6 rounded-lg border border-slate-700 bg-slate-900/40 p-4"
     >
       {notice && (
@@ -367,16 +374,18 @@ export default function GoogleAccountPanel({
         <div className="py-3 first:pt-0">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-medium text-white">Account email</p>
+              <p className="text-sm font-medium text-white">
+                {t("google.accountEmail")}
+              </p>
               <p className="mt-1 text-sm text-slate-400">
                 {emailLoadError ||
                   (!emailLoaded
-                    ? "Loading account email…"
+                    ? t("google.loadingEmail")
                     : email?.email
                       ? email.emailVerifiedAt
-                        ? "Verified"
-                        : "Not verified"
-                      : "No email added")}
+                        ? t("google.verified")
+                        : t("google.notVerified")
+                      : t("google.noEmail"))}
               </p>
             </div>
             {openAction !== "email" && (
@@ -389,13 +398,14 @@ export default function GoogleAccountPanel({
                 disabled={!emailLoaded || !!emailLoadError}
                 className="shrink-0 rounded bg-violet-600 px-3 py-1.5 text-sm text-white hover:bg-violet-500 disabled:opacity-60"
               >
-                {email?.email ? "Change email" : "Add email"}
+                {email?.email ? t("google.changeEmail") : t("google.addEmail")}
               </button>
             )}
           </div>
           {emailChangeSentTo && (
             <p role="status" className="mt-2 text-sm text-green-400">
-              {EMAIL_CHANGE_SENT_TEXT} Sent to {emailChangeSentTo}.
+              {t("google.emailChangeSent")}{" "}
+              {t("google.sentTo", { email: emailChangeSentTo })}
             </p>
           )}
           {openAction === "email" && (
@@ -412,14 +422,17 @@ export default function GoogleAccountPanel({
         <div className="py-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-medium text-white">Password</p>
+              <p className="text-sm font-medium text-white">
+                {t("google.password")}
+              </p>
               <p className="mt-1 text-sm text-slate-400">
-                {state.hasPassword ? "Password set" : "No password set"}
+                {state.hasPassword
+                  ? t("google.hasPassword")
+                  : t("google.noPassword")}
               </p>
               {!state.hasPassword && state.linked && (
                 <p className="mt-1 text-xs text-slate-500">
-                  Google is your only sign-in method. Set a password before
-                  disconnecting Google.
+                  {t("google.onlyMethod")}
                 </p>
               )}
             </div>
@@ -432,7 +445,9 @@ export default function GoogleAccountPanel({
                 }}
                 className="shrink-0 rounded bg-violet-600 px-3 py-1.5 text-sm text-white hover:bg-violet-500"
               >
-                {state.hasPassword ? "Change password" : "Set a password"}
+                {state.hasPassword
+                  ? t("google.changePassword")
+                  : t("google.setPassword")}
               </button>
             )}
           </div>
@@ -443,13 +458,13 @@ export default function GoogleAccountPanel({
             <form
               onSubmit={submitPassword}
               className="mt-3 space-y-3"
-              aria-label="Set a password"
+              aria-label={t("google.setPassword")}
             >
               <p className="text-sm text-slate-300">
-                Set a password so you can also sign in with your username.
+                {t("google.setPasswordHint")}
               </p>
               <PasswordInput
-                label="New password"
+                label={t("google.newPassword")}
                 value={newPassword}
                 onChange={setNewPassword}
                 autoComplete="new-password"
@@ -458,7 +473,7 @@ export default function GoogleAccountPanel({
                 showStrength
               />
               <PasswordInput
-                label="Confirm password"
+                label={t("google.confirmPassword")}
                 value={confirmPassword}
                 onChange={setConfirmPassword}
                 autoComplete="new-password"
@@ -476,7 +491,7 @@ export default function GoogleAccountPanel({
                   disabled={busy}
                   className="rounded bg-violet-600 px-3 py-1.5 text-sm text-white hover:bg-violet-500 disabled:opacity-60"
                 >
-                  Set a password
+                  {t("google.setPassword")}
                 </button>
                 <button
                   type="button"
@@ -484,7 +499,7 @@ export default function GoogleAccountPanel({
                   disabled={busy}
                   className="rounded px-3 py-1.5 text-sm text-slate-300 hover:text-white disabled:opacity-60"
                 >
-                  Cancel
+                  {t("common:actions.cancel")}
                 </button>
               </div>
             </form>
@@ -495,11 +510,15 @@ export default function GoogleAccountPanel({
           <div className="py-3 last:pb-0">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-medium text-white">Google</p>
+                <p className="text-sm font-medium text-white">
+                  {t("google.google")}
+                </p>
                 <p className="mt-1 text-sm text-slate-400">
                   {state.linked
-                    ? `Connected to ${state.email ?? "a Google account"}`
-                    : "Not connected"}
+                    ? t("google.connectedTo", {
+                        email: state.email ?? t("google.aGoogleAccount"),
+                      })
+                    : t("google.notConnected")}
                 </p>
               </div>
               {state.linked ? (
@@ -509,7 +528,7 @@ export default function GoogleAccountPanel({
                   disabled={busy}
                   className="shrink-0 rounded border border-red-500/40 px-3 py-1.5 text-sm text-red-300 hover:bg-red-500/10 disabled:opacity-60"
                 >
-                  Disconnect
+                  {t("google.disconnect")}
                 </button>
               ) : (
                 <button
@@ -518,7 +537,7 @@ export default function GoogleAccountPanel({
                   disabled={busy}
                   className="shrink-0 rounded bg-violet-600 px-3 py-1.5 text-sm text-white hover:bg-violet-500 disabled:opacity-60"
                 >
-                  Connect Google
+                  {t("google.connect")}
                 </button>
               )}
             </div>

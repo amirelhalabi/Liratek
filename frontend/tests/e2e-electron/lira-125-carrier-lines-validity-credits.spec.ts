@@ -133,7 +133,8 @@ test.describe("LIRA W6.a — Carrier Lines: Settings CRUD + Recharge-tab panel",
     await appPage.getByText("+ Add Line").click();
     await appPage.getByPlaceholder("e.g. 03123456").fill(uniquePhone);
     await appPage.getByPlaceholder("e.g. Shop Line 1").fill(uniqueLabel);
-    const creditsField = appPage.locator("input[type='number']").first();
+    // LIRA-331: Credits is a text field with a decimal keypad now.
+    const creditsField = appPage.locator("input[inputmode='decimal']").first();
     await creditsField.fill("8");
     await appPage.locator("input[type='date']").fill(initialExpiry);
     await appPage.getByRole("button", { name: "Create" }).click();

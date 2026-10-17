@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { appEvents, useApi } from "@liratek/ui";
+import { useTranslation } from "react-i18next";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
 
 export default function NotificationsConfig() {
+  const { t } = useTranslation(["settings", "common"]);
   const api = useApi();
   const [pollMs, setPollMs] = useState("60000");
   const [warnLow, setWarnLow] = useState(true);
@@ -23,7 +26,7 @@ export default function NotificationsConfig() {
     try {
       const v = Number(pollMs);
       if (!isFinite(v) || v < 10000)
-        throw new Error("Poll interval must be >= 10000");
+        throw new Error(t("notifications.pollTooLow"));
 
       await Promise.all([
         api.updateSetting("notifications_poll_interval_ms", String(v)),
@@ -31,13 +34,13 @@ export default function NotificationsConfig() {
       ]);
       appEvents.emit(
         "notification:show",
-        "Notification preferences saved",
+        t("notifications.saved"),
         "success",
       );
     } catch (e) {
       appEvents.emit(
         "notification:show",
-        e instanceof Error ? e.message : "Failed to save",
+        e instanceof Error ? e.message : t("notifications.saveFailed"),
         "error",
       );
     } finally {
@@ -52,12 +55,13 @@ export default function NotificationsConfig() {
           htmlFor="notifications-poll-interval"
           className="text-slate-300 text-sm"
         >
-          Polling Interval (ms)
+          {t("notifications.pollInterval")}
         </label>
         <input
           id="notifications-poll-interval"
+          inputMode="numeric"
           value={pollMs}
-          onChange={(e) => setPollMs(e.target.value)}
+          onChange={(e) => setPollMs(normalizeDigits(e.target.value))}
           className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white w-40"
         />
       </div>
@@ -67,19 +71,19 @@ export default function NotificationsConfig() {
           checked={warnLow}
           onChange={(e) => setWarnLow(e.target.checked)}
         />{" "}
-        Low-stock warnings
+        {t("notifications.lowStock")}
       </label>
 
       <div className="flex gap-2 justify-end">
         <button onClick={load} className="px-3 py-2 bg-slate-700 rounded">
-          Reset
+          {t("notifications.reset")}
         </button>
         <button
           onClick={save}
           disabled={saving}
           className="px-3 py-2 bg-violet-600 rounded text-white"
         >
-          {saving ? "Saving..." : "Save"}
+          {saving ? t("common:state.saving") : t("common:actions.save")}
         </button>
       </div>
     </div>

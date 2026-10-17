@@ -1,4 +1,6 @@
 import { AlertTriangle, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { appEvents } from "@liratek/ui";
 import {
   useProductUnitsQuery,
@@ -31,6 +33,7 @@ export function ProductUnitsSection({
   stockQuantity,
   serialLabel = "IMEI",
 }: ProductUnitsSectionProps) {
+  const { t } = useTranslation("inventory");
   const {
     data: units = [],
     isLoading,
@@ -47,27 +50,27 @@ export function ProductUnitsSection({
     if (!result.success) {
       return {
         success: false,
-        error: result.error ?? "Failed to register unit",
+        error: result.error ?? t("unit.registerFailed"),
       };
     }
     return { success: true };
   };
 
   const handleDelete = async (unitId: number) => {
-    if (!confirm("Remove this unit? This cannot be undone.")) return;
+    if (!confirm(t("unit.confirmRemove"))) return;
     try {
       const result = await deleteUnit.mutateAsync(unitId);
       if (!result.success) {
         appEvents.emit(
           "notification:show",
-          result.error ?? "Failed to delete unit",
+          result.error ?? t("unit.deleteFailed"),
           "error",
         );
       }
     } catch (err) {
       appEvents.emit(
         "notification:show",
-        err instanceof Error ? err.message : "Failed to delete unit",
+        err instanceof Error ? err.message : t("unit.deleteFailed"),
         "error",
       );
     }
@@ -79,7 +82,7 @@ export function ProductUnitsSection({
       data-testid="product-units-section"
     >
       <h3 className="text-sm font-semibold text-white">
-        Units / {serialLabel}s
+        {t(`unit.heading.${serialLabel}`)}
       </h3>
 
       {!drift.matches && (
@@ -89,23 +92,21 @@ export function ProductUnitsSection({
         >
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
           <span>
-            {inStockCount} unit{inStockCount === 1 ? "" : "s"} registered
-            in-stock, but the product's stock quantity is {stockQuantity}. This
-            is a warning only — it never blocks saving.
+            {t("unit.drift", { count: inStockCount, stock: stockQuantity })}
           </span>
         </div>
       )}
 
       <div className="space-y-1.5 max-h-48 overflow-y-auto">
         {isLoading && (
-          <p className="text-sm text-slate-400 py-2">Loading units…</p>
+          <p className="text-sm text-slate-400 py-2">{t("unit.loading")}</p>
         )}
         {!isLoading && isError && (
-          <p className="text-sm text-red-400 py-2">Failed to load units.</p>
+          <p className="text-sm text-red-400 py-2">{t("unit.loadFailed")}</p>
         )}
         {!isLoading && !isError && units.length === 0 && (
           <p className="text-sm text-slate-500 py-2">
-            No units registered yet.
+            {t("unit.empty")}
           </p>
         )}
         {!isLoading &&
@@ -117,7 +118,7 @@ export function ProductUnitsSection({
               className="flex items-center justify-between bg-slate-900/50 rounded-lg px-3 py-2 text-sm"
             >
               <div className="flex items-center gap-2 min-w-0">
-                <span className="font-mono text-white truncate">{u.imei}</span>
+                <Ltr className="font-mono text-white truncate">{u.imei}</Ltr>
                 <span
                   className={`text-[10px] px-1.5 py-0.5 rounded border shrink-0 ${
                     u.status === "IN_STOCK"
@@ -125,11 +126,11 @@ export function ProductUnitsSection({
                       : "bg-slate-700/40 text-slate-300 border-slate-600/40"
                   }`}
                 >
-                  {u.status}
+                  {t(`unit.status.${u.status}`)}
                 </span>
                 {!!u.is_defective && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded border bg-red-500/10 text-red-400 border-red-500/30 shrink-0">
-                    Defective
+                    {t("unit.defective")}
                   </span>
                 )}
               </div>
@@ -139,8 +140,8 @@ export function ProductUnitsSection({
                   onClick={() => handleDelete(u.id)}
                   disabled={deleteUnit.isPending}
                   className="text-slate-400 hover:text-red-400 p-1 disabled:opacity-50 shrink-0"
-                  title="Remove unit"
-                  aria-label={`Remove unit ${u.imei}`}
+                  title={t("unit.remove")}
+                  aria-label={t("unit.removeAria", { imei: u.imei })}
                 >
                   <Trash2 size={14} />
                 </button>
@@ -153,7 +154,7 @@ export function ProductUnitsSection({
 
       <div>
         <label className="block text-xs text-slate-400 mb-1">
-          Add a unit — scan or type the {serialLabel}, then press Enter
+          {t("unit.addLabel", { label: t(`unit.serial.${serialLabel}`) })}
         </label>
         <ImeiAddRow
           onAdd={handleAddImei}

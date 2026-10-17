@@ -7,9 +7,11 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { useApi, Select } from "@liratek/ui";
 import type { PaymentMethodEntity } from "@liratek/ui";
 import { BrandedLabel } from "@/shared/components/BrandedLabel";
+import { paymentMethodLabel } from "../../paymentMethodLabel";
 
 interface FormData {
   code: string;
@@ -27,6 +29,8 @@ const EMPTY_FORM: FormData = {
 
 export default function PaymentMethodsManager() {
   const api = useApi();
+  const { t, i18n } = useTranslation(["settings", "common"]);
+  const language = i18n.language;
   const [methods, setMethods] = useState<PaymentMethodEntity[]>([]);
   const [drawers, setDrawers] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,7 +81,7 @@ export default function PaymentMethodsManager() {
   const handleSave = async () => {
     setError("");
     if (!form.code.trim() || !form.label.trim() || !form.drawer_name.trim()) {
-      setError("All fields are required");
+      setError(t("crud.required"));
       return;
     }
 
@@ -89,7 +93,7 @@ export default function PaymentMethodsManager() {
           affects_drawer: form.affects_drawer ? 1 : 0,
         });
         if (!res.success) {
-          setError(res.error || "Failed to update");
+          setError(res.error || t("crud.updateFailed"));
           return;
         }
       } else {
@@ -100,7 +104,7 @@ export default function PaymentMethodsManager() {
           affects_drawer: form.affects_drawer ? 1 : 0,
         });
         if (!res.success) {
-          setError(res.error || "Failed to create");
+          setError(res.error || t("crud.createFailed"));
           return;
         }
       }
@@ -108,23 +112,30 @@ export default function PaymentMethodsManager() {
       window.dispatchEvent(new Event("payment-methods-changed"));
       await load();
     } catch (e: any) {
-      setError(e.message || "Operation failed");
+      setError(e.message || t("crud.opFailed"));
     }
   };
 
   const handleDelete = async (m: PaymentMethodEntity) => {
     if (m.is_system) return;
-    if (!confirm(`Delete payment method "${m.label}"?`)) return;
+    if (
+      !confirm(
+        t("paymentMethods.deleteConfirm", {
+          label: paymentMethodLabel(m.code, m.label, language),
+        }),
+      )
+    )
+      return;
     try {
       const res = await api.deletePaymentMethod(m.id);
       if (!res.success) {
-        alert(res.error || "Failed to delete");
+        alert(res.error || t("crud.deleteFailed"));
         return;
       }
       window.dispatchEvent(new Event("payment-methods-changed"));
       await load();
     } catch (e: any) {
-      alert(e.message || "Delete failed");
+      alert(e.message || t("crud.deleteFailedShort"));
     }
   };
 
@@ -141,23 +152,25 @@ export default function PaymentMethodsManager() {
   };
 
   if (loading) {
-    return <div className="text-slate-400">Loading payment methods...</div>;
+    return <div className="text-slate-400">{t("paymentMethods.loading")}</div>;
   }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-white font-semibold">Payment Methods</h3>
+          <h3 className="text-white font-semibold">
+            {t("paymentMethods.title")}
+          </h3>
           <p className="text-slate-400 text-sm">
-            Configure which payment methods are available across all features.
+            {t("paymentMethods.intro")}
           </p>
         </div>
         <button
           onClick={openCreate}
           className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded text-sm"
         >
-          + Add Method
+          {t("paymentMethods.add")}
         </button>
       </div>
 
@@ -166,12 +179,16 @@ export default function PaymentMethodsManager() {
         <table className="w-full text-sm text-start">
           <thead className="bg-slate-900 text-slate-400 text-xs uppercase">
             <tr>
-              <th className="py-2 px-3">Code</th>
-              <th className="py-2 px-3">Label</th>
-              <th className="py-2 px-3">Drawer</th>
-              <th className="py-2 px-3">Affects Drawer</th>
-              <th className="py-2 px-3">Active</th>
-              <th className="py-2 px-3">Actions</th>
+              <th className="py-2 px-3">{t("crud.col.code")}</th>
+              <th className="py-2 px-3">{t("crud.col.label")}</th>
+              <th className="py-2 px-3">{t("crud.col.drawer")}</th>
+              <th className="py-2 px-3">
+                {t("paymentMethods.col.affects")}
+              </th>
+              <th className="py-2 px-3">{t("crud.col.active")}</th>
+              <th className="py-2 px-3">
+                {t("crud.col.actions")}
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -184,16 +201,19 @@ export default function PaymentMethodsManager() {
                   )}
                 </td>
                 <td className="py-2 px-3 text-white">
-                  <BrandedLabel code={m.code} label={m.label} />
+                  <BrandedLabel
+                    code={m.code}
+                    label={paymentMethodLabel(m.code, m.label, language)}
+                  />
                 </td>
                 <td className="py-2 px-3 text-slate-300 font-mono text-xs">
                   {m.drawer_name}
                 </td>
                 <td className="py-2 px-3">
                   {m.affects_drawer ? (
-                    <span className="text-green-400">Yes</span>
+                    <span className="text-green-400">{t("common:yes")}</span>
                   ) : (
-                    <span className="text-slate-500">No</span>
+                    <span className="text-slate-500">{t("common:no")}</span>
                   )}
                 </td>
                 <td className="py-2 px-3">
@@ -205,7 +225,9 @@ export default function PaymentMethodsManager() {
                         : "bg-red-600/20 text-red-400 hover:bg-red-600/30"
                     }`}
                   >
-                    {m.is_active ? "Active" : "Inactive"}
+                    {m.is_active
+                      ? t("crud.active")
+                      : t("crud.inactive")}
                   </button>
                 </td>
                 <td className="py-2 px-3 flex gap-1">
@@ -213,14 +235,14 @@ export default function PaymentMethodsManager() {
                     onClick={() => openEdit(m)}
                     className="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-xs"
                   >
-                    Edit
+                    {t("common:actions.edit")}
                   </button>
                   {!m.is_system && (
                     <button
                       onClick={() => handleDelete(m)}
                       className="px-2 py-0.5 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded text-xs"
                     >
-                      Delete
+                      {t("common:actions.delete")}
                     </button>
                   )}
                 </td>
@@ -234,7 +256,9 @@ export default function PaymentMethodsManager() {
       {showForm && (
         <div className="border border-slate-600 rounded-lg p-4 bg-slate-900/50 space-y-3">
           <h4 className="text-white font-medium">
-            {editingId ? "Edit Payment Method" : "New Payment Method"}
+            {editingId
+              ? t("paymentMethods.editTitle")
+              : t("paymentMethods.newTitle")}
           </h4>
 
           {error && (
@@ -249,7 +273,7 @@ export default function PaymentMethodsManager() {
                 htmlFor="payment-method-code"
                 className="text-slate-400 text-xs block mb-1"
               >
-                Code (uppercase, unique)
+                {t("crud.codeLabel")}
               </label>
               <input
                 id="payment-method-code"
@@ -262,7 +286,7 @@ export default function PaymentMethodsManager() {
                     code: e.target.value.toUpperCase().replace(/\s/g, "_"),
                   })
                 }
-                placeholder="e.g. PAYPAL"
+                placeholder={t("paymentMethods.codePlaceholder")}
                 className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm disabled:opacity-50"
               />
             </div>
@@ -271,14 +295,14 @@ export default function PaymentMethodsManager() {
                 htmlFor="payment-method-label"
                 className="text-slate-400 text-xs block mb-1"
               >
-                Display Label
+                {t("crud.displayLabel")}
               </label>
               <input
                 id="payment-method-label"
                 type="text"
                 value={form.label}
                 onChange={(e) => setForm({ ...form, label: e.target.value })}
-                placeholder="e.g. PayPal"
+                placeholder={t("paymentMethods.labelPlaceholder")}
                 className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm"
               />
             </div>
@@ -287,7 +311,7 @@ export default function PaymentMethodsManager() {
                 htmlFor="payment-method-drawer"
                 className="text-slate-400 text-xs block mb-1"
               >
-                Drawer
+                {t("paymentMethods.drawer")}
               </label>
               <Select
                 value={form.drawer_name}
@@ -314,7 +338,9 @@ export default function PaymentMethodsManager() {
                   }
                   className="rounded"
                 />
-                <span className="text-slate-300 text-sm">Affects Drawer</span>
+                <span className="text-slate-300 text-sm">
+                  {t("paymentMethods.affects")}
+                </span>
               </label>
             </div>
           </div>
@@ -324,21 +350,22 @@ export default function PaymentMethodsManager() {
               onClick={handleSave}
               className="px-4 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded text-sm"
             >
-              {editingId ? "Save Changes" : "Create"}
+              {editingId
+                ? t("crud.saveChanges")
+                : t("crud.create")}
             </button>
             <button
               onClick={() => setShowForm(false)}
               className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-sm"
             >
-              Cancel
+              {t("common:actions.cancel")}
             </button>
           </div>
         </div>
       )}
 
       <p className="text-xs text-slate-500 italic">
-        System methods (🔒) cannot be deleted. DEBT does not affect any drawer
-        balance.
+        {t("paymentMethods.footnote")}
       </p>
     </div>
   );

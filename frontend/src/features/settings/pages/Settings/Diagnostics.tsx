@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
+import { useFormat } from "@/i18n/useFormat";
 import { FolderOpen, Pencil, PackagePlus } from "lucide-react";
 import UpdatesPanel from "./UpdatesPanel";
 import { appEvents, useApi, Select, ConfirmModal } from "@liratek/ui";
@@ -50,6 +53,8 @@ import AdjustStockModal, {
  */
 export default function Diagnostics() {
   const api = useApi();
+  const { t } = useTranslation(["settings", "common"]);
+  const { formatDateTime } = useFormat();
   const [errors, setErrors] = useState<
     Array<{ id: number; endpoint: string; error: string; created_at: string }>
   >([]);
@@ -126,23 +131,23 @@ export default function Diagnostics() {
     setFkCheckError(null);
     try {
       const res = await window.api.diagnostics.foreignKeyCheck();
-      if (!res.success) throw new Error(res.error || "FK check failed");
+      if (!res.success) throw new Error(res.error || t("diag.fkFailed"));
       const rows = res.rows || [];
       if (rows.length === 0) {
         appEvents.emit(
           "notification:show",
-          "No foreign key violations found",
+          t("diag.fkNone"),
           "success",
         );
       } else {
         appEvents.emit(
           "notification:show",
-          `Found ${rows.length} FK violation(s)`,
+          t("diag.fkFound", { n: rows.length }),
           "warning",
         );
       }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "FK check failed";
+      const msg = e instanceof Error ? e.message : t("diag.fkFailed");
       setFkCheckError(msg);
       appEvents.emit("notification:show", msg, "error");
     } finally {
@@ -161,7 +166,7 @@ export default function Diagnostics() {
         window.api.report.getBackupDir(),
       ]);
 
-      if (!res.success) throw new Error(res.error || "Failed to list backups");
+      if (!res.success) throw new Error(res.error || t("diag.listFailed"));
       if (dirRes.success && dirRes.path) setBackupDir(dirRes.path);
 
       const map = new Map(settings.map((s) => [s.key_name, s.value]));
@@ -190,7 +195,7 @@ export default function Diagnostics() {
       setBackups(list);
       setSelectedBackupPath((prev) => prev || list[0]?.path || "");
     } catch (e) {
-      setBackupError(e instanceof Error ? e.message : "Failed to load backups");
+      setBackupError(e instanceof Error ? e.message : t("diag.loadFailed"));
     } finally {
       setBackupLoading(false);
     }
@@ -202,15 +207,15 @@ export default function Diagnostics() {
     setVerifyResult(null);
     try {
       const res = await window.api.report.backupDatabase();
-      if (!res.success) throw new Error(res.error || "Backup failed");
+      if (!res.success) throw new Error(res.error || t("diag.backupFailed"));
       appEvents.emit(
         "notification:show",
-        "Backup created successfully",
+        t("diag.backupDone"),
         "success",
       );
       await loadBackups();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Backup failed";
+      const msg = e instanceof Error ? e.message : t("diag.backupFailed");
       setBackupError(msg);
       appEvents.emit("notification:show", msg, "error");
     } finally {
@@ -225,17 +230,17 @@ export default function Diagnostics() {
     setVerifyResult(null);
     try {
       const res = await window.api.report.verifyBackup(selectedBackupPath);
-      if (!res.success) throw new Error(res.error || "Verify failed");
+      if (!res.success) throw new Error(res.error || t("diag.verifyFailed"));
       setVerifyResult(res.ok ? "OK" : "FAILED");
       appEvents.emit(
         "notification:show",
         res.ok
-          ? "Backup integrity check passed"
-          : "Backup integrity check FAILED",
+          ? t("diag.verifyPassed")
+          : t("diag.verifyFailedCheck"),
         res.ok ? "success" : "error",
       );
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Verify failed";
+      const msg = e instanceof Error ? e.message : t("diag.verifyFailed");
       setBackupError(msg);
       appEvents.emit("notification:show", msg, "error");
     } finally {
@@ -246,9 +251,7 @@ export default function Diagnostics() {
   const restoreSelected = async () => {
     if (!selectedBackupPath) return;
     if (
-      !confirm(
-        "Restore will replace the local database and restart the app. Continue?",
-      )
+      !confirm(t("diag.restoreConfirm"))
     )
       return;
 
@@ -257,15 +260,15 @@ export default function Diagnostics() {
     setVerifyResult(null);
     try {
       const res = await window.api.report.restoreDatabase(selectedBackupPath);
-      if (!res.success) throw new Error(res.error || "Restore failed");
+      if (!res.success) throw new Error(res.error || t("diag.restoreFailed"));
       appEvents.emit(
         "notification:show",
-        "Restore successful — restarting app...",
+        t("diag.restoreDone"),
         "success",
       );
       // If successful, the main process will relaunch and exit.
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Restore failed";
+      const msg = e instanceof Error ? e.message : t("diag.restoreFailed");
       setBackupError(msg);
       appEvents.emit("notification:show", msg, "error");
       setBackupLoading(false);
@@ -282,7 +285,7 @@ export default function Diagnostics() {
       if (!setResult.success) {
         appEvents.emit(
           "notification:show",
-          `Failed: ${setResult.error}`,
+          t("diag.failedPrefix", { error: setResult.error }),
           "error",
         );
         return;
@@ -291,13 +294,13 @@ export default function Diagnostics() {
       setBackupDir(setResult.path ?? pickResult.path);
       appEvents.emit(
         "notification:show",
-        "Backup directory updated",
+        t("diag.dirUpdated"),
         "success",
       );
       await loadBackups();
     } catch (e) {
       const msg =
-        e instanceof Error ? e.message : "Failed to change backup directory";
+        e instanceof Error ? e.message : t("diag.dirFailed");
       appEvents.emit("notification:show", msg, "error");
     }
   };
@@ -311,7 +314,7 @@ export default function Diagnostics() {
     } catch (e) {
       appEvents.emit(
         "notification:show",
-        e instanceof Error ? e.message : "Failed to browse",
+        e instanceof Error ? e.message : t("diag.browseFailed"),
         "error",
       );
     }
@@ -326,7 +329,7 @@ export default function Diagnostics() {
       if (!result.success) {
         appEvents.emit(
           "notification:show",
-          result.error || "Failed to change database path",
+          result.error || t("diag.dbPathFailed"),
           "error",
         );
         setDbPathChanging(false);
@@ -335,7 +338,7 @@ export default function Diagnostics() {
     } catch (e) {
       appEvents.emit(
         "notification:show",
-        e instanceof Error ? e.message : "Failed to change database path",
+        e instanceof Error ? e.message : t("diag.dbPathFailed"),
         "error",
       );
       setDbPathChanging(false);
@@ -347,8 +350,8 @@ export default function Diagnostics() {
     try {
       const intervalH = autoBackupIntervalHours ?? 24;
       const keepC = autoBackupKeepCount ?? 30;
-      if (intervalH < 1) throw new Error("Interval must be >= 1 hour");
-      if (keepC < 1) throw new Error("Keep count must be >= 1");
+      if (intervalH < 1) throw new Error(t("diag.intervalInvalid"));
+      if (keepC < 1) throw new Error(t("diag.keepInvalid"));
 
       await Promise.all([
         api.updateSetting("auto_backup_enabled", autoBackupEnabled ? "1" : "0"),
@@ -359,11 +362,11 @@ export default function Diagnostics() {
           autoVerifyEnabled ? "1" : "0",
         ),
       ]);
-      appEvents.emit("notification:show", "Backup settings saved", "success");
+      appEvents.emit("notification:show", t("diag.configSaved"), "success");
     } catch (e) {
       appEvents.emit(
         "notification:show",
-        e instanceof Error ? e.message : "Failed to save",
+        e instanceof Error ? e.message : t("diag.saveFailed"),
         "error",
       );
     } finally {
@@ -394,12 +397,12 @@ export default function Diagnostics() {
             setDbPath(res.path ?? null);
             setDbPathSource(res.source ?? null);
           } else {
-            setDbPath(res?.error ?? "Failed to resolve");
+            setDbPath(res?.error ?? t("diag.resolveFailed"));
           }
         },
       )
       .catch(() => {
-        setDbPath("IPC call failed");
+        setDbPath(t("diag.ipcFailed"));
       });
   }, []);
 
@@ -412,7 +415,7 @@ export default function Diagnostics() {
     } catch (e) {
       appEvents.emit(
         "notification:show",
-        e instanceof Error ? e.message : "Failed to load negative stock",
+        e instanceof Error ? e.message : t("diag.negFailed"),
         "error",
       );
     } finally {
@@ -426,21 +429,23 @@ export default function Diagnostics() {
       <div className="space-y-3">
         {fkStartupViolationCount != null && fkStartupViolationCount > 0 && (
           <div className="bg-yellow-500/10 border border-yellow-500/30 rounded p-3 text-yellow-100 text-sm">
-            Startup FK check found {fkStartupViolationCount} violation(s)
+            {t("diag.fkStartup", { n: fkStartupViolationCount })}
             {fkStartupCheckedAt
-              ? ` (checked at ${new Date(fkStartupCheckedAt).toLocaleString()})`
+              ? t("diag.checkedAt", {
+                  date: formatDateTime(new Date(fkStartupCheckedAt)),
+                })
               : ""}
-            . Run FK Check Now for details.
+            {t("diag.fkRunHint")}
           </div>
         )}
         <div className="flex items-center justify-between">
-          <h3 className="text-white font-semibold">Foreign Key Check</h3>
+          <h3 className="text-white font-semibold">{t("diag.fkTitle")}</h3>
           <button
             onClick={runForeignKeyCheck}
             disabled={fkCheckLoading}
             className="px-3 py-1 bg-slate-700 rounded text-white text-sm"
           >
-            {fkCheckLoading ? "Checking..." : "Run FK Check Now"}
+            {fkCheckLoading ? t("diag.checking") : t("diag.fkRun")}
           </button>
         </div>
 
@@ -454,23 +459,22 @@ export default function Diagnostics() {
       {/* Negative Stock (oversold products needing reconciliation) */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-white font-semibold">Negative Stock</h3>
+          <h3 className="text-white font-semibold">{t("diag.negTitle")}</h3>
           <button
             onClick={checkNegativeStock}
             disabled={negStockLoading}
             className="px-3 py-1 bg-slate-700 rounded text-white text-sm"
           >
-            {negStockLoading ? "Checking..." : "Check Negative Stock"}
+            {negStockLoading ? t("diag.checking") : t("diag.negCheck")}
           </button>
         </div>
         <p className="text-xs text-slate-500">
-          Products whose stock dropped below 0. They cannot be sold until the
-          count is corrected in Inventory.
+          {t("diag.negHint")}
         </p>
 
         {negStockChecked && negStock.length === 0 && (
           <div className="bg-emerald-500/10 border border-emerald-500/30 rounded p-3 text-emerald-200 text-sm">
-            No products at negative stock.
+            {t("diag.negNone")}
           </div>
         )}
 
@@ -479,11 +483,11 @@ export default function Diagnostics() {
             <table className="w-full text-start">
               <thead className="bg-slate-900 text-slate-400 text-xs uppercase">
                 <tr>
-                  <th className="p-2">Product</th>
-                  <th className="p-2">Barcode</th>
-                  <th className="p-2 text-end">Stock</th>
-                  <th className="p-2 text-end">Oversold by</th>
-                  <th className="p-2 text-end">Actions</th>
+                  <th className="p-2">{t("diag.col.product")}</th>
+                  <th className="p-2">{t("diag.col.barcode")}</th>
+                  <th className="p-2 text-end">{t("diag.col.stock")}</th>
+                  <th className="p-2 text-end">{t("diag.col.oversold")}</th>
+                  <th className="p-2 text-end">{t("diag.col.actions")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -503,10 +507,10 @@ export default function Diagnostics() {
                       <button
                         onClick={() => setAdjustingProduct(p)}
                         className="inline-flex items-center gap-1 px-2 py-1 bg-violet-600/20 hover:bg-violet-600/30 text-violet-300 rounded text-xs transition-colors"
-                        title="Adjust stock"
+                        title={t("diag.adjustStock")}
                       >
                         <PackagePlus size={12} />
-                        Adjust
+                        {t("diag.adjust")}
                       </button>
                     </td>
                   </tr>
@@ -524,13 +528,15 @@ export default function Diagnostics() {
       {/* Backups */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-white font-semibold">Local Backups</h3>
+          <h3 className="text-white font-semibold">
+            {t("diag.backupsTitle")}
+          </h3>
           <button
             onClick={backupNow}
             disabled={backupLoading}
             className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 rounded text-white text-sm transition-colors"
           >
-            {backupLoading ? "Working..." : "Backup Now"}
+            {backupLoading ? t("diag.working") : t("diag.backupNow")}
           </button>
         </div>
 
@@ -542,7 +548,7 @@ export default function Diagnostics() {
 
         {/* Info grid */}
         <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm bg-slate-900/50 rounded-lg p-4 border border-slate-700/50">
-          <div className="text-slate-400">Database</div>
+          <div className="text-slate-400">{t("diag.database")}</div>
           <div className="flex items-center gap-2">
             <span
               className="text-slate-200 font-mono text-xs truncate"
@@ -561,26 +567,26 @@ export default function Diagnostics() {
                 setShowDbPathEdit(true);
               }}
               className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded transition-colors shrink-0"
-              title="Change database path"
+              title={t("diag.changeDbPath")}
             >
               <Pencil size={12} />
-              Edit
+              {t("diag.edit")}
             </button>
           </div>
 
-          <div className="text-slate-400">Last backup</div>
+          <div className="text-slate-400">{t("diag.lastBackup")}</div>
           <div className="text-slate-200">
-            {lastBackupAt ? new Date(lastBackupAt).toLocaleString() : "—"}
+            {lastBackupAt ? formatDateTime(new Date(lastBackupAt)) : "—"}
           </div>
 
-          <div className="text-slate-400">Last verify</div>
+          <div className="text-slate-400">{t("diag.lastVerify")}</div>
           <div className="text-slate-200">
             {lastVerifyAt
-              ? `${new Date(lastVerifyAt).toLocaleString()} (${lastVerifyOk ? "OK" : "FAILED"})`
+              ? `${formatDateTime(new Date(lastVerifyAt))} (${lastVerifyOk ? t("diag.verifyOk") : t("diag.verifyBad")})`
               : "—"}
           </div>
 
-          <div className="text-slate-400">Directory</div>
+          <div className="text-slate-400">{t("diag.directory")}</div>
           <div className="flex items-center gap-2">
             <span className="text-slate-200 font-mono text-xs truncate">
               {backupDir ?? "Documents/Liratek/Backups"}
@@ -588,10 +594,10 @@ export default function Diagnostics() {
             <button
               onClick={changeBackupDir}
               className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded transition-colors shrink-0"
-              title="Change backup directory"
+              title={t("diag.changeDir")}
             >
               <FolderOpen size={12} />
-              Change
+              {t("diag.change")}
             </button>
           </div>
         </div>
@@ -599,7 +605,7 @@ export default function Diagnostics() {
         {/* Backup config */}
         <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50 space-y-3">
           <div className="text-sm font-semibold text-white">
-            Auto Backup Settings
+            {t("diag.autoTitle")}
           </div>
 
           <label className="flex items-center gap-2 text-slate-300 text-sm">
@@ -608,7 +614,7 @@ export default function Diagnostics() {
               checked={autoBackupEnabled ?? true}
               onChange={(e) => setAutoBackupEnabled(e.target.checked)}
             />{" "}
-            Enable automatic local backups
+            {t("diag.autoEnable")}
           </label>
 
           <label className="flex items-center gap-2 text-slate-300 text-sm">
@@ -617,33 +623,37 @@ export default function Diagnostics() {
               checked={autoVerifyEnabled ?? false}
               onChange={(e) => setAutoVerifyEnabled(e.target.checked)}
             />{" "}
-            Verify backups after creation
+            {t("diag.autoVerify")}
           </label>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-slate-400 text-xs mb-1">
-                Interval (hours)
+                {t("diag.interval")}
               </label>
               <input
-                type="number"
-                min={1}
+                type="text"
+                inputMode="numeric"
                 value={autoBackupIntervalHours ?? 24}
                 onChange={(e) =>
-                  setAutoBackupIntervalHours(Number(e.target.value))
+                  setAutoBackupIntervalHours(
+                    Number(normalizeDigits(e.target.value)),
+                  )
                 }
                 className="bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm w-full focus:outline-none focus:border-violet-500"
               />
             </div>
             <div>
               <label className="block text-slate-400 text-xs mb-1">
-                Keep (count)
+                {t("diag.keep")}
               </label>
               <input
-                type="number"
-                min={1}
+                type="text"
+                inputMode="numeric"
                 value={autoBackupKeepCount ?? 30}
-                onChange={(e) => setAutoBackupKeepCount(Number(e.target.value))}
+                onChange={(e) =>
+                  setAutoBackupKeepCount(Number(normalizeDigits(e.target.value)))
+                }
                 className="bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm w-full focus:outline-none focus:border-violet-500"
               />
             </div>
@@ -655,20 +665,20 @@ export default function Diagnostics() {
               disabled={savingConfig}
               className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 rounded text-white text-sm transition-colors"
             >
-              {savingConfig ? "Saving..." : "Save Settings"}
+              {savingConfig ? t("diag.saving") : t("diag.saveSettings")}
             </button>
           </div>
         </div>
 
         {/* Backup file + actions */}
         <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50 space-y-3">
-          <div className="text-sm text-slate-400">Selected backup</div>
+          <div className="text-sm text-slate-400">{t("diag.selected")}</div>
           <div className="flex items-center gap-2">
             <span className="text-slate-200 font-mono text-xs truncate flex-1">
               {selectedBackupPath
                 ? (backups.find((b) => b.path === selectedBackupPath)
                     ?.filename ?? selectedBackupPath)
-                : "No backup selected"}
+                : t("diag.noneSelected")}
             </span>
             {backups.length > 1 && (
               <Select
@@ -688,21 +698,25 @@ export default function Diagnostics() {
               disabled={backupLoading || !selectedBackupPath}
               className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:hover:bg-slate-700 rounded text-white text-sm transition-colors"
             >
-              Verify Integrity
+              {t("diag.verifyIntegrity")}
             </button>
             <button
               onClick={restoreSelected}
               disabled={backupLoading || !selectedBackupPath}
               className="px-3 py-1.5 bg-red-600/80 hover:bg-red-600 disabled:opacity-50 disabled:hover:bg-red-600/80 rounded text-white text-sm transition-colors"
             >
-              Restore
+              {t("diag.restore")}
             </button>
           </div>
 
           {verifyResult && (
             <div className="text-sm text-slate-300">
-              Integrity check:{" "}
-              <span className="font-semibold">{verifyResult}</span>
+              {t("diag.integrity")}{" "}
+              <span className="font-semibold">
+                {verifyResult === "OK"
+                  ? t("diag.verifyOk")
+                  : t("diag.verifyBad")}
+              </span>
             </div>
           )}
         </div>
@@ -710,27 +724,27 @@ export default function Diagnostics() {
 
       {/* Sync Errors */}
       <div className="space-y-4">
-        <h3 className="text-white font-semibold">Sync Errors</h3>
+        <h3 className="text-white font-semibold">{t("diag.syncTitle")}</h3>
         <div className="border border-slate-700 rounded overflow-hidden">
           <table className="w-full text-start">
             <thead className="bg-slate-900 text-slate-400 text-xs uppercase">
               <tr>
-                <th className="p-2">Time</th>
-                <th className="p-2">Endpoint</th>
-                <th className="p-2">Error</th>
+                <th className="p-2">{t("diag.col.time")}</th>
+                <th className="p-2">{t("diag.col.endpoint")}</th>
+                <th className="p-2">{t("diag.col.error")}</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
                   <td colSpan={3} className="p-3 text-slate-500">
-                    Loading...
+                    {t("diag.loading")}
                   </td>
                 </tr>
               ) : errors.length === 0 ? (
                 <tr>
                   <td colSpan={3} className="p-3 text-slate-500">
-                    No errors
+                    {t("diag.noErrors")}
                   </td>
                 </tr>
               ) : (
@@ -754,18 +768,17 @@ export default function Diagnostics() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="bg-slate-800 rounded-lg border border-slate-700 p-6 w-full max-w-lg shadow-xl space-y-4">
             <h3 className="text-white font-semibold text-lg">
-              Change Database Path
+              {t("diag.dbModalTitle")}
             </h3>
             <p className="text-slate-400 text-sm">
-              Enter or browse for the new database file path. The application
-              will restart after the change.
+              {t("diag.dbModalHint")}
             </p>
             <div className="flex items-center gap-2">
               <input
                 type="text"
                 value={newDbPath}
                 onChange={(e) => setNewDbPath(e.target.value)}
-                placeholder="/path/to/database.db"
+                placeholder="/path/to/database.db" // i18n-exempt: file path sample
                 className="flex-1 bg-slate-900 border border-slate-600 rounded px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-violet-500"
               />
               <button
@@ -773,7 +786,7 @@ export default function Diagnostics() {
                 className="inline-flex items-center gap-1 px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded transition-colors shrink-0 text-sm"
               >
                 <FolderOpen size={14} />
-                Browse
+                {t("diag.browse")}
               </button>
             </div>
             <div className="flex justify-end gap-2 pt-2">
@@ -785,7 +798,7 @@ export default function Diagnostics() {
                 disabled={dbPathChanging}
                 className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded text-white text-sm transition-colors"
               >
-                Cancel
+                {t("common:actions.cancel")}
               </button>
               <button
                 onClick={() => setShowRestartConfirm(true)}
@@ -794,7 +807,7 @@ export default function Diagnostics() {
                 }
                 className="px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 disabled:hover:bg-violet-600 rounded text-white text-sm transition-colors"
               >
-                {dbPathChanging ? "Restarting..." : "Apply & Restart"}
+                {dbPathChanging ? t("diag.restarting") : t("diag.applyRestart")}
               </button>
             </div>
           </div>
@@ -804,10 +817,10 @@ export default function Diagnostics() {
       {/* Restart confirmation (shown before applying the new DB path) */}
       <ConfirmModal
         isOpen={showRestartConfirm}
-        title="Restart to change database?"
-        message={`LiraTek will close and reopen using the new database location (${newDbPath}). Any unsaved work will be lost.`}
-        confirmLabel="Restart Now"
-        cancelLabel="Cancel"
+        title={t("diag.restartTitle")}
+        message={t("diag.restartMessage", { path: newDbPath })}
+        confirmLabel={t("diag.restartNow")}
+        cancelLabel={t("common:actions.cancel")}
         variant="warning"
         onConfirm={doChangeDbPath}
         onCancel={() => setShowRestartConfirm(false)}

@@ -29,7 +29,7 @@ const LANGUAGE_OPTIONS: Language[] = ["en", "ar"];
 
 export default function ShopConfig() {
   const api = useApi();
-  const { t } = useTranslation("common");
+  const { t } = useTranslation(["settings", "common"]);
   const { refreshFlags } = useFeatureFlags();
   // LIRA-331: shop default UI language and receipt language (missing = en).
   const [uiDefaultLanguage, setUiDefaultLanguage] = useState<Language>("en");
@@ -131,7 +131,7 @@ export default function ShopConfig() {
     } catch (e) {
       if (loadRequestRef.current !== requestId) return;
       logger.error("Failed to load shop settings", { error: e });
-      setLoadError(getApiErrorMessage(e, "Failed to load settings"));
+      setLoadError(getApiErrorMessage(e, t("shop.loadFailedShort")));
     } finally {
       if (loadRequestRef.current === requestId) setIsLoading(false);
     }
@@ -144,7 +144,7 @@ export default function ShopConfig() {
     if (!file.type.startsWith("image/")) {
       appEvents.emit(
         "notification:show",
-        "Please choose an image file for the logo",
+        t("shop.imageOnly"),
         "warning",
       );
       return;
@@ -177,7 +177,7 @@ export default function ShopConfig() {
     setIsSaving(true);
     try {
       // basic validation
-      if (!shopName.trim()) throw new Error("Shop name is required");
+      if (!shopName.trim()) throw new Error(t("shop.nameRequired"));
 
       await Promise.all([
         api.updateSetting("shop_name", shopName),
@@ -231,14 +231,14 @@ export default function ShopConfig() {
       await refreshFlags();
       appEvents.emit(
         "notification:show",
-        "Shop configuration saved",
+        t("shop.saved"),
         "success",
       );
     } catch (e) {
       logger.error("Operation failed", { error: e });
       appEvents.emit(
         "notification:show",
-        e instanceof Error ? e.message : "Failed to save",
+        e instanceof Error ? e.message : t("shop.saveFailed"),
         "error",
       );
     } finally {
@@ -260,19 +260,19 @@ export default function ShopConfig() {
   if (isLoading)
     return (
       <div className="text-slate-400">
-        Loading...
+        {t("shop.loading")}
         {loadSlow && (
           <span
             data-testid="shop-config-slow"
             className="ms-2 inline-flex items-center gap-2 text-sm"
           >
-            This is taking longer than usual.
+            {t("shop.slow")}
             <button
               type="button"
               onClick={() => void load()}
               className="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs"
             >
-              Retry
+              {t("shop.retry")}
             </button>
           </span>
         )}
@@ -284,13 +284,13 @@ export default function ShopConfig() {
         data-testid="shop-config-load-error"
         className="flex items-center gap-3 text-sm text-red-400"
       >
-        <span>Could not load the shop settings: {loadError}</span>
+        <span>{t("shop.loadFailed", { error: loadError })}</span>
         <button
           type="button"
           onClick={() => void load()}
           className="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs"
         >
-          Retry
+          {t("shop.retry")}
         </button>
       </div>
     );
@@ -302,7 +302,7 @@ export default function ShopConfig() {
           htmlFor="shop-name"
           className="block text-sm text-slate-400 mb-2"
         >
-          Shop Name
+          {t("shop.name")}
         </label>
         <input
           id="shop-name"
@@ -317,13 +317,13 @@ export default function ShopConfig() {
             htmlFor="shop-phone"
             className="block text-sm text-slate-400 mb-2"
           >
-            Phone Number
+            {t("shop.phone")}
           </label>
           <input
             id="shop-phone"
             value={shopPhone}
             onChange={(e) => setShopPhone(e.target.value)}
-            placeholder="e.g. +961 71 123 456"
+            placeholder={t("shop.phonePlaceholder")}
             className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white placeholder:text-slate-600"
           />
         </div>
@@ -332,13 +332,13 @@ export default function ShopConfig() {
             htmlFor="shop-location"
             className="block text-sm text-slate-400 mb-2"
           >
-            Location
+            {t("shop.location")}
           </label>
           <input
             id="shop-location"
             value={shopLocation}
             onChange={(e) => setShopLocation(e.target.value)}
-            placeholder="e.g. Beirut, Lebanon"
+            placeholder={t("shop.locationPlaceholder")}
             className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white placeholder:text-slate-600"
           />
         </div>
@@ -348,7 +348,7 @@ export default function ShopConfig() {
           htmlFor="shop-receipt-header"
           className="block text-sm text-slate-400 mb-2"
         >
-          Receipt Header Text
+          {t("shop.receiptHeader")}
         </label>
         <input
           id="shop-receipt-header"
@@ -367,7 +367,7 @@ export default function ShopConfig() {
               htmlFor="shop-ui-default-language"
               className="block text-sm text-slate-400 mb-2"
             >
-              {t("language.shopDefault")}
+              {t("common:language.shopDefault")}
             </label>
             <select
               id="shop-ui-default-language"
@@ -380,12 +380,12 @@ export default function ShopConfig() {
             >
               {LANGUAGE_OPTIONS.map((code) => (
                 <option key={code} value={code}>
-                  {t(`language.${code}`)}
+                  {t(`common:language.${code}`)}
                 </option>
               ))}
             </select>
             <p className="text-xs text-slate-500 mt-1">
-              {t("language.shopDefaultHint")}
+              {t("common:language.shopDefaultHint")}
             </p>
           </div>
           <div>
@@ -393,7 +393,7 @@ export default function ShopConfig() {
               htmlFor="shop-receipt-language"
               className="block text-sm text-slate-400 mb-2"
             >
-              {t("language.receipt")}
+              {t("common:language.receipt")}
             </label>
             <select
               id="shop-receipt-language"
@@ -406,12 +406,12 @@ export default function ShopConfig() {
             >
               {LANGUAGE_OPTIONS.map((code) => (
                 <option key={code} value={code}>
-                  {t(`language.${code}`)}
+                  {t(`common:language.${code}`)}
                 </option>
               ))}
             </select>
             <p className="text-xs text-slate-500 mt-1">
-              {t("language.receiptHint")}
+              {t("common:language.receiptHint")}
             </p>
           </div>
         </div>
@@ -424,43 +424,45 @@ export default function ShopConfig() {
           htmlFor="shop-warranty-terms"
           className="block text-sm text-slate-400 mb-2"
         >
-          Warranty terms
+          {t("shop.warrantyTerms")}
         </label>
         <textarea
           id="shop-warranty-terms"
           value={warrantyTermsText}
           maxLength={WARRANTY_TERMS_MAX_LENGTH}
           rows={3}
-          placeholder="e.g. Covers manufacturing faults only. No water or physical damage."
+          placeholder={t("shop.warrantyPlaceholder")}
           onChange={(e) => setWarrantyTermsText(e.target.value)}
           className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white text-sm"
         />
         <p className="text-xs text-slate-500 mt-1">
-          Printed on receipts that include an item with a warranty (
-          {warrantyTermsText.length}/{WARRANTY_TERMS_MAX_LENGTH}).
+          {t("shop.warrantyHint", {
+            count: warrantyTermsText.length,
+            max: WARRANTY_TERMS_MAX_LENGTH,
+          })}
         </p>
       </div>
 
       {/* Receipt logo (RCP-0): printed above the receipt text on every module. */}
       <div>
         <label className="block text-sm text-slate-400 mb-2">
-          Receipt Logo
+          {t("shop.logo")}
         </label>
         <div className="flex items-center gap-4">
           {receiptLogo ? (
             <img
               src={receiptLogo}
-              alt="Receipt logo preview"
+              alt={t("shop.logoAlt")}
               className="h-16 max-w-[160px] object-contain bg-white rounded p-1 border border-slate-700"
             />
           ) : (
             <div className="h-16 w-24 flex items-center justify-center rounded border border-dashed border-slate-700 text-xs text-slate-500">
-              No logo
+              {t("shop.noLogo")}
             </div>
           )}
           <div className="flex flex-col gap-2">
             <label className="cursor-pointer inline-block px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-sm text-white">
-              {receiptLogo ? "Change logo" : "Upload logo"}
+              {receiptLogo ? t("shop.changeLogo") : t("shop.uploadLogo")}
               <input
                 type="file"
                 accept="image/*"
@@ -478,20 +480,19 @@ export default function ShopConfig() {
                 onClick={() => setReceiptLogo("")}
                 className="px-3 py-1.5 bg-red-900/40 hover:bg-red-900/60 rounded text-sm text-red-300"
               >
-                Remove
+                {t("shop.removeLogo")}
               </button>
             )}
           </div>
         </div>
         <p className="mt-2 text-xs text-slate-500">
-          Shown centered at the top of every printed receipt. Auto-resized for
-          the thermal printer.
+          {t("shop.logoHint")}
         </p>
       </div>
 
       <div className="pt-6 border-t border-slate-700">
         <span className="flex items-center gap-2 block text-sm text-slate-400 mb-4">
-          <Wallet size={16} /> Alfa Gift Card Settings
+          <Wallet size={16} /> {t("shop.alfaTitle")}
         </span>
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -499,7 +500,7 @@ export default function ShopConfig() {
               htmlFor="alfa-credit-cost"
               className="block text-xs text-slate-400 mb-1.5"
             >
-              Credit Cost (LBP per $1)
+              {t("shop.alfaCost")}
             </label>
             <DecimalInput
               id="alfa-credit-cost"
@@ -508,7 +509,7 @@ export default function ShopConfig() {
               className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
             />
             <p className="text-xs text-slate-500 mt-1">
-              Default: 85,000 LBP per $1 USD credit
+              {t("shop.alfaCostHint")}
             </p>
           </div>
           <div>
@@ -516,7 +517,7 @@ export default function ShopConfig() {
               htmlFor="alfa-credit-sell"
               className="block text-xs text-slate-400 mb-1.5"
             >
-              Credit Sell Rate (LBP per $1)
+              {t("shop.alfaSell")}
             </label>
             <DecimalInput
               id="alfa-credit-sell"
@@ -525,7 +526,7 @@ export default function ShopConfig() {
               className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
             />
             <p className="text-xs text-slate-500 mt-1">
-              Default: 100,000 LBP per $1 USD credit
+              {t("shop.alfaSellHint")}
             </p>
           </div>
         </div>
@@ -533,14 +534,14 @@ export default function ShopConfig() {
 
       <div className="pt-6 border-t border-slate-700">
         <span className="flex items-center gap-2 block text-sm text-slate-400 mb-4">
-          <Wallet size={16} /> Recharge Margin Alert
+          <Wallet size={16} /> {t("shop.marginTitle")}
         </span>
         <div className="max-w-xs">
           <label
             htmlFor="margin-alert-threshold"
             className="block text-xs text-slate-400 mb-1.5"
           >
-            Margin Alert Threshold (LBP)
+            {t("shop.marginLabel")}
           </label>
           <DecimalInput
             id="margin-alert-threshold"
@@ -549,27 +550,25 @@ export default function ShopConfig() {
             className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
           />
           <p className="text-xs text-slate-500 mt-1">
-            Show a warning badge on recharge history entries where the price was
-            manually changed and the margin exceeds this amount. Default:
-            100,000 LBP
+            {t("shop.marginHint")}
           </p>
         </div>
       </div>
 
       <div className="pt-6 border-t border-slate-700">
         <span className="flex items-center gap-2 block text-sm text-slate-400 mb-4">
-          <Printer size={16} /> Print Settings
+          <Printer size={16} /> {t("shop.printTitle")}
         </span>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm text-slate-400 mb-2">
-              Receipt Printer
+              {t("shop.receiptPrinter")}
             </label>
             <Select
               value={receiptPrinter}
               onChange={(v) => setReceiptPrinter(v)}
               options={[
-                { value: "", label: "Default (System Print Dialog)" },
+                { value: "", label: t("shop.defaultPrinter") },
                 ...printers.map((p) => ({
                   value: p.name,
                   label: p.displayName || p.name,
@@ -578,18 +577,18 @@ export default function ShopConfig() {
               buttonClassName="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
             />
             <p className="text-xs text-slate-500 mt-1">
-              Leave empty to show the print dialog every time.
+              {t("shop.printerHint")}
             </p>
           </div>
           <div>
             <label className="block text-sm text-slate-400 mb-2">
-              Barcode Printer
+              {t("shop.barcodePrinter")}
             </label>
             <Select
               value={barcodePrinter}
               onChange={(v) => setBarcodePrinter(v)}
               options={[
-                { value: "", label: "Default (System Print Dialog)" },
+                { value: "", label: t("shop.defaultPrinter") },
                 ...printers.map((p) => ({
                   value: p.name,
                   label: p.displayName || p.name,
@@ -598,7 +597,7 @@ export default function ShopConfig() {
               buttonClassName="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
             />
             <p className="text-xs text-slate-500 mt-1">
-              Leave empty to show the print dialog every time.
+              {t("shop.printerHint")}
             </p>
           </div>
         </div>
@@ -606,14 +605,15 @@ export default function ShopConfig() {
 
       {/* Feature Toggles */}
       <div className="space-y-4">
-        <span className="block text-sm text-slate-400">Features</span>
+        <span className="block text-sm text-slate-400">
+          {t("shop.features")}
+        </span>
 
         <label className="flex items-center justify-between cursor-pointer group">
           <div>
-            <span className="text-sm text-white">Opening & Closing</span>
+            <span className="text-sm text-white">{t("shop.sessionMgmt")}</span>
             <p className="text-xs text-slate-500">
-              Show session management (open/close day) in the sidebar and home
-              screen
+              {t("shop.sessionMgmtHint")}
             </p>
           </div>
           <div
@@ -634,9 +634,11 @@ export default function ShopConfig() {
 
         <label className="flex items-center justify-between cursor-pointer group">
           <div>
-            <span className="text-sm text-white">Customer Sessions</span>
+            <span className="text-sm text-white">
+              {t("shop.customerSessions")}
+            </span>
             <p className="text-xs text-slate-500">
-              Show the floating customer session button in the app
+              {t("shop.customerSessionsHint")}
             </p>
           </div>
           <div
@@ -657,9 +659,11 @@ export default function ShopConfig() {
 
         <label className="flex items-center justify-between cursor-pointer group">
           <div>
-            <span className="text-sm text-white">Auto-check for Updates</span>
+            <span className="text-sm text-white">
+              {t("shop.autoUpdates")}
+            </span>
             <p className="text-xs text-slate-500">
-              Automatically check for app updates when the app starts
+              {t("shop.autoUpdatesHint")}
             </p>
           </div>
           <div
@@ -681,9 +685,9 @@ export default function ShopConfig() {
         <label className="flex items-center justify-between cursor-pointer group">
           <div className="flex items-center gap-3">
             <div>
-              <span className="text-sm text-white">Voice Bot</span>
+              <span className="text-sm text-white">{t("shop.voiceBot")}</span>
               <p className="text-xs text-slate-500">
-                Show or hide the voice assistant button
+                {t("shop.voiceBotHint")}
               </p>
             </div>
           </div>
@@ -707,11 +711,10 @@ export default function ShopConfig() {
           <div className="flex items-center gap-3">
             <div>
               <span className="text-sm text-white">
-                Allow out-of-stock sales
+                {t("shop.outOfStock")}
               </span>
               <p className="text-xs text-slate-500">
-                When on, a sale completes even if an item is out of stock (stock
-                may go negative). When off, the sale is blocked.
+                {t("shop.outOfStockHint")}
               </p>
             </div>
           </div>
@@ -738,14 +741,14 @@ export default function ShopConfig() {
           disabled={isSaving}
           className="px-4 py-2 rounded bg-slate-700 text-white"
         >
-          Reset
+          {t("shop.reset")}
         </button>
         <button
           onClick={save}
           disabled={isSaving}
           className="px-4 py-2 rounded bg-violet-600 hover:bg-violet-500 text-white"
         >
-          {isSaving ? "Saving..." : "Save"}
+          {isSaving ? t("shop.saving") : t("shop.save")}
         </button>
       </div>
 
@@ -753,9 +756,9 @@ export default function ShopConfig() {
           display, auto-fill, UI scale) live on My account now, so staff can
           set their own. */}
       <p className="pt-6 border-t border-slate-700 text-sm text-slate-400">
-        Display options moved to{" "}
+        {t("shop.displayMoved")}{" "}
         <Link to="/account" className="text-violet-400 hover:text-violet-300">
-          My account
+          {t("shop.myAccount")}
         </Link>
         .
       </p>

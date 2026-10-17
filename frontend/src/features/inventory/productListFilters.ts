@@ -16,6 +16,10 @@
  */
 
 import type { ProductListFilters } from "@liratek/core";
+import {
+  englishInventoryT,
+  type InventoryT,
+} from "./productUnitsLogic";
 
 /** Raw toolbar state. Numeric/date fields are strings — `<input>` values. */
 export interface ProductFiltersUiState {
@@ -241,21 +245,24 @@ function rangeLabel(
 
 export function activeFilterChips(
   ui: ProductFiltersUiState,
+  t: InventoryT = englishInventoryT(),
 ): ProductFilterChip[] {
   const chips: ProductFilterChip[] = [];
 
+  // Labels are display-only (the chip's `key` drives clearing), so they are
+  // translated here; the category/supplier names stay exactly as stored.
   const categories = toList(ui.categories);
   if (categories) {
     chips.push({
       key: "categories",
-      label: `Category: ${categories.join(", ")}`,
+      label: t("chips.category", { list: categories.join(", ") }),
     });
   }
   const suppliers = toList(ui.suppliers);
   if (suppliers) {
     chips.push({
       key: "suppliers",
-      label: `Supplier: ${suppliers.join(", ")}`,
+      label: t("chips.supplier", { list: suppliers.join(", ") }),
     });
   }
 
@@ -264,26 +271,29 @@ export function activeFilterChips(
   if (from || to) {
     const label =
       from && to
-        ? `Added: ${from} → ${to}`
+        ? t("chips.addedRange", { from, to })
         : from
-          ? `Added: from ${from}`
-          : `Added: until ${to}`;
+          ? t("chips.addedFrom", { from })
+          : t("chips.addedUntil", { to });
     chips.push({ key: "added", label });
   }
 
   const bounds = effectiveNumericBounds(ui);
 
   const cost = rangeLabel(bounds.costMin, bounds.costMax, "$", "");
-  if (cost) chips.push({ key: "cost", label: `Cost: ${cost}` });
+  if (cost) chips.push({ key: "cost", label: t("chips.cost", { range: cost }) });
 
   const retail = rangeLabel(bounds.retailMin, bounds.retailMax, "$", "");
-  if (retail) chips.push({ key: "retail", label: `Retail: ${retail}` });
+  if (retail)
+    chips.push({ key: "retail", label: t("chips.retail", { range: retail }) });
 
   const profit = rangeLabel(bounds.profitPctMin, bounds.profitPctMax, "", "%");
-  if (profit) chips.push({ key: "profit", label: `Profit: ${profit}` });
+  if (profit)
+    chips.push({ key: "profit", label: t("chips.profit", { range: profit }) });
 
   const stock = rangeLabel(bounds.stockMin, bounds.stockMax, "", "");
-  if (stock) chips.push({ key: "stock", label: `Stock: ${stock}` });
+  if (stock)
+    chips.push({ key: "stock", label: t("chips.stock", { range: stock }) });
 
   return chips;
 }

@@ -45,7 +45,7 @@ export function VouchersPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const api = useApi();
-  const { t } = useTranslation("vouchers");
+  const { t } = useTranslation(["vouchers", "common"]);
   const { formatNumber } = useFormat();
   const formatVoucherAmount = (v: Voucher) =>
     v.currency_code === "LBP"
@@ -89,7 +89,7 @@ export function VouchersPage() {
       setListError(result.error ?? t("page.loadFailed"));
     }
     setLoading(false);
-  }, [api]);
+  }, [api, t]);
 
   useEffect(() => {
     loadVouchers();

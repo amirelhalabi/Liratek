@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useApi } from "@liratek/ui";
+import { formatNumber } from "@liratek/ui/i18n/format";
 import type { DatabaseResetPreview } from "@liratek/core";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { ResetDataModal } from "./ResetDataModal";
@@ -21,9 +23,27 @@ import { ResetDataModal } from "./ResetDataModal";
  * below), so a future addition to the wipe list never silently disappears
  * from the preview just because this component wasn't updated to name it.
  */
-const TABLE_GROUPS: Array<{ label: string; tables: string[] }> = [
+/** Each group's id names its label in the `settings` catalog
+ *  (`reset.group.<id>`); the table names are data. */
+type ResetGroupId =
+  | "transactions"
+  | "payments"
+  | "debts"
+  | "clients"
+  | "stock"
+  | "recharges"
+  | "carrierLines"
+  | "exchange"
+  | "loto"
+  | "maintenance"
+  | "warranty"
+  | "expenses"
+  | "audit"
+  | "other";
+
+const TABLE_GROUPS: Array<{ id: ResetGroupId; tables: string[] }> = [
   {
-    label: "Transactions & customer sessions",
+    id: "transactions",
     tables: [
       "transactions",
       "sale_items",
@@ -36,7 +56,7 @@ const TABLE_GROUPS: Array<{ label: string; tables: string[] }> = [
     ],
   },
   {
-    label: "Payments & drawer movements",
+    id: "payments",
     tables: [
       "payments",
       "drawer_cashouts",
@@ -48,7 +68,7 @@ const TABLE_GROUPS: Array<{ label: string; tables: string[] }> = [
     ],
   },
   {
-    label: "Debts & supplier/partner ledgers",
+    id: "debts",
     tables: [
       "debt_ledger",
       // Ledgers only — the partner / supplier rows themselves are KEPT
@@ -60,14 +80,14 @@ const TABLE_GROUPS: Array<{ label: string; tables: string[] }> = [
     ],
   },
   {
-    label: "Clients",
+    id: "clients",
     tables: ["clients"],
   },
   {
     // Products, categories and the product-supplier names are KEPT (the
     // products with stock and minimum stock set to 0 — RESET_ZERO_TABLES),
     // so only stock and its history appear here.
-    label: "Stock & purchases",
+    id: "stock",
     tables: [
       "product_stock_batches",
       "product_units",
@@ -80,7 +100,7 @@ const TABLE_GROUPS: Array<{ label: string; tables: string[] }> = [
   {
     // The Mobile Services items (and their cost / picture settings) are
     // KEPT — only the sales made with them are here.
-    label: "Recharges, money transfers & vouchers",
+    id: "recharges",
     tables: [
       "recharges",
       "financial_services",
@@ -92,11 +112,11 @@ const TABLE_GROUPS: Array<{ label: string; tables: string[] }> = [
     // carrier_lines itself is NOT in this list (LIRA-254): the line rows
     // are kept with credits reset to 0, not deleted, so they never appear
     // in `preview.counts` — only their movement history does.
-    label: "Carrier line history",
+    id: "carrierLines",
     tables: ["carrier_line_movements", "carrier_line_owed_deliveries"],
   },
   {
-    label: "Exchange & wallet",
+    id: "exchange",
     tables: [
       "exchange_transactions",
       "exchange_lots",
@@ -106,7 +126,7 @@ const TABLE_GROUPS: Array<{ label: string; tables: string[] }> = [
     ],
   },
   {
-    label: "Loto",
+    id: "loto",
     tables: [
       "loto_tickets",
       "loto_checkpoints",
@@ -116,7 +136,7 @@ const TABLE_GROUPS: Array<{ label: string; tables: string[] }> = [
     ],
   },
   {
-    label: "Maintenance & custom services",
+    id: "maintenance",
     tables: [
       "maintenance",
       "maintenance_parts",
@@ -127,15 +147,15 @@ const TABLE_GROUPS: Array<{ label: string; tables: string[] }> = [
   {
     // LIRA-296: warranty claims, the faulty items taken back, and the
     // returns sent to suppliers.
-    label: "Warranty claims & supplier returns",
+    id: "warranty",
     tables: ["warranty_claims", "defective_items", "supplier_returns"],
   },
   {
-    label: "Expenses",
+    id: "expenses",
     tables: ["expenses"],
   },
   {
-    label: "Audit log",
+    id: "audit",
     tables: ["audit_log"],
   },
 ];
@@ -144,9 +164,9 @@ const TABLE_GROUPS: Array<{ label: string; tables: string[] }> = [
  *  unrecognized table into "Other" instead of dropping it. */
 function groupCounts(
   counts: Record<string, number>,
-): Array<{ label: string; count: number }> {
+): Array<{ id: ResetGroupId; count: number }> {
   const named = new Set<string>();
-  const rows: Array<{ label: string; count: number }> = [];
+  const rows: Array<{ id: ResetGroupId; count: number }> = [];
 
   for (const group of TABLE_GROUPS) {
     let sum = 0;
@@ -154,14 +174,14 @@ function groupCounts(
       named.add(table);
       sum += counts[table] ?? 0;
     }
-    if (sum > 0) rows.push({ label: group.label, count: sum });
+    if (sum > 0) rows.push({ id: group.id, count: sum });
   }
 
   let otherSum = 0;
   for (const [table, count] of Object.entries(counts)) {
     if (!named.has(table)) otherSum += count;
   }
-  if (otherSum > 0) rows.push({ label: "Other", count: otherSum });
+  if (otherSum > 0) rows.push({ id: "other", count: otherSum });
 
   return rows;
 }
@@ -172,6 +192,7 @@ const RESET_PREVIEW_SLOW_MS = 10_000;
 
 export function ResetDataPanel() {
   const api = useApi();
+  const { t } = useTranslation("settings");
   // rule 25: read through a ref so `load` keeps one identity.
   const apiRef = useRef(api);
   apiRef.current = api;
@@ -197,11 +218,11 @@ export function ResetDataPanel() {
       if (requestRef.current !== requestId) return;
       // The web transport throws a plain { status, message } object, not an
       // Error — getApiErrorMessage reads both.
-      setError(getApiErrorMessage(err, "Failed to load reset preview"));
+      setError(getApiErrorMessage(err, t("reset.loadFailedShort")));
     } finally {
       if (requestRef.current === requestId) setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -220,75 +241,66 @@ export function ResetDataPanel() {
       <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/30 flex gap-3">
         <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
         <p className="text-sm text-red-200">
-          This wipes all operational data for this shop and cannot be undone.
-          Use it only to hand off a fresh, empty install.
+          {t("reset.warning")}
         </p>
       </div>
 
       <div data-testid="reset-data-keeps">
-        <h3 className="text-sm font-semibold text-white mb-2">This KEEPS</h3>
+        <h3 className="text-sm font-semibold text-white mb-2">
+          {t("reset.keepsTitle")}
+        </h3>
         <ul className="text-sm text-slate-400 list-disc list-inside space-y-1">
-          <li>The admin account, every user, and everyone stays signed in</li>
-          <li>The shop name and base system configuration</li>
-          <li>Enabled modules and payment methods</li>
-          <li>Currencies and exchange rates</li>
-          <li>Drawer configuration (which currencies each drawer holds)</li>
-          <li>Your product categories</li>
-          <li>
-            Your products (names, barcodes, prices) — with stock and minimum
-            stock set to 0
-          </li>
-          <li>Your Mobile Services items, including the ones you added</li>
-          <li>Your service presets</li>
-          <li>Your partners and suppliers — with balances set to 0</li>
-          <li>
-            Your MTC/Alfa carrier lines (phone numbers, labels, SIM expiry) —
-            with credits set to 0
-          </li>
-          <li>Every other Settings-page configuration</li>
+          <li>{t("reset.keeps.users")}</li>
+          <li>{t("reset.keeps.shop")}</li>
+          <li>{t("reset.keeps.modules")}</li>
+          <li>{t("reset.keeps.currencies")}</li>
+          <li>{t("reset.keeps.drawers")}</li>
+          <li>{t("reset.keeps.categories")}</li>
+          <li>{t("reset.keeps.products")}</li>
+          <li>{t("reset.keeps.mobileServices")}</li>
+          <li>{t("reset.keeps.presets")}</li>
+          <li>{t("reset.keeps.partners")}</li>
+          <li>{t("reset.keeps.carrierLines")}</li>
+          <li>{t("reset.keeps.settings")}</li>
         </ul>
       </div>
 
       <div data-testid="reset-data-deletes">
-        <h3 className="text-sm font-semibold text-white mb-2">This DELETES</h3>
+        <h3 className="text-sm font-semibold text-white mb-2">
+          {t("reset.deletesTitle")}
+        </h3>
         <ul className="text-sm text-slate-400 list-disc list-inside space-y-1">
-          <li>All transactions, sales, payments, and drawer movements</li>
-          <li>Closings, debts, and every supplier/partner ledger entry</li>
-          <li>Clients</li>
-          <li>
-            Stock and stock history (stock batches, phone IMEIs, purchases)
-          </li>
-          <li>
-            Recharges, money transfers, exchange, loto, maintenance jobs, custom
-            services and expenses
-          </li>
-          <li>Customer sessions and the audit log</li>
+          <li>{t("reset.deletes.transactions")}</li>
+          <li>{t("reset.deletes.closings")}</li>
+          <li>{t("reset.deletes.clients")}</li>
+          <li>{t("reset.deletes.stock")}</li>
+          <li>{t("reset.deletes.services")}</li>
+          <li>{t("reset.deletes.sessions")}</li>
         </ul>
         <p className="text-xs text-slate-500 mt-2">
-          Drawer balances are set to zero — the app will ask for opening amounts
-          again the next time it's used.
+          {t("reset.drawersZero")}
         </p>
       </div>
 
       <div>
         <h3 className="text-sm font-semibold text-white mb-2">
-          What will be removed
+          {t("reset.previewTitle")}
         </h3>
         {loading ? (
           <div className="text-sm text-slate-400">
-            Loading preview...
+            {t("reset.loadingPreview")}
             {slow && (
               <span
                 data-testid="reset-data-slow"
                 className="ms-2 inline-flex items-center gap-2"
               >
-                This is taking longer than usual.
+                {t("reset.slow")}
                 <button
                   type="button"
                   onClick={() => void load()}
                   className="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs"
                 >
-                  Retry
+                  {t("reset.retry")}
                 </button>
               </span>
             )}
@@ -298,13 +310,13 @@ export function ResetDataPanel() {
             data-testid="reset-data-error"
             className="flex items-center gap-3 text-sm text-red-400"
           >
-            <span>Could not load the preview: {error}</span>
+            <span>{t("reset.loadFailed", { error })}</span>
             <button
               type="button"
               onClick={() => void load()}
               className="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs"
             >
-              Retry
+              {t("reset.retry")}
             </button>
           </div>
         ) : (
@@ -317,17 +329,17 @@ export function ResetDataPanel() {
                 {groups.length === 0 && (
                   <tr>
                     <td className="px-4 py-3 text-sm text-slate-400">
-                      Nothing to delete — the database is already empty.
+                      {t("reset.empty")}
                     </td>
                   </tr>
                 )}
                 {groups.map((g) => (
-                  <tr key={g.label}>
+                  <tr key={g.id}>
                     <td className="px-4 py-2 text-sm text-slate-300">
-                      {g.label}
+                      {t(`reset.group.${g.id}`)}
                     </td>
                     <td className="px-4 py-2 text-sm text-white text-end">
-                      {g.count.toLocaleString()}
+                      {formatNumber(g.count)}
                     </td>
                   </tr>
                 ))}
@@ -336,10 +348,10 @@ export function ResetDataPanel() {
                 <tfoot>
                   <tr className="bg-slate-900 border-t border-slate-700">
                     <td className="px-4 py-3 text-sm font-semibold text-white">
-                      Total rows
+                      {t("reset.totalRows")}
                     </td>
                     <td className="px-4 py-3 text-sm font-bold text-white text-end">
-                      {preview.totalRows.toLocaleString()}
+                      {formatNumber(preview.totalRows)}
                     </td>
                   </tr>
                 </tfoot>
@@ -355,7 +367,7 @@ export function ResetDataPanel() {
         disabled={loading || !!error}
         className="px-4 py-2.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold transition-colors"
       >
-        Reset All Data
+        {t("reset.resetAll")}
       </button>
 
       {modalOpen && (

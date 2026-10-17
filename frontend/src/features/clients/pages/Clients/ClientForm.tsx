@@ -18,7 +18,7 @@ export default function ClientForm({
   client,
 }: ClientFormProps) {
   useModalFocusFix(true);
-  const { t } = useTranslation("clients");
+  const { t } = useTranslation(["clients", "common"]);
   const api = useApi();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");

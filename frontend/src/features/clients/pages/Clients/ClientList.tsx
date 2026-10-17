@@ -17,7 +17,7 @@ import { useTranslation } from "react-i18next";
 import { Ltr } from "@liratek/ui/components/ui/Ltr";
 
 export default function ClientList() {
-  const { t } = useTranslation("clients");
+  const { t } = useTranslation(["clients", "common"]);
   const api = useApi();
   const [clients, setClients] = useState<Client[]>([]);
   const [search, setSearch] = useState("");

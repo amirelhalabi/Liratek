@@ -484,7 +484,9 @@ test.describe.serial("lira-web-071 Shop Day", () => {
       await form
         .getByPlaceholder("e.g. Shop Line 1")
         .fill(`SD ${carrier} ${day.stamp}`);
-      await form.locator('input[type="number"]').first().fill(String(credits));
+      // LIRA-331: Credits is a text field with a decimal keypad (it accepts
+      // Arabic-Indic digits), no longer type="number".
+      await form.locator('input[inputmode="decimal"]').first().fill(String(credits));
       await form.locator('input[type="date"]').fill("2026-12-31");
       const saved = waitPost(page, "/api/carrier-lines");
       await form.getByRole("button", { name: "Create" }).click();

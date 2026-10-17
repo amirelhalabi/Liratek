@@ -9,13 +9,15 @@
 
 import { Popover, PopoverButton, PopoverPanel } from "@headlessui/react";
 import { SlidersHorizontal } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type {
   NumericFilterField,
   ProductFiltersUiState,
 } from "../productListFilters";
 
 interface NumericRange {
-  label: string;
+  /** Catalog key, translated at render (LIRA-331). */
+  labelKey: "filters.cost" | "filters.retail" | "filters.profit" | "filters.stock";
   minField: NumericFilterField;
   maxField: NumericFilterField;
   /** testid stem — inputs become `inventory-filter-<stem>-min` / `-max`. */
@@ -36,7 +38,7 @@ interface NumericRange {
 
 const RANGES: NumericRange[] = [
   {
-    label: "Cost ($)",
+    labelKey: "filters.cost",
     minField: "costMin",
     maxField: "costMax",
     testIdStem: "cost",
@@ -44,7 +46,7 @@ const RANGES: NumericRange[] = [
     min: "0",
   },
   {
-    label: "Retail ($)",
+    labelKey: "filters.retail",
     minField: "retailMin",
     maxField: "retailMax",
     testIdStem: "retail",
@@ -52,14 +54,14 @@ const RANGES: NumericRange[] = [
     min: "0",
   },
   {
-    label: "Profit (%)",
+    labelKey: "filters.profit",
     minField: "profitPctMin",
     maxField: "profitPctMax",
     testIdStem: "profit",
     step: "0.1",
   },
   {
-    label: "Stock (units)",
+    labelKey: "filters.stock",
     minField: "stockMin",
     maxField: "stockMax",
     testIdStem: "stock",
@@ -85,6 +87,7 @@ export function InventoryFiltersPopover({
   onReset,
   activeCount,
 }: InventoryFiltersPopoverProps) {
+  const { t } = useTranslation("inventory");
   return (
     <Popover className="relative">
       <PopoverButton
@@ -96,7 +99,7 @@ export function InventoryFiltersPopover({
         }`}
       >
         <SlidersHorizontal size={16} />
-        Filters
+        {t("filters.button")}
         {activeCount > 0 && (
           <span className="inline-flex items-center justify-center rounded bg-violet-600/30 px-1.5 py-0.5 text-xs font-medium text-violet-200">
             {activeCount}
@@ -115,14 +118,14 @@ export function InventoryFiltersPopover({
           {RANGES.map((range) => (
             <div key={range.testIdStem}>
               <label className="mb-1 block text-xs font-medium text-slate-400">
-                {range.label}
+                {t(range.labelKey)}
               </label>
               <div className="flex items-center gap-2">
                 <input
                   type="number"
                   step={range.step}
                   min={range.min}
-                  placeholder="Min"
+                  placeholder={t("filters.min")}
                   data-testid={`inventory-filter-${range.testIdStem}-min`}
                   value={filters[range.minField]}
                   onChange={(e) =>
@@ -135,7 +138,7 @@ export function InventoryFiltersPopover({
                   type="number"
                   step={range.step}
                   min={range.min}
-                  placeholder="Max"
+                  placeholder={t("filters.max")}
                   data-testid={`inventory-filter-${range.testIdStem}-max`}
                   value={filters[range.maxField]}
                   onChange={(e) =>
@@ -155,7 +158,7 @@ export function InventoryFiltersPopover({
             data-testid="inventory-filters-reset"
             className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 transition-colors hover:bg-slate-700"
           >
-            Reset
+            {t("filters.reset")}
           </button>
         </div>
       </PopoverPanel>

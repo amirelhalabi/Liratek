@@ -7,12 +7,17 @@
  * `productUnitsLogic.ts` uses for `warrantyBadgeInfo`.
  */
 import type { TableData } from "@liratek/ui";
+import { formatDate, formatNumber } from "@liratek/ui/i18n/format";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import type {
   UnitListFilters,
   UnitListRowWithWarranty,
 } from "../../hooks/useProductUnits";
-import { warrantyDisplayBadge } from "../../productUnitsLogic";
+import {
+  englishInventoryT,
+  warrantyDisplayBadge,
+  type InventoryT,
+} from "../../productUnitsLogic";
 
 /** Rows per page. Well under the Zod ceiling (limit ≤ 200). */
 export const PHONE_UNITS_PAGE_SIZE = 25;
@@ -86,6 +91,7 @@ export function computePageRange(
   offset: number,
   rowCount: number,
   total: number,
+  t: InventoryT = englishInventoryT(),
 ): PhoneUnitsPageRange {
   const empty = rowCount === 0 || total === 0;
   const start = empty ? 0 : offset + 1;
@@ -95,7 +101,9 @@ export function computePageRange(
     end,
     hasPrev: offset > 0,
     hasNext: !empty && end < total,
-    label: empty ? `0 of ${total}` : `${start}–${end} of ${total}`,
+    label: empty
+      ? t("phoneUnits.rangeEmpty", { total })
+      : t("phoneUnits.range", { start, end, total }),
   };
 }
 
@@ -188,17 +196,17 @@ export function planExportFetch(
 export function exportCapConfirmMessage(
   total: number,
   cap: number = PHONE_UNITS_EXPORT_MAX_ROWS,
+  t: InventoryT = englishInventoryT(),
 ): string {
-  return (
-    `${total.toLocaleString()} units match these filters, but an export is ` +
-    `limited to ${cap.toLocaleString()} rows.\n\n` +
-    `Export the first ${cap.toLocaleString()}? ` +
-    `Cancel to narrow the filters first.`
-  );
+  return t("phoneUnits.exportCapConfirm", {
+    total: formatNumber(total),
+    cap: formatNumber(cap),
+  });
 }
 
 /**
- * The export's column headers. Mirrors the visible table's headers minus
+ * The export's column headers — English data, whatever the screen language
+ * (LIRA-331: an export column is never translated). Mirrors the visible table's headers minus
  * "Actions" — exactly the set `DataTable`'s own exporter would have chosen
  * (it drops action/checkbox columns). Declared here so the export cannot
  * silently drift from the on-screen table; `PhoneUnits.test.tsx` asserts this
@@ -226,6 +234,8 @@ export const PHONE_UNITS_EXPORT_HEADERS = [
 export function buildUnitExportTable(
   rows: UnitListRowWithWarranty[],
 ): TableData {
+  // LIRA-331: the export is English data whatever the screen language.
+  const en = englishInventoryT();
   return {
     headers: [...PHONE_UNITS_EXPORT_HEADERS],
     rows: rows.map((unit) => [
@@ -233,13 +243,19 @@ export function buildUnitExportTable(
       unit.product_name,
       unit.status,
       unit.is_defective ? "Defective" : "—",
-      unit.sold_at ? parseDbDate(unit.sold_at).toLocaleDateString() : "—",
+      unit.sold_at
+        ? formatDate(parseDbDate(unit.sold_at), "en", {
+            year: "numeric",
+            month: "numeric",
+            day: "numeric",
+          })
+        : "—",
       unit.client_name ?? "—",
       warrantyDisplayBadge({
         warranty: unit.warranty,
         status: unit.status,
         productWarrantyMonths: unit.product_warranty_months,
-      }).label,
+      }, en).label,
     ]),
   };
 }

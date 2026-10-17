@@ -21,7 +21,6 @@ import type {
 } from "@liratek/core";
 import { localDay } from "@/shared/utils/localDay";
 import { useTranslation } from "react-i18next";
-import { Ltr } from "@liratek/ui/components/ui/Ltr";
 
 export interface ClaimTarget {
   /** A sale line's warranty — or `maintenanceId` for a repair's own. */
@@ -62,7 +61,7 @@ export function ClaimModal({
   onClose,
   onDone,
 }: ClaimModalProps) {
-  const { t } = useTranslation("warranty");
+  const { t } = useTranslation(["warranty", "common"]);
   const api = useApi();
   const apiRef = useRef(api);
   apiRef.current = api;

@@ -1,4 +1,5 @@
 import { useRef, useState, type KeyboardEvent } from "react";
+import { useTranslation } from "react-i18next";
 
 export interface ImeiAddRowResult {
   success: boolean;
@@ -36,13 +37,14 @@ export interface ImeiAddRowProps {
  */
 export function ImeiAddRow({
   onAdd,
-  placeholder = "Scan or type an IMEI",
+  placeholder,
   autoFocus = false,
   disabled = false,
-  buttonLabel = "Add",
+  buttonLabel,
   inputTestId = "imei-add-input",
   buttonTestId = "imei-add-button",
 }: ImeiAddRowProps) {
+  const { t } = useTranslation(["inventory", "common"]);
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -56,13 +58,13 @@ export function ImeiAddRow({
     try {
       const result = await onAdd(trimmed);
       if (!result.success) {
-        setError(result.error ?? "Failed to add unit");
+        setError(result.error ?? t("imeiAdd.failed"));
         return;
       }
       setValue("");
       inputRef.current?.focus();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add unit");
+      setError(err instanceof Error ? err.message : t("imeiAdd.failed"));
     } finally {
       setSubmitting(false);
     }
@@ -85,7 +87,7 @@ export function ImeiAddRow({
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={placeholder}
+          placeholder={placeholder ?? t("imeiAdd.placeholder")}
           autoFocus={autoFocus}
           // Deliberately NOT also gated on `submitting` — re-entrancy is
           // already blocked at the top of `submit()`, and a disabled input
@@ -103,7 +105,9 @@ export function ImeiAddRow({
           disabled={disabled || submitting || value.trim().length === 0}
           className="px-3 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white rounded-lg text-sm font-medium transition-colors shrink-0"
         >
-          {submitting ? "Adding…" : buttonLabel}
+          {submitting
+            ? t("imeiAdd.adding")
+            : (buttonLabel ?? t("common:actions.add"))}
         </button>
       </div>
       {error && <p className="text-sm text-red-400 mt-1">{error}</p>}

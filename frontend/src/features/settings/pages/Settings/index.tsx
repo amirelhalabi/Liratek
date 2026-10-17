@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Tag } from "lucide-react";
 import { PageHeader } from "@liratek/ui";
 import { isElectron } from "@/api/backendApi";
@@ -120,50 +121,51 @@ function isTabAvailable(key: TabKey): boolean {
  */
 export default function Settings() {
   const [searchParams] = useSearchParams();
+  const { t } = useTranslation("settings");
   const [active, setActive] = useState<TabKey>(() => {
     const tab = searchParams.get("tab");
     return isTabKey(tab) && isTabAvailable(tab) ? tab : "shop";
   });
 
   const allTabs = [
-    { key: "shop", label: "Shop Config" },
-    { key: "categories", label: "Categories & Suppliers", icon: Tag },
-    { key: "notifications", label: "Notifications" },
-    { key: "modules", label: "Modules & Drawers" },
-    { key: "currencies", label: "Currencies & Rates" },
-    { key: "users", label: "Users" },
-    { key: "devices", label: "Signed-in Devices" },
-    { key: "paired-pcs", label: "Paired PCs" },
-    { key: "this-pc", label: "This PC" },
-    { key: "profits", label: "Profits Password" },
-    { key: "integrations", label: "Integrations" },
-    { key: "mobile-services", label: "Mobile Services" },
-    { key: "carrier-lines", label: "Carrier Lines" },
-    { key: "diagnostics", label: "Diagnostics" },
-    { key: "license", label: "Licence" },
+    { key: "shop", label: t("tabs.shop") },
+    { key: "categories", label: t("tabs.categories"), icon: Tag },
+    { key: "notifications", label: t("tabs.notifications") },
+    { key: "modules", label: t("tabs.modules") },
+    { key: "currencies", label: t("tabs.currencies") },
+    { key: "users", label: t("tabs.users") },
+    { key: "devices", label: t("tabs.devices") },
+    { key: "paired-pcs", label: t("tabs.pairedPcs") },
+    { key: "this-pc", label: t("tabs.thisPc") },
+    { key: "profits", label: t("tabs.profits") },
+    { key: "integrations", label: t("tabs.integrations") },
+    { key: "mobile-services", label: t("tabs.mobileServices") },
+    { key: "carrier-lines", label: t("tabs.carrierLines") },
+    { key: "diagnostics", label: t("tabs.diagnostics") },
+    { key: "license", label: t("tabs.license") },
     // Deliberately last — a destructive admin-only action, kept away from
     // the tabs an operator reaches for day to day.
-    { key: "reset", label: "Reset Data" },
+    { key: "reset", label: t("tabs.reset") },
   ] as { key: TabKey; label: string; icon?: typeof Tag }[];
 
   // Desktop-only tabs (see DESKTOP_ONLY_TABS above) are absent here rather
   // than present-and-broken on the web build.
-  const tabs = allTabs.filter((t) => isTabAvailable(t.key));
+  const tabs = allTabs.filter((tab) => isTabAvailable(tab.key));
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
-      <PageHeader title="Settings" />
+      <PageHeader title={t("page.title")} />
 
       {/* Tab Navigation Section */}
       <div className="flex-1 min-h-0 bg-slate-800 rounded-xl border border-slate-700 shadow-lg flex flex-col overflow-hidden">
         <div className="flex gap-2 p-2 border-b border-slate-700 shrink-0">
-          {tabs.map((t) => (
+          {tabs.map((tab) => (
             <button
-              key={t.key}
-              onClick={() => setActive(t.key)}
-              className={`px-3 py-1 rounded ${active === t.key ? "bg-violet-600 text-white" : "text-slate-300 hover:bg-slate-800"}`}
+              key={tab.key}
+              onClick={() => setActive(tab.key)}
+              className={`px-3 py-1 rounded ${active === tab.key ? "bg-violet-600 text-white" : "text-slate-300 hover:bg-slate-800"}`}
             >
-              {t.label}
+              {tab.label}
             </button>
           ))}
         </div>

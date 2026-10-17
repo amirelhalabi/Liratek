@@ -1,4 +1,7 @@
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { useFormat } from "@/i18n/useFormat";
 import type { UnitStoryEntry } from "../hooks/useProductUnits";
 import { warrantyDisplayBadge } from "../productUnitsLogic";
 
@@ -13,13 +16,15 @@ export interface ImeiStoryCardProps {
  * Inventory page wiring below.
  */
 export function ImeiStoryCard({ story }: ImeiStoryCardProps) {
+  const { t } = useTranslation("inventory");
+  const { formatDate } = useFormat();
   // The SAME mapping as the Phone Units table (LIRA-296 follow-up, owner
   // decision 2026-10-10): a unit on the shelf reads "Not sold".
   const badge = warrantyDisplayBadge({
     warranty: story.warranty,
     status: story.status,
     productWarrantyMonths: story.product_warranty_months,
-  });
+  }, t);
   const statusBadgeClass =
     story.status === "IN_STOCK"
       ? "bg-sky-500/10 text-sky-400 border-sky-500/30"
@@ -32,7 +37,7 @@ export function ImeiStoryCard({ story }: ImeiStoryCardProps) {
     >
       <div className="min-w-[160px]">
         <div className="text-sm font-semibold text-white flex items-center gap-2">
-          <span>{story.product_name ?? "Unknown product"}</span>
+          <span>{story.product_name ?? t("story.unknownProduct")}</span>
           {/* LIRA-172 — mirrors the Phone Units register's chip
               (PhoneUnits/index.tsx), same muted/secondary styling (never an
               alarm color): a sold unit of a soft-deleted product stays
@@ -41,46 +46,52 @@ export function ImeiStoryCard({ story }: ImeiStoryCardProps) {
           {story.product_deleted === 1 && (
             <span
               data-testid="imei-story-product-deleted"
-              title="This product has been deleted from inventory"
+              title={t("unit.productDeletedTitle")}
               className="text-[10px] px-1.5 py-0.5 rounded border bg-slate-700/40 text-slate-400 border-slate-600/40"
             >
-              Product deleted
+              {t("unit.productDeleted")}
             </span>
           )}
         </div>
-        <div className="text-xs font-mono text-slate-400">{story.imei}</div>
+        <div className="text-xs font-mono text-slate-400">
+          <Ltr>{story.imei}</Ltr>
+        </div>
       </div>
 
       <span className={`text-xs px-2 py-1 rounded border ${statusBadgeClass}`}>
-        {story.status}
+        {t(`unit.status.${story.status}`)}
       </span>
 
       {!!story.is_defective && (
         <span className="text-xs px-2 py-1 rounded border bg-red-500/10 text-red-400 border-red-500/30">
-          Defective
+          {t("unit.defective")}
         </span>
       )}
 
       <div className="text-xs text-slate-400">
-        Sold:{" "}
+        {t("story.sold")}{" "}
         <span className="text-slate-300">
           {story.sold_at
-            ? parseDbDate(story.sold_at).toLocaleDateString()
+            ? formatDate(parseDbDate(story.sold_at), {
+                year: "numeric",
+                month: "numeric",
+                day: "numeric",
+              })
             : "—"}
         </span>
       </div>
 
       <div className="text-xs text-slate-400">
-        Price:{" "}
-        <span className="text-slate-300">
+        {t("story.price")}{" "}
+        <Ltr className="text-slate-300">
           {story.sold_price_usd != null
             ? `$${story.sold_price_usd.toFixed(2)}`
             : "—"}
-        </span>
+        </Ltr>
       </div>
 
       <div className="text-xs text-slate-400">
-        Client:{" "}
+        {t("story.client")}{" "}
         <span className="text-slate-300">{story.client_name ?? "—"}</span>
       </div>
 

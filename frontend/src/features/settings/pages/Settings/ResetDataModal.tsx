@@ -4,6 +4,9 @@ import { useApi } from "@liratek/ui";
 import { DATABASE_RESET_CONFIRMATION_PHRASE } from "@liratek/core";
 import { isElectron } from "@/api/backendApi";
 import { reloadApp } from "@/shared/utils/reloadApp";
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { formatNumber } from "@liratek/ui/i18n/format";
 
 export interface ResetDataModalProps {
   /** The preview's total row count — repeated here so the confirmation
@@ -23,6 +26,7 @@ type Status = "idle" | "submitting" | "success";
  * rest of the app visually and functionally.
  */
 export function ResetDataModal({ totalRows, onClose }: ResetDataModalProps) {
+  const { t } = useTranslation(["settings", "common"]);
   const api = useApi();
   const [phrase, setPhrase] = useState("");
   const [status, setStatus] = useState<Status>("idle");
@@ -63,11 +67,11 @@ export function ResetDataModal({ totalRows, onClose }: ResetDataModalProps) {
         // database.
         window.setTimeout(() => reloadApp(), 1500);
       } else {
-        setError(result.error ?? "Reset failed");
+        setError(result.error ?? t("resetModal.failed"));
         setStatus("idle");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Reset failed");
+      setError(err instanceof Error ? err.message : t("resetModal.failed"));
       setStatus("idle");
     }
   }
@@ -96,29 +100,27 @@ export function ResetDataModal({ totalRows, onClose }: ResetDataModalProps) {
             </div>
             <div className="flex-1">
               <h3 className="text-xl font-bold text-white mb-2">
-                Reset all data?
+                {t("resetModal.title")}
               </h3>
               {status === "success" ? (
                 <p className="text-slate-300 text-sm leading-relaxed">
-                  Done — {(deletedTotal ?? 0).toLocaleString()} rows removed.
-                  Reloading...
+                  {t("resetModal.done", { n: formatNumber(deletedTotal ?? 0) })}
                 </p>
               ) : (
                 <>
                   <p className="text-slate-400 text-sm leading-relaxed">
-                    This permanently deletes{" "}
+                    {t("resetModal.deletesBefore")}{" "}
                     <strong className="text-white">
-                      {totalRows.toLocaleString()}
+                      <Ltr>{formatNumber(totalRows)}</Ltr>
                     </strong>{" "}
-                    rows of operational data. Your shop's setup is kept. This
-                    cannot be undone. (A backup is taken first on desktop.)
+                    {t("resetModal.deletesAfter")}
                   </p>
                   <p className="text-slate-400 text-sm leading-relaxed mt-2">
-                    Type{" "}
+                    {t("resetModal.typeBefore")}{" "}
                     <strong className="text-white">
-                      {DATABASE_RESET_CONFIRMATION_PHRASE}
+                      <Ltr>{DATABASE_RESET_CONFIRMATION_PHRASE}</Ltr>
                     </strong>{" "}
-                    below to confirm.
+                    {t("resetModal.typeAfter")}
                   </p>
                 </>
               )}
@@ -161,7 +163,7 @@ export function ResetDataModal({ totalRows, onClose }: ResetDataModalProps) {
               disabled={busy}
               className="flex-1 px-4 py-2.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white transition-colors font-medium disabled:opacity-50"
             >
-              Cancel
+              {t("common:actions.cancel")}
             </button>
             <button
               data-testid="reset-data-confirm-btn"
@@ -169,7 +171,9 @@ export function ResetDataModal({ totalRows, onClose }: ResetDataModalProps) {
               disabled={!isMatch || busy}
               className="flex-1 px-4 py-2.5 rounded-lg text-white font-bold transition-all shadow-lg bg-red-600 hover:bg-red-500 shadow-red-900/20 disabled:bg-slate-700 disabled:text-slate-500 disabled:shadow-none"
             >
-              {status === "submitting" ? "Resetting..." : "Reset everything"}
+              {status === "submitting"
+                ? t("resetModal.resetting")
+                : t("resetModal.confirm")}
             </button>
           </div>
         )}
