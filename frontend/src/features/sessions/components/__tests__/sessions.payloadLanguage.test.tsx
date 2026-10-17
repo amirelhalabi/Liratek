@@ -65,13 +65,8 @@ let mockActiveSession: {
 let mockCartItems: CartItem[] = [];
 
 /** What the stub payment input reports when "apply" is clicked. */
-let mockPaymentMode:
-  | "cash"
-  | "split"
-  | "account"
-  | "wallet"
-  | "overpay"
-  | "none" = "cash";
+type PaymentMode = "cash" | "split" | "account" | "wallet" | "overpay" | "none";
+let mockPaymentMode: PaymentMode = "cash";
 
 function cartTotalsOf(items: CartItem[]) {
   return items.reduce(
@@ -305,7 +300,7 @@ async function switchToArabic() {
 interface CheckoutCase {
   name: string;
   cart: CartItem[];
-  mode: typeof mockPaymentMode;
+  mode: PaymentMode;
   discount?: string;
   payoutUsd?: string;
   /** A leg (method + direction) the mode must produce. */

@@ -1,4 +1,5 @@
 import { TrendingUp, Calendar, DollarSign } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { formatServiceAmount } from "@/features/custom-services/utils/formatServiceAmount";
 
 interface StatsCardsProps {
@@ -16,17 +17,18 @@ export function StatsCards({
   totalProfitUsd,
   totalProfitLbp,
 }: StatsCardsProps) {
+  const { t } = useTranslation("customServices");
   return (
     <div className="flex flex-wrap gap-2">
       <div className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700 hover:text-white">
         <Calendar className="w-4 h-4 shrink-0" />
-        <span className="font-medium whitespace-nowrap">Today's Services</span>
+        <span className="font-medium whitespace-nowrap">{t("stats.todayServices")}</span>
         <span className="font-bold text-white">{count}</span>
       </div>
 
       <div className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700 hover:text-white">
         <DollarSign className="w-4 h-4 shrink-0" />
-        <span className="font-medium whitespace-nowrap">Today's Revenue</span>
+        <span className="font-medium whitespace-nowrap">{t("stats.todayRevenue")}</span>
         <span className="font-bold text-white">
           {formatServiceAmount(totalPriceUsd, totalPriceLbp)}
         </span>
@@ -34,7 +36,7 @@ export function StatsCards({
 
       <div className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700 hover:text-white">
         <TrendingUp className="w-4 h-4 shrink-0" />
-        <span className="font-medium whitespace-nowrap">Today's Profit</span>
+        <span className="font-medium whitespace-nowrap">{t("stats.todayProfit")}</span>
         <span
           className={`font-bold ${
             totalProfitUsd >= 0 && totalProfitLbp >= 0

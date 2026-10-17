@@ -1,4 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { useFormat } from "@/i18n/useFormat";
 import {
   Wallet,
   User,
@@ -72,14 +76,14 @@ const EPS_USD = 0.01;
 const EPS_LBP = 1;
 
 function formatUsd(n: number): string {
-  return n.toLocaleString(undefined, {
+  return formatNumber(n, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
 }
 
 function formatLbp(n: number): string {
-  return n.toLocaleString();
+  return formatNumber(n);
 }
 
 /**
@@ -95,6 +99,8 @@ function formatLbp(n: number): string {
  */
 export function HoldMoneySection() {
   const api = useApi();
+  const { t } = useTranslation("customServices");
+  const { formatDateTime } = useFormat();
   const { methods } = usePaymentMethods();
   const { buyRate } = useSellRate();
 
@@ -147,7 +153,7 @@ export function HoldMoneySection() {
       } else if (!res.success) {
         appEvents.emit(
           "notification:show",
-          res.error ?? "Failed to load holds",
+          res.error ?? t("hold.loadFailed"),
           "error",
         );
       }
@@ -179,7 +185,7 @@ export function HoldMoneySection() {
       } else if (!res.success) {
         appEvents.emit(
           "notification:show",
-          res.error ?? "Failed to load pickup history",
+          res.error ?? t("hold.loadPickupsFailed"),
           "error",
         );
       }
@@ -203,9 +209,11 @@ export function HoldMoneySection() {
   const handleVoidPickup = async (pickup: HoldMoneyPickupRecord) => {
     if (
       !window.confirm(
-        `Void this pickup (${pickup.usd_amount > 0 ? `$${formatUsd(pickup.usd_amount)}` : ""}${
-          pickup.usd_amount > 0 && pickup.lbp_amount > 0 ? " + " : ""
-        }${pickup.lbp_amount > 0 ? `${formatLbp(pickup.lbp_amount)} LBP` : ""})? This re-credits the drawer(s) it was paid from and reopens the hold.`,
+        t("hold.voidPickupConfirm", {
+          amount: `${pickup.usd_amount > 0 ? `$${formatUsd(pickup.usd_amount)}` : ""}${
+            pickup.usd_amount > 0 && pickup.lbp_amount > 0 ? " + " : ""
+          }${pickup.lbp_amount > 0 ? `${formatLbp(pickup.lbp_amount)} LBP` : ""}`,
+        }),
       )
     ) {
       return;
@@ -214,14 +222,14 @@ export function HoldMoneySection() {
     try {
       const res = await api.holdMoney.voidPickup(pickup.id);
       if (res.success) {
-        appEvents.emit("notification:show", "Pickup voided.", "success");
+        appEvents.emit("notification:show", t("hold.pickupVoided"), "success");
         appEvents.emit("holdMoney:changed");
         await loadPickups(pickup.hold_money_id);
         await loadHolds(statusFilter);
       } else {
         appEvents.emit(
           "notification:show",
-          res.error ?? "Failed to void pickup.",
+          res.error ?? t("hold.voidPickupFailed"),
           "error",
         );
       }
@@ -231,7 +239,7 @@ export function HoldMoneySection() {
       logger.error("[HoldMoney] void pickup failed", err);
       appEvents.emit(
         "notification:show",
-        getApiErrorMessage(err, "Failed to void pickup."),
+        getApiErrorMessage(err, t("hold.voidPickupFailed")),
         "error",
       );
     } finally {
@@ -260,7 +268,7 @@ export function HoldMoneySection() {
     if (!clientName.trim()) {
       appEvents.emit(
         "notification:show",
-        "Customer name is required.",
+        t("hold.nameRequired"),
         "warning",
       );
       return;
@@ -268,7 +276,7 @@ export function HoldMoneySection() {
     if (usdAmount <= 0 && lbpAmount <= 0) {
       appEvents.emit(
         "notification:show",
-        "Enter a USD and/or LBP amount to hold.",
+        t("hold.amountRequired"),
         "warning",
       );
       return;
@@ -276,7 +284,7 @@ export function HoldMoneySection() {
     if (!legsHaveMethods) {
       appEvents.emit(
         "notification:show",
-        "Pick a payment method for every payment line.",
+        t("hold.methodRequired"),
         "warning",
       );
       return;
@@ -300,7 +308,7 @@ export function HoldMoneySection() {
       if (res.success) {
         appEvents.emit(
           "notification:show",
-          `Held money for ${clientName.trim()}.`,
+          t("hold.held", { name: clientName.trim() }),
           "success",
         );
         setClientName("");
@@ -316,7 +324,7 @@ export function HoldMoneySection() {
       } else {
         appEvents.emit(
           "notification:show",
-          res.error ?? "Failed to hold money.",
+          res.error ?? t("hold.holdFailed"),
           "error",
         );
       }
@@ -326,7 +334,7 @@ export function HoldMoneySection() {
       logger.error("[HoldMoney] create failed", err);
       appEvents.emit(
         "notification:show",
-        getApiErrorMessage(err, "Failed to hold money."),
+        getApiErrorMessage(err, t("hold.holdFailed")),
         "error",
       );
     } finally {
@@ -345,6 +353,7 @@ export function HoldMoneySection() {
     effectiveRate,
     loadHolds,
     legsHaveMethods,
+    t,
   ]);
 
   return (
@@ -356,8 +365,8 @@ export function HoldMoneySection() {
             htmlFor="hold-client"
             className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
           >
-            <User size={12} /> Customer Name
-            <span className="text-red-400 ml-1">*</span>
+            <User size={12} /> {t("form.customerName")}
+            <span className="text-red-400 ms-1">*</span>
           </label>
           <ClientAutocompleteInput
             id="hold-client"
@@ -367,7 +376,7 @@ export function HoldMoneySection() {
               setClientId(null);
             }}
             onClientSelect={selectClient}
-            placeholder="Search or type name..."
+            placeholder={t("form.customerPlaceholder")}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500 transition-all"
           />
         </div>
@@ -376,7 +385,7 @@ export function HoldMoneySection() {
             htmlFor="hold-phone"
             className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
           >
-            <Phone size={12} /> Phone
+            <Phone size={12} /> {t("form.phone")}
           </label>
           <input
             id="hold-phone"
@@ -384,7 +393,7 @@ export function HoldMoneySection() {
             value={phoneNumber}
             onChange={(e) => setPhoneNumber(e.target.value)}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500 transition-all"
-            placeholder="e.g., 03 123 456"
+            placeholder={t("form.phonePlaceholder")}
           />
         </div>
         <div>
@@ -392,7 +401,7 @@ export function HoldMoneySection() {
             htmlFor="hold-note"
             className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
           >
-            <Tag size={12} /> Note (optional)
+            <Tag size={12} /> {t("form.note")}
           </label>
           <input
             id="hold-note"
@@ -400,7 +409,7 @@ export function HoldMoneySection() {
             value={note}
             onChange={(e) => setNote(e.target.value)}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500 transition-all"
-            placeholder="Additional details..."
+            placeholder={t("form.notePlaceholder")}
             maxLength={1000}
           />
         </div>
@@ -409,7 +418,7 @@ export function HoldMoneySection() {
       {/* Amount to Hold — USD + LBP (mirrors the Cost/Price panel) */}
       <div className="p-4 rounded-xl bg-teal-400/5 border border-teal-400/20 space-y-3">
         <span className="block text-xs font-medium text-teal-400 uppercase tracking-wider">
-          Amount to Hold
+          {t("hold.amountToHold")}
         </span>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -420,7 +429,7 @@ export function HoldMoneySection() {
               USD
             </label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">
+              <span className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">
                 $
               </span>
               <DecimalInput
@@ -428,7 +437,7 @@ export function HoldMoneySection() {
                 value={usdAmount}
                 onChange={setUsdAmount}
                 decimals={2}
-                className="w-full bg-slate-900/80 border border-slate-700 rounded-lg pl-8 pr-3 py-2.5 text-white font-mono text-sm focus:ring-2 focus:ring-teal-500 outline-none transition-all"
+                className="w-full bg-slate-900/80 border border-slate-700 rounded-lg ps-8 pe-3 py-2.5 text-white font-mono text-sm focus:ring-2 focus:ring-teal-500 outline-none transition-all"
                 placeholder="0.00"
               />
             </div>
@@ -444,14 +453,13 @@ export function HoldMoneySection() {
               id="hold-lbp"
               value={lbpAmount}
               onChange={setLbpAmount}
-              className="w-full bg-slate-900/80 border border-slate-700 rounded-lg pl-3 pr-3 py-2.5 text-white font-mono text-sm focus:ring-2 focus:ring-teal-500 outline-none transition-all"
+              className="w-full bg-slate-900/80 border border-slate-700 rounded-lg ps-3 pe-3 py-2.5 text-white font-mono text-sm focus:ring-2 focus:ring-teal-500 outline-none transition-all"
               placeholder="0"
             />
           </div>
         </div>
         <p className="text-[11px] text-slate-500">
-          Held cash is posted per the payment method below; collecting pays it
-          back out the same way.
+          {t("hold.amountHint")}
         </p>
       </div>
 
@@ -459,7 +467,7 @@ export function HoldMoneySection() {
       {(usdAmount > 0 || lbpAmount > 0) && (
         <div>
           <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">
-            Received Via
+            {t("hold.receivedVia")}
           </label>
           <MultiPaymentInput
             key={`${usdAmount}-${lbpAmount > 0 ? "lbp" : "no-lbp"}`}
@@ -485,7 +493,7 @@ export function HoldMoneySection() {
             ]}
             exchangeRate={buyRate}
             onExchangeRateChange={setEffectiveRate}
-            label="Payment"
+            label={t("hold.paymentLabel")}
           />
         </div>
       )}
@@ -500,11 +508,12 @@ export function HoldMoneySection() {
       >
         {isSubmitting ? (
           <>
-            <RefreshCw size={18} className="animate-spin" /> Processing...
+            <RefreshCw size={18} className="animate-spin" />{" "}
+            {t("hold.processing")}
           </>
         ) : (
           <>
-            <Wallet size={18} /> Hold Money
+            <Wallet size={18} /> {t("hold.submit")}
           </>
         )}
       </button>
@@ -516,10 +525,10 @@ export function HoldMoneySection() {
           <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
             <HandCoins size={13} className="text-teal-400" />
             {statusFilter === "held"
-              ? "Active Holds"
+              ? t("hold.activeHolds")
               : statusFilter === "collected"
-                ? "Collected Holds"
-                : "All Holds"}
+                ? t("hold.collectedHolds")
+                : t("hold.allHolds")}
             <span className="text-slate-500">({holds.length})</span>
           </label>
           <div className="flex items-center gap-2">
@@ -537,10 +546,10 @@ export function HoldMoneySection() {
                   }`}
                 >
                   {f === "held"
-                    ? "Held"
+                    ? t("hold.filterHeld")
                     : f === "collected"
-                      ? "Collected"
-                      : "All"}
+                      ? t("hold.filterCollected")
+                      : t("hold.filterAll")}
                 </button>
               ))}
             </div>
@@ -550,7 +559,7 @@ export function HoldMoneySection() {
               className="text-xs px-2 py-1 rounded bg-slate-700/60 hover:bg-slate-700 text-slate-300 transition-colors flex items-center gap-1"
             >
               <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
-              Refresh
+              {t("hold.refresh")}
             </button>
           </div>
         </div>
@@ -560,10 +569,10 @@ export function HoldMoneySection() {
             <Wallet size={28} className="mb-2 opacity-40" />
             <p className="text-sm">
               {statusFilter === "held"
-                ? "No active holds"
+                ? t("hold.noActive")
                 : statusFilter === "collected"
-                  ? "No collected holds"
-                  : "No holds"}
+                  ? t("hold.noCollected")
+                  : t("hold.none")}
             </p>
           </div>
         ) : (
@@ -581,8 +590,8 @@ export function HoldMoneySection() {
                     <p className="text-sm font-medium text-white truncate">
                       {hold.client_name}
                       {hold.phone_number && (
-                        <span className="text-slate-500 font-normal ml-2">
-                          {hold.phone_number}
+                        <span className="text-slate-500 font-normal ms-2">
+                          <Ltr>{hold.phone_number}</Ltr>
                         </span>
                       )}
                     </p>
@@ -602,10 +611,13 @@ export function HoldMoneySection() {
                           className="text-slate-500"
                           data-testid={`hold-partial-badge-${hold.id}`}
                         >
-                          of ${formatUsd(hold.usd_amount)}
-                          {hold.lbp_amount > 0
-                            ? ` + ${formatLbp(hold.lbp_amount)} LBP`
-                            : ""}
+                          {t("hold.ofTotal", {
+                            amount: `$${formatUsd(hold.usd_amount)}${
+                              hold.lbp_amount > 0
+                                ? ` + ${formatLbp(hold.lbp_amount)} LBP`
+                                : ""
+                            }`,
+                          })}
                         </span>
                       )}
                     </div>
@@ -620,7 +632,7 @@ export function HoldMoneySection() {
                       type="button"
                       data-testid={`hold-history-${hold.id}`}
                       onClick={() => toggleHistory(hold.id)}
-                      title="Pickup history / void a pickup"
+                      title={t("hold.historyTitle")}
                       className={`px-2.5 py-2 rounded-lg text-xs font-medium border transition-all flex items-center gap-1 ${
                         expandedHoldId === hold.id
                           ? "bg-slate-700 text-white border-slate-600"
@@ -637,7 +649,7 @@ export function HoldMoneySection() {
                         className="px-4 py-2 rounded-lg font-medium text-sm bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition-all flex items-center gap-1.5"
                       >
                         <HandCoins size={14} />
-                        Collect
+                        {t("hold.collect")}
                       </button>
                     )}
                   </div>
@@ -654,16 +666,16 @@ export function HoldMoneySection() {
                   className="px-4 py-3 bg-slate-950/60 border-t border-slate-700/60"
                 >
                   <p className="text-[11px] font-medium text-slate-400 uppercase tracking-wider mb-2">
-                    Pickup history
+                    {t("hold.pickupHistory")}
                   </p>
                   {pickupsLoading === expandedHoldId ? (
                     <p className="text-xs text-slate-500 flex items-center gap-1.5">
                       <RefreshCw size={12} className="animate-spin" />
-                      Loading…
+                      {t("hold.loadingEllipsis")}
                     </p>
                   ) : (pickupsByHold[expandedHoldId] ?? []).length === 0 ? (
                     <p className="text-xs text-slate-500">
-                      No pickups recorded yet.
+                      {t("hold.noPickups")}
                     </p>
                   ) : (
                     <div className="space-y-1.5">
@@ -684,12 +696,19 @@ export function HoldMoneySection() {
                             {p.usd_amount > 0 && p.lbp_amount > 0 ? " + " : ""}
                             {p.lbp_amount > 0 &&
                               `${formatLbp(p.lbp_amount)} LBP`}
-                            <span className="text-slate-600 ml-2">
-                              {new Date(p.created_at).toLocaleString()}
+                            <span className="text-slate-600 ms-2">
+                              {formatDateTime(new Date(p.created_at), {
+                                year: "numeric",
+                                month: "numeric",
+                                day: "numeric",
+                                hour: "numeric",
+                                minute: "2-digit",
+                                second: "2-digit",
+                              })}
                             </span>
                             {p.is_voided ? (
-                              <span className="ml-2 text-red-400/80 no-underline">
-                                voided
+                              <span className="ms-2 text-red-400/80 no-underline">
+                                {t("hold.voided")}
                               </span>
                             ) : null}
                           </div>
@@ -702,7 +721,7 @@ export function HoldMoneySection() {
                               className="flex-shrink-0 px-2 py-1 rounded font-medium text-[11px] bg-red-500/10 text-red-300 border border-red-500/30 hover:bg-red-500/20 disabled:opacity-50 transition-all flex items-center gap-1"
                             >
                               <Undo2 size={11} />
-                              Void
+                              {t("hold.void")}
                             </button>
                           )}
                         </div>

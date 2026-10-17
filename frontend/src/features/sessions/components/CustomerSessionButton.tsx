@@ -160,7 +160,7 @@ export function CustomerSessionButton({
       }
     };
     loadExistingClients();
-  }, [api]);
+  }, [api, t]);
 
   const handleCloseSession = async (e: React.MouseEvent, sessionId: number) => {
     e.stopPropagation();

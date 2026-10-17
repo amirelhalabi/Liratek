@@ -9,6 +9,10 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { categoryLabel } from "@/features/custom-services/utils/labels";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import {
   Plus,
   History,
@@ -74,16 +78,17 @@ interface ProductSearchResult {
   barcode: string;
 }
 
-/** Category presets for quick selection */
+/** Category presets for quick selection. `value` is the stored code; the
+ *  label is translated from it at render time (`categoryLabel`). */
 const SERVICE_CATEGORIES = [
-  { value: "", label: "All", icon: "briefcase" },
-  { value: "digital_account", label: "Digital Account", icon: "monitor" },
-  { value: "repair", label: "Repair", icon: "wrench" },
-  { value: "activation", label: "Activation", icon: "zap" },
-  { value: "other", label: "Other", icon: "tag" },
+  { value: "", icon: "briefcase" },
+  { value: "digital_account", icon: "monitor" },
+  { value: "repair", icon: "wrench" },
+  { value: "activation", icon: "zap" },
+  { value: "other", icon: "tag" },
   // Special category — selecting it swaps the form for the Hold Money UI
   // (no presets / product search / cost-price; cash held in the General drawer).
-  { value: "hold_money", label: "Hold Money", icon: "wallet" },
+  { value: "hold_money", icon: "wallet" },
   // LIRA-155 — insurance: unlike Hold Money, this is NOT a self-contained
   // section with its own table. It is an ordinary custom service that takes
   // the standard submit path, but selecting it swaps in two pieces of
@@ -94,7 +99,7 @@ const SERVICE_CATEGORIES = [
   // below) — and (2) stamps `fulfillment_status: "ORDERED"` on submit so the
   // row starts fulfilment-tracked (see handleSubmit). The operator can still
   // switch to "For Partner" or back to no partner; nothing here forces VIA.
-  { value: "insurance", label: "Insurance", icon: "shield" },
+  { value: "insurance", icon: "shield" },
 ] as const;
 
 /** The category that swaps the custom-service form for the Hold Money UI. */
@@ -122,6 +127,7 @@ interface ServicePreset {
 
 export default function CustomServices() {
   const api = useApi();
+  const { t } = useTranslation("customServices");
   const { methods } = usePaymentMethods();
   const { activeSession, addToCart: addToSessionCart } = useSession();
   // LIRA-069 W1.d — auto-print on a successful STANDALONE submit (skipped
@@ -436,11 +442,11 @@ export default function CustomServices() {
       priceUsdVal <= 0 &&
       priceLbpVal <= 0
     ) {
-      alert("Please enter a cost or price.");
+      alert(t("msg.enterCostOrPrice"));
       return;
     }
     if (awaitingSellingPrice) {
-      alert("Enter a selling price first.");
+      alert(t("msg.enterSellingPrice"));
       return;
     }
     const hasDebtLine = paymentLines.some(
@@ -450,7 +456,7 @@ export default function CustomServices() {
     // it. VIA is a normal walk-in payment (just with an extra partner-cost
     // ledger booking underneath) so it's treated exactly like "none" here.
     if (!isForPartner && hasDebtLine && !clientId) {
-      alert("Please select a client for debt payment.");
+      alert(t("msg.selectClientForDebt"));
       return;
     }
     if (
@@ -458,11 +464,11 @@ export default function CustomServices() {
       !clientId &&
       returnLegs.some((l) => l.method === "CUSTOMER_ACCOUNT")
     ) {
-      alert("Please select a client to put the change on their account.");
+      alert(t("msg.selectClientForChange"));
       return;
     }
     if (hasPartnerMode && !selectedPartnerId) {
-      alert("Select a partner for this service.");
+      alert(t("msg.selectPartner"));
       return;
     }
     // OWNER_NOTES_REMAINING_BUILD.md #16 — a payout needs BOTH sides
@@ -477,9 +483,7 @@ export default function CustomServices() {
         (costUsdVal > 0 || costLbpVal > 0)
       )
     ) {
-      alert(
-        "Enter both the amount that arrived (Arrived) and the amount to pay out (Paid Out).",
-      );
+      alert(t("msg.payoutNeedsBoth"));
       return;
     }
     // LIRA-154 VIA submit guard: a walk-in customer is actually paying, so
@@ -488,7 +492,7 @@ export default function CustomServices() {
     // entry, just settled later instead of collected now. A payout takes no
     // counter leg at all (like FOR), so it's excluded here too.
     if (isViaPartner && !isPayout && paymentLines.length === 0) {
-      alert("Add at least one payment method for this service.");
+      alert(t("msg.addPayment"));
       return;
     }
 
@@ -652,7 +656,8 @@ export default function CustomServices() {
         const amountLabel =
           chargedPriceUsd > 0
             ? `$${chargedPriceUsd.toFixed(2)}`
-            : `${chargedPriceLbp.toLocaleString()} LBP`;
+            : `${formatNumber(chargedPriceLbp)} LBP`;
+        // i18n-exempt: stored text sent to server (session basket item label)
         const label = `Service: ${resolvedDescription.substring(0, 40)} - ${amountLabel}`;
 
         addToSessionCart({
@@ -700,7 +705,7 @@ export default function CustomServices() {
       if (result.success) {
         appEvents.emit(
           "notification:show",
-          "Custom service recorded successfully",
+          t("msg.recorded"),
           "success",
         );
         void autoPrintReceipt({
@@ -729,13 +734,13 @@ export default function CustomServices() {
         clearClient();
         reload();
       } else {
-        alert("Error: " + result.error);
+        alert(t("msg.error", { error: result.error }));
       }
     } catch (error) {
       logger.error("Custom service submit failed:", error);
       // LIRA-247: a thrown ApiError (e.g. a web 403 role refusal) used to be
       // discarded here in favor of this hardcoded string.
-      alert(getApiErrorMessage(error, "Failed to record service."));
+      alert(getApiErrorMessage(error, t("msg.recordFailed")));
     } finally {
       setIsSubmitting(false);
     }
@@ -743,19 +748,19 @@ export default function CustomServices() {
 
   // ─── Void ───
   const handleVoid = async (id: number) => {
-    if (!confirm("Void this service? Payments will be reversed.")) return;
+    if (!confirm(t("msg.voidConfirm"))) return;
     try {
       const result = await api.deleteCustomService(id);
       if (result.success) {
         reload();
       } else {
-        alert("Error: " + result.error);
+        alert(t("msg.error", { error: result.error }));
       }
     } catch (error) {
       logger.error("Void failed:", error);
       // LIRA-247: surface the real refusal reason instead of this hardcoded
       // string.
-      alert(getApiErrorMessage(error, "Failed to void service."));
+      alert(getApiErrorMessage(error, t("msg.voidFailed")));
     }
   };
 
@@ -764,7 +769,7 @@ export default function CustomServices() {
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 min-h-0 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
       {/* Header with Stats and History */}
       <PageHeader
-        title="Services"
+        title={t("page.title")}
         actions={
           <div className="flex items-center gap-2">
             <StatsCards
@@ -779,38 +784,38 @@ export default function CustomServices() {
               className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white"
             >
               <Settings size={16} />
-              <span className="font-medium">Presets</span>
+              <span className="font-medium">{t("header.presets")}</span>
             </button>
             <button
               onClick={() => setShowHistoryModal(true)}
               className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white"
             >
               <History size={16} />
-              <span className="font-medium">History</span>
+              <span className="font-medium">{t("header.history")}</span>
             </button>
           </div>
         }
       />
 
       {/* Main: Form */}
-      <div className="flex-1 min-h-0 overflow-y-auto -mr-6 pr-6 pb-6">
+      <div className="flex-1 min-h-0 overflow-y-auto -me-6 pe-6 pb-6">
         {/* New Service Form */}
         <div className="w-full bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-5 flex flex-col">
           <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
             {category === HOLD_MONEY_CATEGORY ? (
               <>
                 <Wallet className="text-orange-400" size={20} />
-                Hold Money
+                {t("form.titleHold")}
               </>
             ) : isInsurance ? (
               <>
                 <Shield className="text-sky-400" size={20} />
-                New Insurance
+                {t("form.titleInsurance")}
               </>
             ) : (
               <>
                 <Plus className="text-teal-400" size={20} />
-                New Service
+                {t("form.titleService")}
               </>
             )}
           </h2>
@@ -819,8 +824,8 @@ export default function CustomServices() {
             {/* Category Selector */}
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
-                <Tag size={12} className="inline mr-1" />
-                Category
+                <Tag size={12} className="inline me-1" />
+                {t("form.category")}
               </label>
               <div className="flex flex-wrap gap-2">
                 {SERVICE_CATEGORIES.map((cat) => (
@@ -855,7 +860,9 @@ export default function CustomServices() {
                         : "bg-slate-900/50 border-slate-700 text-slate-400 hover:border-slate-600 hover:text-slate-300"
                     }`}
                   >
-                    {cat.label}
+                    {cat.value === ""
+                      ? t("categories.all")
+                      : categoryLabel(cat.value, t)}
                   </button>
                 ))}
               </div>
@@ -871,20 +878,19 @@ export default function CustomServices() {
                 {!description && !selectedProduct && (
                   <div className="p-3 rounded-xl bg-purple-500/5 border border-purple-500/20 space-y-2">
                     <span className="block text-xs font-medium text-purple-400 uppercase tracking-wider">
-                      Presets
+                      {t("form.presets")}
                     </span>
                     {(() => {
                       const categoryPresets = presets.filter(
                         (p) => !category || p.category === category,
                       );
                       if (categoryPresets.length === 0) {
-                        const label =
-                          SERVICE_CATEGORIES.find((c) => c.value === category)
-                            ?.label ?? "this category";
+                        const label = category
+                          ? categoryLabel(category, t)
+                          : t("categories.all");
                         return (
                           <p className="text-xs text-slate-500">
-                            No presets for {label}. Add presets via the Presets
-                            manager.
+                            {t("form.noPresets", { category: label })}
                           </p>
                         );
                       }
@@ -951,8 +957,10 @@ export default function CustomServices() {
                             >
                               <span className="block">{preset.name}</span>
                               <span className="text-[10px] text-slate-500">
-                                Cost: ${preset.cost_usd.toFixed(2)} · Price: $
-                                {preset.price_usd.toFixed(2)}
+                                {t("form.presetCostPrice", {
+                                  cost: `$${preset.cost_usd.toFixed(2)}`,
+                                  price: `$${preset.price_usd.toFixed(2)}`,
+                                })}
                               </span>
                             </button>
                           ))}
@@ -964,8 +972,8 @@ export default function CustomServices() {
                 {/* Search Bar / Item Selector — replaces description field */}
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
-                    <Package size={12} className="inline mr-1" />
-                    Search Item or Service
+                    <Package size={12} className="inline me-1" />
+                    {t("form.searchLabel")}
                   </label>
                   {selectedProduct ? (
                     /* Product selected — show selection chip */
@@ -992,7 +1000,7 @@ export default function CustomServices() {
                       <SearchBar<ProductSearchResult>
                         key={searchBoxKey}
                         data-testid="custom-service-item-search"
-                        placeholder="Search by name/barcode, or type your service description..."
+                        placeholder={t("form.searchPlaceholder")}
                         onSearch={async (query) => {
                           const results = await api.getProducts(query);
                           return results.slice(0, 8).map((p: any) => ({
@@ -1044,14 +1052,16 @@ export default function CustomServices() {
                           <div className="flex items-center justify-between w-full">
                             <span className="font-medium">{item.name}</span>
                             <span className="text-slate-400 text-xs">
-                              Cost: ${item.cost_price.toFixed(2)} | Price: $
-                              {item.retail_price.toFixed(2)}
+                              {t("form.itemCostPrice", {
+                                cost: `$${item.cost_price.toFixed(2)}`,
+                                price: `$${item.retail_price.toFixed(2)}`,
+                              })}
                             </span>
                           </div>
                         )}
                         getKey={(item) => item.id}
                         ringColor="ring-teal-500/50"
-                        noResultsMessage="No items found. Press Enter to use as description."
+                        noResultsMessage={t("form.noItems")}
                       />
                     </div>
                   ) : (
@@ -1063,7 +1073,7 @@ export default function CustomServices() {
                         value={description}
                         onChange={(e) => setDescription(e.target.value)}
                         className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/50 outline-none transition-all"
-                        placeholder="e.g., Phone screen repair, SIM activation"
+                        placeholder={t("form.descriptionPlaceholder")}
                         maxLength={500}
                       />
                       <button
@@ -1071,7 +1081,7 @@ export default function CustomServices() {
                           setDescription("");
                           setSavedPrice(null);
                         }}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                        className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
                         type="button"
                       >
                         <X size={14} />
@@ -1084,7 +1094,7 @@ export default function CustomServices() {
                 <div className="p-4 rounded-xl bg-teal-400/5 border border-teal-400/20 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="block text-xs font-medium text-teal-400 uppercase tracking-wider">
-                      {isPayout ? "Arrived / Paid Out" : "Cost / Price"}
+                      {isPayout ? t("form.arrivedPaidOut") : t("form.costPrice")}
                     </span>
                     {/* Currency toggle */}
                     <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
@@ -1121,11 +1131,13 @@ export default function CustomServices() {
                         htmlFor="svc-cost"
                         className="block text-[10px] text-slate-500 mb-1 uppercase"
                       >
-                        {isPayout ? `Paid Out ${currency}` : `Cost ${currency}`}
+                        {isPayout
+                          ? t("form.paidOutIn", { currency })
+                          : t("form.costIn", { currency })}
                       </label>
                       <div className="relative">
                         {currency === "USD" && (
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">
+                          <span className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">
                             $
                           </span>
                         )}
@@ -1141,7 +1153,7 @@ export default function CustomServices() {
                             if (currency === "USD") setCostUsd(v);
                             else setCostLbp(v);
                           }}
-                          className={`w-full bg-slate-900/80 border border-slate-700 rounded-lg ${currency === "USD" ? "pl-8" : "pl-3"} pr-3 py-2.5 text-white font-mono text-sm focus:ring-2 focus:ring-teal-500 outline-none transition-all`}
+                          className={`w-full bg-slate-900/80 border border-slate-700 rounded-lg ${currency === "USD" ? "ps-8" : "ps-3"} pe-3 py-2.5 text-white font-mono text-sm focus:ring-2 focus:ring-teal-500 outline-none transition-all`}
                           placeholder={currency === "USD" ? "0.00" : "0"}
                         />
                       </div>
@@ -1151,11 +1163,13 @@ export default function CustomServices() {
                         htmlFor="svc-price"
                         className="block text-[10px] text-slate-500 mb-1 uppercase"
                       >
-                        {isPayout ? `Arrived ${currency}` : `Price ${currency}`}
+                        {isPayout
+                          ? t("form.arrivedIn", { currency })
+                          : t("form.priceIn", { currency })}
                       </label>
                       <div className="relative">
                         {currency === "USD" && (
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">
+                          <span className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">
                             $
                           </span>
                         )}
@@ -1171,7 +1185,7 @@ export default function CustomServices() {
                             if (currency === "USD") setPriceUsd(v);
                             else setPriceLbp(v);
                           }}
-                          className={`w-full bg-slate-900/80 border border-slate-700 rounded-lg ${currency === "USD" ? "pl-8" : "pl-3"} pr-3 py-2.5 text-white font-mono text-sm focus:ring-2 focus:ring-teal-500 outline-none transition-all`}
+                          className={`w-full bg-slate-900/80 border border-slate-700 rounded-lg ${currency === "USD" ? "ps-8" : "ps-3"} pe-3 py-2.5 text-white font-mono text-sm focus:ring-2 focus:ring-teal-500 outline-none transition-all`}
                           placeholder={currency === "USD" ? "0.00" : "0"}
                         />
                       </div>
@@ -1218,7 +1232,7 @@ export default function CustomServices() {
                       <span
                         className={`text-sm font-bold ${profitUsd >= 0 && profitLbp >= 0 ? "text-emerald-400" : "text-red-400"}`}
                       >
-                        {isPayout ? "Commission" : "Profit"}:{" "}
+                        {isPayout ? t("form.commission") : t("form.profit")}:{" "}
                         {formatServiceAmount(profitUsd, profitLbp)}
                       </span>
                     </div>
@@ -1232,10 +1246,10 @@ export default function CustomServices() {
                       htmlFor="svc-client"
                       className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
                     >
-                      <User size={12} /> Customer Name
+                      <User size={12} /> {t("form.customerName")}
                       {paymentLines.some(
                         (l) => l.method === "CUSTOMER_ACCOUNT",
-                      ) && <span className="text-red-400 ml-1">*</span>}
+                      ) && <span className="text-red-400 ms-1">*</span>}
                     </label>
                     {clientId ? (
                       <div className="flex items-center gap-2 bg-teal-500/10 border border-teal-500/30 rounded-lg px-4 py-2.5">
@@ -1259,7 +1273,7 @@ export default function CustomServices() {
                           if (!v) clearClient();
                         }}
                         onClientSelect={selectClient}
-                        placeholder="Search or type name..."
+                        placeholder={t("form.customerPlaceholder")}
                         className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500 transition-all"
                         showDebtBadge
                       />
@@ -1275,7 +1289,7 @@ export default function CustomServices() {
                       htmlFor="svc-phone"
                       className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
                     >
-                      <Phone size={12} /> Phone
+                      <Phone size={12} /> {t("form.phone")}
                     </label>
                     <input
                       id="svc-phone"
@@ -1283,7 +1297,7 @@ export default function CustomServices() {
                       value={phoneNumber}
                       onChange={(e) => setPhoneNumber(e.target.value)}
                       className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500 transition-all"
-                      placeholder="e.g., 03 123 456"
+                      placeholder={t("form.phonePlaceholder")}
                       disabled={!!clientId}
                     />
                   </div>
@@ -1292,7 +1306,7 @@ export default function CustomServices() {
                       htmlFor="svc-note"
                       className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
                     >
-                      <Tag size={12} /> Note (optional)
+                      <Tag size={12} /> {t("form.note")}
                     </label>
                     <input
                       id="svc-note"
@@ -1300,7 +1314,7 @@ export default function CustomServices() {
                       value={note}
                       onChange={(e) => setNote(e.target.value)}
                       className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500 transition-all"
-                      placeholder="Additional details..."
+                      placeholder={t("form.notePlaceholder")}
                       maxLength={1000}
                     />
                   </div>
@@ -1355,7 +1369,7 @@ export default function CustomServices() {
                             className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-rose-500 focus:outline-none focus:ring-1 focus:ring-rose-500"
                           />
                           <span className="text-xs text-slate-400">
-                            Pay out
+                            {t("form.payOut")}
                           </span>
                         </label>
                       )}
@@ -1388,31 +1402,29 @@ export default function CustomServices() {
                     testId="custom-service-partner-no-payment-notice"
                     tone="teal"
                   >
-                    No price is collected from a customer for a partner service.
+                    {t("notice.forNoPrice")}
                     {awaitingSellingPrice ? (
                       // Owner decision 2026-10-07: the partner is booked the
                       // selling price, so the sale waits for one.
-                      <> Enter a selling price first.</>
+                      <> {t("msg.enterSellingPrice")}</>
                     ) : (
                       <>
                         {" "}
-                        The full{" "}
+                        {t("notice.forFullBefore")}{" "}
                         <span className="font-bold">
-                          {formatServiceAmount(priceUsdVal, priceLbpVal)}
+                          <Ltr>{formatServiceAmount(priceUsdVal, priceLbpVal)}</Ltr>
                         </span>{" "}
-                        goes on the selected partner&apos;s account, settled
-                        later on the Partners page.
+                        {t("notice.forFullAfter")}
                       </>
                     )}
                     {(costUsdVal > 0 || costLbpVal > 0) && (
                       <>
                         {" "}
-                        The service&apos;s cost,{" "}
+                        {t("notice.forCostBefore")}{" "}
                         <span className="font-bold">
-                          {formatServiceAmount(costUsdVal, costLbpVal)}
+                          <Ltr>{formatServiceAmount(costUsdVal, costLbpVal)}</Ltr>
                         </span>
-                        , affects profit only — it does not leave the General
-                        drawer or any other drawer.
+                        {t("notice.forCostAfter")}
                       </>
                     )}
                   </ForPartnerNotice>
@@ -1421,17 +1433,15 @@ export default function CustomServices() {
                     testId="custom-service-payout-notice"
                     tone="rose"
                   >
-                    The partner owes the shop the full{" "}
+                    {t("notice.payoutBefore")}{" "}
                     <span className="font-bold">
-                      {formatServiceAmount(priceUsdVal, priceLbpVal)}
+                      <Ltr>{formatServiceAmount(priceUsdVal, priceLbpVal)}</Ltr>
                     </span>{" "}
-                    that arrived through them, settled later on the Partners
-                    page. The shop pays the recipient{" "}
+                    {t("notice.payoutMiddle")}{" "}
                     <span className="font-bold">
-                      {formatServiceAmount(costUsdVal, costLbpVal)}
+                      <Ltr>{formatServiceAmount(costUsdVal, costLbpVal)}</Ltr>
                     </span>{" "}
-                    cash, now, from the General drawer — the difference is the
-                    shop&apos;s commission, booked as profit today.
+                    {t("notice.payoutAfter")}
                   </ForPartnerNotice>
                 ) : (
                   <div className="space-y-4">
@@ -1440,21 +1450,20 @@ export default function CustomServices() {
                         testId="custom-service-via-partner-notice"
                         tone="sky"
                       >
-                        The customer pays the full{" "}
+                        {t("notice.viaBefore")}{" "}
                         <span className="font-bold">
-                          {formatServiceAmount(priceUsdVal, priceLbpVal)}
+                          <Ltr>{formatServiceAmount(priceUsdVal, priceLbpVal)}</Ltr>
                         </span>{" "}
-                        now, through the payment method below. You will owe the
-                        selected partner the cost,{" "}
+                        {t("notice.viaMiddle")}{" "}
                         <span className="font-bold">
-                          {formatServiceAmount(costUsdVal, costLbpVal)}
+                          <Ltr>{formatServiceAmount(costUsdVal, costLbpVal)}</Ltr>
                         </span>
-                        , settled later on the Partners page.
+                        {t("notice.viaAfter")}
                       </ForPartnerNotice>
                     )}
                     <div>
                       <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">
-                        Payment Method
+                        {t("form.paymentMethod")}
                       </label>
                       {awaitingSellingPrice ? (
                         // Owner decision 2026-10-07: the payment form waits
@@ -1465,7 +1474,7 @@ export default function CustomServices() {
                           data-testid="custom-service-awaiting-price-notice"
                           className="text-sm text-slate-400 bg-slate-900/60 border border-slate-700 rounded-xl px-4 py-3"
                         >
-                          Enter a selling price to take payment.
+                          {t("form.awaitingPrice")}
                         </p>
                       ) : (
                         <MultiPaymentInput
@@ -1581,16 +1590,16 @@ export default function CustomServices() {
                 {isSubmitting ? (
                   <>
                     <RefreshCw size={18} className="animate-spin" />{" "}
-                    Submitting...
+                    {t("form.submitting")}
                   </>
                 ) : (
                   <>
                     <Plus size={18} />{" "}
                     {isForPartner
-                      ? "Submit to Partner"
+                      ? t("form.submitToPartner")
                       : isPayout
-                        ? "Submit Payout"
-                        : "Submit Service"}
+                        ? t("form.submitPayout")
+                        : t("form.submitService")}
                   </>
                 )}
               </button>

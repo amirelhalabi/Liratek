@@ -1,25 +1,26 @@
+import { useTranslation } from "react-i18next";
 import type { PartnerMode } from "@/features/custom-services/utils/partnerModeTransition";
 
 const OPTIONS: ReadonlyArray<{
   mode: PartnerMode;
-  label: string;
+  labelKey: "partnerMode.customer" | "partnerMode.for" | "partnerMode.via";
   testId: string;
 }> = [
   {
     mode: "none",
-    label: "Customer",
+    labelKey: "partnerMode.customer",
     testId: "custom-service-partner-mode-none",
   },
   // The For/Via segments keep the testids of the two checkboxes they
   // replaced, so existing unit and e2e selectors keep matching.
   {
     mode: "FOR",
-    label: "For Partner",
+    labelKey: "partnerMode.for",
     testId: "custom-service-for-partner-toggle",
   },
   {
     mode: "VIA",
-    label: "Via Partner",
+    labelKey: "partnerMode.via",
     testId: "custom-service-via-partner-toggle",
   },
 ];
@@ -42,13 +43,14 @@ export function PartnerModeSwitch({
    *  stays: the customer still pays. */
   hideFor?: boolean;
 }) {
+  const { t } = useTranslation("customServices");
   const options = hideFor
     ? OPTIONS.filter((option) => option.mode !== "FOR")
     : OPTIONS;
   return (
     <div
       role="radiogroup"
-      aria-label="Who is this service for"
+      aria-label={t("partnerMode.ariaLabel")}
       className="flex gap-2 bg-slate-800 border border-slate-700/50 p-1 rounded-xl h-11"
     >
       {options.map((option) => {
@@ -69,7 +71,7 @@ export function PartnerModeSwitch({
                 : "text-slate-400 hover:text-white hover:bg-slate-700/60"
             }`}
           >
-            {option.label}
+            {t(option.labelKey)}
           </button>
         );
       })}

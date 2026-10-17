@@ -212,8 +212,8 @@ Each test builds the payload through the real builder or screen with `lng=en` an
 - [x] T045 [P] [US1] `frontend/src/features/services/**/__tests__/financialService.payloadLanguage.test.tsx`: each OMT/Whish service type, send and receive.
 - [ ] T046 [P] [US1] `frontend/src/features/debts/**/__tests__/repayment.payloadLanguage.test.tsx`: repayment, discount/waive, account settle.
 - [ ] T047 [P] [US1] `frontend/src/features/exchange/**/__tests__/exchange.payloadLanguage.test.tsx` and `frontend/src/features/expenses/**/__tests__/expense.payloadLanguage.test.tsx`.
-- [ ] T048 [P] [US1] `frontend/src/features/closing/**/__tests__/closing.payloadLanguage.test.tsx`: drawer count and closing.
-- [ ] T049 [P] [US1] `frontend/src/features/{sessions,custom-services,maintenance,loto,suppliers,partners}/**/__tests__/*.payloadLanguage.test.tsx`: one file per module.
+- [x] T048 [P] [US1] `frontend/src/features/closing/**/__tests__/closing.payloadLanguage.test.tsx`: drawer count and closing.
+- [ ] T049 [P] [US1] `frontend/src/features/{sessions,custom-services,maintenance,loto,suppliers,partners}/**/__tests__/*.payloadLanguage.test.tsx`: one file per module. (sessions, custom-services, maintenance, loto done in group E; suppliers/partners with T066.)
 
 ### Module conversions (all [P]: each owns its own folder and namespace files)
 
@@ -224,12 +224,12 @@ Each test builds the payload through the real builder or screen with `lng=en` an
 - [ ] T054 [P] [US1] `debts`, including the column headings in `utils/debtExcelExport.ts`: headings in the exporting user's language, numeric cells stay numbers (FR-024). Test `debtExcelExport.language.test.ts`. Namespace `debts`. Depends on T046. Coordinate: `Debts/index.tsx` and `debtExcelExport.ts` have another session's uncommitted edits as of 2026-10-17, so start only after those land.
 - [ ] T055 [P] [US1] `exchange`. Namespace `exchange`. Depends on T047.
 - [ ] T056 [P] [US1] `expenses`. Namespace `expenses`. Depends on T047.
-- [ ] T057 [P] [US1] `closing` (drawer count, closing, checkpoints). Namespace `closing`. Depends on T048.
-- [ ] T058 [P] [US1] `dashboard`, with recharts time axes `reversed` in RTL. Namespace `dashboard`.
-- [ ] T059 [P] [US1] `sessions`. Namespace `sessions`. Depends on T049.
-- [ ] T060 [P] [US1] `custom-services`. Namespace `customServices`. Depends on T049.
-- [ ] T061 [P] [US1] `maintenance`. Namespace `maintenance`. Depends on T049.
-- [ ] T062 [P] [US1] `loto`. Namespace `loto`. Depends on T049.
+- [x] T057 [P] [US1] `closing` (drawer count, closing, checkpoints). Namespace `closing`. Depends on T048.
+- [x] T058 [P] [US1] `dashboard`, with recharts time axes `reversed` in RTL. Namespace `dashboard`.
+- [x] T059 [P] [US1] `sessions`. Namespace `sessions`. Depends on T049.
+- [x] T060 [P] [US1] `custom-services`. Namespace `customServices`. Depends on T049.
+- [x] T061 [P] [US1] `maintenance`. Namespace `maintenance`. Depends on T049.
+- [x] T062 [P] [US1] `loto`. Namespace `loto`. Depends on T049.
 - [ ] T063 [P] [US1] `inventory` + `clients` + `warranty` + `vouchers`. Namespaces `inventory`, `clients`, `warranty`, `vouchers`; one agent, or split into 4 tasks.
 - [ ] T064 [P] [US1] `settings`, except `MobileServicesManager.tsx`/`CategoriesManager.tsx` and the T031 selects. Namespace `settings`.
 - [ ] T065 [P] [US1] `settings` catalog: `MobileServicesManager.tsx` (123 KB) and `CategoriesManager.tsx`. Namespace `settingsCatalog`.
