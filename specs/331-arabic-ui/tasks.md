@@ -42,14 +42,14 @@ description: "Task list for LIRA-331 Arabic app UI"
 
 ## Phase 1: Setup
 
-- [ ] T001 Get owner answers to OD-1…OD-6 (research.md R12). Record them in `specs/331-arabic-ui/spec.md` Clarifications (a new "Session" entry). T040/T041 wait for OD-1, T090 for OD-2, T091 for OD-3, T095 for OD-4 and T006 for OD-5.
-- [ ] T002 Add `i18next` and `react-i18next` to `frontend/package.json` and `mobile/package.json`, and as peers in `packages/ui/package.json`. Run `yarn install` and confirm `yarn rebuild:native` ran via postinstall (do not launch Electron).
+- [x] T001 Get owner answers to OD-1…OD-6 (research.md R12). Record them in `specs/331-arabic-ui/spec.md` Clarifications (a new "Session" entry). T040/T041 wait for OD-1, T090 for OD-2, T091 for OD-3, T095 for OD-4 and T006 for OD-5.
+- [x] T002 Add `i18next` and `react-i18next` to `frontend/package.json` and `mobile/package.json`, and as peers in `packages/ui/package.json`. Run `yarn install` and confirm `yarn rebuild:native` ran via postinstall (do not launch Electron). (Done 2026-10-17; mobile jest/metro mapping is P3, T101.)
   - **Make `packages/ui` tests run**: `packages/ui` has no test runner today, and frontend jest has `roots: ["<rootDir>/src"]`.
     - Add `"<rootDir>/../packages/ui/src"` to `roots` in `frontend/jest.config.ts`, plus a `^@liratek/ui/(.*)$` mapper.
     - Prove it with one trivial `packages/ui/src/i18n/__tests__/smoke.test.ts` run by path. Check the reported test count is 1, not 0 (rule 28a).
     - Every `packages/ui/src/**/__tests__` test in this file depends on this step.
 - [ ] T003 [P] Add the subset Arabic font (Noto Naskh Arabic or Noto Sans Arabic, OFL, Arabic + Latin + digits, woff2) to `frontend/src/assets/fonts/`, together with its OFL licence text. Record the file size (target under 150 KB, research R11).
-- [ ] T004 [P] Create `packages/ui/src/i18n/namespaces.ts`, listing every namespace from data-model.md §6. **Pre-create `{}` (empty) for every namespace** in both `packages/ui/src/i18n/locales/en/` and `locales/ar/`, so `resources.ts` can import them statically without Vite, tsc or Metro failing on a missing file.
+- [x] T004 [P] Create `packages/ui/src/i18n/namespaces.ts`, listing every namespace from data-model.md §6. **Pre-create `{}` (empty) for every namespace** in both `packages/ui/src/i18n/locales/en/` and `locales/ar/`, so `resources.ts` can import them statically without Vite, tsc or Metro failing on a missing file.
   - An empty `{}` file means "not converted" to the guard.
   - Adding a module's first key is that module's failing-first step.
   - After this task, nobody edits `namespaces.ts`/`resources.ts` during module work.
@@ -60,12 +60,12 @@ description: "Task list for LIRA-331 Arabic app UI"
 
 ### Core leaves, storage, service
 
-- [ ] T005 [P] Test FIRST `packages/core/src/utils/__tests__/effectiveLanguage.test.ts` and `packages/core/src/messages/__tests__/serverMessages.test.ts`:
+- [x] T005 [P] Test FIRST `packages/core/src/utils/__tests__/effectiveLanguage.test.ts` and `packages/core/src/messages/__tests__/serverMessages.test.ts`:
   - `resolveEffectiveLanguage(null, undefined) === 'en'`; user choice beats shop default; shop default applies when the user is null.
   - `renderServerMessage` interpolates `{{params}}`, and a missing param leaves the placeholder visible (no crash).
   
   Then create `packages/core/src/constants/languages.ts`, `packages/core/src/utils/effectiveLanguage.ts` and `packages/core/src/messages/serverMessages.ts` (pure, zero imports), and export them from `packages/core/src/index.ts` and `packages/core/src/browser.ts`. Confirm `packages/core/src/__tests__/browserEntryIsNodeFree.guard.test.ts` still passes.
-- [ ] T006 [P] Test FIRST `packages/ui/src/i18n/__tests__/format.test.ts`:
+- [x] T006 [P] Test FIRST `packages/ui/src/i18n/__tests__/format.test.ts`:
   - `formatNumber(1234567.5)` gives `"1,234,567.5"` in both languages.
   - `formatMoney(1500000,'LBP')` gives `"1,500,000 LBP"` and equals core `formatMoneyAmount` pinned to en-US.
   - `formatDate(new Date(2026,0,15),'ar')` contains the month name chosen in OD-5 (`كانون الثاني` if Levantine) and only Western digits.
@@ -73,23 +73,23 @@ description: "Task list for LIRA-331 Arabic app UI"
   - `normalizeDigits('١٢٣٫٥') === '123.5'` and `normalizeDigits('۱۲۳') === '123'`.
   
   Then create `packages/ui/src/i18n/format.ts` (research R4/R5) and `packages/ui/src/i18n/digits.ts` (R13).
-- [ ] T007 [P] Test FIRST `packages/core/src/db/migrations/__tests__/` (follow the existing migration test pattern):
+- [x] T007 [P] Test FIRST `packages/core/src/db/migrations/__tests__/` (follow the existing migration test pattern): (Done: v220 `users_language`.)
   - after the new migration, `users.language` exists and accepts NULL, 'en' and 'ar';
   - it rejects 'fr' (CHECK);
   - `down()` removes it.
   
   Then add the migration at the **next free version at build time** (re-read the last entry of `packages/core/src/db/migrations/index.ts`; it was v219 on 2026-10-17). The column is `language TEXT DEFAULT NULL CHECK (language IS NULL OR language IN ('en','ar'))`. Add the same column to `users` in `electron-app/create_db.sql` (rule 10) and run `yarn check:schema-equivalence`. Use the `add-migration` skill.
-- [ ] T008 Test FIRST `packages/core/src/repositories/__tests__/UserRepository.language.test.ts` and `packages/core/src/repositories/__tests__/SettingsRepository.language.test.ts`, on the real schema:
+- [x] T008 Test FIRST `packages/core/src/repositories/__tests__/UserRepository.language.test.ts` and `packages/core/src/repositories/__tests__/SettingsRepository.language.test.ts`, on the real schema:
   - get/set the language scoped by tenant;
   - another tenant's user is untouched;
   - `getUiDefaultLanguage()` and `getReceiptLanguage()` return `'en'` when the key is missing.
   
   Then implement them in `packages/core/src/repositories/UserRepository.ts` and `packages/core/src/repositories/SettingsRepository.ts` (`?` placeholders, `tenant_id` in every statement).
-- [ ] T009 Test FIRST `packages/core/src/services/__tests__/UserPreferencesService.test.ts`, with a mocked repo (rule 13): `getMine` returns `MyPreferences` (contracts/user-preferences-api.md) and `setMine` validates through `setMyLanguageSchema`. Then add `packages/core/src/validators/userPreferences.ts` (`languageSchema`, `setMyLanguageSchema`; export from `validators/index.ts` + `browser.ts`) and `packages/core/src/services/UserPreferencesService.ts`, registered in `services/index.ts`. Rebuild and sync core.
+- [x] T009 Test FIRST `packages/core/src/services/__tests__/UserPreferencesService.test.ts`, with a mocked repo (rule 13): `getMine` returns `MyPreferences` (contracts/user-preferences-api.md) and `setMine` validates through `setMyLanguageSchema`. Then add `packages/core/src/validators/userPreferences.ts` (`languageSchema`, `setMyLanguageSchema`; export from `validators/index.ts` + `browser.ts`) and `packages/core/src/services/UserPreferencesService.ts`, registered in `services/index.ts`. Rebuild and sync core.
 
 ### Transports (single owner, sequential: shared files)
 
-- [ ] T010 Test FIRST `backend/src/api/__tests__/userPreferences.api.test.ts`:
+- [x] T010 Test FIRST `backend/src/api/__tests__/userPreferences.api.test.ts`:
   - `GET /api/user-preferences/me` returns the envelope for admin and staff;
   - `PUT /me/language` with `{language:'ar'}` persists;
   - `{language:'fr'}` gives `VALIDATION_ERROR`, HTTP 200;
@@ -97,29 +97,29 @@ description: "Task list for LIRA-331 Arabic app UI"
   - an impersonated PUT is refused.
   
   Then add `backend/src/api/userPreferences.ts` (`authenticateJWT` → `requireRole(["admin","staff"])` → `validateRequest`) and mount it in `backend/src/server.ts` before the generic routes.
-- [ ] T011 Test FIRST `electron-app/handlers/__tests__/userPreferencesHandlers.test.ts` (same cases, session user). Then add `electron-app/handlers/userPreferencesHandlers.ts` (`requireRole` + `validatePayload`), register it in `electron-app/main.ts`, re-export the schema in `electron-app/schemas/index.ts` (zod-major cast), and add the binding `userPreferences.get/setLanguage` to `electron-app/preload.ts` and its type to `frontend/src/types/electron.d.ts` (rule 12).
-- [ ] T012 Add `getMyPreferences`/`setMyLanguage` to `frontend/src/api/backendApi.ts` (`ipcOrHttp`), `frontend/src/api/ElectronApiAdapter.ts` and `packages/ui/src/api/types.ts`, typed `SetMyLanguageInput` from `@liratek/core` (rule 21). Run `yarn check:transport-parity`.
-- [ ] T013 Settings validation for the two keys:
+- [x] T011 Test FIRST `electron-app/handlers/__tests__/userPreferencesHandlers.test.ts` (same cases, session user). Then add `electron-app/handlers/userPreferencesHandlers.ts` (`requireRole` + `validatePayload`), register it in `electron-app/main.ts`, re-export the schema in `electron-app/schemas/index.ts` (zod-major cast), and add the binding `userPreferences.get/setLanguage` to `electron-app/preload.ts` and its type to `frontend/src/types/electron.d.ts` (rule 12).
+- [x] T012 Add `getMyPreferences`/`setMyLanguage` to `frontend/src/api/backendApi.ts` (`ipcOrHttp`), `frontend/src/api/ElectronApiAdapter.ts` and `packages/ui/src/api/types.ts`, typed `SetMyLanguageInput` from `@liratek/core` (rule 21). Run `yarn check:transport-parity`.
+- [x] T013 Settings validation for the two keys: (Done in `SettingsService.SETTING_VALUE_SCHEMAS`, which both transports call; core test `SettingsService.language.test.ts`. No separate route/handler test.)
   1. Three-way diff of the settings PUT channel (schema / preload type / handler-forwarded fields, rule 23), recorded in the hand-off.
   2. Test FIRST: `backend/src/api/__tests__/settings.language.api.test.ts` and the IPC equivalent. `ui_default_language`/`receipt_language` accept only `en|ar`; other keys behave as before.
   3. Then validate in `backend/src/api/settings.ts` and the IPC settings handler through one shared `validateSettingValue(key, value)` in `packages/core/src/validators/`.
 
 ### i18n runtime (single owner: shared files)
 
-- [ ] T014 Create:
+- [x] T014 Create:
   - `packages/ui/src/i18n/resources.ts`: static `en` imports for every pre-created namespace file, lazy `ar` loaders;
   - `packages/ui/src/i18n/brandNames.ts`;
   - `packages/ui/src/i18n/glossary.ts`, seeded from data-model.md §7 / `landing/ar.html` (the owner reviews it).
   
   Also **seed `common.json` (en + ar) now**: buttons (Save, Cancel, Close, Delete, Edit, Confirm, Search, Print), currencies, payment-method labels keyed by method code, yes/no, empty/loading/error states. T023–T026 consume `common:` keys in parallel, so these must exist first.
-- [ ] T015 Create `frontend/src/i18n/setup.ts`:
+- [x] T015 Create `frontend/src/i18n/setup.ts`:
   - `fallbackLng 'en'`, `react-i18next`, typed `CustomTypeOptions` from the `en` resources;
   - Arabic namespaces loaded on demand;
   - `server` `en` namespace built from `SERVER_MESSAGES`.
   
   Initialise it in `frontend/src/main.tsx`.
-- [ ] T016 Update `frontend/jest.setup.ts` to initialise i18n synchronously in English (research R8). Prove it with `frontend/src/i18n/__tests__/setup.test.ts` (`t('common:...')` returns English text synchronously), then run 3 existing text-asserting suites by path (e.g. `Expenses.addErrorMessage.test.tsx`) to confirm they are unchanged.
-- [ ] T017 Test FIRST `frontend/src/contexts/__tests__/LanguageContext.test.tsx`, with a stable `useApi` mock (rule 25):
+- [x] T016 Update `frontend/jest.setup.ts` to initialise i18n synchronously in English (research R8). Prove it with `frontend/src/i18n/__tests__/setup.test.ts` (`t('common:...')` returns English text synchronously), then run 3 existing text-asserting suites by path (e.g. `Expenses.addErrorMessage.test.tsx`) to confirm they are unchanged.
+- [x] T017 Test FIRST `frontend/src/contexts/__tests__/LanguageContext.test.tsx`, with a stable `useApi` mock (rule 25):
   - device language from `localStorage.liratek_language`, else `navigator.language` starting with `ar`, else `en`;
   - after sign-in, `getMyPreferences().effectiveLanguage` wins and is written back to `liratek_language`;
   - `setLanguage('ar')` sets `<html dir="rtl" lang="ar">` and calls `setMyLanguage`;
@@ -127,23 +127,23 @@ description: "Task list for LIRA-331 Arabic app UI"
   - the API failure path keeps the cached language.
   
   Then create `frontend/src/contexts/LanguageContext.tsx` (ThemeContext pattern, `api` through a ref) and wrap the app in `frontend/src/app/App.tsx`. Include `ARABIC_UI_READY` (false) + the `liratek_arabic_preview` override (OD-4).
-- [ ] T018 Create `packages/ui/src/i18n/serverMessage.ts` (`translateServerError`, contracts/error-envelope.md rule 6) with `packages/ui/src/i18n/__tests__/serverMessage.test.ts` (known key → translated; unknown key → `error`; params formatted through `format.ts`).
-- [ ] T019 Create `<Ltr>` and `<DirIcon>` in `packages/ui/src/components/ui/` with tests (`<bdi dir="ltr">` output; the icon gets the `rtl:-scale-x-100` class).
+- [x] T018 Create `packages/ui/src/i18n/serverMessage.ts` (`translateServerError`, contracts/error-envelope.md rule 6) with `packages/ui/src/i18n/__tests__/serverMessage.test.ts` (known key → translated; unknown key → `error`; params formatted through `format.ts`).
+- [x] T019 Create `<Ltr>` and `<DirIcon>` in `packages/ui/src/components/ui/` with tests (`<bdi dir="ltr">` output; the icon gets the `rtl:-scale-x-100` class).
 
 ### The guard (single owner)
 
-- [ ] T020 Test FIRST `scripts/__tests__/i18nGuard.test.mjs`, with fixture folders under `scripts/__tests__/fixtures/i18n/`:
+- [x] T020 Test FIRST `scripts/__tests__/i18nGuard.test.mjs`, with fixture folders under `scripts/__tests__/fixtures/i18n/`:
   - one failing case per check G1–G7 (contracts/i18n-catalog.md);
   - brand names, `className`, `data-testid` and `// i18n-exempt:` pass;
   - an unconverted module (no namespace file) is ignored;
   - `features/whatsNew` is ignored.
   
   Then write `scripts/check-i18n.mjs` (TypeScript compiler API for G1; `--list <dir>` mode). Add `"check:i18n"` to the root `package.json`, add the test to `test:scripts`, and add a CI step in `.github/workflows/ci.yml`.
-- [ ] T021 Create `scripts/i18n-logical-classes.mjs` (codemod `ml-→ms-`, `mr-→me-`, `pl-→ps-`, `pr-→pe-`, `left-→start-`, `right-→end-`, `text-left→text-start`, `text-right→text-end`, `border-l/r→border-s/e`, `rounded-l/r…→rounded-s/e…`; `space-x` flagged for manual review) with `scripts/__tests__/logicalClasses.test.mjs`. Add that test to the explicit `test:scripts` list in the root `package.json`. The codemod must leave LTR rendering identical: a pure class rename, never touching `rounded-lg` or `border-red-*`.
+- [x] T021 Create `scripts/i18n-logical-classes.mjs` (codemod `ml-→ms-`, `mr-→me-`, `pl-→ps-`, `pr-→pe-`, `left-→start-`, `right-→end-`, `text-left→text-start`, `text-right→text-end`, `border-l/r→border-s/e`, `rounded-l/r…→rounded-s/e…`; `space-x` flagged for manual review) with `scripts/__tests__/logicalClasses.test.mjs`. Add that test to the explicit `test:scripts` list in the root `package.json`. The codemod must leave LTR rendering identical: a pure class rename, never touching `rounded-lg` or `border-red-*`.
 
 ### Shared shell conversion (single owner each; every module renders inside these)
 
-- [ ] T022 Convert `frontend/src/index.css` physical properties to logical ones (23 lines measured), and add the Arabic font-family fallback for `:lang(ar)`. Check visually in LTR (web) that nothing moved.
+- [x] T022 Convert `frontend/src/index.css` physical properties to logical ones (23 lines measured), and add the Arabic font-family fallback for `:lang(ar)`. Check visually in LTR (web) that nothing moved. (Done; the visual LTR check on web was not run in this session.)
 - [ ] T023 [P] Convert namespace `layout`: shell, side nav, top bar and route titles (`frontend/src/app/**`, `packages/ui/src/components/layouts/**`, `frontend/src/components/**`).
   1. Add the first key to the pre-created `locales/en/layout.json` (guard fails, record it).
   2. Extract strings and add `ar`.
@@ -171,16 +171,16 @@ description: "Task list for LIRA-331 Arabic app UI"
 
 **Independent test**: quickstart V3.
 
-- [ ] T030 [P] [US2] Test FIRST `frontend/src/features/account/components/__tests__/LanguagePreference.test.tsx`: it shows English/العربية, `setMyLanguage` is called with `{language:'ar'}` (field name from `setMyLanguageSchema`, rule 24), and العربية is hidden while `ARABIC_UI_READY` is false unless the preview flag is set. Then add `LanguagePreference` to My account (`frontend/src/features/account/pages/MyAccount.tsx`), for every role, and convert namespace `account` (5 steps, as T023).
-- [ ] T031 [P] [US2] Test FIRST `frontend/src/features/settings/pages/Settings/__tests__/ShopConfig.language.test.tsx`: an admin sets "Default language" and "Receipt language" through the settings API with keys `ui_default_language`/`receipt_language`. Then add both selects to `frontend/src/features/settings/pages/Settings/ShopConfig.tsx`. Do not convert the rest of settings here; that is T064.
+- [ ] T030 [P] [US2] Test FIRST `frontend/src/features/account/components/__tests__/LanguagePreference.test.tsx`: it shows English/العربية, `setMyLanguage` is called with `{language:'ar'}` (field name from `setMyLanguageSchema`, rule 24), and العربية is hidden while `ARABIC_UI_READY` is false unless the preview flag is set. Then add `LanguagePreference` to My account (`frontend/src/features/account/pages/MyAccount.tsx`), for every role, and convert namespace `account` (5 steps, as T023). **Partly done 2026-10-17:** `LanguagePreference` is on My account with its test; its texts use `common`. Converting the rest of namespace `account` is left.
+- [x] T031 [P] [US2] Test FIRST `frontend/src/features/settings/pages/Settings/__tests__/ShopConfig.language.test.tsx`: an admin sets "Default language" and "Receipt language" through the settings API with keys `ui_default_language`/`receipt_language`. Then add both selects to `frontend/src/features/settings/pages/Settings/ShopConfig.tsx`. Do not convert the rest of settings here; that is T064.
 - [ ] T032 [P] [US2] Convert namespace `auth` (`frontend/src/features/auth/**`: Login, Signup, JoinShop, ForgotPassword, ResetPassword, VerifyEmail, GoogleAuth), with a language switch on Login/Signup before sign-in (FR-004). Same 5 steps. Test FIRST `frontend/src/features/auth/__tests__/Login.languageSwitch.test.tsx`.
 - [ ] T033 [P] [US2] Convert namespace `setup` (`frontend/src/features/setup/**`, the desktop first-run wizard) with a pre-sign-in language switch. Same 5 steps.
-- [ ] T034 [US2] Test FIRST `packages/core/src/services/__tests__/UserPreferencesService.staffDefault.test.ts`: a staff user created after the admin set `ui_default_language='ar'` resolves to `ar` (US2 AC-5), and a user who existed before the update (NULL) resolves to the shop default. The implementation should already pass; if it fails, fix it in `UserPreferencesService.ts`.
-- [ ] T040 [US2] (needs OD-1) FR-006 signup.
+- [x] T034 [US2] Test FIRST `packages/core/src/services/__tests__/UserPreferencesService.staffDefault.test.ts`: a staff user created after the admin set `ui_default_language='ar'` resolves to `ar` (US2 AC-5), and a user who existed before the update (NULL) resolves to the shop default. The implementation should already pass; if it fails, fix it in `UserPreferencesService.ts`.
+- [ ] T040 [US2] (needs OD-1) FR-006 signup. **Partly done 2026-10-17:** `Signup.tsx` reads `lang` and sets the device language (`Signup.lang.test.tsx`). The backend threading (schema, provisioning, Google state, emailed link) is left.
   1. Three-way diff on the signup request schema (`packages/core/src/validators/signupInvitation.ts` / route body / service args).
   2. Test FIRST `backend/src/api/__tests__/signupLanguage.api.test.ts`: signup with `language:'ar'` creates an owner with `users.language='ar'` and `system_settings.ui_default_language='ar'`; `receipt_language` is unset; without `language`, everything stays NULL/English.
   3. Then thread `language` through `SignupInvitationService.ts` (the link carries `lang`), `TenantProvisioningService.ts`, `backend/src/api/auth.ts` (`/signup/request`, `/signup`) and `backend/src/api/googleSignup.ts` (OAuth `state`). `frontend/src/features/auth/pages/Signup.tsx` reads `lang` from the hash query and sets the device language.
-- [ ] T041 [US2] (needs OD-1) Change the two `#/signup` links in `landing/ar.html` (lines ~204 and ~244) to `#/signup?lang=ar`. Make no other landing change.
+- [x] T041 [US2] (needs OD-1) Change the two `#/signup` links in `landing/ar.html` (lines ~204 and ~244) to `#/signup?lang=ar`. Make no other landing change.
 - [ ] T042 [US2] Web e2e `frontend/tests/e2e-web/lira-web-0NN-language-per-user.spec.ts` (next free number at build time): user A at ar and user B at en on the same browser each get their own language; A on a second browser context is Arabic; select by `data-testid`/role. Ask the owner before running it.
 
 **Checkpoint**: per-user language works on both transports. The switch itself stays hidden until T095.

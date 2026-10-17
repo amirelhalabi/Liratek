@@ -17,7 +17,11 @@ void i18n.init({
     ar: { server: { "refund.notEnough": "لا يمكن إرجاع {{requested}} - المتوفر {{available}} فقط" } },
   },
 });
-const t = i18n.t.bind(i18n);
+// A throwaway instance with its own keys (the app's typed keys do not apply).
+const t = i18n.t.bind(i18n) as unknown as (
+  key: string,
+  options?: Record<string, unknown>,
+) => string;
 
 describe("translateServerError", () => {
   it("translates a known key, formatting numeric params en-US", () => {

@@ -21,7 +21,7 @@ describe("i18n in jest", () => {
 
   it("t() from another namespace resolves through the ns prefix", () => {
     function Lang() {
-      const { t } = useTranslation();
+      const { t } = useTranslation(["layout", "common"]);
       return <span>{t("common:language.ar")}</span>;
     }
     render(<Lang />);

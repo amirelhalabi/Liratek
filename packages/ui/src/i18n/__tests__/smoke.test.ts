@@ -15,6 +15,8 @@ describe("packages/ui i18n smoke", () => {
       resources: { en: { common: { hello: "Hello" } } },
       defaultNS: "common",
     });
-    expect(instance.t("hello")).toBe("Hello");
+    // The app augments i18next with typed keys; this throwaway instance has its own.
+    const t = instance.t as unknown as (key: string) => string;
+    expect(t("hello")).toBe("Hello");
   });
 });

@@ -17,11 +17,17 @@ export interface ServerRefusal {
   messageParams?: Record<string, string | number>;
 }
 
-type TranslateFn = (key: string, options?: Record<string, unknown>) => string;
+/**
+ * Any i18next `t` (typed or not). Typed `t` functions only accept their own
+ * literal keys, so the parameter takes any function and the dynamic
+ * `server:<key>` lookup goes through one narrow cast below.
+ */
+type AnyTranslate = (...args: never[]) => unknown;
+type DynamicTranslate = (key: string, options?: Record<string, unknown>) => string;
 
 export function translateServerError(
   refusal: ServerRefusal,
-  t: TranslateFn,
+  t: AnyTranslate,
   fallback = "Something went wrong",
 ): string {
   const english =
@@ -33,7 +39,8 @@ export function translateServerError(
   for (const [name, value] of Object.entries(refusal.messageParams ?? {})) {
     params[name] = typeof value === "number" ? formatNumber(value) : value;
   }
-  const translated = t(fullKey, { ...params, defaultValue: "" });
+  const translate = t as unknown as DynamicTranslate;
+  const translated = translate(fullKey, { ...params, defaultValue: "" });
   return translated && translated !== fullKey && translated !== key
     ? translated
     : english;

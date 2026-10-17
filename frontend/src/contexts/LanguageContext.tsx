@@ -81,7 +81,11 @@ function applyToDocument(lang: Language): void {
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const api = useApi();
   const apiRef = useRef(api);
-  apiRef.current = api;
+  // Rule 25: `api` is read through the ref, never put in a dependency list.
+  // Kept current in an effect (refs are not written during render).
+  useEffect(() => {
+    apiRef.current = api;
+  }, [api]);
   const { isAuthenticated } = useAuth();
 
   // What the person/device asked for (before the gate).
