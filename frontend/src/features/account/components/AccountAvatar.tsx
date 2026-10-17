@@ -14,6 +14,7 @@
 
 import { useState } from "react";
 import { UserCircle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 export interface AccountAvatarProps {
   url: string | null | undefined;
@@ -26,9 +27,10 @@ export interface AccountAvatarProps {
 export default function AccountAvatar({
   url,
   size,
-  alt = "My account",
+  alt,
   className = "",
 }: AccountAvatarProps) {
+  const { t } = useTranslation("account");
   // The URL that failed to load: a NEW url gets its own chance.
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
 
@@ -38,7 +40,7 @@ export default function AccountAvatar({
   return (
     <img
       src={url}
-      alt={alt}
+      alt={alt ?? t("title")}
       width={size}
       height={size}
       referrerPolicy="no-referrer"
