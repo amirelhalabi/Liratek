@@ -13,6 +13,7 @@ import {
   hasNewClientInfo,
   type PaymentLine,
   type CarrierLineEntity,
+  type LinesSectionState,
   appEvents,
 } from "@liratek/ui";
 // #28 (LIRA-218) — the ONE shared sold-ahead/validity rule (rule 14); the
@@ -184,6 +185,13 @@ interface TelecomFormProps {
   /** LIRA-334 payout round-up opt-in — forwarded to the credit buy-back
    *  sheet only (never the sale or the Alfa gift sheet). */
   onRoundUpChange?: (roundUp: { usd: number; lbp: number } | null) => void;
+  /** LIRA-336 — change the customer adds on the credit buy-back, in the
+   *  payout currency (LBP). With `onBuybackCustomerLinesChange` it opens an
+   *  optional "Customer gives change" section on the buy-back sheet only. */
+  onAddedChange?: (added: { usd: number; lbp: number } | null) => void;
+  /** LIRA-336 — that section's lines (the page sends the non-zero ones as
+   *  `customerPayments`). */
+  onBuybackCustomerLinesChange?: (lines: PaymentLine[]) => void;
   /** Payment-Legs Integrity plan (false-reject fix): fires with the rate the
    *  PaymentSheet is ACTUALLY using for its conversions (the operator may
    *  edit the sheet's header rate field away from the `exchangeRate` this
@@ -292,6 +300,8 @@ export function TelecomForm({
   onReturnChange,
   onKeptChange,
   onRoundUpChange,
+  onAddedChange,
+  onBuybackCustomerLinesChange,
   onEffectiveRateChange,
   onRefreshHistory,
   onRefreshBalances,
@@ -528,6 +538,18 @@ export function TelecomForm({
   // payout leg to live). The parent's handleTelecomSubmit short-circuits
   // this too; disabling here just keeps the control from looking clickable.
   const isBuybackBlockedBySession = isCreditBuyback && !!activeSession;
+  // LIRA-336 — the optional "Customer gives change" section: a walk-in
+  // buy-back only (never a sale, never in a session), and only where the
+  // page opted in. Confirm waits while it is over the cap.
+  const buybackAddedChangeOffered =
+    isCreditBuyback &&
+    !activeSession &&
+    !!onAddedChange &&
+    !!onBuybackCustomerLinesChange;
+  const [buybackChangeState, setBuybackChangeState] =
+    useState<LinesSectionState | null>(null);
+  const buybackChangeBlocksConfirm =
+    buybackAddedChangeOffered && buybackChangeState?.overpaid === true;
 
   // Normalized card models for the shared CardGridPayView. Only one of these is
   // rendered at a time (gift for Alfa, vouchers for MTC).
@@ -817,7 +839,8 @@ export function TelecomForm({
                 ) : (
                   <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
                     {t("telecom.resaleOther", {
-                      carrier: resaleLineMatch.carrier === "mtc" ? "MTC" : "Alfa",
+                      carrier:
+                        resaleLineMatch.carrier === "mtc" ? "MTC" : "Alfa",
                       name: resaleLineMatch.name,
                     })}
                   </div>
@@ -1059,10 +1082,9 @@ export function TelecomForm({
                           telecomPrice ? formatNumber(Number(telecomPrice)) : ""
                         }
                         onChange={(e) => {
-                          const cleaned = normalizeDigits(e.target.value).replace(
-                            /,/g,
-                            "",
-                          );
+                          const cleaned = normalizeDigits(
+                            e.target.value,
+                          ).replace(/,/g, "");
                           if (/^[0-9]*\.?[0-9]*$/.test(cleaned)) {
                             setTelecomPrice(cleaned);
                           }
@@ -1275,6 +1297,29 @@ export function TelecomForm({
                   // round-up (booked as change rounding) — buy-back only.
                   {...(onRoundUpChange && isCreditBuyback
                     ? { onRoundUpChange }
+                    : {})}
+                  // LIRA-336: change the customer adds on the buy-back.
+                  {...(buybackAddedChangeOffered
+                    ? {
+                        onAddedChange,
+                        confirmDisabled: buybackChangeBlocksConfirm,
+                        counterFlow: {
+                          // The box titles an optional section itself.
+                          label: "",
+                          optional: true,
+                          allowAddedChange: true,
+                          totalAmount: 0,
+                          currency: "LBP",
+                          onChange: onBuybackCustomerLinesChange,
+                          onStateChange: setBuybackChangeState,
+                          // Money that really comes in: never the account.
+                          paymentMethods: methods.filter(
+                            (m) =>
+                              BUYBACK_PAYMENT_METHOD_CODES.has(m.code) &&
+                              m.code !== "CUSTOMER_ACCOUNT",
+                          ),
+                        },
+                      }
                     : {})}
                   hasClient={!!telecomClientId}
                   // Charge flow: shortfall → debt on the resolved client.

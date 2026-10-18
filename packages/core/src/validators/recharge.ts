@@ -6,6 +6,7 @@ import {
   historyAllQuerySchema,
   extraChargeFields,
   roundingGivenFields,
+  addedChangeFields,
   hasExtraCharge,
   discountAndExtraNotBoth,
   extraNotBothRefineOptions,
@@ -13,6 +14,7 @@ import {
   EXTRA_ABOVE_TOTAL_MESSAGE,
 } from "./common.js";
 import { TOP_UP_PROVIDERS } from "../constants/rechargeProviders.js";
+import { customerLegSchema } from "./customerLegs.js";
 
 /**
  * Recharge validation schemas (MTC, Alfa)
@@ -162,6 +164,13 @@ export const createRechargeSchema = z
     kept_change_lbp: z.number().nonnegative().optional(),
     // LIRA-334 — payout round-up (handed more than owed).
     ...roundingGivenFields,
+    // LIRA-336 — change the customer adds on a credit buy-back (a payout):
+    // the claim, in the payout currency, plus the customer's own lines.
+    // CREDIT_BUYBACK only — the repository refuses both on every sale.
+    ...addedChangeFields,
+    // No `.min(1)`: before LIRA-336 this key was stripped, so an empty
+    // array was accepted — it still is (no claim → behaviour as before).
+    customerPayments: z.array(customerLegSchema).optional(),
     // LIRA-319: the extra the cashier added on top of the sale, in the
     // sale's currency. Optional with NO default (offline replay, research
     // R4). `price` stays the sale price; the repository charges
@@ -407,6 +416,12 @@ export const topUpFromClientSchema = z.object({
   kept_change_lbp: z.number().nonnegative().optional(),
   // LIRA-334 — payout round-up (handed more than owed).
   ...roundingGivenFields,
+  // LIRA-336 — change the customer adds (claim in `currency`) and the
+  // customer's own lines. Verified by `resolveAddedChange`.
+  ...addedChangeFields,
+  // No `.min(1)`: before LIRA-336 this key was stripped, so an empty
+  // array was accepted — it still is (no claim → behaviour as before).
+  customerPayments: z.array(customerLegSchema).optional(),
   /** LIRA-329 — informational only: the "Fee included in amount" choice as
    *  ticked (kept on the transaction's details; `fee` above stays the
    *  figure every money step uses). */

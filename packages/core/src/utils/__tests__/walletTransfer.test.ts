@@ -151,3 +151,50 @@ describe("buildWalletTransferPayload — customerPayments in the other fee modes
     expect("feeCollectedSeparately" in body).toBe(false);
   });
 });
+
+// LIRA-336 (T015): the change the customer adds rides the same builder (rule
+// 22) — RECEIVE only, sent only when non-zero and only with the customer's
+// lines, under the schema's own field names (rule 24).
+describe("buildWalletTransferPayload — added change (LIRA-336)", () => {
+  const receiveFees = calculateOmtWhishAppFees({
+    activeProvider: "WHISH_APP", serviceType: "RECEIVE", currency: "USD", parsedAmount: 100,
+    manualFee: "3", includingFees: false,
+  });
+  const base = {
+    provider: "WHISH_APP" as const, serviceType: "RECEIVE" as const, currency: "USD" as const,
+    fees: receiveFees, includingFees: false, client: { name: "A", phone: "1" }, paidByMethod: "CASH",
+    cashoutMethod: "CASH" as const,
+    payments: [{ method: "CASH", currencyCode: "USD", amount: 100 }],
+    customerPayments: [
+      { method: "WHISH", currencyCode: "USD", amount: 103 },
+      { method: "CASH", currencyCode: "USD", amount: 3 },
+    ],
+  };
+
+  it("sends added_change_* with the customer's lines, and the schema keeps it", () => {
+    const body = buildWalletTransferPayload({ ...base, addedChange: { usd: 3, lbp: 0 } });
+    const parsed = createFinancialServiceSchema.parse(body);
+    expect(parsed.added_change_usd).toBe(3);
+    expect(parsed.added_change_lbp).toBe(0);
+    expect(parsed.customerPayments).toHaveLength(2);
+  });
+
+  it("omits it when zero or null", () => {
+    const zero = buildWalletTransferPayload({ ...base, addedChange: { usd: 0, lbp: 0 } });
+    expect("added_change_usd" in zero).toBe(false);
+    expect("added_change_lbp" in zero).toBe(false);
+    const nul = buildWalletTransferPayload({ ...base, addedChange: null });
+    expect("added_change_usd" in nul).toBe(false);
+  });
+
+  it("never sends it on a SEND or without customer lines", () => {
+    const send = buildWalletTransferPayload({
+      ...base, serviceType: "SEND", fees: fees("WHISH_APP", "SEND"), addedChange: { usd: 3, lbp: 0 },
+    });
+    expect("added_change_usd" in send).toBe(false);
+    const noLines = buildWalletTransferPayload({
+      ...base, customerPayments: [], addedChange: { usd: 3, lbp: 0 },
+    });
+    expect("added_change_usd" in noLines).toBe(false);
+  });
+});

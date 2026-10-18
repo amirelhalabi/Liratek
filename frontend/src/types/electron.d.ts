@@ -1572,6 +1572,9 @@ export interface ElectronAPI {
       // LIRA-334: payout round-up (roundingGivenFields).
       rounding_given_usd?: number;
       rounding_given_lbp?: number;
+      // LIRA-336: change the customer adds (addedChangeFields).
+      added_change_usd?: number;
+      added_change_lbp?: number;
       // LIRA-321 "Customer pays" — exchangeSubmitSchema (rule 12): the
       // linked client, the customer's lines (fromCurrency only) and the
       // forgiven leftover.
@@ -4041,6 +4044,11 @@ export interface ElectronAPI {
       // LIRA-334: payout round-up (roundingGivenFields).
       rounding_given_usd?: number;
       rounding_given_lbp?: number;
+      // LIRA-336: change the customer adds (addedChangeFields) + their lines
+      // (one-currency pickups only).
+      added_change_usd?: number;
+      added_change_lbp?: number;
+      customerPayments?: Array<import("@liratek/core").CustomerLegInput>;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     voidPickup: (
       pickupId: number,

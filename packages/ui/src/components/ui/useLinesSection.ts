@@ -31,6 +31,12 @@ export interface LinesSectionState {
   needsClient: boolean;
   /** totalAmount − paid − owedToAccount − forgiven (≥ 0). */
   unaccounted: number;
+  /** LIRA-336 — present only when `allowAddedChange` is on: money the
+   *  customer hands over ABOVE the section's target, in the section
+   *  currency (rounded), from cash/wallet lines only (never the account or
+   *  a forgiven amount). 0 when there is none or it is over the cap (then
+   *  `overpaid` is true instead). */
+  addedChange?: number;
 }
 
 export interface UseLinesSectionOptions {
@@ -47,6 +53,13 @@ export interface UseLinesSectionOptions {
   round: (amount: number, currency: string) => number;
   onChange?: (lines: PaymentLine[]) => void;
   onStateChange?: (state: LinesSectionState) => void;
+  /** LIRA-336 — money above the target from non-account lines is change
+   *  the customer adds (reported as `state.addedChange`), not an overpay. */
+  allowAddedChange?: boolean;
+  /** LIRA-336 — the cap on added change, given the amount in the section
+   *  currency. Read through `optsRef` (no new effect deps). Absent ⇒ any
+   *  amount is allowed. Over it the section reports `overpaid`. */
+  isAddedChangeAllowed?: (amountInSectionCurrency: number) => boolean;
 }
 
 const ACCOUNT = "CUSTOMER_ACCOUNT";
@@ -71,6 +84,7 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
     methods,
     hasClient,
     maxForgive,
+    allowAddedChange = false,
   } = opts;
 
   // Callbacks and helpers change identity every render (pages pass a fresh
@@ -93,6 +107,28 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
   /** Split was entered by the leftover rule, not by the Split button. */
   const autoSplitRef = useRef(false);
 
+  // ── LIRA-336: turning the section off (an optional section closed) tells
+  //    the page once that its lines are gone and nothing is owed. A page
+  //    that drops `counterFlow` entirely passes no callbacks, so it is
+  //    unaffected. ─────────────────────────────────────────────────────────
+  const prevEnabledRef = useRef(enabled);
+  useEffect(() => {
+    const was = prevEnabledRef.current;
+    prevEnabledRef.current = enabled;
+    if (!was || enabled) return;
+    optsRef.current.onChange?.([]);
+    optsRef.current.onStateChange?.({
+      paid: 0,
+      owedToAccount: 0,
+      forgiven: 0,
+      balanced: true,
+      overpaid: false,
+      needsClient: false,
+      unaccounted: 0,
+      ...(optsRef.current.allowAddedChange ? { addedChange: 0 } : {}),
+    });
+  }, [enabled]);
+
   const tol = toleranceFor(currency);
   const accountOffered = methods.some((m) => m.code === ACCOUNT);
 
@@ -105,9 +141,7 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
     optsRef.current.convert(l.amount || 0, l.currencyCode, currency);
 
   const sumExcept = (ls: PaymentLine[], excludeId?: string): number =>
-    ls
-      .filter((l) => l.id !== excludeId)
-      .reduce((s, l) => s + inCurrency(l), 0);
+    ls.filter((l) => l.id !== excludeId).reduce((s, l) => s + inCurrency(l), 0);
 
   const leftoverMethod = (remaining: number): string =>
     remaining > tol && accountOffered ? ACCOUNT : "CASH";
@@ -301,8 +335,7 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
       // an automatic cash line (US1.3). A line the cashier edited by hand
       // is an ACCOUNT line already or not tracked, so it is never touched.
       const followAlive =
-        !!followIdRef.current &&
-        next.some((l) => l.id === followIdRef.current);
+        !!followIdRef.current && next.some((l) => l.id === followIdRef.current);
       if (
         accountOffered &&
         !followAlive &&
@@ -394,7 +427,20 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
   }
   const gap = totalAmount - paidRaw - owedRaw;
   const shortfall = gap > tol ? gap : 0;
-  const overpaid = -gap > tol;
+  // LIRA-336 — added change: the cash/wallet lines alone go above the
+  // target and no account line is involved (an account amount can never
+  // raise a payout, and an account line above the target is an overpay).
+  // Within the cap it is not an overpay; over it, it stays one.
+  const addedRaw =
+    allowAddedChange && owedRaw <= tol && paidRaw - totalAmount > tol
+      ? paidRaw - totalAmount
+      : 0;
+  const addedRounded = roundReport(addedRaw, currency);
+  const addedAllowed =
+    addedRaw > 0 &&
+    (optsRef.current.isAddedChangeAllowed?.(addedRounded) ?? true);
+  const addedOverCap = addedRaw > 0 && !addedAllowed;
+  const overpaid = -gap > tol && !addedAllowed;
   const canForgive =
     shortfall > 0 && maxForgive !== undefined && shortfall <= maxForgive + tol;
   const forgivenRaw = forgiveOn && canForgive ? shortfall : 0;
@@ -408,6 +454,9 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
     needsClient:
       !hasClient && lines.some((l) => l.method === ACCOUNT && l.amount > 0),
     unaccounted: roundReport(unaccountedRaw, currency),
+    ...(allowAddedChange
+      ? { addedChange: addedAllowed ? addedRounded : 0 }
+      : {}),
   };
 
   // Report only when a value changes — the deps are plain numbers/booleans.
@@ -425,6 +474,7 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
     state.overpaid,
     state.needsClient,
     state.unaccounted,
+    state.addedChange,
   ]);
 
   return {
@@ -432,6 +482,8 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
     isSplit,
     state,
     accountOffered,
+    /** LIRA-336 — the customer added change above the cap. */
+    addedOverCap,
     shortfall: roundReport(shortfall, currency),
     canForgive,
     forgiveOn: forgiveOn && canForgive,

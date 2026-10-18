@@ -5,6 +5,7 @@ import {
   transactionTimeSchema,
   historyAllQuerySchema,
   roundingGivenFields,
+  addedChangeFields,
 } from "./common.js";
 import { customerPaymentsField } from "./customerLegs.js";
 
@@ -68,6 +69,8 @@ const keptChangeFields = {
   kept_change_lbp: z.number().nonnegative().optional(),
   // LIRA-334 — payout round-up (handed more than owed).
   ...roundingGivenFields,
+  // LIRA-336 — change the customer adds on top of amountIn (in toCurrency).
+  ...addedChangeFields,
 };
 
 /**

@@ -84,6 +84,11 @@ interface CryptoFormProps {
   /** LIRA-334 payout round-up opt-in (plumbed to PaymentSheet →
    *  MultiPaymentInput) — the page passes it on a cash-out only. */
   onRoundUpChange?: (roundUp: { usd: number; lbp: number } | null) => void;
+  /** LIRA-336 — change the customer adds on a cash-out (payout currency,
+   *  plumbed to PaymentSheet → MultiPaymentInput). The page passes it only
+   *  where the server accepts it (walk-in cash payout); it also turns on
+   *  `allowAddedChange` on the "Customer pays" section. */
+  onAddedChange?: (added: { usd: number; lbp: number } | null) => void;
   onDiscountChange?: (discount: number) => void;
   /** LIRA-319 — the sheet's "+ Extra" on a walk-in SEND (USD). */
   onExtraChange?: (extra: number) => void;
@@ -131,6 +136,7 @@ export function CryptoForm({
   onReturnChange,
   onKeptChange,
   onRoundUpChange,
+  onAddedChange,
   onDiscountChange,
   onExtraChange,
   exchangeRate,
@@ -264,6 +270,9 @@ export function CryptoForm({
     receiveUsdt > 0;
   const feeLineSeparate =
     showCustomerSection && feeCollectedSeparately && feeToCollect > 0;
+  // LIRA-336 — the customer may add change only on the walk-in cash-out
+  // section, and only where the page opted in (`onAddedChange`).
+  const addedChangeOffered = showCustomerSection && !!onAddedChange;
   // The USDT line's method must be selectable even if the shop turned the
   // Binance payment method off in Settings.
   const customerSectionMethods = customerPaymentMethods.some(
@@ -934,6 +943,7 @@ export function CryptoForm({
           {...(onRoundUpChange && cryptoType === "RECEIVE"
             ? { onRoundUpChange }
             : {})}
+          {...(addedChangeOffered ? { onAddedChange } : {})}
           // LIRA-321 (US4): the "Customer pays" section — the USDT line
           // (+ the fee line when paid separately), independent of the payout
           // lines. Two seed lines open it in split mode; one keeps it
@@ -955,6 +965,9 @@ export function CryptoForm({
                   ],
                   onChange: onCustomerLinesChange,
                   onStateChange: handleCustomerSectionState,
+                  // LIRA-336: money above what the customer owes is change
+                  // they add (raises "Shop pays").
+                  ...(addedChangeOffered ? { allowAddedChange: true } : {}),
                   paymentMethods: customerSectionMethods,
                   requiresClient: true,
                   hasClient:

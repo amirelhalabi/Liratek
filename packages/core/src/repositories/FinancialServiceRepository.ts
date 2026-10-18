@@ -15,6 +15,7 @@ import {
   CUSTOMER_PAYMENTS_REQUIRED_MESSAGE,
   CUSTOMER_PAYMENTS_FEE_MODE_MESSAGE,
   CUSTOMER_PAYMENTS_PROVIDERS,
+  CUSTOMER_PAYMENTS_ADDED_CHANGE_PROVIDERS,
   hasCustomerPayments,
 } from "../validators/financial.js";
 import {
@@ -23,6 +24,9 @@ import {
   NO_EXTRA_FOR_PARTNER_MESSAGE,
   ROUNDING_GIVEN_NOT_ALLOWED_MESSAGE,
   hasRoundingGiven,
+  ADDED_CHANGE_ACCOUNT_MESSAGE,
+  ADDED_CHANGE_NOT_ALLOWED_MESSAGE,
+  hasAddedChange,
 } from "../validators/common.js";
 import {
   atSettlementCommission,
@@ -71,6 +75,7 @@ import {
   insertPaymentRow,
   bookClientDebtCharge,
   bookCustomerLegs,
+  writeCustomerLegs,
   assertPartnerIdRequired,
   assertNoCounterPayment,
   assertNoCustomerAccountLeg,
@@ -81,6 +86,7 @@ import {
 } from "./moneyPosting.js";
 import { resolveKeptChange } from "./keptChange.js";
 import { resolveRoundingGiven, type RoundingGiven } from "./roundingGiven.js";
+import { resolveAddedChange, type AddedChange } from "./addedChange.js";
 import { bookPayoutRoundingExpense } from "./changeRoundingExpense.js";
 import { bookForgivenShortfallSibling } from "./forgivenShortfall.js";
 import {
@@ -533,6 +539,13 @@ export interface CreateFinancialServiceData {
    *  expense; refused everywhere else. */
   rounding_given_usd?: number;
   rounding_given_lbp?: number;
+  /** LIRA-336 — change the customer adds on a RECEIVE payout (their lines
+   *  in `customerPayments`, or in `feePayments` on a Whish receive with the
+   *  fee paid on top), in the payout currency. Verified by
+   *  `resolveAddedChange` in the CASH / wallet cashout branch; raises the
+   *  payout target, no expense, no profit; refused everywhere else. */
+  added_change_usd?: number;
+  added_change_lbp?: number;
   /**
    * LIRA-319 — the extra the cashier added on top of what the customer owes
    * (a SEND / BILL / catalog checkout, never a RECEIVE payout). In the
@@ -2367,9 +2380,17 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         if (data.deferPayment === true) {
           throw new Error(CUSTOMER_PAYMENTS_SESSION_MESSAGE);
         }
+        // LIRA-336: an OMT / WHISH system RECEIVE takes them only as change
+        // the customer adds — i.e. with the claim (verified further down).
+        const addedChangeOnSystemReceive =
+          CUSTOMER_PAYMENTS_ADDED_CHANGE_PROVIDERS.includes(data.provider) &&
+          hasAddedChange(data);
         if (
           data.serviceType !== "RECEIVE" ||
-          !CUSTOMER_PAYMENTS_PROVIDERS.includes(data.provider) ||
+          !(
+            CUSTOMER_PAYMENTS_PROVIDERS.includes(data.provider) ||
+            addedChangeOnSystemReceive
+          ) ||
           useCostPriceFlow
         ) {
           throw new Error(CUSTOMER_PAYMENTS_ONLY_ON_APP_RECEIVE_MESSAGE);
@@ -3105,10 +3126,27 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         provider: string;
         noteSuffix: string;
         contextLabel: string;
+        /** LIRA-336 (research R5) — change the customer added inside the fee
+         *  lines (Whish system receive with the fee paid on top), already
+         *  verified by `resolveAddedChange`, in `currency`. The lines then
+         *  cover fee + added. Default 0 (every other caller unchanged). */
+        addedChange?: number;
       }) => {
+        const added = params.addedChange ?? 0;
+        if (
+          added > 0 &&
+          params.feePayments.some((l) => l.method === "CUSTOMER_ACCOUNT")
+        ) {
+          throw new Error(
+            `${ADDED_CHANGE_ACCOUNT_MESSAGE} (${params.contextLabel}: an account fee line)`,
+          );
+        }
         reconcileLegs({
           inLegs: params.feePayments,
-          expectedTotals: expectedTotalIn(params.feeAmount, params.currency),
+          expectedTotals: expectedTotalIn(
+            params.feeAmount + added,
+            params.currency,
+          ),
           exchangeRate: stampedExchangeRate,
           tenderExchangeRate: data.tender_exchange_rate,
           context: params.contextLabel,
@@ -3333,6 +3371,82 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         receiveRounding.verified = r;
         return r;
       };
+
+      // ── LIRA-336 change the customer adds (owner request 2026-10-18) ─────
+      // Owed $197, the customer hands over $3, the shop hands out $200. Same
+      // three-step guard as the round-up above:
+      //   - refused up front where no payout branch can honour it (same
+      //     shapes as the round-up);
+      //   - verified by `resolveAddedChange` inside the system CASH cashout
+      //     (the customer's lines in `customerPayments`, or in `feePayments`
+      //     on a Whish receive with the fee paid on top) and the wallet
+      //     cashout (`customerPayments`, above what the customer owes); the
+      //     payout legs then cover owed − kept + rounding + added, and the
+      //     customer's lines are written as positive payment rows of this
+      //     transaction (reversed by `_reversePayments`, rule 20). No expense,
+      //     no profit (FR-005);
+      //   - fail-closed at the end: a claim no branch verified is refused.
+      // Keyed on the RAW claim (rule 23).
+      const addedClaim = {
+        usd: data.added_change_usd ?? 0,
+        lbp: data.added_change_lbp ?? 0,
+      };
+      const addedClaimed = hasAddedChange(data);
+      const receiveAdded: { verified: AddedChange | null } = {
+        verified: null,
+      };
+      if (addedClaimed) {
+        const cashout = data.cashoutMethod || "CASH";
+        const isSystemReceive =
+          data.provider === "OMT" || data.provider === "WHISH";
+        const isWalletReceive =
+          data.provider === "BINANCE" ||
+          data.provider === "OMT_APP" ||
+          data.provider === "WHISH_APP";
+        const refusal = !isReceivePayout
+          ? "only a payout (RECEIVE) can take change from the customer"
+          : isForPartner
+            ? "a partner transaction is paid out exactly"
+            : deferPayment
+              ? "a customer-session item is paid out at the session checkout"
+              : !isSystemReceive && !isWalletReceive
+                ? "this provider has no cash payout"
+                : cashout === "CUSTOMER_ACCOUNT"
+                  ? "the payout is credited to the customer's account"
+                  : isSystemReceive && cashout !== "CASH"
+                    ? "a wallet payout is sent exactly"
+                    : null;
+        if (refusal) {
+          throw new Error(
+            `${ADDED_CHANGE_NOT_ALLOWED_MESSAGE} (${data.provider} ${data.serviceType}: ${refusal})`,
+          );
+        }
+      }
+      const resolveReceiveAdded = (
+        legs: ReconciliationLeg[] | undefined,
+        expected: { amount: number; currency: string },
+        payoutCurrency: string,
+        context: string,
+        measureRate?: number,
+      ): AddedChange => {
+        const r = resolveAddedChange({
+          legs,
+          expected,
+          payoutCurrency,
+          exchangeRate: stampedExchangeRate,
+          tenderExchangeRate: data.tender_exchange_rate,
+          ...(measureRate !== undefined ? { measureRate } : {}),
+          clientId: resolvedPrimaryClientId ?? null,
+          waived: customerWaived,
+          claimed: addedClaim,
+          context,
+        });
+        receiveAdded.verified = r;
+        return r;
+      };
+      /** The verified added change as a single amount in `currency`. */
+      const addedIn = (a: AddedChange | null, currency: string): number =>
+        a ? (currency === "LBP" ? a.lbp : a.usd) : 0;
 
       // Shared OUT-leg processor — the ONE loop that debits drawer-affecting
       // OUT legs (rule 16: no flow-specific branch may iterate them again).
@@ -4259,6 +4373,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             const customerLines = hasCustomerPayments(data)
               ? data.customerPayments!
               : null;
+            // LIRA-336 — the verified change the customer added (set below).
+            let walletAdded: AddedChange | null = null;
             if (customerLines) {
               // The provider's own wallet method (Whish wallet on Whish App,
               // OMT wallet on OMT App, Binance on Binance). A line paid there
@@ -4308,36 +4424,69 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   }
                 }
               }
-              const { forgiven } = bookCustomerLegs(this.db, {
-                legs: customerLines,
-                // D1: OMT App never has a fee (refused above), so this is the
-                // transfer alone there. Binance: USD, the USDT line counted
-                // 1:1 (`comparisonCurrency`), a USDT shortfall owed in USD.
-                expected: {
-                  amount:
-                    cryptoAmount +
-                    (data.feeCollectedSeparately === true ? fee : 0),
-                  currency: cashCurrency,
-                },
-                // The rate the sheet converted the lines at (tender, when
-                // sent — the RECEIVE sheet uses the buy rate), else the
-                // server rate: the same rate the payout reconcile uses.
-                rate: recordExchangeRate,
-                debtType: "Service Debt",
-                clientId: resolvedPrimaryClientId ?? null,
-                transactionId: txnId,
-                drawerFor: (leg) =>
-                  isOwnWallet(leg)
-                    ? systemDrawer
-                    : paymentMethodToDrawerName(leg.method),
-                storedMethodFor: (leg) =>
-                  isOwnWallet(leg) ? data.provider : leg.method,
-                waived: customerWaived,
-                tenantId,
-                createdBy,
-                note: `Received from customer (${data.provider} RECEIVE)`,
-                context: `${data.provider} RECEIVE`,
-              });
+              // D1: OMT App never has a fee (refused above), so this is the
+              // transfer alone there. Binance: USD, the USDT line counted 1:1
+              // (`comparisonCurrency`), a USDT shortfall owed in USD.
+              const customerExpected = {
+                amount:
+                  cryptoAmount +
+                  (data.feeCollectedSeparately === true ? fee : 0),
+                currency: cashCurrency,
+              };
+              const ownWalletDrawerFor = (leg: ReconciliationLeg) =>
+                isOwnWallet(leg)
+                  ? systemDrawer
+                  : paymentMethodToDrawerName(leg.method);
+              const ownWalletStoredMethod = (leg: ReconciliationLeg) =>
+                isOwnWallet(leg) ? data.provider : leg.method;
+              // LIRA-336: with a claim, the lines above what the customer owes
+              // are change the customer adds — measured and verified here,
+              // written below exactly like `bookCustomerLegs` writes them, and
+              // the payout target rises by the same value. No claim → the
+              // unchanged `bookCustomerLegs` (its overpay refusal stands).
+              walletAdded =
+                addedClaimed && !deferPayment
+                  ? resolveReceiveAdded(
+                      customerLines,
+                      customerExpected,
+                      cashCurrency,
+                      `${data.provider} RECEIVE`,
+                      recordExchangeRate,
+                    )
+                  : null;
+              if (walletAdded?.measured) {
+                writeCustomerLegs(this.db, {
+                  measured: walletAdded.measured,
+                  debtType: "Service Debt",
+                  clientId: resolvedPrimaryClientId ?? null,
+                  transactionId: txnId,
+                  drawerFor: ownWalletDrawerFor,
+                  storedMethodFor: ownWalletStoredMethod,
+                  tenantId,
+                  createdBy,
+                  note: `Received from customer (${data.provider} RECEIVE)`,
+                });
+              }
+              const { forgiven } = walletAdded?.measured
+                ? { forgiven: 0 }
+                : bookCustomerLegs(this.db, {
+                    legs: customerLines,
+                    expected: customerExpected,
+                    // The rate the sheet converted the lines at (tender, when
+                    // sent — the RECEIVE sheet uses the buy rate), else the
+                    // server rate: the same rate the payout reconcile uses.
+                    rate: recordExchangeRate,
+                    debtType: "Service Debt",
+                    clientId: resolvedPrimaryClientId ?? null,
+                    transactionId: txnId,
+                    drawerFor: ownWalletDrawerFor,
+                    storedMethodFor: ownWalletStoredMethod,
+                    waived: customerWaived,
+                    tenantId,
+                    createdBy,
+                    note: `Received from customer (${data.provider} RECEIVE)`,
+                    context: `${data.provider} RECEIVE`,
+                  });
               if (forgiven > 0) {
                 // FR-012 — the shared writer (forgivenShortfall.ts), same
                 // row the Exchange screen books.
@@ -4449,6 +4598,17 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               });
             }
 
+            // LIRA-336: the customer's lines (with the added change) are
+            // already written — a payout of 0 would raise nothing, leaving
+            // their extra in the drawer unexplained. Refused.
+            if (walletAdded && (walletAdded.usd > 0 || walletAdded.lbp > 0)) {
+              if (!(payoutAmount > 0)) {
+                throw new Error(
+                  `${ADDED_CHANGE_NOT_ALLOWED_MESSAGE} (${data.provider} RECEIVE: there is no payout to raise)`,
+                );
+              }
+            }
+
             if (payoutAmount > 0 && !deferPayment) {
               if (cashoutMethod === "CUSTOMER_ACCOUNT") {
                 // Credit customer's account instead of paying cash
@@ -4481,12 +4641,26 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 // legs count toward the payout total but route to store
                 // credit, not a drawer — mirroring the SEND leg loop above.
                 const payoutLegs = data.payments ?? [];
+                // LIRA-336: the change the customer added raises the target
+                // the payout lines cover (round-up / kept change measured
+                // against it too). It needs payout lines: the no-legs
+                // fallback below pays out only what is owed.
+                const walletAddedAmount = addedIn(walletAdded, cashCurrency);
+                if (
+                  walletAddedAmount > 0 &&
+                  !payoutLegs.some((l) => Math.abs(l.amount) > 0)
+                ) {
+                  throw new Error(
+                    `${ADDED_CHANGE_NOT_ALLOWED_MESSAGE} (${data.provider} RECEIVE cashout: change the customer adds needs the payout lines)`,
+                  );
+                }
+                const walletTarget = payoutAmount + walletAddedAmount;
                 if (roundingClaimed) {
                   // LIRA-334: the legs must cover owed + rounding (the
                   // resolver runs the same S2 reconcile against the raised
                   // target, plus the cap / currency / drawer-leg checks).
                   resolveReceiveRounding(
-                    payoutAmount,
+                    walletTarget,
                     cashCurrency,
                     payoutLegs,
                     `${data.provider} RECEIVE cashout`,
@@ -4496,7 +4670,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   // (resolveKeptChange runs the same S2 reconcile against
                   // the reduced target, plus the cap/currency/tamper checks).
                   resolveReceiveKept(
-                    payoutAmount,
+                    walletTarget,
                     cashCurrency,
                     payoutLegs,
                     `${data.provider} RECEIVE cashout`,
@@ -4504,7 +4678,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 } else {
                   reconcileLegs({
                     inLegs: payoutLegs,
-                    expectedTotals: expectedTotalIn(payoutAmount, cashCurrency),
+                    expectedTotals: expectedTotalIn(walletTarget, cashCurrency),
                     exchangeRate: stampedExchangeRate,
                     tenderExchangeRate: data.tender_exchange_rate,
                     context: `${data.provider} RECEIVE cashout`,
@@ -4998,6 +5172,41 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             : receiveAmount;
           const cashoutMethod = data.cashoutMethod || "CASH";
 
+          // LIRA-336 — change the customer adds, verified BEFORE any leg of
+          // this branch is written (the up-front block refused every shape
+          // but a walk-in OMT/WHISH CASH cashout). On a Whish receive with
+          // the fee paid on top through fee lines, the extra rides in those
+          // lines (one IN section on screen, research R5): measured against
+          // the fee. Otherwise it is `customerPayments`, measured against 0
+          // (the customer owes nothing on a receive).
+          const feeLinesApply =
+            !deferPayment &&
+            !receiveFeeIncluded &&
+            receiveFeeAmt > 0 &&
+            data.provider !== "OMT" &&
+            !!data.feePayments &&
+            data.feePayments.length > 0;
+          const systemAdded: AddedChange | null =
+            addedClaimed &&
+            useSystemDrawerFlow &&
+            cashoutMethod === "CASH" &&
+            !deferPayment
+              ? feeLinesApply
+                ? resolveReceiveAdded(
+                    data.feePayments,
+                    { amount: receiveFeeAmt, currency },
+                    currency,
+                    `${data.provider} RECEIVE fee collection`,
+                  )
+                : resolveReceiveAdded(
+                    data.customerPayments,
+                    { amount: 0, currency },
+                    currency,
+                    `${data.provider} RECEIVE cashout`,
+                  )
+              : null;
+          const systemAddedAmount = addedIn(systemAdded, currency);
+
           // Customer-paid fee leg (fee-on-top only): collected in the same
           // drawer the payout itself would use — CASH/CUSTOMER_ACCOUNT both
           // resolve as a cash-family charge (a debt credit has no drawer of
@@ -5054,6 +5263,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 provider: data.provider,
                 noteSuffix: "RECEIVE fee (customer-paid)",
                 contextLabel: `${data.provider} RECEIVE fee collection`,
+                // LIRA-336: the change the customer added in the fee lines.
+                ...(feeLinesApply && systemAddedAmount > 0
+                  ? { addedChange: systemAddedAmount }
+                  : {}),
               });
             } else {
               // Legacy fallback (no operator-chosen fee legs): synthesize ONE
@@ -5241,9 +5454,15 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               // here, then the legs reconcile against owed − kept.
               // LIRA-334: a round-up claim is verified first (it refuses a
               // claim together with kept change).
+              // LIRA-336: the round-up and kept change are measured against
+              // owed + added, so money the customer added is never booked as
+              // either (FR-003). The customer's own lines (customerPayments)
+              // land in the same cash drawer as the payout; fee lines were
+              // already written by `bookFeeCollectionLegs` above.
+              const owedPlusAdded = payoutAmount + systemAddedAmount;
               const cashRounding = roundingClaimed
                 ? resolveReceiveRounding(
-                    payoutAmount,
+                    owedPlusAdded,
                     currency,
                     data.payments,
                     `${data.provider} RECEIVE cashout`,
@@ -5251,12 +5470,25 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 : undefined;
               const receiveKept = receiveKeptClaimed
                 ? resolveReceiveKept(
-                    payoutAmount,
+                    owedPlusAdded,
                     currency,
                     data.payments,
                     `${data.provider} RECEIVE cashout`,
                   )
                 : undefined;
+              if (systemAdded?.measured && !feeLinesApply) {
+                writeCustomerLegs(this.db, {
+                  measured: systemAdded.measured,
+                  debtType: "Service Debt",
+                  clientId: resolvedPrimaryClientId ?? null,
+                  transactionId: txnId,
+                  drawerFor: (leg) =>
+                    resolveServiceCashDrawer(leg.method, cashDrawerCtx),
+                  tenantId,
+                  createdBy,
+                  note: `Change added by the customer (${data.provider} RECEIVE)`,
+                });
+              }
               postPayoutLegs({
                 db: this.db,
                 legs: data.payments,
@@ -5266,6 +5498,14 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 tenderExchangeRate: data.tender_exchange_rate,
                 ...(receiveKept ? { keptChange: receiveKept } : {}),
                 ...(cashRounding ? { roundingGiven: cashRounding } : {}),
+                ...(systemAdded
+                  ? {
+                      addedChange: {
+                        usd: systemAdded.usd,
+                        lbp: systemAdded.lbp,
+                      },
+                    }
+                  : {}),
                 context: `${data.provider} RECEIVE cashout`,
                 txnId,
                 tenantId,
@@ -5551,6 +5791,13 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       if (roundingClaimed && !receiveRounding.verified) {
         throw new Error(
           `${ROUNDING_GIVEN_NOT_ALLOWED_MESSAGE} (${data.provider} ${data.serviceType}: no cash payout verified the round-up)`,
+        );
+      }
+      // LIRA-336 fail-closed: a claim no cashout branch verified raised no
+      // payout — refuse rather than let the customer's money go unrecorded.
+      if (addedClaimed && !receiveAdded.verified) {
+        throw new Error(
+          `${ADDED_CHANGE_NOT_ALLOWED_MESSAGE} (${data.provider} ${data.serviceType}: no cash payout verified the added change)`,
         );
       }
       // The verified round-up: one books-only "Change rounding" expense

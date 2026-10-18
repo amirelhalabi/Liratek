@@ -200,6 +200,15 @@ export class RechargeService {
      *  (resolveRoundingGiven) and booked as a "Change rounding" expense. */
     rounding_given_usd?: number;
     rounding_given_lbp?: number;
+    /** LIRA-336 — change the client adds and their lines — verified by the
+     *  repository (resolveAddedChange); raises the payout target only. */
+    added_change_usd?: number;
+    added_change_lbp?: number;
+    customerPayments?: Array<{
+      method: string;
+      currencyCode: string;
+      amount: number;
+    }>;
     userId: number;
   }): { success: boolean; error?: string } {
     if (!(data.amount > 0)) {

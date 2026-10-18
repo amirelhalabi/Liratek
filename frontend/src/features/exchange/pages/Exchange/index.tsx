@@ -438,6 +438,15 @@ export default function Exchange() {
     usd: number;
     lbp: number;
   } | null>(null);
+  // LIRA-336 — change the customer adds: money above amountIn in the
+  // "Customer pays" section raises the payout (owed 8,900,000, the customer
+  // adds $1, the shop hands out 8,989,000). Reported by the payout sheet in
+  // the payout currency, sent next to the payout legs; reset like the
+  // round-up.
+  const [payoutAddedChange, setPayoutAddedChange] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
   // LIRA-321 "Customer pays — <fromCurrency>" (IN) section of the payout
   // sheet: the lines the customer hands over (a short one leaves a leftover
   // on the client's account) and the section's balance, which gates Confirm.
@@ -795,6 +804,13 @@ export default function Exchange() {
   // schemas and the writer enforce). Any other currency — EUR… — is paid in
   // full: no account line, no Forgive, Confirm off until balanced.
   const customerCanOwe = fromCurrency === "USD" || fromCurrency === "LBP";
+  // LIRA-336 — the customer may add change only when BOTH sides are USD/LBP
+  // (core refuses it otherwise), never for a partner (canSplitPayout already
+  // excludes that) and never inside a customer session (FR-010).
+  const customerCanAddChange =
+    customerCanOwe &&
+    (toCurrency === "USD" || toCurrency === "LBP") &&
+    !activeSession;
   const customerPaymentMethods = useMemo(() => {
     const drawer = allPaymentMethods
       .filter(
@@ -1271,6 +1287,17 @@ export default function Exchange() {
                     rounding_given_lbp: payoutRoundUp.lbp,
                   }
                 : {}),
+              // LIRA-336: so does the change the customer added (only on an
+              // eligible sheet, and only with the customer's lines).
+              ...(customerCanAddChange &&
+              customerPayments.length > 0 &&
+              payoutAddedChange &&
+              (payoutAddedChange.usd > 0 || payoutAddedChange.lbp > 0)
+                ? {
+                    added_change_usd: payoutAddedChange.usd,
+                    added_change_lbp: payoutAddedChange.lbp,
+                  }
+                : {}),
             }
           : {}),
       });
@@ -1325,6 +1352,7 @@ export default function Exchange() {
         setPayoutLines([]);
         setPayoutKept(null);
         setPayoutRoundUp(null);
+        setPayoutAddedChange(null);
         setPayoutTenderRate(undefined);
         loadHistory();
       } else {
@@ -2139,6 +2167,7 @@ export default function Exchange() {
                     setCustomerState(null);
                     setPayoutKept(null);
                     setPayoutRoundUp(null);
+                    setPayoutAddedChange(null);
                     setPayoutTenderRate(undefined);
                     setPayoutSheetKey((k) => k + 1);
                     setShowPayoutSheet(true);
@@ -2274,6 +2303,7 @@ export default function Exchange() {
         direction="payout"
         onKeptChange={setPayoutKept}
         onRoundUpChange={setPayoutRoundUp}
+        onAddedChange={setPayoutAddedChange}
         {...(canSplitPayout && fromCurrency && amountIn > 0
           ? {
               counterFlow: {
@@ -2290,6 +2320,7 @@ export default function Exchange() {
                 ...(customerMaxForgive !== undefined
                   ? { maxForgive: customerMaxForgive }
                   : {}),
+                ...(customerCanAddChange ? { allowAddedChange: true } : {}),
               },
             }
           : {})}

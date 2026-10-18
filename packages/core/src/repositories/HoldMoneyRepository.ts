@@ -29,12 +29,17 @@ import {
   insertPaymentRow,
   reconcileLegs,
   resolveStampedExchangeRate,
+  writeCustomerLegs,
   type ReconciliationLeg,
 } from "./moneyPosting.js";
+import { resolveAddedChange } from "./addedChange.js";
 import { resolveKeptChange } from "./keptChange.js";
 import { resolveRoundingGiven } from "./roundingGiven.js";
 import { bookPayoutRoundingExpense } from "./changeRoundingExpense.js";
-import { hasRoundingGiven } from "../validators/common.js";
+import {
+  ADDED_CHANGE_NOT_ALLOWED_MESSAGE,
+  hasRoundingGiven,
+} from "../validators/common.js";
 import { paymentMethodToDrawerName, partitionLegs } from "../utils/payments.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import type {
@@ -491,11 +496,35 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
         // rounding) and refuses a claim together with kept change.
         let roundingUsd = 0;
         let roundingLbp = 0;
+        // LIRA-336 — change the customer adds (held $47, the customer gives
+        // $3, the shop hands $50): ONE-currency pickups only (notAllowed on
+        // a two-currency pickup, same as the round-up). Verified first; the
+        // round-up / kept change / exact check below measure against the
+        // portion + added. The pickup still records the portion only. With
+        // no claim, customer lines are refused (the customer owes nothing).
+        const addedCurrency = returnsLbp ? "LBP" : "USD";
+        const added = resolveAddedChange({
+          legs: data.customerPayments ?? [],
+          expected: { amount: 0, currency: addedCurrency },
+          payoutCurrency: addedCurrency,
+          exchangeRate: sellRate,
+          tenderExchangeRate: data.exchange_rate,
+          claimed: { usd: data.added_change_usd, lbp: data.added_change_lbp },
+          notAllowed: returnsUsd && returnsLbp,
+          context,
+        });
+        if (added.measured && !legs.some((l) => Math.abs(l.amount) > 0)) {
+          throw new Error(
+            `${ADDED_CHANGE_NOT_ALLOWED_MESSAGE} (${context}: change the customer adds needs the payout lines — the cash fallback pays out only the portion)`,
+          );
+        }
+        const addedOwed = addedCurrency === "LBP" ? added.lbp : added.usd;
         const claimsRounding = hasRoundingGiven(data);
         if (claimsRounding) {
           const owedCurrency = returnsLbp ? "LBP" : "USD";
           const r = resolveRoundingGiven({
-            owed: owedCurrency === "LBP" ? portionLbp : portionUsd,
+            owed:
+              (owedCurrency === "LBP" ? portionLbp : portionUsd) + addedOwed,
             owedCurrency,
             payoutLegs: reconLegs,
             claimed: {
@@ -533,7 +562,9 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
                 })
               : resolveKeptChange({
                   payer: "payout",
-                  owed: owedCurrency === "LBP" ? portionLbp : portionUsd,
+                  owed:
+                    (owedCurrency === "LBP" ? portionLbp : portionUsd) +
+                    addedOwed,
                   owedCurrency,
                   payoutLegs: reconLegs,
                   claimedKept,
@@ -585,12 +616,30 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
                 payment_snapshot: buildPaymentSnapshot({
                   flow: "PAYOUT",
                   payments: legs,
+                  // LIRA-336: the change the customer added (IN lines).
+                  ...(added.measured
+                    ? { customerPayments: data.customerPayments }
+                    : {}),
                   keptChange: { usd: keptUsd, lbp: keptLbp },
                 }),
               }
             : {}),
           transaction_time: data.transaction_time,
         });
+
+        // LIRA-336: the change the customer added — positive payment rows of
+        // the pickup's own transaction, each into its own drawer. `voidPickup`
+        // mirrors every payment row of that transaction (rule 20).
+        if (added.measured) {
+          writeCustomerLegs(this.db, {
+            measured: added.measured,
+            transactionId: txnId,
+            drawerFor: (leg) => paymentMethodToDrawerName(leg.method),
+            tenantId,
+            createdBy: collectedBy,
+            note: `${noteText} — change added by the customer`,
+          });
+        }
 
         // 2. Post the payout legs — ONE pass, every leg debits its drawer
         // (OUT legs were refused above). Falls back to a single CASH leg for

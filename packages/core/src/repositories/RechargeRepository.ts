@@ -32,7 +32,9 @@ import {
   postPayoutLegs,
   usdEquivalent,
   resolveStampedExchangeRate,
+  writeCustomerLegs,
 } from "./moneyPosting.js";
+import { resolveAddedChange } from "./addedChange.js";
 import { resolveKeptChange } from "./keptChange.js";
 import { resolveRoundingGiven } from "./roundingGiven.js";
 import { bookPayoutRoundingExpense } from "./changeRoundingExpense.js";
@@ -45,6 +47,8 @@ import {
   NO_EXTRA_FOR_PARTNER_MESSAGE,
   ROUNDING_GIVEN_NOT_ALLOWED_MESSAGE,
   hasRoundingGiven,
+  ADDED_CHANGE_NOT_ALLOWED_MESSAGE,
+  hasAddedChange,
 } from "../validators/common.js";
 import {
   NO_EXTRA_ON_BUYBACK_MESSAGE,
@@ -215,6 +219,17 @@ export interface RechargeData {
    *  and booked as a "Change rounding" expense; refused on every sale. */
   rounding_given_usd?: number;
   rounding_given_lbp?: number;
+  /** LIRA-336 — change the customer adds on a credit buy-back (CREDIT_BUYBACK
+   *  only; refused on every sale): the claim, in the payout currency, and
+   *  the customer's own lines. Verified by `resolveAddedChange`; raises the
+   *  payout target, no profit. */
+  added_change_usd?: number;
+  added_change_lbp?: number;
+  customerPayments?: Array<{
+    method: string;
+    currencyCode: string;
+    amount: number;
+  }>;
   /**
    * Payment-Legs Integrity plan (false-reject fix, 2026-07-2x): the USD→LBP
    * rate the caller's own till/MultiPaymentInput actually converted the
@@ -1241,6 +1256,17 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         error: `${ROUNDING_GIVEN_NOT_ALLOWED_MESSAGE} (${input.provider} ${input.type}: only a credit buy-back is a payout)`,
       };
     }
+    // LIRA-336 (rule 23): change the customer adds — the claim and the
+    // customer's own lines — exists only on the credit buy-back too.
+    if (
+      (hasAddedChange(input) || (input.customerPayments?.length ?? 0) > 0) &&
+      input.type !== "CREDIT_BUYBACK"
+    ) {
+      return {
+        success: false,
+        error: `${ADDED_CHANGE_NOT_ALLOWED_MESSAGE} (${input.provider} ${input.type}: only a credit buy-back is a payout)`,
+      };
+    }
     // Owner decision #1 follow-up (2026-10-02): CREDIT_TRANSFER books its own
     // SMS_Transfer_Fee expense below (step 5b) on top of `cost` — a discount
     // at the plain margin nets a LOSS equal to that fee. Shrink the cap by
@@ -2234,13 +2260,30 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         usd: data.kept_change_usd ?? 0,
         lbp: data.kept_change_lbp ?? 0,
       };
+      // LIRA-336 — change the customer adds (owed 745,000, the customer
+      // gives 5,000, the shop hands 750,000), verified first: the round-up,
+      // kept change and payout legs below are measured against owed +
+      // added. Refused for a partner or session item. With no claim,
+      // customer lines are refused (the customer owes nothing here) and the
+      // path is as before.
+      const added = resolveAddedChange({
+        legs: data.customerPayments ?? [],
+        expected: { amount: 0, currency },
+        payoutCurrency: currency,
+        exchangeRate: sellRate,
+        tenderExchangeRate: data.tender_exchange_rate,
+        claimed: { usd: data.added_change_usd, lbp: data.added_change_lbp },
+        notAllowed: data.partnerMode === "FOR" || data.deferPayment === true,
+        context: `${data.provider} credit buy-back`,
+      });
+      const addedOwed = currency === "LBP" ? added.lbp : added.usd;
       // LIRA-334 payout round-up (handed out MORE than owed) — verified
       // before kept change so a claim of both is refused with its own
       // message; refused for a partner or session item. Only when claimed:
       // with none, `postPayoutLegs` below is the whole check (as before).
       const rounding = hasRoundingGiven(data)
         ? resolveRoundingGiven({
-            owed: payoutAmount,
+            owed: payoutAmount + addedOwed,
             owedCurrency: currency,
             payoutLegs,
             claimed: {
@@ -2261,7 +2304,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         claimedKept.usd > 0 || claimedKept.lbp > 0
           ? resolveKeptChange({
               payer: "payout",
-              owed: payoutAmount,
+              owed: payoutAmount + addedOwed,
               owedCurrency: currency,
               payoutLegs,
               claimedKept,
@@ -2335,6 +2378,10 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         const buybackSnapshot = buildPaymentSnapshot({
           flow: "PAYOUT",
           payments: payoutLegs,
+          // LIRA-336: the change the customer added (IN lines).
+          ...(added.measured
+            ? { customerPayments: data.customerPayments }
+            : {}),
           keptChange: { usd: keptUsd, lbp: keptLbp },
         });
         const txnId = getTransactionRepository().createTransaction({
@@ -2372,6 +2419,22 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           transaction_time: data.transaction_time,
         });
 
+        // LIRA-336: the change the customer added — positive payment rows of
+        // this transaction, each into its own drawer (reversed with it by
+        // `_reversePayments`, rule 20).
+        if (added.measured) {
+          writeCustomerLegs(this.db, {
+            measured: added.measured,
+            debtType: "Recharge Debt",
+            clientId: data.clientId ?? null,
+            transactionId: txnId,
+            drawerFor: (leg) => paymentMethodToDrawerName(leg.method),
+            tenantId,
+            createdBy,
+            note: `Change added by the customer (${data.provider} credit buy-back)`,
+          });
+        }
+
         // Cash payout — ordinary IN legs, no `direction` key (D7). No
         // drawer-sufficiency guard, by design (FEATURE_GUIDE §7 / plan
         // Phase 6) — the PCD/General may go negative.
@@ -2385,6 +2448,9 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           context: `${data.provider} credit buy-back`,
           ...(kept ? { keptChange: { usd: keptUsd, lbp: keptLbp } } : {}),
           ...(rounding ? { roundingGiven: rounding } : {}),
+          ...(added.measured
+            ? { addedChange: { usd: added.usd, lbp: added.lbp } }
+            : {}),
           txnId,
           tenantId,
           createdBy,
@@ -3215,6 +3281,16 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
      *  "Change rounding" expense. */
     rounding_given_usd?: number;
     rounding_given_lbp?: number;
+    /** LIRA-336 — change the customer adds (the claim, in `currency`) and
+     *  the customer's own lines. Verified by `resolveAddedChange`; raises the
+     *  payout target. `cashPaid` / `recharges.cost` / profit never move. */
+    added_change_usd?: number;
+    added_change_lbp?: number;
+    customerPayments?: Array<{
+      method: string;
+      currencyCode: string;
+      amount: number;
+    }>;
     userId: number;
   }): { success: boolean; error?: string } {
     try {
@@ -3343,12 +3419,28 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       };
       let keptUsd = 0;
       let keptLbp = 0;
+      // LIRA-336 — change the customer adds (owes $98.90, the customer
+      // gives $1.10, the shop hands $100): verified first, and the payout
+      // legs below cover payoutTarget + added (round-up / kept change
+      // measured against it too). With no claim, customer lines are refused
+      // (the client owes nothing here) and the path is as before.
+      const added = resolveAddedChange({
+        legs: data.customerPayments ?? [],
+        expected: { amount: 0, currency },
+        payoutCurrency: currency,
+        exchangeRate: sellRate,
+        tenderExchangeRate: data.exchangeRate,
+        claimed: { usd: data.added_change_usd, lbp: data.added_change_lbp },
+        context: "Client top-up payout",
+      });
+      const addedOwed = currency === "LBP" ? added.lbp : added.usd;
+      const payoutTargetWithAdded = payoutTarget + addedOwed;
       // LIRA-334 payout round-up: when claimed, `resolveRoundingGiven`
       // replaces the reconcile (legs = payoutTarget + rounding) and refuses
       // a claim together with kept change.
       const rounding = hasRoundingGiven(data)
         ? resolveRoundingGiven({
-            owed: payoutTarget,
+            owed: payoutTargetWithAdded,
             owedCurrency: currency,
             payoutLegs,
             claimed: {
@@ -3367,7 +3459,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       if (!rounding && (claimedKept.usd > 0 || claimedKept.lbp > 0)) {
         const kept = resolveKeptChange({
           payer: "payout",
-          owed: payoutTarget,
+          owed: payoutTargetWithAdded,
           owedCurrency: currency,
           payoutLegs,
           claimedKept,
@@ -3383,7 +3475,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         reconcileLegs({
           inLegs: payoutLegs,
           outLegs: [],
-          expectedTotals: expectedTotalIn(payoutTarget, currency),
+          expectedTotals: expectedTotalIn(payoutTargetWithAdded, currency),
           exchangeRate: sellRate,
           tenderExchangeRate: data.exchangeRate,
           context: "Client top-up payout",
@@ -3539,6 +3631,10 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             const snapshot = buildPaymentSnapshot({
               flow: "PAYOUT",
               payments: payoutLegs,
+              // LIRA-336: the change the client added (IN lines).
+              ...(added.measured
+                ? { customerPayments: data.customerPayments }
+                : {}),
               keptChange: { usd: keptUsd, lbp: keptLbp },
             });
             return snapshot ? { payment_snapshot: snapshot } : {};
@@ -3560,6 +3656,22 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           },
           exchange_rate: recordExchangeRate,
         });
+
+        // LIRA-336: the change the client added — positive payment rows of
+        // this transaction, each into its own drawer (reversed with it by
+        // `_reversePayments`, rule 20). `cashPaid` above stays the target.
+        if (added.measured) {
+          writeCustomerLegs(this.db, {
+            measured: added.measured,
+            debtType: "Recharge Debt",
+            clientId: data.clientId ?? null,
+            transactionId: txnId,
+            drawerFor: (leg) => paymentMethodToDrawerName(leg.method),
+            tenantId,
+            createdBy: data.userId,
+            note: "Whish App top-up from client: change added by the client",
+          });
+        }
 
         // Pay the client from each leg's own drawer, in that leg's own
         // currency (rule 16) — a REAL `payments` row per leg + a matching

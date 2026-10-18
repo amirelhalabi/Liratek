@@ -18,11 +18,17 @@ import {
   expectedTotalIn,
   resolveStampedExchangeRate,
   bookCustomerLegs,
+  writeCustomerLegs,
 } from "./moneyPosting.js";
 import { resolveKeptChange } from "./keptChange.js";
 import { resolveRoundingGiven } from "./roundingGiven.js";
 import { bookPayoutRoundingExpense } from "./changeRoundingExpense.js";
-import { hasRoundingGiven } from "../validators/common.js";
+import {
+  ADDED_CHANGE_NOT_ALLOWED_MESSAGE,
+  hasAddedChange,
+  hasRoundingGiven,
+} from "../validators/common.js";
+import { resolveAddedChange, type AddedChange } from "./addedChange.js";
 import { bookForgivenShortfallSibling } from "./forgivenShortfall.js";
 import { formatMoneyAmount } from "../utils/formatMoney.js";
 import { getPartnerRepository } from "./PartnerRepository.js";
@@ -179,6 +185,15 @@ export interface CreateExchangeData {
    */
   rounding_given_usd?: number;
   rounding_given_lbp?: number;
+  /**
+   * LIRA-336 — change the customer adds on top of `amountIn` (in
+   * `fromCurrency`, inside `customerPayments`) so the shop can hand out a
+   * round amount: the claim, in `toCurrency`. Verified by
+   * `resolveAddedChange`; raises the payout target. USD/LBP exchanges only,
+   * never for a partner, and only with payout legs.
+   */
+  added_change_usd?: number;
+  added_change_lbp?: number;
   /**
    * LIRA-321 — the client picked on the Exchange screen. Saved on
    * `exchange_transactions.client_id` and the unified row (rule 11);
@@ -416,14 +431,25 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         }
       }
 
+      // LIRA-336 — change the customer adds (money above amountIn in the
+      // customer's lines), verified first: the round-up and kept change
+      // below are measured against amountOut + added. Guarded before any
+      // row is written.
+      const added = this._resolveAddedChange(data, isForPartner);
+      const addedOut = data.toCurrency === "LBP" ? added.lbp : added.usd;
+
       // LIRA-334 payout round-up — verified before kept change so a claim
       // of both is refused with the round-up's own message. Guarded before
       // any row is written.
-      const rounding = this._resolvePayoutRoundingGiven(data, isForPartner);
+      const rounding = this._resolvePayoutRoundingGiven(
+        data,
+        isForPartner,
+        addedOut,
+      );
 
       // Payout "keep the change" (owner decision 2026-10-06, D9 refined).
       // Guarded before any row is written (throwing rolls back everything).
-      const kept = this._resolvePayoutKeptChange(data, isForPartner);
+      const kept = this._resolvePayoutKeptChange(data, isForPartner, addedOut);
 
       // LIRA-321 "Customer pays": guarded before any row is written. The
       // schema refuses the same shapes, but an offline replay and scripted
@@ -775,20 +801,36 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         // uncovered shortfall, account line with no client, forgive over
         // the cap) throw before the first write and roll everything back.
         const customerRate = this._customerPaysUsdRate(data);
-        const { forgiven } = bookCustomerLegs(this.db, {
-          legs: customerLegs,
-          expected: { amount: data.amountIn, currency: data.fromCurrency },
-          rate: customerRate,
-          debtType: "Exchange Debt",
-          clientId: data.clientId ?? null,
-          transactionId: txnId,
-          drawerFor: (leg) => paymentMethodToDrawerName(leg.method),
-          waived: data.customer_waived_amount ?? 0,
-          tenantId,
-          createdBy,
-          note: note ?? exchangeSummary,
-          context: "Exchange",
-        });
+        // LIRA-336: with a verified added change, the lines (measured above)
+        // are written as they are — nothing owed, nothing forgiven.
+        if (added.measured) {
+          writeCustomerLegs(this.db, {
+            measured: added.measured,
+            debtType: "Exchange Debt",
+            clientId: data.clientId ?? null,
+            transactionId: txnId,
+            drawerFor: (leg) => paymentMethodToDrawerName(leg.method),
+            tenantId,
+            createdBy,
+            note: note ?? exchangeSummary,
+          });
+        }
+        const { forgiven } = added.measured
+          ? { forgiven: 0 }
+          : bookCustomerLegs(this.db, {
+              legs: customerLegs,
+              expected: { amount: data.amountIn, currency: data.fromCurrency },
+              rate: customerRate,
+              debtType: "Exchange Debt",
+              clientId: data.clientId ?? null,
+              transactionId: txnId,
+              drawerFor: (leg) => paymentMethodToDrawerName(leg.method),
+              waived: data.customer_waived_amount ?? 0,
+              tenantId,
+              createdBy,
+              note: note ?? exchangeSummary,
+              context: "Exchange",
+            });
         if (forgiven > 0) {
           // FR-012 — the shared writer (forgivenShortfall.ts), same row
           // the Whish App / OMT App / Binance cash-outs book.
@@ -872,12 +914,13 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         // leftover (per currency). `keptChange` is deliberately NOT passed —
         // reconcileLegs subtracts it from the tender (overpay semantics), the
         // opposite of a payout. LIRA-334: PLUS the verified round-up.
+        // LIRA-336: PLUS the change the customer added.
         const owed = expectedTotalIn(Math.abs(data.amountOut), data.toCurrency);
         reconcileLegs({
           inLegs: payoutLegs,
           expectedTotals: {
-            usd: owed.usd - kept.usd + rounding.usd,
-            lbp: owed.lbp - kept.lbp + rounding.lbp,
+            usd: owed.usd - kept.usd + rounding.usd + added.usd,
+            lbp: owed.lbp - kept.lbp + rounding.lbp + added.lbp,
           },
           // Fallback rate only, used when `tenderExchangeRate` is absent —
           // the stamped `rate` is the from→to exchange rate (possibly
@@ -1123,6 +1166,8 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
   private _resolvePayoutKeptChange(
     data: CreateExchangeData,
     isForPartner: boolean,
+    /** LIRA-336 — the verified added change, in toCurrency (default 0). */
+    addedOut = 0,
   ): { usd: number; lbp: number; profitUsd: number } {
     const claimed = {
       usd: data.kept_change_usd ?? 0,
@@ -1136,7 +1181,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
     const sellRate = getUsdLbpSellRate(this.db);
     const kept = resolveKeptChange({
       payer: "payout",
-      owed: Math.abs(data.amountOut),
+      owed: Math.abs(data.amountOut) + addedOut,
       owedCurrency: data.toCurrency,
       payoutLegs: data.payments ?? [],
       claimedKept: claimed,
@@ -1167,6 +1212,8 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
   private _resolvePayoutRoundingGiven(
     data: CreateExchangeData,
     isForPartner: boolean,
+    /** LIRA-336 — the verified added change, in toCurrency (default 0). */
+    addedOut = 0,
   ): { usd: number; lbp: number; rate: number } {
     // No claim → nothing read, nothing checked (the path is as before).
     if (!hasRoundingGiven(data)) return { usd: 0, lbp: 0, rate: 0 };
@@ -1176,7 +1223,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       data.tender_exchange_rate,
     );
     const r = resolveRoundingGiven({
-      owed: Math.abs(data.amountOut),
+      owed: Math.abs(data.amountOut) + addedOut,
       owedCurrency: data.toCurrency,
       payoutLegs: data.payments ?? [],
       claimed: { usd: data.rounding_given_usd, lbp: data.rounding_given_lbp },
@@ -1189,6 +1236,45 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       context: "Exchange payout",
     });
     return { usd: r.usd, lbp: r.lbp, rate };
+  }
+
+  /**
+   * LIRA-336 — change the customer adds: the money in the customer's lines
+   * above `amountIn` (in fromCurrency), converted to toCurrency at the
+   * payout reconcile rate (tender, else the server sell rate) and checked
+   * against the claim by the shared `resolveAddedChange` (rule 14). Refused
+   * for a partner exchange, outside USD/LBP, and without payout legs (the
+   * lump fallback pays out only amountOut). No claim → zero and nothing
+   * measured, so the legacy `bookCustomerLegs` path (and its overpay
+   * refusal) is untouched.
+   */
+  private _resolveAddedChange(
+    data: CreateExchangeData,
+    isForPartner: boolean,
+  ): AddedChange {
+    if (!hasAddedChange(data)) return { usd: 0, lbp: 0, measured: null };
+    const usdOrLbp = (c: string) => c === "USD" || c === "LBP";
+    const r = resolveAddedChange({
+      legs: data.customerPayments ?? [],
+      expected: { amount: data.amountIn, currency: data.fromCurrency },
+      payoutCurrency: data.toCurrency,
+      exchangeRate: getUsdLbpSellRate(this.db),
+      tenderExchangeRate: data.tender_exchange_rate,
+      clientId: data.clientId ?? null,
+      waived: data.customer_waived_amount ?? 0,
+      claimed: { usd: data.added_change_usd, lbp: data.added_change_lbp },
+      notAllowed:
+        isForPartner ||
+        !usdOrLbp(data.fromCurrency) ||
+        !usdOrLbp(data.toCurrency),
+      context: "Exchange",
+    });
+    if (!(data.payments ?? []).some((p) => Math.abs(p.amount) > 0)) {
+      throw new Error(
+        `${ADDED_CHANGE_NOT_ALLOWED_MESSAGE} (Exchange: change the customer adds needs the payout lines)`,
+      );
+    }
+    return r;
   }
 
   // ---------------------------------------------------------------------------

@@ -228,6 +228,18 @@ export default function MobileRecharge() {
     lbp: number;
     payout: boolean;
   } | null>(null);
+  // LIRA-336 — change the customer adds on the credit buy-back (payout
+  // currency, from the sheet's `onAddedChange`) and the optional section's
+  // lines. `payout` is the same stale guard as `telecomRoundUp`; only ever
+  // sent on a buy-back.
+  const [telecomAddedChange, setTelecomAddedChange] = useState<{
+    usd: number;
+    lbp: number;
+    payout: boolean;
+  } | null>(null);
+  const [buybackCustomerLines, setBuybackCustomerLines] = useState<
+    PaymentLine[]
+  >([]);
   // Payment-Legs Integrity plan (false-reject fix): the rate the
   // PaymentSheet is ACTUALLY using (default, or the operator's own edit of
   // the sheet's header field) — sent as tender_exchange_rate so the backend
@@ -436,6 +448,14 @@ export default function MobileRecharge() {
     cryptoType === "RECEIVE" &&
     !activeSession &&
     cryptoPaidBy !== "CUSTOMER_ACCOUNT";
+  // LIRA-336 — change the customer adds on a Binance cash-out: the same
+  // walk-in cash payout as the round-up (`cryptoRoundUpApplies`). Reported
+  // in the payout currency; `payout` is the stale guard.
+  const [cryptoAddedChange, setCryptoAddedChange] = useState<{
+    usd: number;
+    lbp: number;
+    payout: boolean;
+  } | null>(null);
   // LIRA-269: the crypto sheet's discount. On a cash-out it comes off the
   // shop's fee (the customer receives more): booked as `commission = fee −
   // discount` via cryptoAmounts — the helper CryptoForm sized the sheet with.
@@ -603,6 +623,7 @@ export default function MobileRecharge() {
     setCryptoReturnLegs([]);
     setCryptoKeptChange(null);
     setCryptoRoundUp(null);
+    setCryptoAddedChange(null);
     setCryptoClientId(null);
     setCryptoClientName("");
     setCryptoClientPhone("");
@@ -878,6 +899,20 @@ export default function MobileRecharge() {
     );
     const isBuyback = submittedRechargeType === "CREDIT_BUYBACK";
     const isShopLineCase2 = submittedRechargeType === "SHOP_LINE_USE";
+    // LIRA-336 — the buy-back's "Customer gives change" lines (the 0 line the
+    // section opens with is dropped: core refuses it) and the claim, sent
+    // only together, only on a buy-back, only when reported in payout mode.
+    const sentBuybackCustomerLines = isBuyback
+      ? buybackCustomerLines.filter((l) => l.amount > 0)
+      : [];
+    const sentBuybackAddedChange =
+      isBuyback &&
+      sentBuybackCustomerLines.length > 0 &&
+      telecomAddedChange &&
+      telecomAddedChange.payout &&
+      (telecomAddedChange.usd > 0 || telecomAddedChange.lbp > 0)
+        ? telecomAddedChange
+        : null;
     if (isBuyback && activeSession) {
       appEvents.emit(
         "notification:show",
@@ -989,6 +1024,8 @@ export default function MobileRecharge() {
       setReturnLegs([]);
       setKeptChange(null);
       setTelecomRoundUp(null);
+      setTelecomAddedChange(null);
+      setBuybackCustomerLines([]);
       return;
     }
 
@@ -1060,6 +1097,20 @@ export default function MobileRecharge() {
               rounding_given_lbp: telecomRoundUp.lbp,
             }
           : {}),
+        // LIRA-336: the change the customer added on the buy-back, with its
+        // non-zero lines — never one without the other (see
+        // `sentBuybackAddedChange`).
+        ...(sentBuybackAddedChange
+          ? {
+              added_change_usd: sentBuybackAddedChange.usd,
+              added_change_lbp: sentBuybackAddedChange.lbp,
+              customerPayments: sentBuybackCustomerLines.map((l) => ({
+                method: l.method,
+                currencyCode: l.currencyCode,
+                amount: l.amount,
+              })),
+            }
+          : {}),
         transaction_time: telecomTransactionTime,
         // The shop's own calendar day, not the server's (untrustworthy on
         // web): decides the DAYS-sale validity decrement, the CREDIT_BUYBACK
@@ -1117,6 +1168,8 @@ export default function MobileRecharge() {
       setReturnLegs([]);
       setKeptChange(null);
       setTelecomRoundUp(null);
+      setTelecomAddedChange(null);
+      setBuybackCustomerLines([]);
       setTelecomTransactionTime(undefined);
       setTelecomExtra(0);
       loadFinancialData();
@@ -1153,6 +1206,8 @@ export default function MobileRecharge() {
     returnLegs,
     keptChange,
     telecomRoundUp,
+    telecomAddedChange,
+    buybackCustomerLines,
     telecomClientId,
     telecomClientName,
     telecomClientPhone,
@@ -1453,6 +1508,8 @@ export default function MobileRecharge() {
     setReturnLegs([]);
     setKeptChange(null);
     setTelecomRoundUp(null);
+    setTelecomAddedChange(null);
+    setBuybackCustomerLines([]);
     setTelecomTransactionTime(undefined);
     setTelecomExtra(0);
   }, []);
@@ -1776,6 +1833,7 @@ export default function MobileRecharge() {
       setCryptoReturnLegs([]);
       setCryptoKeptChange(null);
       setCryptoRoundUp(null);
+      setCryptoAddedChange(null);
       setCryptoDiscount(0);
       setCryptoExtra(0);
       return;
@@ -1854,6 +1912,18 @@ export default function MobileRecharge() {
               rounding_given_lbp: cryptoRoundUp.lbp,
             }
           : {}),
+        // LIRA-336: the change the customer added (its lines are already in
+        // `customerPayments` above) — same walk-in cash payout gate.
+        ...(cryptoRoundUpApplies &&
+        sentCustomerLines.length > 0 &&
+        cryptoAddedChange &&
+        cryptoAddedChange.payout &&
+        (cryptoAddedChange.usd > 0 || cryptoAddedChange.lbp > 0)
+          ? {
+              added_change_usd: cryptoAddedChange.usd,
+              added_change_lbp: cryptoAddedChange.lbp,
+            }
+          : {}),
       });
 
       // LIRA-247: `addOMTTransaction` can RESOLVE `{success:false, error}`
@@ -1899,6 +1969,7 @@ export default function MobileRecharge() {
       setCryptoReturnLegs([]);
       setCryptoKeptChange(null);
       setCryptoRoundUp(null);
+      setCryptoAddedChange(null);
       setCryptoDiscount(0);
       setCryptoExtra(0);
       setCryptoTransactionTime(undefined);
@@ -1932,6 +2003,7 @@ export default function MobileRecharge() {
     cryptoKeptChange,
     cryptoRoundUp,
     cryptoRoundUpApplies,
+    cryptoAddedChange,
     cryptoDiscount,
     cryptoExtra,
     cryptoPaidBy,
@@ -2270,6 +2342,14 @@ export default function MobileRecharge() {
                 r ? { usd: r.usd, lbp: r.lbp, payout: telecomIsBuyback } : null,
               )
             }
+            // LIRA-336: TelecomForm opens the optional "Customer gives
+            // change" section on the buy-back sheet only.
+            onAddedChange={(a) =>
+              setTelecomAddedChange(
+                a ? { usd: a.usd, lbp: a.lbp, payout: telecomIsBuyback } : null,
+              )
+            }
+            onBuybackCustomerLinesChange={setBuybackCustomerLines}
             onEffectiveRateChange={setTelecomTenderRate}
             onDiscountChange={setTelecomDiscount}
             onExtraChange={setTelecomExtra}
@@ -2482,6 +2562,21 @@ export default function MobileRecharge() {
                         : null,
                     ),
                 })}
+            // LIRA-336: change the customer adds on the cash-out.
+            {...(cryptoRoundUpApplies
+              ? {
+                  onAddedChange: (a: { usd: number; lbp: number } | null) =>
+                    setCryptoAddedChange(
+                      a
+                        ? {
+                            usd: a.usd,
+                            lbp: a.lbp,
+                            payout: cryptoType === "RECEIVE",
+                          }
+                        : null,
+                    ),
+                }
+              : {})}
             // LIRA-334: a small overpay on the cash-out is a round-up.
             {...(cryptoRoundUpApplies
               ? {

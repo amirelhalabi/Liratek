@@ -394,6 +394,9 @@ export type {
   ResolveRoundingGivenInput,
   RoundingGiven,
 } from "./roundingGiven.js";
+// LIRA-336 — change the customer adds on a payout.
+export { resolveAddedChange } from "./addedChange.js";
+export type { ResolveAddedChangeInput, AddedChange } from "./addedChange.js";
 
 // Closing Repository
 export {
@@ -940,6 +943,9 @@ export {
   insertPaymentRow,
   // LIRA-321: "Customer pays" lines on payout screens.
   bookCustomerLegs,
+  // LIRA-336: the measure / write halves of bookCustomerLegs.
+  measureCustomerLegs,
+  writeCustomerLegs,
   CUSTOMER_LEGS_OVERPAID_MESSAGE,
   CUSTOMER_LEGS_SHORT_MESSAGE,
   CUSTOMER_LEGS_NEEDS_CLIENT_MESSAGE,
@@ -955,6 +961,9 @@ export type {
   InsertPaymentRowInput,
   BookCustomerLegsInput,
   BookCustomerLegsResult,
+  MeasureCustomerLegsInput,
+  MeasuredCustomerLegs,
+  WriteCustomerLegsInput,
 } from "./moneyPosting.js";
 // LIRA-321 FR-012: the one writer of a forgiven "Customer pays" leftover.
 export {

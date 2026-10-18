@@ -262,6 +262,10 @@ export interface WalletTransferPayloadInput {
   /** LIRA-334 — RECEIVE payout round-up (handed MORE than owed), in the
    *  payout currency. Sent only when non-zero; the server verifies it. */
   roundingGiven?: { usd: number; lbp: number } | null;
+  /** LIRA-336 — RECEIVE: change the customer adds (their lines above what
+   *  they owe, in `customerPayments`), in the payout currency. Sent only
+   *  when non-zero and with the customer's lines; the server verifies it. */
+  addedChange?: { usd: number; lbp: number } | null;
   transactionTime?: string;
 }
 
@@ -367,6 +371,14 @@ export function buildWalletTransferPayload(
       ? {
           rounding_given_usd: input.roundingGiven.usd,
           rounding_given_lbp: input.roundingGiven.lbp,
+        }
+      : {}),
+    ...(customerPayments &&
+    input.addedChange &&
+    (input.addedChange.usd > 0 || input.addedChange.lbp > 0)
+      ? {
+          added_change_usd: input.addedChange.usd,
+          added_change_lbp: input.addedChange.lbp,
         }
       : {}),
     transaction_time: input.transactionTime,

@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { roundingGivenFields } from "./common.js";
+import { roundingGivenFields, addedChangeFields } from "./common.js";
+import { customerLegSchema } from "./customerLegs.js";
 
 /**
  * Hold-money validation contracts — shared by the Electron IPC handlers
@@ -134,6 +135,13 @@ export const holdMoneyCollectSchema = z.object({
   kept_change_lbp: z.number().nonnegative().optional(),
   // LIRA-334 — payout round-up (handed more than owed).
   ...roundingGivenFields,
+  // LIRA-336 — change the customer adds (ONE-currency pickups only): the
+  // claim, in the pickup's currency, plus the customer's own lines. A plain
+  // top-level key, never a change to the payout leg schema (offline replay).
+  ...addedChangeFields,
+  // No `.min(1)`: before LIRA-336 this key was stripped, so an empty
+  // array was accepted — it still is (no claim → behaviour as before).
+  customerPayments: z.array(customerLegSchema).optional(),
 });
 
 export type HoldMoneyCollectInput = z.infer<typeof holdMoneyCollectSchema>;

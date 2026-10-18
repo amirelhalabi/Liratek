@@ -348,6 +348,16 @@ function OmtWhishAppTransferFormInner({
     lbp: number;
     payout: boolean;
   } | null>(null);
+  // LIRA-336 — change the customer adds on the payout (a second customer
+  // line above what they owe): the same walk-in CASH payout as the round-up
+  // (`roundUpApplies`), on the "Customer pays" section. Reported in the
+  // payout currency; `payout` is the stale guard.
+  const addedChangeApplies = roundUpApplies && showCustomerSection;
+  const [addedChange, setAddedChange] = useState<{
+    usd: number;
+    lbp: number;
+    payout: boolean;
+  } | null>(null);
   const sendExtra = extraOffered ? extraCharge : 0;
 
   const handleSubmit = async () => {
@@ -444,6 +454,7 @@ function OmtWhishAppTransferFormInner({
       setReturnLegs([]);
       setKeptChange(null);
       setRoundUp(null);
+      setAddedChange(null);
       setManualFee("");
       setFeeMode("SENDER");
       setCustomerLines([]);
@@ -533,6 +544,11 @@ function OmtWhishAppTransferFormInner({
           ...(roundUpApplies && roundUp && roundUp.payout
             ? { roundingGiven: { usd: roundUp.usd, lbp: roundUp.lbp } }
             : {}),
+          // LIRA-336: the change the customer added (the builder sends it
+          // only with the customer's lines).
+          ...(addedChangeApplies && addedChange && addedChange.payout
+            ? { addedChange: { usd: addedChange.usd, lbp: addedChange.lbp } }
+            : {}),
           ...(transactionTime !== undefined ? { transactionTime } : {}),
         }),
         // LIRA-319: the extra rides its own field (walk-in SEND only).
@@ -577,6 +593,7 @@ function OmtWhishAppTransferFormInner({
         setReturnLegs([]);
         setKeptChange(null);
         setRoundUp(null);
+        setAddedChange(null);
         setExtraCharge(0);
         setManualFee("");
         setFeeMode("SENDER");
@@ -1457,6 +1474,21 @@ function OmtWhishAppTransferFormInner({
                   ),
               }
             : {})}
+          // LIRA-336: change the customer adds on a CASH payout.
+          {...(addedChangeApplies
+            ? {
+                onAddedChange: (a: { usd: number; lbp: number } | null) =>
+                  setAddedChange(
+                    a
+                      ? {
+                          usd: a.usd,
+                          lbp: a.lbp,
+                          payout: serviceType === "RECEIVE",
+                        }
+                      : null,
+                  ),
+              }
+            : {})}
           // LIRA-321 (US3): the "Customer pays" section — the transfer
           // line (+ the fee line when paid separately on Whish App),
           // independent of the payout lines above. Two seed lines open it
@@ -1472,6 +1504,9 @@ function OmtWhishAppTransferFormInner({
                   maxForgive: SHORTFALL_MAX[currency],
                   onChange: setCustomerLines,
                   onStateChange: setCustomerSectionState,
+                  // LIRA-336: money above what the customer owes is change
+                  // they add (raises "Shop pays").
+                  ...(addedChangeApplies ? { allowAddedChange: true } : {}),
                   paymentMethods: allPaymentMethods.filter(
                     (pm) => pm.code !== "GIFT_CARD",
                   ),

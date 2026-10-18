@@ -32,7 +32,11 @@
     "pickClientOrAddLine": " — اختر زبونًا لتسجيله على حسابه، أو اضغط + إضافة سطر",
     "forgive": "مسامحة بـ {{amount}}",
     "forgivenUndo": "تمّت المسامحة بـ {{amount}} — تراجع",
-    "overpaid": "أكثر مما يدين به الزبون — خفّض أحد الأسطر."
+    "overpaid": "أكثر مما يدين به الزبون — خفّض أحد الأسطر.",
+    "addCustomerChange": "+ الزبون يعطي فكّة",
+    "customerGivesChange": "الزبون يعطي فكّة",
+    "removeCustomerChange": "إزالة فكّة الزبون",
+    "addedChangeOverCap": "يمكن للزبون أن يضيف فكّة بحدّ أقصى 5$ / 450,000 ل.ل. — استخدم صفحة صرف العملات للمبالغ الأكبر."
   },
   "header": {
     "shopPays": "المحل يدفع",
@@ -70,7 +74,8 @@
     "payoutExcess": "<ltr>{{amount}}</ltr> أكثر من {{account}} — يُضاف إلى حسابه كدين.",
     "roundUpBooked": "تقريب للأعلى <ltr>{{amount}}</ltr> — يُسجَّل كفرق تقريب الفكّة.",
     "grandTotal": "المجموع الكلّي",
-    "inclWalletFee": "يشمل <ltr>{{amount}}</ltr> رسم المحفظة"
+    "inclWalletFee": "يشمل <ltr>{{amount}}</ltr> رسم المحفظة",
+    "owedPlusAddedChange": "المستحق <ltr>{{owed}}</ltr> + أعطى الزبون <ltr>{{added}}</ltr> = <ltr>{{total}}</ltr>"
   },
   "change": {
     "notReturnedCost": "فكّة لم تُرجَع (كلفة)",

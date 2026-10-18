@@ -365,6 +365,24 @@ export default function Services() {
     lbp: number;
     payout: boolean;
   } | null>(null);
+  // LIRA-336 — change the customer adds on the payout ($197 owed, the
+  // customer hands over $3, the shop hands out $200). A CASH walk-in RECEIVE
+  // only (`roundUpApplies`), and never with any partner — core refuses a
+  // THROUGH-partner claim too for now. Reported by the payment box in the
+  // payout currency (`onAddedChange`); `section` is the stale guard: which
+  // customer section reported it (the fee section on a Whish fee-on-top
+  // receive, else the optional "Customer gives change" section).
+  const addedChangeApplies = roundUpApplies && selectedPartnerId === null;
+  const [addedChange, setAddedChange] = useState<{
+    usd: number;
+    lbp: number;
+    section: "fee" | "optional";
+  } | null>(null);
+  // The optional section's lines and balance (Confirm waits while it is
+  // over the cap).
+  const [addedChangeLines, setAddedChangeLines] = useState<PaymentLine[]>([]);
+  const [addedChangeSectionState, setAddedChangeSectionState] =
+    useState<LinesSectionState | null>(null);
   // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C: the counter-flow lines
   // collecting a customer-paid fee-on-top on an OMT/WHISH system RECEIVE.
   // Independent of paymentLines (the shop's payout) — never merged into it.
@@ -557,6 +575,16 @@ export default function Services() {
     (feeSectionState.overpaid ||
       feeSectionState.needsClient ||
       !feeSectionState.balanced);
+  // LIRA-336 — where the customer's added change goes: the fee section on a
+  // Whish fee-on-top receive (its lines go out as `feePayments`), else the
+  // optional "Customer gives change" section (`customerPayments`).
+  const showAddedChangeSection = addedChangeApplies && !showFeeCounterFlow;
+  const feeSectionTakesAddedChange = addedChangeApplies && showFeeCounterFlow;
+  // Confirm waits while the optional section is over the cap (the box
+  // reports it as overpaid). Only while it is shown — a stale report must
+  // not block anything else.
+  const addedChangeSectionBlocksSubmit =
+    showAddedChangeSection && addedChangeSectionState?.overpaid === true;
 
   // The render-time SEND total: what the customer pays on a walk-in SEND,
   // AND (LIRA-258) what the partner owes the shop on a For-Partner SEND —
@@ -888,6 +916,9 @@ export default function Services() {
         setReturnLegs([]);
         setKeptChange(null);
         setRoundUp(null);
+        setAddedChange(null);
+        setAddedChangeLines([]);
+        setAddedChangeSectionState(null);
         setFeePaymentLines([]);
         setIncludingFees(false);
         setPmFeeAmount("");
@@ -924,7 +955,7 @@ export default function Services() {
   const handleSubmit = useCallback(async () => {
     // LIRA-321: the voice auto-submit calls this directly, past the
     // disabled button — refuse while the customer's side does not balance.
-    if (feeSectionBlocksSubmit) return;
+    if (feeSectionBlocksSubmit || addedChangeSectionBlocksSubmit) return;
     // Validate: client name + phone required when debt is used (single or split)
     // A For-Partner transaction has no payment section at all (LIRA-258 /
     // PFT-3b) and sends no legs, so a stale Customer Account pick made
@@ -1188,6 +1219,31 @@ export default function Services() {
           ? resolvedTenderRate
           : undefined;
 
+      // LIRA-336 — the customer's added change, only as reported by the
+      // section on screen for THIS submit (stale guard: a report from the
+      // other section, or from before a partner was picked, is never sent).
+      // The optional section's lines go out as `customerPayments` with the
+      // 0-amount line it opens with dropped (core refuses an empty array and
+      // a 0 line); the fee section's lines already ride `feePayments`.
+      const addedChangeSection: "fee" | "optional" | null =
+        feeSectionTakesAddedChange
+          ? "fee"
+          : showAddedChangeSection
+            ? "optional"
+            : null;
+      const addedChangeCustomerLines =
+        addedChangeSection === "optional"
+          ? addedChangeLines.filter((l) => l.amount > 0)
+          : [];
+      const sentAddedChange =
+        addedChangeSection !== null &&
+        addedChange !== null &&
+        addedChange.section === addedChangeSection &&
+        (addedChange.usd > 0 || addedChange.lbp > 0) &&
+        (addedChangeSection === "fee" || addedChangeCustomerLines.length > 0)
+          ? addedChange
+          : null;
+
       // Typed from the core schema (rule 21) so a key the REST route would
       // strip is a compile error here, not a silent web-only data loss.
       const apiPayload: CreateFinancialServicePayload = {
@@ -1299,6 +1355,25 @@ export default function Services() {
                 ? {
                     rounding_given_usd: roundUp.usd,
                     rounding_given_lbp: roundUp.lbp,
+                  }
+                : {}),
+              // LIRA-336: the change the customer added, with its lines
+              // (see `sentAddedChange`) — never one without the other.
+              ...(sentAddedChange
+                ? {
+                    added_change_usd: sentAddedChange.usd,
+                    added_change_lbp: sentAddedChange.lbp,
+                    ...(addedChangeCustomerLines.length > 0
+                      ? {
+                          customerPayments: addedChangeCustomerLines.map(
+                            (l) => ({
+                              method: l.method,
+                              currencyCode: l.currencyCode,
+                              amount: l.amount,
+                            }),
+                          ),
+                        }
+                      : {}),
                   }
                 : {}),
               // LIRA-319: the extra rides its own field (walk-in SEND only).
@@ -1464,6 +1539,9 @@ export default function Services() {
         setReturnLegs([]);
         setKeptChange(null);
         setRoundUp(null);
+        setAddedChange(null);
+        setAddedChangeLines([]);
+        setAddedChangeSectionState(null);
         setFeePaymentLines([]);
         setIncludingFees(false);
         setPmFeeAmount("");
@@ -1517,6 +1595,11 @@ export default function Services() {
     extraApplies,
     feePaymentLines,
     feeSectionBlocksSubmit,
+    addedChangeSectionBlocksSubmit,
+    addedChange,
+    addedChangeLines,
+    showAddedChangeSection,
+    feeSectionTakesAddedChange,
     includingFees,
     exchangeRate,
     effectiveRate,
@@ -2703,6 +2786,26 @@ export default function Services() {
                             ),
                         }
                       : {})}
+                    // LIRA-336: change the customer adds (payout currency),
+                    // keyed to the section that reported it.
+                    {...(addedChangeApplies
+                      ? {
+                          onAddedChange: (
+                            a: { usd: number; lbp: number } | null,
+                          ) =>
+                            setAddedChange(
+                              a
+                                ? {
+                                    usd: a.usd,
+                                    lbp: a.lbp,
+                                    section: showFeeCounterFlow
+                                      ? "fee"
+                                      : "optional",
+                                  }
+                                : null,
+                            ),
+                        }
+                      : {})}
                     // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C: a WHISH
                     // system RECEIVE with a fee-on-top collects the customer's
                     // fee payment via this counter-flow section, independent of
@@ -2729,8 +2832,32 @@ export default function Services() {
                               name: receiverName,
                               phone: receiverPhone,
                             }),
+                            // LIRA-336: money above the fee is change the
+                            // customer adds (all lines go as feePayments).
+                            ...(feeSectionTakesAddedChange
+                              ? { allowAddedChange: true }
+                              : {}),
                           }
-                        : undefined
+                        : showAddedChangeSection
+                          ? {
+                              // LIRA-336: hidden behind "+ Customer gives
+                              // change"; the box titles it itself.
+                              label: "",
+                              optional: true,
+                              allowAddedChange: true,
+                              totalAmount: 0,
+                              currency,
+                              onChange: setAddedChangeLines,
+                              onStateChange: setAddedChangeSectionState,
+                              // Money that really comes in: never the
+                              // account (FR-009) nor a voucher.
+                              paymentMethods: allPaymentMethods.filter(
+                                (pm) =>
+                                  pm.code !== "GIFT_CARD" &&
+                                  pm.code !== "CUSTOMER_ACCOUNT",
+                              ),
+                            }
+                          : undefined
                     }
                   />
                 </div>
@@ -2851,9 +2978,15 @@ export default function Services() {
               <button
                 data-testid="services-submit"
                 onClick={handleSubmit}
-                disabled={isSubmitting || feeSectionBlocksSubmit}
+                disabled={
+                  isSubmitting ||
+                  feeSectionBlocksSubmit ||
+                  addedChangeSectionBlocksSubmit
+                }
                 className={`w-full py-3.5 rounded-xl font-bold text-base shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2 ${
-                  isSubmitting || feeSectionBlocksSubmit
+                  isSubmitting ||
+                  feeSectionBlocksSubmit ||
+                  addedChangeSectionBlocksSubmit
                     ? "bg-slate-700 text-slate-300 cursor-not-allowed"
                     : PROVIDER_BRANDS[provider].button
                 }`}

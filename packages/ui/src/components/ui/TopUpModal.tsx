@@ -7,6 +7,7 @@ import { walletReceiveAmounts, walletReceiveInflow } from "@liratek/core";
 import MultiPaymentInput from "./MultiPaymentInput";
 import { useModalFocusFix } from "../../hooks/useModalFocusFix";
 import type { PaymentLine } from "./MultiPaymentInput";
+import type { LinesSectionState } from "./useLinesSection";
 import { formatNumber } from "../../i18n/format";
 import { normalizeDigits } from "../../i18n/digits";
 
@@ -156,6 +157,7 @@ export default function TopUpModal({
   useModalFocusFix(isOpen);
   const { t } = useTranslation("ui");
   const { t: tc } = useTranslation("common");
+  const { t: tp } = useTranslation("payment");
 
   /** Fallback payment method list for the "From Client" payout when the page
    *  doesn't pass `clientPaymentMethods` — a bare CASH leg, always drawer-
@@ -222,6 +224,17 @@ export default function TopUpModal({
   // change rounding. Reported by the same payout MultiPaymentInput; never
   // together with kept change (short vs over); the server verifies it.
   const [clientPayoutRoundUp, setClientPayoutRoundUp] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
+  // LIRA-336 — change the client adds (owes $99, the client hands over $1,
+  // the shop pays out $100): the optional "Customer gives change" section's
+  // lines, its balance (over the cap or an account line = overpaid, which
+  // blocks Confirm) and the claim in the payout currency.
+  const [clientGivesLines, setClientGivesLines] = useState<PaymentLine[]>([]);
+  const [clientGivesState, setClientGivesState] =
+    useState<LinesSectionState | null>(null);
+  const [clientAddedChange, setClientAddedChange] = useState<{
     usd: number;
     lbp: number;
   } | null>(null);
@@ -296,6 +309,33 @@ export default function TopUpModal({
   const clientPayoutPositiveLegs = clientPayoutLines.filter(
     (l) => l.amount > 0,
   );
+  // LIRA-336 — the client's lines and the claim travel together or not at
+  // all: non-zero lines only (opening the section seeds a 0 CASH line) and
+  // only with a positive claim.
+  const clientGivesPayments = clientGivesLines
+    .filter((l) => l.amount > 0)
+    .map((l) => ({
+      method: l.method,
+      currencyCode: l.currencyCode,
+      amount: l.amount,
+    }));
+  const clientAddedChangeToSend =
+    clientAddedChange &&
+    (clientAddedChange.usd > 0 || clientAddedChange.lbp > 0) &&
+    clientGivesPayments.length > 0
+      ? clientAddedChange
+      : null;
+  const clientGivesBlocked =
+    whishMode === "client" && !!clientGivesState?.overpaid;
+
+  // The payout box remounts on a currency change (key) and unmounts in
+  // partner mode; its section comes back closed and reports nothing on the
+  // way out, so clear the section's last lines/state/claim with it.
+  useEffect(() => {
+    setClientGivesLines([]);
+    setClientGivesState(null);
+    setClientAddedChange(null);
+  }, [currency, whishMode]);
 
   // Reset state when modal opens/closes
   useEffect(() => {
@@ -311,6 +351,9 @@ export default function TopUpModal({
       setClientPayoutExchangeRate(undefined);
       setClientPayoutKept(null);
       setClientPayoutRoundUp(null);
+      setClientGivesLines([]);
+      setClientGivesState(null);
+      setClientAddedChange(null);
       // D4: OMT credit is the default every time the modal (re)opens.
       setOmtAppFundingMode("credit");
     }
@@ -352,6 +395,9 @@ export default function TopUpModal({
         alert(t("topUp.feeExceedsAlert"));
         return;
       }
+      // LIRA-336 — the client's section is over the cap (or uses the
+      // account): the box already shows why; never submit it.
+      if (clientGivesBlocked) return;
       const payoutLegs = clientPayoutPositiveLegs.map((l) => ({
         method: l.method,
         currencyCode: l.currencyCode,
@@ -402,6 +448,15 @@ export default function TopUpModal({
             ? {
                 rounding_given_usd: clientPayoutRoundUp.usd,
                 rounding_given_lbp: clientPayoutRoundUp.lbp,
+              }
+            : {}),
+          // LIRA-336 — the change the client added rides the same payload,
+          // with the client's own lines (rule 22).
+          ...(clientAddedChangeToSend
+            ? {
+                customerPayments: clientGivesPayments,
+                added_change_usd: clientAddedChangeToSend.usd,
+                added_change_lbp: clientAddedChangeToSend.lbp,
               }
             : {}),
           ...(selectedClientId ? { clientId: selectedClientId } : {}),
@@ -733,6 +788,17 @@ export default function TopUpModal({
                         onChange={setClientPayoutLines}
                         onKeptChange={setClientPayoutKept}
                         onRoundUpChange={setClientPayoutRoundUp}
+                        onAddedChange={setClientAddedChange}
+                        counterFlow={{
+                          label: tp("counterFlow.customerGivesChange"),
+                          optional: true,
+                          allowAddedChange: true,
+                          totalAmount: 0,
+                          currency,
+                          onChange: setClientGivesLines,
+                          onStateChange: setClientGivesState,
+                          paymentMethods: clientPayoutMethods,
+                        }}
                         onExchangeRateChange={setClientPayoutExchangeRate}
                         showDiscount={false}
                         requiresClientForDebt={false}
@@ -964,6 +1030,7 @@ export default function TopUpModal({
                 ? whishMode === "partner"
                   ? !selectedPartnerId
                   : clientPayoutTargetInvalid ||
+                    clientGivesBlocked ||
                     clientPayoutPositiveLegs.length === 0
                 : !isSupplierCredit &&
                   (drawersNotReady || parseFloat(amount) > sourceBalance))

@@ -129,6 +129,10 @@ export interface PaymentSheetProps {
    *  `onRoundUpChange`) — only on a payout sheet whose backend accepts
    *  `rounding_given_*` on the same payload. */
   onRoundUpChange?: (roundUp: { usd: number; lbp: number } | null) => void;
+  /** LIRA-336 pass-through (MultiPaymentInput's `onAddedChange`): the
+   *  change the customer adds on a payout sheet, in the payout currency —
+   *  only on a sheet whose backend accepts `added_change_*`. */
+  onAddedChange?: (added: { usd: number; lbp: number } | null) => void;
   /** Pass-through to MultiPaymentInput's `direction`: "payout" when the
    *  lines are cash the shop hands OUT (Exchange) — keep-change then keeps
    *  a small SHORTFALL instead of an overpay. Default "payment". */
@@ -221,6 +225,7 @@ export function PaymentSheet({
   onReturnChange,
   onKeptChange,
   onRoundUpChange,
+  onAddedChange,
   direction,
   payer,
   unreturnedChangeTo,
@@ -466,6 +471,7 @@ export function PaymentSheet({
               }}
               {...(onKeptChange ? { onKeptChange } : {})}
               {...(onRoundUpChange ? { onRoundUpChange } : {})}
+              {...(onAddedChange ? { onAddedChange } : {})}
               {...(direction ? { direction } : {})}
               {...(payer ? { payer } : {})}
               {...(unreturnedChangeTo ? { unreturnedChangeTo } : {})}

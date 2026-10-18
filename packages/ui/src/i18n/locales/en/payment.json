@@ -32,7 +32,11 @@
     "pickClientOrAddLine": " — pick a client to put it on their account, or press + Add line",
     "forgive": "Forgive {{amount}}",
     "forgivenUndo": "Forgiven {{amount}} — undo",
-    "overpaid": "More than the customer owes — lower a line."
+    "overpaid": "More than the customer owes — lower a line.",
+    "addCustomerChange": "+ Customer gives change",
+    "customerGivesChange": "Customer gives change",
+    "removeCustomerChange": "Remove customer change",
+    "addedChangeOverCap": "The customer can add at most $5 / 450,000 LBP of change — use the Exchange page for more."
   },
   "header": {
     "shopPays": "Shop pays",
@@ -70,7 +74,8 @@
     "payoutExcess": "<ltr>{{amount}}</ltr> more than {{account}} — it is added to their account as debt.",
     "roundUpBooked": "Rounded up <ltr>{{amount}}</ltr> — booked as change rounding.",
     "grandTotal": "Grand Total",
-    "inclWalletFee": "incl. <ltr>{{amount}}</ltr> wallet fee"
+    "inclWalletFee": "incl. <ltr>{{amount}}</ltr> wallet fee",
+    "owedPlusAddedChange": "Owed <ltr>{{owed}}</ltr> + customer gave <ltr>{{added}}</ltr> = <ltr>{{total}}</ltr>"
   },
   "change": {
     "notReturnedCost": "Change not returned (cost)",

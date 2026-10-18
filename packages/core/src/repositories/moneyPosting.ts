@@ -48,6 +48,10 @@ import { isDrawerAffectingMethod } from "../utils/payments.js";
 import { requestNow } from "../utils/requestNow.js";
 import { TENDER_RATE_BAND_PCT } from "../constants/tenderRateBand.js";
 import { isWithinShortfallMax } from "../validators/exchange.js";
+import {
+  ADDED_CHANGE_ACCOUNT_MESSAGE,
+  ADDED_CHANGE_NOT_ALLOWED_MESSAGE,
+} from "../validators/common.js";
 
 // Re-exported for every existing caller/test that imports the band constant
 // from THIS module (its home before LIRA-240) — the constant itself now
@@ -897,6 +901,15 @@ export interface PostPayoutLegsInput {
    * a "Change rounding" expense.
    */
   roundingGiven?: KeptChange;
+  /**
+   * LIRA-336 — change the customer added (owed $197, customer gave $3, the
+   * shop hands $200), already verified by `resolveAddedChange`
+   * (addedChange.ts), in the payout currency. The legs then cover
+   * `payoutAmount − kept + rounding + added`. Defaults to 0. Refused on the
+   * no-legs fallback (which posts only `payoutAmount`). The caller writes
+   * the customer's own lines (`writeCustomerLegs`).
+   */
+  addedChange?: KeptChange;
 }
 
 export function postPayoutLegs(input: PostPayoutLegsInput): void {
@@ -917,6 +930,7 @@ export function postPayoutLegs(input: PostPayoutLegsInput): void {
     onCustomerAccountLeg,
     keptChange,
     roundingGiven,
+    addedChange,
   } = input;
 
   const keptUsd = keptChange?.usd ?? 0;
@@ -924,6 +938,13 @@ export function postPayoutLegs(input: PostPayoutLegsInput): void {
   if ((keptUsd > 0 || keptLbp > 0) && !(legs ?? []).some((l) => l.amount)) {
     throw new Error(
       `${context}: keeping change needs the payout lines — without them the full payout is paid out`,
+    );
+  }
+  const addedUsd = addedChange?.usd ?? 0;
+  const addedLbp = addedChange?.lbp ?? 0;
+  if ((addedUsd > 0 || addedLbp > 0) && !(legs ?? []).some((l) => l.amount)) {
+    throw new Error(
+      `${ADDED_CHANGE_NOT_ALLOWED_MESSAGE} (${context}: change the customer adds needs the payout lines — without them only the amount owed is paid out)`,
     );
   }
 
@@ -934,8 +955,8 @@ export function postPayoutLegs(input: PostPayoutLegsInput): void {
   reconcileLegs({
     inLegs: legs,
     expectedTotals: {
-      usd: owedTotals.usd - keptUsd + (roundingGiven?.usd ?? 0),
-      lbp: owedTotals.lbp - keptLbp + (roundingGiven?.lbp ?? 0),
+      usd: owedTotals.usd - keptUsd + (roundingGiven?.usd ?? 0) + addedUsd,
+      lbp: owedTotals.lbp - keptLbp + (roundingGiven?.lbp ?? 0) + addedLbp,
     },
     exchangeRate,
     tenderExchangeRate,
@@ -1075,12 +1096,15 @@ function comparisonCurrency(currency: string): string {
   return currency === "USDT" ? "USD" : currency;
 }
 
-export interface BookCustomerLegsInput {
+/** The pure measure half: everything `bookCustomerLegs` checks, no writes. */
+export interface MeasureCustomerLegsInput {
   /** The customer's IN lines (method, currency, amount > 0). An OUT-direction
    *  (change) line is refused: this section has no change. */
   legs: ReconciliationLeg[];
   /** What the customer owes the shop, in the screen's own currency
-   *  (Exchange: amountIn in fromCurrency; app receive: transfer + fee). */
+   *  (Exchange: amountIn in fromCurrency; app receive: transfer + fee).
+   *  May be 0 only with `allowAddedChange` (a payout where the customer owes
+   *  nothing and only adds change). */
   expected: { amount: number; currency: string };
   /**
    * Conversion rate. Its meaning depends on which non-USD currency the call
@@ -1093,10 +1117,44 @@ export interface BookCustomerLegsInput {
    * Unused when every line and the total are in USD/USDT.
    */
   rate: number;
+  clientId?: number | null;
+  /** Forgiven shortfall, in `expected.currency`. */
+  waived?: number;
+  /** Label appended to refusal messages (e.g. "Exchange", "WHISH_APP RECEIVE"). */
+  context?: string;
+  /**
+   * LIRA-336 — change the customer adds on a payout. Money ABOVE
+   * `expected` is returned as `addedChange` instead of refused, and
+   * `expected.amount` may be 0. Refused when any CUSTOMER_ACCOUNT line or a
+   * forgiven amount comes with money above the target (FR-009: only money
+   * that really came in can raise the payout). The caller verifies the
+   * amount against its claim (`resolveAddedChange`, addedChange.ts).
+   */
+  allowAddedChange?: boolean;
+}
+
+export interface MeasuredCustomerLegs {
+  /** Non-account lines, in `expected.currency` terms (converted at `rate`
+   *  when the lines mix currencies; USDT 1:1 as USD). */
+  paid: number;
+  /** To book on the client's account, per debt currency (a third currency is
+   *  owed as its USD equivalent). */
+  owed: { usd: number; lbp: number };
+  /** Forgiven part, in `expected.currency` (= the `waived` input, or 0). */
+  forgiven: number;
+  /** LIRA-336 — money above `expected`, in `expected.currency` (0 without
+   *  `allowAddedChange` or when nothing is above the target). */
+  addedChange: number;
+  /** The same, as its USD equivalent at `rate` (USDT 1:1). */
+  addedChangeUsd: number;
+  /** The lines that move a drawer (every non-account line), in input order. */
+  drawerLegs: ReconciliationLeg[];
+}
+
+export interface BookCustomerLegsInput extends MeasureCustomerLegsInput {
   /** debt_ledger.transaction_type for account lines. Pass a quoted
    *  '<Module> Debt' literal at the call site (moduleDebtTypes.guard). */
   debtType: string;
-  clientId?: number | null;
   transactionId: number;
   /** Drawer a non-account line posts to (callers map method → drawer). */
   drawerFor: (leg: ReconciliationLeg) => string;
@@ -1110,14 +1168,10 @@ export interface BookCustomerLegsInput {
    * replaces (research R7).
    */
   storedMethodFor?: (leg: ReconciliationLeg) => string;
-  /** Forgiven shortfall, in `expected.currency`. */
-  waived?: number;
   tenantId: number;
   createdBy?: number | null;
   /** Note stamped on payment and debt rows. */
   note?: string | null;
-  /** Label appended to refusal messages (e.g. "Exchange", "WHISH_APP RECEIVE"). */
-  context?: string;
 }
 
 export interface BookCustomerLegsResult {
@@ -1132,22 +1186,18 @@ export interface BookCustomerLegsResult {
   forgiven: number;
 }
 
-export function bookCustomerLegs(
-  db: Database.Database,
-  input: BookCustomerLegsInput,
-): BookCustomerLegsResult {
-  const {
-    legs,
-    expected,
-    rate,
-    debtType,
-    clientId,
-    transactionId,
-    drawerFor,
-    tenantId,
-    createdBy,
-    note,
-  } = input;
+/**
+ * Steps 1–4 of `bookCustomerLegs` (shape, currencies, forgive cap, balance)
+ * — pure, no db. LIRA-336 split it out so a payout can measure the
+ * customer's lines BEFORE its transaction row exists (the round-up and kept
+ * change are verified against `owed + added` up front) and write them later
+ * with {@link writeCustomerLegs}.
+ */
+export function measureCustomerLegs(
+  input: MeasureCustomerLegsInput,
+): MeasuredCustomerLegs {
+  const { legs, expected, rate, clientId } = input;
+  const allowAdded = input.allowAddedChange === true;
   const waived = input.waived ?? 0;
   const ctx = input.context ?? "Customer pays";
   const fail = (plain: string, detail: string): never => {
@@ -1158,7 +1208,10 @@ export function bookCustomerLegs(
   if (!legs || legs.length === 0) {
     fail("The customer has no payment lines.", "no customer lines");
   }
-  if (!(expected.amount > 0) || !Number.isFinite(expected.amount)) {
+  const expectedOk = allowAdded
+    ? expected.amount >= 0 && Number.isFinite(expected.amount)
+    : expected.amount > 0 && Number.isFinite(expected.amount);
+  if (!expectedOk) {
     fail("The total to collect is not valid.", `expected ${expected.amount}`);
   }
   if (!Number.isFinite(waived) || waived < 0) {
@@ -1221,6 +1274,15 @@ export function bookCustomerLegs(
     allSame ? amount : toUsd(amount, cur);
   const sumOf = (ls: ReconciliationLeg[]): number =>
     ls.reduce((s, l) => s + inUnit(l.amount, l.currencyCode), 0);
+  // A common-unit amount back in the expected currency's own terms.
+  const unitToExpected = (u: number): number =>
+    allSame
+      ? u
+      : expectedCur === "USD"
+        ? u
+        : expectedCur === "LBP"
+          ? u * rate
+          : u / rate;
 
   const expectedU = inUnit(expected.amount, expected.currency);
   const waivedU = inUnit(waived, expected.currency);
@@ -1247,41 +1309,35 @@ export function bookCustomerLegs(
   }
 
   // ── 4. Balance: lines + forgive must equal the total, never exceed it ──
-  const diff = paidU + owedU + waivedU - expectedU;
-  if (paidU + owedU - expectedU > tol || diff > tol) {
-    fail(
-      waived > 0 && paidU + owedU - expectedU <= tol
-        ? CUSTOMER_LEGS_FORGIVE_TOO_MUCH_MESSAGE
-        : CUSTOMER_LEGS_OVERPAID_MESSAGE,
-      `lines ${(paidU + owedU).toFixed(2)} + forgive ${waivedU.toFixed(2)} vs total ${expectedU.toFixed(2)}`,
-    );
-  }
-  if (diff < -tol) {
-    fail(
-      CUSTOMER_LEGS_SHORT_MESSAGE,
-      `lines ${(paidU + owedU).toFixed(2)} + forgive ${waivedU.toFixed(2)} vs total ${expectedU.toFixed(2)}`,
-    );
-  }
-
-  // ── 5. Writes ──────────────────────────────────────────────────────────
-  for (const leg of drawerLegs) {
-    const drawerName = drawerFor(leg);
-    insertPaymentRow(db, {
-      transactionId,
-      method: input.storedMethodFor ? input.storedMethodFor(leg) : leg.method,
-      drawerName,
-      currencyCode: leg.currencyCode,
-      amount: leg.amount,
-      note: note ?? null,
-      createdBy: createdBy ?? null,
-      tenantId,
-    });
-    applyDrawerDelta(db, {
-      drawerName,
-      currencyCode: leg.currencyCode,
-      delta: leg.amount,
-      tenantId,
-    });
+  // LIRA-336: with `allowAddedChange`, money above the total is the change
+  // the customer adds — measured, not refused — provided it all came in
+  // through drawer lines (no account line, no forgive).
+  let addedU = 0;
+  const over = paidU + owedU - expectedU;
+  if (allowAdded && over > tol) {
+    if (accountLegs.length > 0 || waived > 0) {
+      fail(
+        ADDED_CHANGE_ACCOUNT_MESSAGE,
+        `lines ${(paidU + owedU).toFixed(2)} vs total ${expectedU.toFixed(2)} with ${accountLegs.length > 0 ? "an account line" : "a forgiven amount"}`,
+      );
+    }
+    addedU = over;
+  } else {
+    const diff = paidU + owedU + waivedU - expectedU;
+    if (over > tol || diff > tol) {
+      fail(
+        waived > 0 && over <= tol
+          ? CUSTOMER_LEGS_FORGIVE_TOO_MUCH_MESSAGE
+          : CUSTOMER_LEGS_OVERPAID_MESSAGE,
+        `lines ${(paidU + owedU).toFixed(2)} + forgive ${waivedU.toFixed(2)} vs total ${expectedU.toFixed(2)}`,
+      );
+    }
+    if (diff < -tol) {
+      fail(
+        CUSTOMER_LEGS_SHORT_MESSAGE,
+        `lines ${(paidU + owedU).toFixed(2)} + forgive ${waivedU.toFixed(2)} vs total ${expectedU.toFixed(2)}`,
+      );
+    }
   }
 
   let owedUsd = 0;
@@ -1291,38 +1347,126 @@ export function bookCustomerLegs(
     if (c === "LBP") owedLbp += leg.amount;
     else owedUsd += toUsd(leg.amount, leg.currencyCode);
   }
-  if (clientId && owedUsd > 0) {
-    bookClientDebtCharge(db, {
-      clientId,
-      transactionType: debtType,
-      amountUsd: owedUsd,
-      amountLbp: 0,
+
+  const addedChange = addedU > 0 ? unitToExpected(addedU) : 0;
+  const addedChangeUsd =
+    addedU > 0 ? (allSame ? toUsd(addedU, expected.currency) : addedU) : 0;
+
+  return {
+    // `paid` is reported in the expected currency's own terms.
+    paid: unitToExpected(paidU),
+    owed: { usd: owedUsd, lbp: owedLbp },
+    forgiven: waived,
+    addedChange,
+    addedChangeUsd,
+    drawerLegs,
+  };
+}
+
+/** Step 5 of `bookCustomerLegs`: the writes of an already measured set. */
+export interface WriteCustomerLegsInput {
+  measured: MeasuredCustomerLegs;
+  /** debt_ledger.transaction_type for account lines (a quoted
+   *  '<Module> Debt' literal). Optional for a caller whose lines can never
+   *  carry an account line (added change refuses them) — a measured debt
+   *  with no type is then refused rather than dropped. */
+  debtType?: string;
+  clientId?: number | null;
+  transactionId: number;
+  drawerFor: (leg: ReconciliationLeg) => string;
+  storedMethodFor?: (leg: ReconciliationLeg) => string;
+  tenantId: number;
+  createdBy?: number | null;
+  note?: string | null;
+}
+
+/**
+ * Writes the customer's lines measured by {@link measureCustomerLegs}: a
+ * positive payment row + drawer delta per drawer line, and one client debt
+ * row per currency for the account lines. Call inside the caller's
+ * `db.transaction(...)`, once its transaction row exists. The rows are
+ * ordinary `payments` rows of that transaction, so the generic
+ * `_reversePayments` (and Hold Money's `voidPickup`) mirror them (rule 20).
+ */
+export function writeCustomerLegs(
+  db: Database.Database,
+  input: WriteCustomerLegsInput,
+): void {
+  const { measured, debtType, clientId, transactionId, tenantId } = input;
+  const note = input.note ?? null;
+  const createdBy = input.createdBy ?? null;
+  if ((measured.owed.usd > 0 || measured.owed.lbp > 0) && !debtType) {
+    throw new Error(
+      "Customer pays: an account line needs a debt type — this payout cannot book one",
+    );
+  }
+  for (const leg of measured.drawerLegs) {
+    const drawerName = input.drawerFor(leg);
+    insertPaymentRow(db, {
       transactionId,
-      note: note ?? null,
-      createdBy: createdBy ?? null,
+      method: input.storedMethodFor ? input.storedMethodFor(leg) : leg.method,
+      drawerName,
+      currencyCode: leg.currencyCode,
+      amount: leg.amount,
+      note,
+      createdBy,
+      tenantId,
+    });
+    applyDrawerDelta(db, {
+      drawerName,
+      currencyCode: leg.currencyCode,
+      delta: leg.amount,
       tenantId,
     });
   }
-  if (clientId && owedLbp > 0) {
+  if (clientId && debtType && measured.owed.usd > 0) {
+    bookClientDebtCharge(db, {
+      clientId,
+      transactionType: debtType,
+      amountUsd: measured.owed.usd,
+      amountLbp: 0,
+      transactionId,
+      note,
+      createdBy,
+      tenantId,
+    });
+  }
+  if (clientId && debtType && measured.owed.lbp > 0) {
     bookClientDebtCharge(db, {
       clientId,
       transactionType: debtType,
       amountUsd: 0,
-      amountLbp: owedLbp,
+      amountLbp: measured.owed.lbp,
       transactionId,
-      note: note ?? null,
-      createdBy: createdBy ?? null,
+      note,
+      createdBy,
       tenantId,
     });
   }
+}
 
-  // `paid` is reported in the expected currency's own terms.
-  const paid = allSame
-    ? paidU
-    : expectedCur === "USD"
-      ? paidU
-      : expectedCur === "LBP"
-        ? paidU * rate
-        : paidU / rate;
-  return { paid, owed: { usd: owedUsd, lbp: owedLbp }, forgiven: waived };
+/** Measure ({@link measureCustomerLegs}) then write ({@link writeCustomerLegs}). */
+export function bookCustomerLegs(
+  db: Database.Database,
+  input: BookCustomerLegsInput,
+): BookCustomerLegsResult {
+  const measured = measureCustomerLegs(input);
+  writeCustomerLegs(db, {
+    measured,
+    debtType: input.debtType,
+    clientId: input.clientId ?? null,
+    transactionId: input.transactionId,
+    drawerFor: input.drawerFor,
+    ...(input.storedMethodFor
+      ? { storedMethodFor: input.storedMethodFor }
+      : {}),
+    tenantId: input.tenantId,
+    createdBy: input.createdBy ?? null,
+    note: input.note ?? null,
+  });
+  return {
+    paid: measured.paid,
+    owed: measured.owed,
+    forgiven: measured.forgiven,
+  };
 }

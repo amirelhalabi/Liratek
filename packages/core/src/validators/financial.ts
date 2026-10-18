@@ -7,6 +7,8 @@ import {
   historyAllQuerySchema,
   extraChargeFields,
   roundingGivenFields,
+  addedChangeFields,
+  hasAddedChange,
   hasExtraCharge,
   NO_EXTRA_FOR_PARTNER_MESSAGE,
   EXTRA_ON_SESSION_ITEM_MESSAGE,
@@ -97,6 +99,15 @@ export const CUSTOMER_PAYMENTS_PROVIDERS: readonly string[] = [
   "WHISH_APP",
   "OMT_APP",
   "BINANCE",
+];
+/**
+ * LIRA-336 — the system providers whose RECEIVE accepts `customerPayments`
+ * only together with an added-change claim (`added_change_usd/lbp`): the
+ * lines are then change the customer adds, never a payment of what is owed.
+ */
+export const CUSTOMER_PAYMENTS_ADDED_CHANGE_PROVIDERS: readonly string[] = [
+  "OMT",
+  "WHISH",
 ];
 export const CUSTOMER_PAYMENTS_ONLY_ON_APP_RECEIVE_MESSAGE =
   "customerPayments is only for a Whish App, OMT App or Binance cash-out (RECEIVE).";
@@ -263,6 +274,8 @@ export const createFinancialServiceSchema = z
     kept_change_lbp: z.number().nonnegative().optional(),
     // LIRA-334 — payout round-up (handed more than owed).
     ...roundingGivenFields,
+    // LIRA-336 — change the customer adds on a payout (payout currency).
+    ...addedChangeFields,
     // LIRA-319: the extra the cashier added on top of what the customer
     // owes (OMT/Whish send, Katsh/catalog cart carrier, crypto send, app
     // transfer). Its own field — never folded into amount/price/fee/
@@ -594,11 +607,15 @@ export const createFinancialServiceSchema = z
   })
   // LIRA-321 — where "Customer pays" lines may go. The repository refuses
   // the same (it is the authoritative layer: internal callers skip Zod).
+  // LIRA-336: an OMT / WHISH system RECEIVE takes "Customer pays" lines
+  // only as change the customer adds, i.e. together with the claim.
   .refine(
     (data) =>
       !hasCustomerPayments(data) ||
       (data.serviceType === "RECEIVE" &&
-        CUSTOMER_PAYMENTS_PROVIDERS.includes(data.provider)),
+        (CUSTOMER_PAYMENTS_PROVIDERS.includes(data.provider) ||
+          (CUSTOMER_PAYMENTS_ADDED_CHANGE_PROVIDERS.includes(data.provider) &&
+            hasAddedChange(data)))),
     {
       message: CUSTOMER_PAYMENTS_ONLY_ON_APP_RECEIVE_MESSAGE,
       path: ["customerPayments"],

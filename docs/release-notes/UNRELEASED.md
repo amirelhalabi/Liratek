@@ -70,6 +70,11 @@ On Accounts, tap "Export Excel" to save every client's account in one file, laid
 Selling a phone line with more credit than the buyer wants? On Phone Lines → For sale, tap "Give credit back", type how much credit the buyer keeps, and pick the shop line that gets the rest. You see what is sent, the SMS fee, and the line's new price and cost before you save. The credit lands on your shop line, and the line's price and cost drop. Changed your mind? Void it on the Transactions page, as long as the line hasn't been sold.
 ![Give credit back: the buyer keeps $9 of $15, $5.68 goes to the shop line](whats-new/1.35.0/give-credit-back.png)
 
+### Round amounts on payouts
+
+Paying out and short of coins? Hand over a little more (for example $103.00 on $102.90) and the difference is recorded under Expenses as "Change rounding". Or ask the customer for a few dollars or pounds: tap "+ Customer gives change", enter what they give you, and the payment window expects the round amount ($197 owed + $3 = $200). Both drawers stay right. Up to $5 or 450,000 LBP.
+![OMT receive: $197 owed, the customer gives $3, you pay out $200](whats-new/1.35.0/customer-gives-change.png)
+
 ### Send the receipt on WhatsApp
 
 Right after a sale, the POS shows "Sale completed" with a Send on WhatsApp button, and every past sale's details have the same button next to Print. WhatsApp opens on the customer's chat with the receipt already written, and you press Send. No number on the sale? Type one for that send only. It costs nothing per message.
@@ -99,6 +104,7 @@ Right after a sale, the POS shows "Sale completed" with a Send on WhatsApp butto
 - Screen readers now call the currency picker next to the Extra amount "Extra currency". It used to say "Discount currency".
 - Paying out a little more than owed because you have no coins (for example $103.00 on $102.90) is now accepted, up to $5 or 450,000 LBP. The payment window shows "Rounded up", and the difference is recorded on the Expenses page as "Change rounding". This works on OMT/Whish receive, Binance cash-out, Whish App / OMT App receive and "From client", Exchange, Hold Money pickups in one currency, and MTC / Alfa credit buy-back. Voiding the payout removes it. Above $5 / 450,000 LBP the payment is still refused.
 - When a customer pays a little more than the total (up to $5 or 450,000 LBP), the Discount line switches to "+ Extra" and fills in the difference, so the extra is kept as an extra charge. To give the change back instead, clear the extra and the change box appears.
+- When paying out, if the customer hands you a few dollars or pounds so you can give a round amount (for example $197 owed, the customer gives $3, you give $200), tap "+ Customer gives change" (or add a line under "Customer pays") and enter it. The payment window then expects you to pay out that much more, and both drawers are recorded correctly, with nothing booked as rounding. Up to $5 or 450,000 LBP; use the Exchange page for more. This works on OMT/Whish receive, Binance cash-out, Whish App / OMT App receive and "From client", Exchange, Hold Money pickups in one currency, and MTC / Alfa credit buy-back.
 
 ## ➕ Extra charges
 

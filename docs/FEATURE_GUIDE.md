@@ -323,6 +323,23 @@ The cashier rounds to the notes in the drawer: 102.90 owed, 103.00 handed.
   - Clearing the extra, or switching to "− Discount", stops the autofill until the legs change, and the change box returns.
   - The autofill only runs where Extra is allowed (no partner sale, session-basket item or settle).
 
+### 4.2.2 Customer adds change on payouts (LIRA-336, owner decisions 2026-10-18)
+
+Example: $197 owed. The customer hands $3 (or 268,500 LBP) and the shop hands out $200.
+
+- **Screen.** The payout's IN section (`counterFlow`, `useLinesSection`) takes money above its target when `counterFlow.allowAddedChange` is set. Screens with no customer section use `counterFlow.optional` (target 0, hidden behind "+ Customer gives change").
+  - MultiPaymentInput folds that amount, converted into the payout currency at the sheet rate, into the payout target. This happens BEFORE kept change and the LIRA-334 round-up, so the customer's money is never booked as rounding.
+  - The amount is reported through `onAddedChange` and shown as "Owed … + customer gave … = …".
+  - Only money that really came in (cash or wallet) counts. Account and forgiven amounts never do.
+- **Server.**
+  - The screen sends the customer's lines (`customerPayments`, or `feePayments` on WHISH system receive with the fee on top) plus the claim `added_change_usd/lbp` (payout currency, ≤ $5 / 450,000 LBP).
+  - `resolveAddedChange` (repositories/addedChange.ts) measures the lines with `measureCustomerLegs` (`allowAddedChange`), converts at the payout rate, and checks the cap and that the claim matches.
+  - The flow then reconciles the payout legs against owed + added (− kept + round-up) and writes the customer's lines as incoming `payments` rows into their own drawers.
+  - Amount, profit, `cashPaid` and the hold portion never change. No claim means exactly today's behaviour.
+  - Refused for payouts made for a partner (FOR), in sessions, to the customer's account or a wallet, and on two-currency Hold Money pickups.
+  - Exchange allows it only when both currencies are USD/LBP.
+- **Reversal.** The customer's lines are ordinary payment rows on the payout's transaction, mirrored by `_reversePayments` (Hold Money: `voidPickup`). No new reversal owner.
+
 ### 4.3 "Customer pays" — the money-in side of payout screens (LIRA-321)
 
 Exchange, Whish App / OMT App receive and Binance cash-out pay money OUT

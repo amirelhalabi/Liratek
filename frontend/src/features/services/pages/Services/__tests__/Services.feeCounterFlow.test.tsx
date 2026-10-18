@@ -47,6 +47,10 @@ const mockGetSuppliers = jest.fn().mockResolvedValue([]);
 const mockGetSupplierBalances = jest.fn().mockResolvedValue([]);
 const mockPartnersGetAll = jest.fn().mockResolvedValue([]);
 const mockAddToCart = jest.fn();
+// LIRA-336: every counterFlow the page hands the box (guard below).
+const mockSeenCounterFlows: Array<
+  { optional?: boolean; totalAmount: number } | undefined
+> = [];
 
 // Stable reference — must NOT be a fresh object literal per call. The real
 // useApi() is referentially stable across renders; the page's `loadData`
@@ -82,8 +86,10 @@ jest.mock("@liratek/ui", () => ({
   // `counterFlow` config — a button that fires ITS onChange, mirroring the
   // real component's mount-seeding effect (covered in full by
   // MultiPaymentInput.test.tsx). For an OMT RECEIVE, D1 means `counterFlow`
-  // is never passed at all — so this button never renders, and the "not in
-  // the document" assertions below are the actual test.
+  // never gets a FEE section — so this button never renders, and the "not
+  // in the document" assertions below are the actual test. LIRA-336: the
+  // optional "Customer gives change" section (`optional: true`, total 0) is
+  // not a fee section, so it never renders the fee button either.
   MultiPaymentInput: ({
     counterFlow,
   }: {
@@ -93,31 +99,35 @@ jest.mock("@liratek/ui", () => ({
       currency: string;
       onChange: (lines: unknown[]) => void;
       hasClient?: boolean;
+      optional?: boolean;
     };
-  }) => (
-    <div data-testid="stub-multi-payment-input">
-      {counterFlow && (
-        <>
-          <span data-testid="counter-flow-has-client">
-            {String(counterFlow.hasClient)}
-          </span>
-          <button
-            data-testid="mpi-seed-counter-flow"
-            onClick={() =>
-              counterFlow.onChange([
-                {
-                  id: "FEE1",
-                  method: "CASH",
-                  currencyCode: counterFlow.currency,
-                  amount: counterFlow.totalAmount,
-                },
-              ])
-            }
-          />
-        </>
-      )}
-    </div>
-  ),
+  }) => {
+    mockSeenCounterFlows.push(counterFlow);
+    return (
+      <div data-testid="stub-multi-payment-input">
+        {counterFlow && !counterFlow.optional && (
+          <>
+            <span data-testid="counter-flow-has-client">
+              {String(counterFlow.hasClient)}
+            </span>
+            <button
+              data-testid="mpi-seed-counter-flow"
+              onClick={() =>
+                counterFlow.onChange([
+                  {
+                    id: "FEE1",
+                    method: "CASH",
+                    currencyCode: counterFlow.currency,
+                    amount: counterFlow.totalAmount,
+                  },
+                ])
+              }
+            />
+          </>
+        )}
+      </div>
+    );
+  },
   DecimalInput: ({
     id,
     value,
@@ -295,6 +305,7 @@ describe("Services page — OMT system RECEIVE fee is informational only (D1, 20
     mockActiveSession = null;
     mockAddOMTTransaction.mockClear();
     mockAddToCart.mockClear();
+    mockSeenCounterFlows.length = 0;
   });
 
   it("OMT RECEIVE $100 with a fee typed: no counter-flow section, no Including-Fees toggle, payload carries omtFee but never feePayments/includingFees:true", async () => {
@@ -309,6 +320,20 @@ describe("Services page — OMT system RECEIVE fee is informational only (D1, 20
       document.getElementById("service-omt-fee") as HTMLInputElement,
       { target: { value: "5" } },
     );
+
+    // LIRA-336: the only counterFlow an OMT RECEIVE may get is the optional
+    // "Customer gives change" section (total 0) — never a fee section.
+    const lastCf = mockSeenCounterFlows.at(-1);
+    expect(lastCf).toBeDefined();
+    expect(lastCf).toEqual(
+      expect.objectContaining({ optional: true, totalAmount: 0 }),
+    );
+    expect(
+      mockSeenCounterFlows.every(
+        (cf) =>
+          cf === undefined || (cf.optional === true && cf.totalAmount === 0),
+      ),
+    ).toBe(true);
 
     // Neither fee-collection affordance exists for OMT RECEIVE any more.
     expect(

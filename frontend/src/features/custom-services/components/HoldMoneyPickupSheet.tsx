@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { formatNumber } from "@liratek/ui/i18n/format";
 import { Ltr } from "@liratek/ui/components/ui/Ltr";
@@ -9,6 +9,7 @@ import {
   DecimalInput,
   MultiPaymentInput,
   type PaymentLine,
+  type LinesSectionState,
 } from "@liratek/ui";
 import { HOLD_PICKUP_EPSILON, holdPickupKeptPerCurrency } from "@liratek/core";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
@@ -59,6 +60,7 @@ export function HoldMoneyPickupSheet({
   const api = useApi();
   const { t } = useTranslation("customServices");
   const { t: tc } = useTranslation("common");
+  const { t: tp } = useTranslation("payment");
   const { methods } = usePaymentMethods();
   const { buyRate } = useSellRate();
 
@@ -78,6 +80,19 @@ export function HoldMoneyPickupSheet({
   // ONE-currency pickups only (the cap and the claim are in that currency);
   // the sheet is always a payout, so (like `keptChange`) no mode flag.
   const [roundUp, setRoundUp] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
+  // LIRA-336 — change the customer adds (ONE-currency pickups only): held
+  // $197, the customer hands over $3 and gets a round $200. The optional
+  // "Customer gives change" section's lines, its balance (over the cap or an
+  // account line = overpaid, which blocks Confirm) and the claim in the
+  // pickup's currency reported by MultiPaymentInput.
+  const [customerLines, setCustomerLines] = useState<PaymentLine[]>([]);
+  const [customerState, setCustomerState] = useState<LinesSectionState | null>(
+    null,
+  );
+  const [addedChange, setAddedChange] = useState<{
     usd: number;
     lbp: number;
   } | null>(null);
@@ -132,6 +147,40 @@ export function HoldMoneyPickupSheet({
   // A two-currency pickup never claims a round-up — any stale one-currency
   // figure is ignored (the server refuses a claim there).
   const roundUpToSend = pickupCurrency ? roundUp : null;
+  // LIRA-336 — the customer's lines and the claim travel together or not at
+  // all: one-currency pickups only, non-zero lines only (opening the section
+  // seeds a 0 CASH line), and only with a positive claim — so stale lines
+  // from a section the box has since dropped never reach the server.
+  const customerPayments = useMemo(
+    () =>
+      customerLines
+        .filter((l) => l.amount > 0)
+        .map((l) => ({
+          method: l.method,
+          currencyCode: l.currencyCode,
+          amount: l.amount,
+        })),
+    [customerLines],
+  );
+  const addedChangeToSend =
+    pickupCurrency &&
+    addedChange &&
+    (addedChange.usd > 0 || addedChange.lbp > 0) &&
+    customerPayments.length > 0
+      ? addedChange
+      : null;
+  const customerSectionBlocked =
+    pickupCurrency !== null && !!customerState?.overpaid;
+  // The payment box remounts whenever this key changes (its section comes
+  // back closed and reports nothing on the way out), so the customer
+  // section's last lines/state/claim are cleared with it — a stale
+  // "overpaid" would otherwise block Confirm with the section closed.
+  const paymentBoxKey = `${returnUsd}-${returnLbp > 0 ? "lbp" : "no-lbp"}-${pickupCurrency ?? "mixed"}`;
+  useEffect(() => {
+    setCustomerLines([]);
+    setCustomerState(null);
+    setAddedChange(null);
+  }, [paymentBoxKey]);
 
   const isPartial =
     returnUsd < hold.remaining_usd - EPS_USD ||
@@ -140,6 +189,7 @@ export function HoldMoneyPickupSheet({
   // Never submit a leg with an empty / unoffered method.
   const canSubmit =
     !isSubmitting &&
+    !customerSectionBlocked &&
     (returnUsd > EPS_USD || returnLbp > EPS_LBP) &&
     holdMoneyLegsHaveMethods(paymentLines, allowedMethods);
 
@@ -164,6 +214,13 @@ export function HoldMoneyPickupSheet({
           ? {
               rounding_given_usd: roundUpToSend.usd,
               rounding_given_lbp: roundUpToSend.lbp,
+            }
+          : {}),
+        ...(addedChangeToSend
+          ? {
+              customerPayments,
+              added_change_usd: addedChangeToSend.usd,
+              added_change_lbp: addedChangeToSend.lbp,
             }
           : {}),
       });
@@ -299,7 +356,7 @@ export function HoldMoneyPickupSheet({
               {t("pickup.paidOutVia")}
             </label>
             <MultiPaymentInput
-              key={`${returnUsd}-${returnLbp > 0 ? "lbp" : "no-lbp"}-${pickupCurrency ?? "mixed"}`}
+              key={paymentBoxKey}
               totals={[
                 ...(returnUsd > EPS_USD
                   ? [{ amount: returnUsd, currency: "USD" }]
@@ -319,6 +376,17 @@ export function HoldMoneyPickupSheet({
                       setKeptChange(k ? { usd: k.usd, lbp: k.lbp } : null),
                     onRoundUpChange: (r: { usd: number; lbp: number } | null) =>
                       setRoundUp(r ? { usd: r.usd, lbp: r.lbp } : null),
+                    onAddedChange: setAddedChange,
+                    counterFlow: {
+                      label: tp("counterFlow.customerGivesChange"),
+                      optional: true,
+                      allowAddedChange: true,
+                      totalAmount: 0,
+                      currency: pickupCurrency,
+                      onChange: setCustomerLines,
+                      onStateChange: setCustomerState,
+                      paymentMethods: allowedMethods,
+                    },
                   }
                 : {})}
               showDiscount={false}

@@ -247,6 +247,39 @@ export function hasRoundingGiven(data: {
   );
 }
 
+/**
+ * LIRA-336 — change the customer adds on a payout (owed $197, the customer
+ * hands over $3, the shop hands out $200): the claimed amount, in the
+ * payout's own currency. The customer's lines travel in `customerPayments`
+ * (or `feePayments` on a Whish receive with the fee paid on top). Verified by
+ * `resolveAddedChange` (repositories/addedChange.ts), which raises the payout
+ * target by it; no expense, no profit. The claim is also the opt-in: without
+ * it every flow behaves exactly as before. Optional with NO `.default()`
+ * (offline replay — same rule as {@link extraChargeFields}). Absent = none.
+ */
+export const addedChangeFields = {
+  added_change_usd: z.number().nonnegative().optional(),
+  added_change_lbp: z.number().nonnegative().optional(),
+};
+
+/** LIRA-336 refusals — one wording for every payout flow (rule 14). */
+export const ADDED_CHANGE_OVER_CAP_MESSAGE =
+  "The customer can add at most $5 / 450,000 LBP of change — use the Exchange page for more.";
+export const ADDED_CHANGE_NOT_ALLOWED_MESSAGE =
+  "The customer can't add change on this payout.";
+export const ADDED_CHANGE_MISMATCH_MESSAGE =
+  "The change the customer added doesn't match the customer's lines.";
+export const ADDED_CHANGE_ACCOUNT_MESSAGE =
+  "Added change can't come from the customer's account or a forgiven amount.";
+
+/** True when the payload claims a positive added change. */
+export function hasAddedChange(data: {
+  added_change_usd?: number | undefined;
+  added_change_lbp?: number | undefined;
+}): boolean {
+  return (data.added_change_usd ?? 0) > 0 || (data.added_change_lbp ?? 0) > 0;
+}
+
 /** True when the payload carries a positive extra in either currency. */
 export function hasExtraCharge(data: {
   extra_usd?: number | undefined;

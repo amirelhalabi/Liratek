@@ -249,6 +249,17 @@ export interface MultiPaymentInputProps {
    *  `rounding_given_*` on the SAME payload as the legs. Ignored when
    *  `payoutExcessToAccount` is set (the excess is the other side's debt). */
   onRoundUpChange?: (roundUp: { usd: number; lbp: number } | null) => void;
+  /** LIRA-336 — payout only, with `counterFlow.allowAddedChange`: the change
+   *  the customer adds on top of what they owe (owner example: $197 owed,
+   *  the customer gives $3, the shop hands out $200), converted into the
+   *  total's currency and rounded (USD cents, LBP whole pounds), reported in
+   *  that currency only. It already raised the payout target, so round-up
+   *  and kept change are measured above it. null whenever there is none:
+   *  not a payout, the optional section closed, nothing added, or over the
+   *  $5 / 450,000 LBP cap (`isWithinShortfallMax`, in the total's currency
+   *  — the section then shows as overpaid). The caller sends it as
+   *  `added_change_*` on the SAME payload as the legs. */
+  onAddedChange?: (added: { usd: number; lbp: number } | null) => void;
   /** Payment methods to display in dropdown */
   paymentMethods: PaymentMethod[];
   /** Available currencies */
@@ -429,6 +440,19 @@ export interface MultiPaymentInputProps {
          *  sheet's `currencies`. Binance cash-out adds USDT here only, so
          *  the shop's payout lines stay USD/LBP. */
         currencies?: Currency[];
+        // ── LIRA-336 (contracts/added-change.md) ──
+        /** Payout only (`payer="payout"`, no `perCurrencyTotals`, a
+         *  USD/LBP/USDT section): cash/wallet money ABOVE this section's
+         *  `totalAmount` is change the customer adds — it raises what
+         *  "Shop pays" must pay out by the same value (see
+         *  `onAddedChange`). Never the account or a forgiven amount. Over
+         *  the cap the section is overpaid. */
+        allowAddedChange?: boolean;
+        /** Hidden behind "+ Customer gives change" until the cashier opens
+         *  it; an × closes it again, clearing its lines (onChange([])).
+         *  Closed, the box looks exactly as with no counterFlow. Used with
+         *  `totalAmount: 0` on payouts that have no customer section. */
+        optional?: boolean;
       }
     | undefined;
   /** When false, hides the Split toggle entirely — the form can never enter
@@ -716,6 +740,7 @@ export default function MultiPaymentInput({
   returnCurrencies,
   payoutExcessToAccount = false,
   onRoundUpChange,
+  onAddedChange,
   clientId,
   fetchClientVouchers,
   onWaiveRemaining,
@@ -903,6 +928,88 @@ export default function MultiPaymentInput({
     }
   };
 
+  // ── Counter-flow (opposite-direction) lines ────────────────────────────────
+  // Called here, unconditionally (stable hook order), because LIRA-336's
+  // added change feeds `effectiveTotals` below.
+  //
+  // Entirely independent of the main payment-lines state above: never read
+  // by totalPaid/hasDebt/PM-fee. LIRA-321: single/split, leftover line,
+  // Forgive and the balance report live in useLinesSection (research R1).
+  //
+  // CUSTOMER_ACCOUNT is removed from the counter-flow method list when the
+  // caller's own validated charge predicate says no (requiresClient && no
+  // client) — mirrors canChargeToCustomerAccount-grade gating used elsewhere.
+  const counterFlowCallerMethods =
+    counterFlow?.paymentMethods ?? paymentMethods;
+  // Could picking a client offer the account at all? False when the caller
+  // never lists CUSTOMER_ACCOUNT (e.g. Exchange paid in EUR, owner decision
+  // 2026-10-14) — the hint must not then say "pick a client".
+  const counterFlowAccountPossible = counterFlowCallerMethods.some(
+    (pm) => pm.code === "CUSTOMER_ACCOUNT",
+  );
+  const counterFlowMethods = counterFlowCallerMethods.filter(
+    (pm) =>
+      pm.code !== "CUSTOMER_ACCOUNT" ||
+      !(counterFlow?.requiresClient && !counterFlow?.hasClient),
+  );
+  // LIRA-336 — the optional section is closed until the cashier opens it.
+  const [cfOpen, setCfOpen] = useState(false);
+  const cfOptional = !!counterFlow?.optional;
+  // A page that drops counterFlow (e.g. RECEIVE → SEND → RECEIVE) gets the
+  // optional section back closed, behind its link (boolean dep: rule 25).
+  const hasCounterFlow = !!counterFlow;
+  useEffect(() => {
+    if (!hasCounterFlow) setCfOpen(false);
+  }, [hasCounterFlow]);
+  /** The counter-flow section is on screen and counted. */
+  const cfActive = !!counterFlow && (!cfOptional || cfOpen);
+  const cfCurrency = counterFlow?.currency ?? currency;
+  /** LIRA-336 — the section may take change the customer adds. */
+  const addedChangeEligible =
+    isPayout &&
+    !!counterFlow?.allowAddedChange &&
+    !perCurrencyTotals &&
+    ["USD", "LBP", "USDT"].includes(cfCurrency);
+  const cf = useLinesSection({
+    enabled: cfActive,
+    totalAmount: counterFlow?.totalAmount ?? 0,
+    currency: counterFlow?.currency ?? currency,
+    ...(counterFlow?.seedLines ? { seedLines: counterFlow.seedLines } : {}),
+    methods: counterFlowMethods,
+    hasClient: !!counterFlow?.hasClient,
+    ...(counterFlow?.maxForgive !== undefined
+      ? { maxForgive: counterFlow.maxForgive }
+      : {}),
+    convert: convertSafe,
+    round: (amount, curr) =>
+      roundForCurrency({ amount, currency: curr }).amount,
+    ...(counterFlow ? { onChange: counterFlow.onChange } : {}),
+    ...(counterFlow?.onStateChange
+      ? { onStateChange: counterFlow.onStateChange }
+      : {}),
+    ...(addedChangeEligible
+      ? {
+          allowAddedChange: true,
+          // The same cap the server enforces, in the total's currency.
+          isAddedChangeAllowed: (a: number) =>
+            isWithinShortfallMax(
+              convertSafe(a, cfCurrency, totalAmountCurrency),
+              totalAmountCurrency,
+            ),
+        }
+      : {}),
+  });
+  /** LIRA-336 — the customer's added change in the total's currency
+   *  (rounded): it raises the payout target (`effectiveTotals`). */
+  const addedTargetRaw =
+    addedChangeEligible && cfActive
+      ? convertSafe(cf.state.addedChange ?? 0, cfCurrency, totalAmountCurrency)
+      : 0;
+  const addedTarget =
+    totalAmountCurrency === "LBP"
+      ? Math.round(addedTargetRaw)
+      : Math.round(addedTargetRaw * 100) / 100;
+
   // --- Discount logic ---
   const discountAmount = parseNum(discountRaw);
 
@@ -945,21 +1052,26 @@ export default function MultiPaymentInput({
   const clampedExtra = isExtraMode
     ? Math.max(0, Math.min(discountNormalized, extraCap))
     : 0;
+  // LIRA-336 — on a payout the customer's added change raises the target
+  // the same way an extra does (the two never meet: extra is never on a
+  // payout). Round-up, kept change, the remaining row and the prefill then
+  // measure against the raised target by construction (FR-003).
+  const totalsBump = clampedExtra + addedTarget;
   const effectiveTotals: Money[] = (() => {
-    if (clampedExtra > 0) {
-      // The extra is added in totalAmountCurrency's own bucket.
+    if (totalsBump > 0) {
+      // The bump is added in totalAmountCurrency's own bucket.
       const hasBucket = baseTotals.some(
         (t) => t.currency === totalAmountCurrency,
       );
       return hasBucket
         ? baseTotals.map((t) =>
             t.currency === totalAmountCurrency
-              ? { ...t, amount: t.amount + clampedExtra }
+              ? { ...t, amount: t.amount + totalsBump }
               : t,
           )
         : [
             ...baseTotals,
-            { amount: clampedExtra, currency: totalAmountCurrency },
+            { amount: totalsBump, currency: totalAmountCurrency },
           ];
     }
     if (clampedDiscount <= 0 || !discountLowersTotal) return baseTotals;
@@ -1145,6 +1257,7 @@ export default function MultiPaymentInput({
     singleLineCurrency,
     clampedDiscount,
     clampedExtra,
+    addedTarget,
   ]);
 
   // LIRA-308 decision 9 — non-cash change follows a single-currency tender.
@@ -1647,6 +1760,7 @@ export default function MultiPaymentInput({
     effectiveRate,
     clampedDiscount,
     clampedExtra,
+    addedTarget,
     totalsKey,
   ]);
 
@@ -1785,6 +1899,22 @@ export default function MultiPaymentInput({
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [payoutRoundUpKey]);
+
+  // --- Customer adds change (LIRA-336, research R7) ---
+  // Keyed like the round-up: `payer` is in the key and this effect reports
+  // null itself whenever there is none (not a payout, section closed,
+  // nothing added, over the cap — `addedTarget` is 0 in all of them).
+  const addedChangeKey = `${payer}|${totalAmountCurrency}:${addedTarget}`;
+  useEffect(() => {
+    onAddedChange?.(
+      addedTarget > 0
+        ? totalAmountCurrency === "LBP"
+          ? { usd: 0, lbp: addedTarget }
+          : { usd: addedTarget, lbp: 0 }
+        : null,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addedChangeKey]);
 
   // --- Customer-pays round-up autofill (LIRA-334, research R7) ---
   // A small overpay on a page that allows Extra becomes the built-in line's
@@ -2623,47 +2753,9 @@ export default function MultiPaymentInput({
     setIsSplitMode(!isSplitMode);
   };
 
-  // ── Counter-flow (opposite-direction) lines ────────────────────────────────
-  // Entirely independent of the main payment-lines state above: never read
-  // by totalPaid/hasDebt/PM-fee. LIRA-321: single/split, leftover line,
-  // Forgive and the balance report live in useLinesSection (research R1).
-  //
-  // CUSTOMER_ACCOUNT is removed from the counter-flow method list when the
-  // caller's own validated charge predicate says no (requiresClient && no
-  // client) — mirrors canChargeToCustomerAccount-grade gating used elsewhere.
-  const counterFlowCallerMethods =
-    counterFlow?.paymentMethods ?? paymentMethods;
-  // Could picking a client offer the account at all? False when the caller
-  // never lists CUSTOMER_ACCOUNT (e.g. Exchange paid in EUR, owner decision
-  // 2026-10-14) — the hint must not then say "pick a client".
-  const counterFlowAccountPossible = counterFlowCallerMethods.some(
-    (pm) => pm.code === "CUSTOMER_ACCOUNT",
-  );
-  const counterFlowMethods = counterFlowCallerMethods.filter(
-    (pm) =>
-      pm.code !== "CUSTOMER_ACCOUNT" ||
-      !(counterFlow?.requiresClient && !counterFlow?.hasClient),
-  );
-  const cf = useLinesSection({
-    enabled: !!counterFlow,
-    totalAmount: counterFlow?.totalAmount ?? 0,
-    currency: counterFlow?.currency ?? currency,
-    ...(counterFlow?.seedLines ? { seedLines: counterFlow.seedLines } : {}),
-    methods: counterFlowMethods,
-    hasClient: !!counterFlow?.hasClient,
-    ...(counterFlow?.maxForgive !== undefined
-      ? { maxForgive: counterFlow.maxForgive }
-      : {}),
-    convert: convertSafe,
-    round: (amount, curr) =>
-      roundForCurrency({ amount, currency: curr }).amount,
-    ...(counterFlow ? { onChange: counterFlow.onChange } : {}),
-    ...(counterFlow?.onStateChange
-      ? { onStateChange: counterFlow.onStateChange }
-      : {}),
-  });
   // LIRA-321 payout layout: "Customer pays" (IN) above "Shop pays" (OUT).
-  const payoutCounterFlow = isPayout && !!counterFlow;
+  // LIRA-336: a closed optional section counts as no section at all.
+  const payoutCounterFlow = isPayout && cfActive;
 
   // Every reason this sheet needs a client, shown together at the bottom.
   // Same conditions the three separate messages used before.
@@ -2683,133 +2775,167 @@ export default function MultiPaymentInput({
     clientNeededReasons.push(t("client.forVoucher"));
   }
 
-  const cfCurrency = counterFlow?.currency ?? currency;
   const fmtCf = (n: number) =>
     `${formatWithCommas(String(cfCurrency === "LBP" ? Math.round(n) : Math.round(n * 100) / 100))} ${cfCurrency}`;
-  const counterFlowSection = counterFlow ? (
-    <div
-      data-testid="counter-flow-section"
-      className={`${
-        payoutCounterFlow ? "border-b" : "border-t"
-      } border-slate-700/40 px-4 py-3 space-y-2`}
-    >
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-semibold text-slate-200 tracking-wide">
-          {payoutCounterFlow
-            ? counterFlow.lockCurrency
-              ? t("counterFlow.customerPaysCurrency", { currency: cfCurrency })
-              : t("counterFlow.customerPays")
-            : counterFlow.label}
-        </span>
-        <span
-          data-testid="direction-chip-customer-pays"
-          className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-700/30 text-emerald-300 border border-emerald-600/40"
+  // LIRA-336 — a closed optional section: just a link where it would sit.
+  const addCustomerChangeLink =
+    counterFlow && cfOptional && !cfOpen ? (
+      <div
+        className={`${isPayout ? "border-b" : "border-t"} border-slate-700/40 px-4 py-2`}
+      >
+        <button
+          type="button"
+          data-testid="counter-flow-add-change"
+          onClick={() => setCfOpen(true)}
+          className="text-xs font-medium text-emerald-300 hover:text-emerald-200 transition-colors"
         >
-          {payoutCounterFlow
-            ? t("header.chipIn")
-            : t("counterFlow.customerPays")}
-        </span>
-        <div className="flex-1" />
-        <SplitToggle
-          active={cf.isSplit}
-          onClick={cf.toggleSplit}
-          testId="counter-flow-split-toggle"
-        />
+          {t("counterFlow.addCustomerChange")}
+        </button>
       </div>
+    ) : null;
+  const counterFlowSection =
+    counterFlow && cfActive ? (
+      <div
+        data-testid="counter-flow-section"
+        className={`${
+          payoutCounterFlow ? "border-b" : "border-t"
+        } border-slate-700/40 px-4 py-3 space-y-2`}
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-slate-200 tracking-wide">
+            {cfOptional
+              ? t("counterFlow.customerGivesChange")
+              : payoutCounterFlow
+                ? counterFlow.lockCurrency
+                  ? t("counterFlow.customerPaysCurrency", {
+                      currency: cfCurrency,
+                    })
+                  : t("counterFlow.customerPays")
+                : counterFlow.label}
+          </span>
+          <span
+            data-testid="direction-chip-customer-pays"
+            className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-700/30 text-emerald-300 border border-emerald-600/40"
+          >
+            {payoutCounterFlow
+              ? t("header.chipIn")
+              : t("counterFlow.customerPays")}
+          </span>
+          <div className="flex-1" />
+          <SplitToggle
+            active={cf.isSplit}
+            onClick={cf.toggleSplit}
+            testId="counter-flow-split-toggle"
+          />
+          {cfOptional && (
+            <button
+              type="button"
+              data-testid="counter-flow-remove-change"
+              onClick={() => setCfOpen(false)}
+              title={t("counterFlow.removeCustomerChange")}
+              aria-label={t("counterFlow.removeCustomerChange")}
+              className="flex-shrink-0 px-0.5 py-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
 
-      {/* One list for both modes — line 1 keeps its key and position when
+        {/* One list for both modes — line 1 keeps its key and position when
           single flips to split, so its input keeps focus mid-typing. */}
-      {cf.lines.map((line) => (
-        <PaymentLineRow
-          key={line.id}
-          rowTestId={`counter-flow-line-${line.id}`}
-          testIdPrefix="counter-flow"
-          lineId={line.id}
-          method={line.method}
-          currencyCode={line.currencyCode}
-          amount={line.amount}
-          methods={counterFlowMethods}
-          currencies={counterFlow.currencies ?? currencies}
-          symbol={
-            counterFlow.currencies?.find((c) => c.code === line.currencyCode)
-              ?.symbol ?? getSymbol(line.currencyCode)
-          }
-          size={cf.isSplit ? "compact" : "large"}
-          accent="emerald"
-          currencyLocked={!!counterFlow.lockCurrency}
-          onMethodChange={(v) => cf.updateLine(line.id, "method", v)}
-          onCurrencyChange={(v) => cf.updateLine(line.id, "currencyCode", v)}
-          onAmountChange={(n) => cf.updateLine(line.id, "amount", n)}
-          {...(cf.isSplit
-            ? {
-                onRemove: () => cf.removeLine(line.id),
-                removeDisabled: cf.lines.length === 1,
-              }
-            : {})}
-        />
-      ))}
+        {cf.lines.map((line) => (
+          <PaymentLineRow
+            key={line.id}
+            rowTestId={`counter-flow-line-${line.id}`}
+            testIdPrefix="counter-flow"
+            lineId={line.id}
+            method={line.method}
+            currencyCode={line.currencyCode}
+            amount={line.amount}
+            methods={counterFlowMethods}
+            currencies={counterFlow.currencies ?? currencies}
+            symbol={
+              counterFlow.currencies?.find((c) => c.code === line.currencyCode)
+                ?.symbol ?? getSymbol(line.currencyCode)
+            }
+            size={cf.isSplit ? "compact" : "large"}
+            accent="emerald"
+            currencyLocked={!!counterFlow.lockCurrency}
+            onMethodChange={(v) => cf.updateLine(line.id, "method", v)}
+            onCurrencyChange={(v) => cf.updateLine(line.id, "currencyCode", v)}
+            onAmountChange={(n) => cf.updateLine(line.id, "amount", n)}
+            {...(cf.isSplit
+              ? {
+                  onRemove: () => cf.removeLine(line.id),
+                  removeDisabled: cf.lines.length === 1,
+                }
+              : {})}
+          />
+        ))}
 
-      {cf.isSplit && (
-        <button
-          type="button"
-          data-testid="counter-flow-add-split"
-          onClick={cf.addLine}
-          className="w-full py-1.5 border-2 border-dashed border-slate-700 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200 hover:border-slate-500 transition-all"
-        >
-          {t("lines.addLine")}
-        </button>
-      )}
+        {cf.isSplit && (
+          <button
+            type="button"
+            data-testid="counter-flow-add-split"
+            onClick={cf.addLine}
+            className="w-full py-1.5 border-2 border-dashed border-slate-700 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200 hover:border-slate-500 transition-all"
+          >
+            {t("lines.addLine")}
+          </button>
+        )}
 
-      {cf.state.unaccounted > 0 && (
-        <div
-          data-testid="counter-flow-unaccounted"
-          className="text-xs text-amber-300"
-        >
-          {t("counterFlow.stillToSettle")}{" "}
-          <Ltr>{fmtCf(cf.state.unaccounted)}</Ltr>
-          {/* No account offered (no client): say how to settle it — the
+        {cf.state.unaccounted > 0 && (
+          <div
+            data-testid="counter-flow-unaccounted"
+            className="text-xs text-amber-300"
+          >
+            {t("counterFlow.stillToSettle")}{" "}
+            <Ltr>{fmtCf(cf.state.unaccounted)}</Ltr>
+            {/* No account offered (no client): say how to settle it — the
               section never fills the gap with cash by itself (US1.3). */}
-          {!cf.accountOffered &&
-            counterFlowAccountPossible &&
-            t(
-              cf.canForgive
-                ? "counterFlow.pickClientOrForgive"
-                : cf.isSplit
-                  ? "counterFlow.pickClientOrAddLine"
-                  : "counterFlow.pickClient",
-            )}
-        </div>
-      )}
+            {!cf.accountOffered &&
+              counterFlowAccountPossible &&
+              t(
+                cf.canForgive
+                  ? "counterFlow.pickClientOrForgive"
+                  : cf.isSplit
+                    ? "counterFlow.pickClientOrAddLine"
+                    : "counterFlow.pickClient",
+              )}
+          </div>
+        )}
 
-      {cf.canForgive && (
-        <button
-          type="button"
-          data-testid="counter-flow-forgive"
-          onClick={cf.toggleForgive}
-          className={`w-full py-1.5 rounded-xl text-xs font-medium border transition-all ${
-            cf.forgiveOn
-              ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
-              : "bg-slate-800 text-slate-300 border-slate-600 hover:text-slate-100 hover:border-slate-500"
-          }`}
-        >
-          {cf.forgiveOn
-            ? t("counterFlow.forgivenUndo", {
-                amount: fmtCf(cf.state.forgiven),
-              })
-            : t("counterFlow.forgive", { amount: fmtCf(cf.shortfall) })}
-        </button>
-      )}
+        {cf.canForgive && (
+          <button
+            type="button"
+            data-testid="counter-flow-forgive"
+            onClick={cf.toggleForgive}
+            className={`w-full py-1.5 rounded-xl text-xs font-medium border transition-all ${
+              cf.forgiveOn
+                ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
+                : "bg-slate-800 text-slate-300 border-slate-600 hover:text-slate-100 hover:border-slate-500"
+            }`}
+          >
+            {cf.forgiveOn
+              ? t("counterFlow.forgivenUndo", {
+                  amount: fmtCf(cf.state.forgiven),
+                })
+              : t("counterFlow.forgive", { amount: fmtCf(cf.shortfall) })}
+          </button>
+        )}
 
-      {cf.state.overpaid && (
-        <div
-          data-testid="counter-flow-overpaid"
-          className="text-xs text-red-400"
-        >
-          {t("counterFlow.overpaid")}
-        </div>
-      )}
-    </div>
-  ) : null;
+        {cf.state.overpaid && (
+          <div
+            data-testid="counter-flow-overpaid"
+            className="text-xs text-red-400"
+          >
+            {cf.addedOverCap
+              ? t("counterFlow.addedChangeOverCap")
+              : t("counterFlow.overpaid")}
+          </div>
+        )}
+      </div>
+    ) : null;
 
   return (
     <div
@@ -2818,6 +2944,7 @@ export default function MultiPaymentInput({
     >
       {/* LIRA-321: on payout screens "Customer pays" (IN) comes first. */}
       {payoutCounterFlow && counterFlowSection}
+      {isPayout && addCustomerChangeLink}
 
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-700/40">
@@ -2830,7 +2957,7 @@ export default function MultiPaymentInput({
             (owner decision #10 area, BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4
             Phase C): absent counterFlow, nothing renders here — identical to
             today. */}
-        {counterFlow && (
+        {cfActive && (
           <span
             data-testid="direction-chip-you-pay"
             className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-700 text-slate-300 border border-slate-600"
@@ -3038,6 +3165,7 @@ export default function MultiPaymentInput({
           #2: ONE card, a direction per line, never a second form. Below the
           main lines everywhere except payout screens (rendered above). */}
       {!payoutCounterFlow && counterFlowSection}
+      {!isPayout && addCustomerChangeLink}
 
       {/* Summary */}
       <div
@@ -3048,17 +3176,13 @@ export default function MultiPaymentInput({
         {providerFee > 0 && (
           <>
             <div className="flex justify-between text-xs">
-              <span className="text-slate-400">
-                {t("summary.sendAmount")}
-              </span>
+              <span className="text-slate-400">{t("summary.sendAmount")}</span>
               <span className="font-mono text-white">
                 {fmtTarget(toDisplayCurrency(totalInTarget - providerFee))}
               </span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-amber-400">
-                {t("summary.providerFee")}
-              </span>
+              <span className="text-amber-400">{t("summary.providerFee")}</span>
               <span className="font-mono text-amber-300">
                 +{fmtTarget(toDisplayCurrency(providerFee))}
               </span>
@@ -3075,9 +3199,7 @@ export default function MultiPaymentInput({
         )}
         {providerFee === 0 && (
           <div className="flex justify-between text-xs">
-            <span className="text-slate-400">
-              {t("summary.totalAmount")}
-            </span>
+            <span className="text-slate-400">{t("summary.totalAmount")}</span>
             <span className="font-mono text-white">
               {perCurrencyTotals
                 ? pcText(
@@ -3094,6 +3216,25 @@ export default function MultiPaymentInput({
                     ),
                   )}
             </span>
+          </div>
+        )}
+
+        {/* LIRA-336 — the customer added change: what the shop now pays. */}
+        {addedTarget > 0 && (
+          <div
+            data-testid="payout-added-change-summary"
+            className="text-xs text-emerald-300"
+          >
+            <Trans
+              t={t}
+              i18nKey="summary.owedPlusAddedChange"
+              values={{
+                owed: fmtTarget(toDisplayCurrency(totalInTarget)),
+                added: fmtTarget(toDisplayCurrency(addedTarget)),
+                total: fmtTarget(toDisplayCurrency(effectiveTotalInTarget)),
+              }}
+              components={LTR_SLOT}
+            />
           </div>
         )}
 
@@ -3256,8 +3397,8 @@ export default function MultiPaymentInput({
             className="flex justify-between text-xs pt-1 border-t border-amber-700/20"
           >
             <span className="text-amber-300 font-medium">
-                {t("summary.afterExtra")}
-              </span>
+              {t("summary.afterExtra")}
+            </span>
             <span className="font-mono text-amber-200 font-medium">
               {fmtTarget(toDisplayCurrency(effectiveTotalInTarget))}
             </span>
@@ -3657,7 +3798,9 @@ export default function MultiPaymentInput({
                           : "bg-slate-900 border-amber-700/40 text-amber-300 hover:border-amber-500"
                       }`}
                     >
-                      {creditUnreturned ? t("change.account") : t("change.keep")}
+                      {creditUnreturned
+                        ? t("change.account")
+                        : t("change.keep")}
                     </button>
                   )}
                 </div>
