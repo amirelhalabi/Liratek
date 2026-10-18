@@ -484,6 +484,7 @@ export function registerAuthHandlers(): void {
       const sessions = await authService.listUserSessions(
         auth.userId,
         currentToken,
+        auth.role,
       );
       return { success: true, data: sessions };
     } catch (error) {
@@ -524,7 +525,11 @@ export function registerAuthHandlers(): void {
       // put a given condition on the same side of `success`. Returning
       // success:true here regardless of `revoked` made the desktop UI show
       // "Session ended" for a revoke that revoked nothing.
-      const revoked = await authService.revokeUserSession(id, auth.userId);
+      const revoked = await authService.revokeUserSession(
+        id,
+        auth.userId,
+        auth.role,
+      );
       if (!revoked) {
         return { success: false, error: "Session not found" };
       }

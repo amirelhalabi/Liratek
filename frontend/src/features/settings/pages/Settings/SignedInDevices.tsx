@@ -30,6 +30,12 @@ import { messageFrom } from "@/api/apiError";
 import { useTranslation } from "react-i18next";
 import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { useFormat } from "@/i18n/useFormat";
+import {
+  activityAge,
+  deviceName,
+  groupSessionsByUser,
+  isStale,
+} from "./devicesFormat";
 
 /** `device_type` values are internal ("electron" | "web" | "mobile" |
  * "unknown" | "impersonation") — map them to the label an operator reads. */
@@ -63,7 +69,7 @@ export default function SignedInDevices() {
         )
       : session.device_type;
   const api = useApi();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const [sessions, setSessions] = useState<SafeSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -117,10 +123,7 @@ export default function SignedInDevices() {
   };
 
   const handleRevokeOthers = async () => {
-    if (
-      !confirm(t("devices.revokeOthersConfirm"))
-    )
-      return;
+    if (!confirm(t("devices.revokeOthersConfirm"))) return;
     setRevokingOthers(true);
     try {
       const res = await api.revokeOtherSessions();
@@ -152,14 +155,40 @@ export default function SignedInDevices() {
     }
   };
 
-  const otherSessionsCount = sessions.filter((s) => !s.is_current).length;
+  // The viewer is whoever owns the "this device" row; on desktop that flag
+  // can be missing (no resolvable token), so fall back to the signed-in user.
+  const viewerId =
+    sessions.find((s) => s.is_current)?.user_id ?? user?.id ?? null;
+  // "Sign out everywhere else" only ends the viewer's OWN other sessions, so
+  // an admin's count must not include other users' rows.
+  const otherSessionsCount = sessions.filter(
+    (s) => !s.is_current && s.user_id === viewerId,
+  ).length;
+  const groups = groupSessionsByUser(sessions, viewerId);
+  // Only the admin view ever lists more than one user; staff see no headers.
+  const showGroupHeaders = groups.some((g) => g.userId !== viewerId);
+  const now = Date.now();
+
+  const lastActivityText = (lastActivityAt: string): string => {
+    const age = activityAge(lastActivityAt, now);
+    return age.unit === "now"
+      ? t("devices.age.now")
+      : t(`devices.age.${age.unit}`, { n: age.n });
+  };
+
+  const rows = groups.flatMap((g) =>
+    showGroupHeaders
+      ? [
+          { kind: "group" as const, group: g },
+          ...g.sessions.map((s) => ({ kind: "session" as const, session: s })),
+        ]
+      : g.sessions.map((s) => ({ kind: "session" as const, session: s })),
+  );
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-slate-400 text-sm">
-          {t("devices.intro")}
-        </p>
+        <p className="text-slate-400 text-sm">{t("devices.intro")}</p>
         <button
           onClick={handleRevokeOthers}
           disabled={revokingOthers || otherSessionsCount === 0}
@@ -183,54 +212,122 @@ export default function SignedInDevices() {
             t("devices.col.device"),
             t("devices.col.ip"),
             t("devices.col.lastActivity"),
+            t("devices.col.signOut"),
             { header: t("devices.col.actions"), className: "p-2 text-end" },
           ]}
-          data={sessions}
+          data={rows}
           loading={loading}
           emptyMessage={t("devices.empty")}
-          renderRow={(s) => (
-            <tr key={s.id} className="border-t border-slate-800">
-              <td className="p-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-white">{deviceLabel(s)}</span>
-                  {s.is_current && (
-                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-violet-600/20 text-violet-400">
-                      {t("devices.thisDevice")}
+          renderRow={(row) => {
+            if (row.kind === "group") {
+              const g = row.group;
+              return (
+                <tr
+                  key={`user-${g.userId}`}
+                  className="border-t border-slate-700 bg-slate-800/60"
+                >
+                  <td colSpan={5} className="p-2 text-sm">
+                    <span className="text-white font-medium">
+                      {g.username ?? t("devices.unknownUser")}
                     </span>
-                  )}
-                </div>
-                {s.device_info && (
-                  <div className="text-xs text-slate-500 truncate max-w-md">
-                    {s.device_info}
+                    {g.role && (
+                      <span className="text-slate-400">
+                        {" · "}
+                        {t(`devices.role.${g.role}`, { defaultValue: g.role })}
+                      </span>
+                    )}
+                    <span className="text-slate-500">
+                      {" · "}
+                      {t("devices.deviceCount", { count: g.sessions.length })}
+                    </span>
+                  </td>
+                </tr>
+              );
+            }
+            const s = row.session;
+            const stale = !s.is_current && isStale(s.last_activity_at, now);
+            const friendlyName = deviceName(s.device_info);
+            return (
+              <tr
+                key={s.id}
+                className={`border-t border-slate-800 ${stale ? "opacity-50" : ""}`}
+              >
+                <td className="p-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span
+                      className="text-white"
+                      title={s.device_info ?? undefined}
+                    >
+                      {friendlyName ?? deviceLabel(s)}
+                    </span>
+                    {s.is_current && (
+                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-violet-600/20 text-violet-400">
+                        {t("devices.thisDevice")}
+                      </span>
+                    )}
+                    {stale && (
+                      <span className="px-2 py-0.5 rounded text-xs bg-slate-700 text-slate-300">
+                        {t("devices.stale")}
+                      </span>
+                    )}
                   </div>
-                )}
-              </td>
-              <td className="p-2 text-slate-300 font-mono text-xs">
-                <Ltr>{s.ip_address || "—"}</Ltr>
-              </td>
-              <td className="p-2 text-slate-300">
-                {formatDateTime(parseDbDate(s.last_activity_at), DATE_TIME)}
-              </td>
-              <td className="p-2 text-end">
-                {s.is_current ? (
-                  <button
-                    onClick={() => logout()}
-                    className="text-xs px-2 py-1 bg-slate-700 rounded text-white"
+                  <div className="text-xs text-slate-500 truncate max-w-md">
+                    {friendlyName ? deviceLabel(s) : s.device_info}
+                  </div>
+                </td>
+                <td className="p-2 text-slate-300 font-mono text-xs">
+                  <Ltr>{s.ip_address || "—"}</Ltr>
+                </td>
+                <td
+                  className="p-2 text-slate-300"
+                  title={formatDateTime(
+                    parseDbDate(s.last_activity_at),
+                    DATE_TIME,
+                  )}
+                >
+                  {s.is_current
+                    ? t("devices.age.now")
+                    : lastActivityText(s.last_activity_at)}
+                </td>
+                <td className="p-2">
+                  <span
+                    className={`px-2 py-0.5 rounded text-xs ${
+                      s.remember_me
+                        ? "bg-emerald-600/20 text-emerald-400"
+                        : "bg-slate-700 text-slate-300"
+                    }`}
+                    title={t("devices.expiresAt", {
+                      at: formatDateTime(parseDbDate(s.expires_at), DATE_TIME),
+                    })}
                   >
-                    {t("devices.signOut")}
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => handleRevoke(s)}
-                    disabled={revokingId === s.id}
-                    className="text-xs px-2 py-1 bg-red-600/80 hover:bg-red-600 disabled:opacity-40 disabled:hover:bg-red-600/80 rounded text-white transition-colors"
-                  >
-                    {revokingId === s.id ? t("devices.ending") : t("devices.revoke")}
-                  </button>
-                )}
-              </td>
-            </tr>
-          )}
+                    {s.remember_me
+                      ? t("devices.remembered")
+                      : t("devices.idleTimeout")}
+                  </span>
+                </td>
+                <td className="p-2 text-end">
+                  {s.is_current ? (
+                    <button
+                      onClick={() => logout()}
+                      className="text-xs px-2 py-1 bg-slate-700 rounded text-white"
+                    >
+                      {t("devices.signOut")}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleRevoke(s)}
+                      disabled={revokingId === s.id}
+                      className="text-xs px-2 py-1 bg-red-600/80 hover:bg-red-600 disabled:opacity-40 disabled:hover:bg-red-600/80 rounded text-white transition-colors"
+                    >
+                      {revokingId === s.id
+                        ? t("devices.ending")
+                        : t("devices.revoke")}
+                    </button>
+                  )}
+                </td>
+              </tr>
+            );
+          }}
         />
       </div>
     </div>

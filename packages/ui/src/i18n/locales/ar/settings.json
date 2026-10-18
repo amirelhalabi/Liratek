@@ -47,13 +47,35 @@
       "device": "الجهاز",
       "ip": "عنوان IP",
       "lastActivity": "آخر نشاط",
-      "actions": "إجراءات"
+      "actions": "إجراءات",
+      "signOut": "الجلسة"
     },
     "empty": "لا توجد أجهزة مسجّلة الدخول",
     "thisDevice": "هذا الجهاز",
     "signOut": "تسجيل الخروج",
     "ending": "جارٍ الإنهاء…",
-    "revoke": "إنهاء"
+    "revoke": "إنهاء",
+    "age": {
+      "now": "نشط الآن",
+      "minutes": "منذ {{n}} دقيقة",
+      "hours": "منذ {{n}} ساعة",
+      "days": "منذ {{n}} يوم"
+    },
+    "unknownUser": "مستخدم غير معروف",
+    "role": {
+      "admin": "مدير",
+      "staff": "موظف"
+    },
+    "deviceCount_zero": "{{count}} جهاز",
+    "deviceCount_one": "جهاز واحد",
+    "deviceCount_two": "جهازان",
+    "deviceCount_few": "{{count}} أجهزة",
+    "deviceCount_many": "{{count}} جهازًا",
+    "deviceCount_other": "{{count}} جهاز",
+    "stale": "غير مستخدم مؤخرًا",
+    "remembered": "محفوظ",
+    "idleTimeout": "8 ساعات خمول",
+    "expiresAt": "يُسجَّل الخروج في {{at}} إذا لم يُستخدم"
   },
   "resetModal": {
     "failed": "فشلت إعادة التعيين",

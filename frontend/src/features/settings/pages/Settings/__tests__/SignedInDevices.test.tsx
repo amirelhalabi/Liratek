@@ -52,6 +52,11 @@ const CURRENT: SafeSession = {
   ip_address: "127.0.0.1",
   created_at: "2026-09-01T10:00:00.000Z",
   last_activity_at: "2026-09-01T10:00:00.000Z",
+  expires_at: "2026-09-01T18:00:00.000Z",
+  remember_me: false,
+  user_id: 10,
+  username: "amir",
+  role: "admin",
   is_current: true,
 };
 
@@ -62,7 +67,24 @@ const OTHER: SafeSession = {
   ip_address: "8.8.8.8",
   created_at: "2026-09-01T09:00:00.000Z",
   last_activity_at: "2026-09-01T09:30:00.000Z",
+  expires_at: "2026-09-01T17:30:00.000Z",
+  remember_me: false,
+  user_id: 10,
+  username: "amir",
+  role: "admin",
   is_current: false,
+};
+
+/** Another user's session — only an admin's list ever contains one. */
+const STAFF_DEVICE: SafeSession = {
+  ...OTHER,
+  id: 3,
+  device_type: "mobile",
+  device_info: "android phone",
+  remember_me: true,
+  user_id: 20,
+  username: "rami",
+  role: "staff",
 };
 
 // Unsubscribe handle for whichever capture is active in the current test —
@@ -144,5 +166,20 @@ describe("SignedInDevices — real error messages reach the screen", () => {
       expect(notifications).toContain("Too many sessions ended recently"),
     );
     expect(notifications).not.toContain("Failed to sign out other devices");
+  });
+
+  it("groups an admin's list by user and keeps 'sign out everywhere else' to the admin's own devices", async () => {
+    listUserSessions.mockResolvedValue([CURRENT, STAFF_DEVICE]);
+
+    render(<SignedInDevices />);
+
+    expect(await screen.findByText("rami")).toBeInTheDocument();
+    expect(screen.getByText(/Staff/)).toBeInTheDocument();
+    expect(screen.getByText("Remembered")).toBeInTheDocument();
+    // The admin has no OTHER device of their own, so the button that ends
+    // only their own other sessions has nothing to do.
+    expect(
+      screen.getByRole("button", { name: "Sign out everywhere else" }),
+    ).toBeDisabled();
   });
 });

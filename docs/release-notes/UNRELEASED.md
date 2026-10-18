@@ -154,6 +154,7 @@ Right after a sale, the POS shows "Sale completed" with a Send on WhatsApp butto
 
 ## 🔒 Security & sign-in
 
+- Settings → Signed-in devices: admins now see every user's signed-in devices, grouped by person with their role, and can sign any of them out. Each device shows a readable name like "Chrome on macOS", when it was last used ("Active now", "7 days ago"), and whether it is remembered or signs out after 8 hours idle. Devices not used for more than 3 days are faded. Staff still see only their own devices, and "Sign out everywhere else" still signs out only your own other devices.
 - Staff can no longer read the shop's WhatsApp access key, including from the activity log. Only admins see it. Sending WhatsApp messages from the app works as before.
 - When an admin changes someone's role, or sets a new password for them, that person is signed out and signs in again with the new role. A desktop app window already open on their PC picks up the change at their next sign-in.
 - Web app: after 5 wrong passwords within 15 minutes when pairing a PC for offline use, or when unlocking the Profits page, further tries are refused until the 15 minutes are up.

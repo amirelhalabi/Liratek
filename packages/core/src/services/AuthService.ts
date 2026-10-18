@@ -378,13 +378,18 @@ export class AuthService {
    * is the token behind the request making this call, so `is_current` can be
    * computed server-side; the client has no token for any session but its
    * own and so could never compute it itself.
+   *
+   * An admin sees every user's sessions in their own shop; anyone else sees
+   * only their own (owner decision 2026-10-19). `role` must come from the
+   * server-side session or JWT, never from the client.
    */
   async listUserSessions(
     userId: number,
     currentToken: string,
+    role?: string,
   ): Promise<SafeSession[]> {
     return this.sessionRepo
-      .findActiveByUserId(userId)
+      .findActiveWithUsers(role === "admin" ? null : userId)
       .map((session) => this.sessionRepo.toSafeSession(session, currentToken));
   }
 
@@ -395,8 +400,16 @@ export class AuthService {
    * or another tenant simply does not match the WHERE clause and this
    * returns `false`, the same outcome as an id that never existed.
    */
-  async revokeUserSession(id: number, userId: number): Promise<boolean> {
-    return this.sessionRepo.deleteByIdForUser(id, userId);
+  async revokeUserSession(
+    id: number,
+    userId: number,
+    role?: string,
+  ): Promise<boolean> {
+    // An admin may end any session in their shop; the tenant scope in
+    // deleteByIdInTenant still keeps other shops out of reach.
+    return role === "admin"
+      ? this.sessionRepo.deleteByIdInTenant(id)
+      : this.sessionRepo.deleteByIdForUser(id, userId);
   }
 
   /**

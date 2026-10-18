@@ -60,9 +60,24 @@ export interface SafeSession {
   ip_address: string | null;
   created_at: string;
   last_activity_at: string;
+  /** When the session ends if left idle — slides forward on every request. */
+  expires_at: string;
+  /** "Keep me signed in": a week-long idle window instead of a shift. */
+  remember_me: boolean;
+  /** Whose session this is. The admin view lists every user in the shop
+   * (owner decision 2026-10-19), so the page groups rows by these. */
+  user_id: number;
+  username: string | null;
+  role: string | null;
   /** Computed server-side against the CALLER's own token (see toSafeSession) —
    * the client is never given the material to compute this itself. */
   is_current: boolean;
+}
+
+/** A session row joined to its user, for the signed-in devices panel. */
+export interface SessionWithUser extends SessionEntity {
+  username: string | null;
+  role: string | null;
 }
 
 const MINUTES = 60 * 1000;
@@ -421,6 +436,58 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
   }
 
   /**
+   * Active sessions joined to their user's name and role, for the signed-in
+   * devices panel. `userId` limits the list to one user (staff see their
+   * own); `null` lists every user in the CURRENT shop (the admin view). The
+   * tenant filter applies either way, so an admin never sees another shop.
+   */
+  findActiveWithUsers(userId: number | null): SessionWithUser[] {
+    try {
+      const now = new Date().toISOString();
+      const query = `
+        SELECT s.id, s.user_id, s.token, s.device_type, s.device_info,
+               s.ip_address, s.remember_me, s.created_at, s.last_activity_at,
+               s.expires_at, s.tenant_id, u.username, u.role
+        FROM ${this.tableName} s
+        LEFT JOIN users u ON u.id = s.user_id
+        WHERE s.expires_at > ? AND s.tenant_id = ?
+          AND (? IS NULL OR s.user_id = ?)
+        ORDER BY s.last_activity_at DESC
+      `;
+      return this.query<SessionWithUser>(
+        query,
+        now,
+        getCurrentTenantId(),
+        userId,
+        userId,
+      );
+    } catch (error) {
+      throw new DatabaseError("Failed to find active sessions with users", {
+        cause: error,
+      });
+    }
+  }
+
+  /**
+   * Delete ONE session by id anywhere in the CURRENT shop — the admin's
+   * "Revoke" on another user's device. Scoped by id AND tenant_id, so an id
+   * from another shop does not match and this returns `false`, the same as
+   * an id that never existed. Callers must have checked the admin role.
+   */
+  deleteByIdInTenant(id: number): boolean {
+    try {
+      const query = `DELETE FROM ${this.tableName} WHERE id = ? AND tenant_id = ?`;
+      const result = this.execute(query, id, getCurrentTenantId());
+      return result.changes > 0;
+    } catch (error) {
+      throw new DatabaseError("Failed to delete session by id in tenant", {
+        cause: error,
+        entityId: id,
+      });
+    }
+  }
+
+  /**
    * Strip a session down to the shape that is safe to send to a client.
    *
    * Lists every field explicitly rather than spreading `session` — a spread
@@ -431,7 +498,11 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
    * never against anything the client supplies, since the client has no
    * token to compare with for a session that isn't its own.
    */
-  toSafeSession(session: SessionEntity, currentToken: string): SafeSession {
+  toSafeSession(
+    session: SessionEntity &
+      Partial<Pick<SessionWithUser, "username" | "role">>,
+    currentToken: string,
+  ): SafeSession {
     return {
       id: session.id,
       device_type: session.device_type,
@@ -439,6 +510,11 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
       ip_address: session.ip_address,
       created_at: session.created_at,
       last_activity_at: session.last_activity_at,
+      expires_at: session.expires_at,
+      remember_me: Boolean(session.remember_me),
+      user_id: session.user_id,
+      username: session.username ?? null,
+      role: session.role ?? null,
       is_current: session.token === currentToken,
     };
   }

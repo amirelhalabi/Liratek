@@ -404,7 +404,10 @@ router.post("/logout", async (req, res): Promise<void> => {
 
 // ── Signed-in devices (SESSION_RESILIENCE_AND_DEVICES_PLAN.md Part 2) ──────
 //
-// Own-sessions-only for v1 (scope decision in the plan). Every route below:
+// Own sessions for staff; an admin sees and can revoke every session in their
+// own shop (owner decision 2026-10-19 — the role always comes from req.user,
+// and the tenant scope in SessionRepository keeps other shops out). "Sign out
+// everywhere else" stays personal for everyone. Every route below:
 //   - sits behind authenticateJWT, and reads userId/the comparison token
 //     EXCLUSIVELY from req.user (set by authenticateJWT from the verified
 //     JWT/session) — never from req.body or req.params. A client has no
@@ -438,6 +441,7 @@ router.get("/sessions", authenticateJWT, async (req, res): Promise<void> => {
     const sessions = await authService.listUserSessions(
       req.user.userId,
       req.user.sessionToken,
+      req.user.role,
     );
     res.json(createSuccessResponse(sessions));
   } catch (error) {
@@ -561,7 +565,13 @@ router.delete(
 
     try {
       const authService = getAuthService();
-      const revoked = await authService.revokeUserSession(id, req.user.userId);
+      // Admins may end any session in their shop (owner decision
+      // 2026-10-19); the role comes from the verified JWT, never the client.
+      const revoked = await authService.revokeUserSession(
+        id,
+        req.user.userId,
+        req.user.role,
+      );
 
       if (!revoked) {
         // Same envelope-parity reasoning as the id check above: "not found /

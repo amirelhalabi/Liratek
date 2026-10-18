@@ -127,6 +127,11 @@ const SAFE_SESSION_FIXTURE = {
   ip_address: "203.0.113.5",
   created_at: "2026-09-01 10:00:00",
   last_activity_at: "2026-09-10 09:30:00",
+  expires_at: "2026-09-10 17:30:00",
+  remember_me: false,
+  user_id: 42,
+  username: "amir",
+  role: "admin",
   is_current: true,
 };
 
@@ -164,7 +169,7 @@ describe("GET /api/auth/sessions", () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ success: true, data: [SAFE_SESSION_FIXTURE] });
     expect(listUserSessions).toHaveBeenCalledTimes(1);
-    expect(listUserSessions).toHaveBeenCalledWith(42, "test-session");
+    expect(listUserSessions).toHaveBeenCalledWith(42, "test-session", "staff");
   });
 
   // The one that matters most (plan §"Proving it"): assert on the SERIALISED
@@ -273,7 +278,7 @@ describe("DELETE /api/auth/sessions/:id", () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ success: true });
     expect(revokeUserSession).toHaveBeenCalledTimes(1);
-    expect(revokeUserSession).toHaveBeenCalledWith(7, 42);
+    expect(revokeUserSession).toHaveBeenCalledWith(7, 42, "admin");
   });
 
   it("audits the revocation on success, actor from req.user", async () => {

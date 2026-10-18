@@ -47,13 +47,31 @@
       "device": "Device",
       "ip": "IP Address",
       "lastActivity": "Last Activity",
-      "actions": "Actions"
+      "actions": "Actions",
+      "signOut": "Session"
     },
     "empty": "No signed-in devices",
     "thisDevice": "This device",
     "signOut": "Sign out",
     "ending": "Ending…",
-    "revoke": "Revoke"
+    "revoke": "Revoke",
+    "age": {
+      "now": "Active now",
+      "minutes": "{{n}} min ago",
+      "hours": "{{n}} h ago",
+      "days": "{{n}} days ago"
+    },
+    "unknownUser": "Unknown user",
+    "role": {
+      "admin": "Admin",
+      "staff": "Staff"
+    },
+    "deviceCount_one": "{{count}} device",
+    "deviceCount_other": "{{count}} devices",
+    "stale": "Not used lately",
+    "remembered": "Remembered",
+    "idleTimeout": "8h idle",
+    "expiresAt": "Signs out at {{at}} if not used"
   },
   "resetModal": {
     "failed": "Reset failed",

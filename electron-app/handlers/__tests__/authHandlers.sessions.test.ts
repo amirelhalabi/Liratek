@@ -138,7 +138,11 @@ describe("authHandlers — session parity, restore fallback, token guard", () =>
 
       const result = await handler({ sender: { id: 1 } }, 7);
 
-      expect(mockAuthService.revokeUserSession).toHaveBeenCalledWith(7, 42);
+      expect(mockAuthService.revokeUserSession).toHaveBeenCalledWith(
+        7,
+        42,
+        "admin",
+      );
       expect(result).toEqual({ success: true, data: true });
       expect(audit).toHaveBeenCalledWith(
         1,
@@ -264,6 +268,7 @@ describe("authHandlers — session parity, restore fallback, token guard", () =>
         expect(mockAuthService.listUserSessions).toHaveBeenCalledWith(
           42,
           "tok-mine",
+          "admin",
         );
       });
 
@@ -283,7 +288,11 @@ describe("authHandlers — session parity, restore fallback, token guard", () =>
         const handler = handlers.get("auth:list-sessions")!;
         await handler({ sender: { id: 1 } });
 
-        expect(mockAuthService.listUserSessions).toHaveBeenCalledWith(42, "");
+        expect(mockAuthService.listUserSessions).toHaveBeenCalledWith(
+          42,
+          "",
+          "admin",
+        );
       });
     });
 

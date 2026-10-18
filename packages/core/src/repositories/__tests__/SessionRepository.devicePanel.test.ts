@@ -166,6 +166,11 @@ describe("SessionRepository — signed-in devices", () => {
           "ip_address",
           "created_at",
           "last_activity_at",
+          "expires_at",
+          "remember_me",
+          "user_id",
+          "username",
+          "role",
           "is_current",
         ].sort(),
       );
