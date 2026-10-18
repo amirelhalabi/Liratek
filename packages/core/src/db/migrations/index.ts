@@ -14929,12 +14929,19 @@ DROP TABLE IF EXISTS supplier_settlement_coverage;`);
       "language. Display only: no money table is touched.",
     type: "typescript" as const,
     up(db: Database.Database) {
+      if (!tableExists(db, "users") || columnExists(db, "users", "language")) {
+        return;
+      }
       db.exec(
         `ALTER TABLE users ADD COLUMN language TEXT DEFAULT NULL CHECK (language IS NULL OR language IN ('en','ar'))`,
       );
     },
     down(db: Database.Database) {
-      db.exec(`ALTER TABLE users DROP COLUMN language`);
+      // Guarded: minimal test schemas (and databases rolled back past v221
+      // on a table that never had the column) have no users.language.
+      if (columnExists(db, "users", "language")) {
+        db.exec(`ALTER TABLE users DROP COLUMN language`);
+      }
     },
   },
   {

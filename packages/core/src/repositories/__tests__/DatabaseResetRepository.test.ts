@@ -218,6 +218,18 @@ function insertTenantFixture(db: Database.Database, tenantId: number): void {
     db.prepare(
       `INSERT INTO daily_closing_carrier_lines (tenant_id, closing_id, carrier_line_id) VALUES (?, ?, ?)`,
     ).run(tenantId, closingId, carrierLineId);
+    // LIRA-335 v222 — one open difference of the fixture checkpoint and one
+    // resolution of it by the fixture transaction.
+    const differenceId = db
+      .prepare(
+        `INSERT INTO checkpoint_differences (tenant_id, closing_id, drawer_name, currency_code, amount)
+         VALUES (?, ?, 'General', 'USD', -5)`,
+      )
+      .run(tenantId, closingId).lastInsertRowid as number;
+    db.prepare(
+      `INSERT INTO checkpoint_difference_resolutions (tenant_id, difference_id, transaction_id, amount)
+       VALUES (?, ?, ?, -5)`,
+    ).run(tenantId, differenceId, txnId);
     db.prepare(
       `INSERT INTO debt_ledger (tenant_id, client_id, transaction_type) VALUES (?, ?, 'Test Debt')`,
     ).run(tenantId, clientId);

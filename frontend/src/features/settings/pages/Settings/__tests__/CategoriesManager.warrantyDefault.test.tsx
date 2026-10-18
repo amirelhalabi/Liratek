@@ -58,9 +58,9 @@ beforeEach(() => {
 
 describe("CategoriesManager — default warranty per category (LIRA-296)", () => {
   it("shows each category's default, and 'No warranty' when there is none", async () => {
-    expect(await input("Phones")).toHaveValue(12);
+    expect(await input("Phones")).toHaveValue("12");
     const acc = await input("Accessories");
-    expect(acc).toHaveValue(null);
+    expect(acc).toHaveValue("");
     expect(acc).toHaveAttribute("placeholder", "No warranty");
   });
 

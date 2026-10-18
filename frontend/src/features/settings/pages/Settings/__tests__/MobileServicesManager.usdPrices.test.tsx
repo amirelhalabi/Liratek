@@ -123,16 +123,16 @@ describe("MobileServicesManager — USD prices (LIRA-324)", () => {
     await renderWith([USD_ITEM]);
     fireEvent.click(screen.getByTitle("Edit"));
 
-    expect(screen.getByLabelText("Cost (USD)")).toHaveValue(10);
-    expect(screen.getByLabelText("Sell (USD)")).toHaveValue(10);
+    expect(screen.getByLabelText("Cost (USD)")).toHaveValue("10");
+    expect(screen.getByLabelText("Sell (USD)")).toHaveValue("10");
   });
 
   it("edit row prefills empty when the item has no USD prices", async () => {
     await renderWith([PLAIN_ITEM]);
     fireEvent.click(screen.getByTitle("Edit"));
 
-    expect(screen.getByLabelText("Cost (USD)")).toHaveValue(null);
-    expect(screen.getByLabelText("Sell (USD)")).toHaveValue(null);
+    expect(screen.getByLabelText("Cost (USD)")).toHaveValue("");
+    expect(screen.getByLabelText("Sell (USD)")).toHaveValue("");
   });
 
   it("saving sends cost_usd / sell_usd as numbers with cents", async () => {
@@ -205,8 +205,8 @@ describe("MobileServicesManager — USD prices (LIRA-324)", () => {
     fireEvent.click(screen.getByTitle("Add item"));
 
     // The USD inputs exist even when left empty.
-    expect(screen.getByLabelText("Cost (USD)")).toHaveValue(null);
-    expect(screen.getByLabelText("Sell (USD)")).toHaveValue(null);
+    expect(screen.getByLabelText("Cost (USD)")).toHaveValue("");
+    expect(screen.getByLabelText("Sell (USD)")).toHaveValue("");
 
     fireEvent.change(screen.getByPlaceholderText("e.g. 60UC, 3.6"), {
       target: { value: "660UC" },

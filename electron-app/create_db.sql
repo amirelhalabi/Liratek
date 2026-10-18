@@ -191,7 +191,9 @@ CREATE TABLE IF NOT EXISTS users (
     -- joined with Google starts at 0; every password write sets it back to 1.
     has_password INTEGER NOT NULL DEFAULT 1,
     -- v221 (LIRA-331): the person's own UI language. NULL = follow the shop
-    -- default (system_settings.ui_default_language, missing = 'en').
+    -- default in system_settings.ui_default_language ('en' when missing).
+    -- No commas in this comment: SQLite's DROP COLUMN (v221 down) searches
+    -- back from the last column for a comma and would cut inside a comment.
     language TEXT DEFAULT NULL CHECK (language IS NULL OR language IN ('en','ar'))
 );
 

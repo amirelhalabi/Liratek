@@ -1231,6 +1231,11 @@ describe("Post-Refactor Verification", () => {
     });
 
     it("ClosingService.createCheckpoint() persists amounts in daily_closing_amounts", () => {
+      // LIRA-335 FR-023: the stored expected figure is the server's drawer
+      // balance, not the client's expected_amount (250 below, a stale view).
+      db.prepare(
+        `UPDATE drawer_balances SET balance = 300 WHERE drawer_name = 'General' AND currency_code = 'USD'`,
+      ).run();
       const service = new ClosingService();
       const result = service.createCheckpoint({
         user_id: 1,
@@ -1261,13 +1266,14 @@ describe("Post-Refactor Verification", () => {
         .all(Number(result.id)) as Array<{
         drawer_name: string;
         currency_code: string;
-        opening_amount: number; // expected_amount is stored as opening_amount
+        opening_amount: number; // the server's expected balance (FR-023)
         physical_amount: number;
       }>;
 
       expect(amounts).toHaveLength(2);
       const usd = amounts.find((a) => a.currency_code === "USD")!;
-      expect(usd.opening_amount).toBe(250); // expected_amount → opening_amount column
+      // Server balance → opening_amount column (never the client's 250).
+      expect(usd.opening_amount).toBe(300);
       expect(usd.physical_amount).toBe(248);
     });
   });

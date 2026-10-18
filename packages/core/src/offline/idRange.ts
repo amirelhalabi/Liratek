@@ -118,6 +118,10 @@ export const OFFLINE_ID_TABLES: readonly string[] = [
   "supplier_settlement_coverage",
   // LIRA-337 v223 — appended (positions are baked into offline ids).
   "resale_line_give_backs",
+  // LIRA-335 v222 — appended (positions are baked into offline ids). Written
+  // by a checkpoint (replayable) and by back-timed entries that resolve one.
+  "checkpoint_differences",
+  "checkpoint_difference_resolutions",
 ];
 
 /** The offline feature's own bookkeeping tables — never written by a
