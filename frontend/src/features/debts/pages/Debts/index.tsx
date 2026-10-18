@@ -88,8 +88,6 @@ import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOver
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import {
-  buildDebtExportWorkbook,
-  debtExportHeadings,
   exportedRowDate,
   isLiraTekAccountsExport,
   isPaymentLedgerType,
@@ -1462,8 +1460,15 @@ export default function Debts() {
         return;
       }
 
-      const wb = buildDebtExportWorkbook(clients, debtExportHeadings(t));
-      const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+      // Loaded on demand: the styled-Excel library is only needed here.
+      const {
+        buildDebtExportWorkbook,
+        debtExportHeadings,
+        writeDebtExportFile,
+      } = await import("../../utils/debtExcelWorkbook");
+      const buf = writeDebtExportFile(
+        buildDebtExportWorkbook(clients, debtExportHeadings(t)),
+      );
       const now = new Date();
       const day = [
         now.getFullYear(),

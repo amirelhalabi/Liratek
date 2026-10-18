@@ -2,6 +2,10 @@ import * as XLSX from "xlsx";
 import type { DebtLedgerEntity } from "@liratek/ui";
 import {
   buildDebtExportWorkbook,
+  SPARE_ROWS,
+  writeDebtExportFile,
+} from "../debtExcelWorkbook";
+import {
   exportedRowDate,
   isLiraTekAccountsExport,
   isPaymentLedgerType,
@@ -82,12 +86,12 @@ const sara: DebtExportClient = {
 };
 
 describe("buildDebtExportWorkbook — the debt import template", () => {
-  it("starts with a List Name sheet of NAME | Phone", () => {
+  it("starts with a List Name sheet: NAME | Phone, then live balances", () => {
     const wb = roundTrip([sara]);
     expect(wb.SheetNames[0]).toBe("List Name");
     expect(rowsOf(wb, "List Name")).toEqual([
-      ["NAME", "Phone "],
-      ["SARA/ZOHAIR BOU ISMAIL", "71475799"],
+      ["NAME", "Phone ", "Balance USD", "Balance LBP"],
+      ["SARA/ZOHAIR BOU ISMAIL", "71475799", 0, -2_060_000],
     ]);
   });
 
@@ -149,7 +153,8 @@ describe("buildDebtExportWorkbook — the debt import template", () => {
     // Live formulas, so edits in Excel recalculate.
     const ws = wb.Sheets["SARA ZOHAIR BOU ISMAIL"]!;
     const totalRow = rows.indexOf(total) + 1;
-    expect(ws[`B${totalRow}`]?.f).toBe("SUM(B3:B4)");
+    // The range reaches over the spare rows (2 entries + SPARE_ROWS).
+    expect(ws[`B${totalRow}`]?.f).toBe(`SUM(B3:B${4 + SPARE_ROWS})`);
   });
 
   it("keeps sheet names unique, short, and clear of names the import skips", () => {
@@ -208,10 +213,89 @@ describe("List Name links", () => {
 
   it("keeps the list readable by the import: plain names in column A", () => {
     const wb = roundTrip([sara]);
-    expect(rowsOf(wb, "List Name")[1]).toEqual([
+    // The import reads columns A and B only.
+    expect(rowsOf(wb, "List Name")[1]!.slice(0, 2)).toEqual([
       "SARA/ZOHAIR BOU ISMAIL",
       "71475799",
     ]);
+  });
+});
+
+describe("keeps working like the shop's own workbook", () => {
+  const SHEET = "SARA ZOHAIR BOU ISMAIL";
+
+  it("leaves SPARE_ROWS empty rows inside the totals, so a line typed later counts", () => {
+    const wb = roundTrip([sara]);
+    const ws = wb.Sheets[SHEET]!;
+    const rows = rowsOf(wb, SHEET);
+    const totalRow = rows.findIndex((r) => r[0] === "TOTAL ON ACCOUNT") + 1;
+    // 2 entry rows, then the spare rows, then the totals.
+    expect(totalRow).toBe(3 + 2 + SPARE_ROWS);
+    for (const col of ["B", "C", "G", "H"]) {
+      expect(ws[`${col}${totalRow}`]?.f).toBe(
+        `SUM(${col}3:${col}${totalRow - 1})`,
+      );
+    }
+    // The spare rows are empty: nothing in them for the import to read.
+    for (let r = 5; r < totalRow; r++) {
+      expect(rows[r - 1]!.filter((v) => v !== "")).toEqual([]);
+    }
+  });
+
+  it("balances sit 7 and 9 rows under the totals, merged across E:F", () => {
+    const wb = roundTrip([sara]);
+    const ws = wb.Sheets[SHEET]!;
+    const rows = rowsOf(wb, SHEET);
+    const totalRow = rows.findIndex((r) => r[0] === "TOTAL ON ACCOUNT") + 1;
+    expect(rows[totalRow + 7 - 1]![3]).toBe("Balance Remaining in USD");
+    expect(rows[totalRow + 9 - 1]![3]).toBe("Balance Remaining in LBP");
+    expect(ws[`E${totalRow + 7}`]?.f).toBe(`B${totalRow}-G${totalRow}`);
+    expect(ws["!merges"]).toEqual(
+      expect.arrayContaining([
+        { s: { r: totalRow + 6, c: 4 }, e: { r: totalRow + 6, c: 5 } },
+        { s: { r: totalRow + 8, c: 4 }, e: { r: totalRow + 8, c: 5 } },
+      ]),
+    );
+  });
+
+  it("List Name balances are formulas pointing at each page's balance", () => {
+    const wb = roundTrip([sara]);
+    const list = wb.Sheets["List Name"]!;
+    const rows = rowsOf(wb, SHEET);
+    const totalRow = rows.findIndex((r) => r[0] === "TOTAL ON ACCOUNT") + 1;
+    expect(list.C2?.f).toBe(`'${SHEET}'!E${totalRow + 7}`);
+    expect(list.D2?.f).toBe(`'${SHEET}'!E${totalRow + 9}`);
+  });
+
+  it("carries the shop's look: Calibri 16, grey labels, yellow totals, $ / LBP formats, borders", () => {
+    const wb = buildDebtExportWorkbook([sara]);
+    const ws = wb.Sheets[SHEET]!;
+    const style = (a: string) =>
+      (ws[a] as { s?: Record<string, any> } | undefined)?.s ?? {};
+    expect(style("A2").fill?.fgColor?.rgb).toBe("BFBFBF");
+    expect(style("A2").font).toMatchObject({ name: "Calibri", sz: 16 });
+    expect(style("B3").numFmt).toContain('"$"');
+    expect(style("C3").numFmt).toContain("[$LBP]");
+    expect(style("A3").numFmt).toBe("m/d/yy");
+    expect(style("B5").border?.left?.style).toBe("thin"); // a spare row
+    const rows = rowsOf(roundTrip([sara]), SHEET);
+    const totalRow = rows.findIndex((r) => r[0] === "TOTAL ON ACCOUNT") + 1;
+    expect(style(`A${totalRow}`).fill?.fgColor?.rgb).toBe("FFFF00");
+  });
+
+  it("the written file keeps the styles (fills, borders, formats)", () => {
+    const bytes = new Uint8Array(
+      writeDebtExportFile(buildDebtExportWorkbook([sara])),
+    );
+    const styles = XLSX.CFB.find(
+      XLSX.CFB.read(bytes, { type: "array" }),
+      "/xl/styles.xml",
+    );
+    const xml = new TextDecoder().decode(styles!.content as Uint8Array);
+    expect(xml).toContain("FFFF00");
+    expect(xml).toContain("BFBFBF");
+    expect(xml).toContain('style="thin"');
+    expect(xml).toContain("[$LBP]");
   });
 });
 

@@ -170,6 +170,7 @@ Right after a sale, the POS shows "Sale completed" with a Send on WhatsApp butto
 - Accounts: new "Export Excel" button. It saves every client who has account history into one Excel file laid out like the import sheet: a list of names and phones, then one page per client with purchases on the left, payments and refunds on the right, totals, and the remaining balance in USD and LBP. Rows keep their real dates.
 - Accounts: an exported file can be imported into another shop with Import Excel. Every entry keeps its original date and the balances come out the same. Importing it back into the shop it came from is refused, because it would double every balance. Old handwritten sheets import as before.
 - Accounts: in the exported Excel file, each name on the first sheet is a link — click it to jump to that client's page, and "Back to list" at the top of each page takes you back.
+- Accounts: the exported Excel file now works like your own debt sheet, so you can keep writing in it: each client page has 20 empty rows inside the totals (a line you add is counted in the totals and the remaining balance), the same look (grey headings, yellow totals, $ and LBP amounts, borders), and the first sheet shows each client's remaining balance, which updates when you change their page.
 - Accounts: when you click another client, their account shows "Loading..." until it has loaded. Before, the previous client's charges and their Cash Out button stayed on screen for a moment under the new client's name.
 
 ## ⚙️ Settings

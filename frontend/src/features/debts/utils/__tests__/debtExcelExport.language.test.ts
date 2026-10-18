@@ -11,12 +11,12 @@
 import * as XLSX from "xlsx";
 import type { DebtLedgerEntity } from "@liratek/ui";
 import { i18n, loadLanguage } from "@/i18n/setup";
+import type { DebtExportClient } from "../debtExcelExport";
 import {
   buildDebtExportWorkbook,
   debtExportHeadings,
   ENGLISH_EXPORT_HEADINGS,
-  type DebtExportClient,
-} from "../debtExcelExport";
+} from "../debtExcelWorkbook";
 
 function entry(
   id: number,
