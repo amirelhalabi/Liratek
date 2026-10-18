@@ -22,7 +22,7 @@ import {
 const PILL =
   "text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded font-sans";
 
-/** "Sale #4821" in the shown language (FR-021). The type words come from
+/** The resolving transaction's name in the shown language (FR-021). The type words come from
  *  the audit namespace's transaction titles (LIRA-331), the same words the
  *  Transactions table uses — not a second copy. */
 function useResolutionLabel() {
@@ -72,7 +72,7 @@ export function DifferenceStatusLine({
       ? [
           [
             d.shortage_expense_id !== null
-              ? t("difference.shortageExpense", { id: d.shortage_expense_id })
+              ? t("difference.shortageExpense")
               : null,
             d.closed_by_name
               ? t("difference.closedBy", { name: d.closed_by_name })
@@ -193,7 +193,7 @@ export function DifferenceResolutionBlock({
         <div className="flex items-center gap-2 text-xs text-slate-400">
           {d.shortage_expense_id !== null && (
             <span>
-              {t("difference.shortageExpense", { id: d.shortage_expense_id })}
+              {t("difference.shortageExpense")}
             </span>
           )}
           {d.closed_by_name && (

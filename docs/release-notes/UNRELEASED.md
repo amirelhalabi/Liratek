@@ -41,6 +41,11 @@
 On the Transactions page, every row now has a Details button. It shows everything saved with that transaction in plain words: what was entered, how the customer paid, and any change handed back or kept. Voided and refunded rows carry a small tag, and the Excel export now opens on a Summary with money in and out per currency, while the PDF is a report grouped by day.
 ![Details of an OMT send: $210 paid in cash, $6 change handed back](whats-new/1.35.0/transaction-details.png)
 
+### Checkpoint differences stay open until explained
+
+When a checkpoint shows Over or Short, the difference now stays open on the Checkpoints page until it is explained. Found the missed sale or expense on camera? Enter it with "Set custom time" before the checkpoint: the difference turns Resolved and the drawer is not counted twice, so your next checkpoint comes out balanced. "Open differences only" lists what is still unexplained, and a Short nobody can explain can be closed as a "Drawer shortage" expense.
+![Checkpoints: Over $50 resolved by the re-entered sale, Short $20 partly resolved, Short $3 closed](whats-new/1.35.0/checkpoint-open-differences.png)
+
 ### Try LiraTek free for 14 days
 
 A new shop that signs up on the web app now gets a free 14-day trial, with no card needed. Every page shows how many days are left, with a button to message LiraTek on WhatsApp to activate. When the trial ends you can still sign in, see and export everything, and nothing is deleted; adding new sales and records waits until the shop is activated.
@@ -52,23 +57,18 @@ Recharged an MTC or Alfa card onto the wrong number from iPick, Katsh or Whish A
 
 ### Customer pays part now, owes the rest
 
-On Exchange, the payment window now shows what the customer pays on top and what you pay out under it. Pick the client right there, type what they actually handed over, and the rest goes on their account by itself. "Client will owe" shows how much, and it appears on the Debts page.
+On Exchange and on Whish App, OMT App and Binance cash-outs, the payment window shows what the customer pays and what you pay out. "Customer pays" is filled in for you: split it across cash, Whish and OMT, or type what the customer actually handed over and the rest goes on their account by itself. "Client will owe" shows how much, and it appears on the Debts page.
 ![Exchange: 87,600,000 LBP paid, 1,900,000 LBP on the client's account](whats-new/1.35.0/customer-pays-exchange.png)
-
-### Cash-outs paid in several ways
-
-On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for you: the transfer, plus the fee when the customer pays it separately. Split it across Whish, OMT and cash, or put part on the client's account.
-![Whish App cash-out: $90 by Whish, $5 fee in cash, $10 on the client's account](whats-new/1.35.0/customer-pays-whish-app.png)
 
 ### Your accounts in one Excel file
 
 On Accounts, tap "Export Excel" to save every client's account in one file, laid out like the sheet you import: a list of names and phones, then a page per client with what they bought, what they paid, and what they still owe in $ and LBP. You can import that file into another shop and every entry keeps its date. Importing it back into the same shop is refused, so nothing gets counted twice.
 ![The Export Excel button on Accounts](whats-new/1.35.0/accounts-export-excel.png)
+
 ### Give back part of a line's credit before selling it
 
 Selling a phone line with more credit than the buyer wants? On Phone Lines → For sale, tap "Give credit back", type how much credit the buyer keeps, and pick the shop line that gets the rest. You see what is sent, the SMS fee, and the line's new price and cost before you save. The credit lands on your shop line, and the line's price and cost drop. Changed your mind? Void it on the Transactions page, as long as the line hasn't been sold.
 ![Give credit back: the buyer keeps $9 of $15, $5.68 goes to the shop line](whats-new/1.35.0/give-credit-back.png)
-
 
 ### Send the receipt on WhatsApp
 

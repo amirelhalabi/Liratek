@@ -159,7 +159,7 @@
     "stillOpen": "Still open",
     "byTxn": "{{label}} · entered {{entered}} with time {{time}}",
     "closedBy": "Closed by {{name}}",
-    "shortageExpense": "Drawer shortage expense #{{id}}"
+    "shortageExpense": "Drawer shortage expense"
   },
   "close": {
     "title": "Close difference",

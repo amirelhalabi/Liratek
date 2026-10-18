@@ -162,7 +162,7 @@
     "stillOpen": "ما زال مفتوحاً",
     "byTxn": "{{label}} · أُدخلت {{entered}} بوقت {{time}}",
     "closedBy": "أقفله {{name}}",
-    "shortageExpense": "مصروف نقص الصندوق رقم {{id}}"
+    "shortageExpense": "مصروف نقص الصندوق"
   },
   "close": {
     "title": "إقفال الفرق",

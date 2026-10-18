@@ -247,9 +247,11 @@ describe("Checkpoint Timeline — difference status on each row (LIRA-335)", () 
     const struck = within(row).getByText("Over $50.00");
     expect(struck.className).toContain("line-through");
     expect(within(row).getByText("Resolved")).toBeTruthy();
-    expect(row.textContent).toContain("Sale #4821");
+    expect(row.textContent).toContain("Phone case");
+    // Named like the Transactions page Summary, never by an internal id.
+    expect(row.textContent).not.toContain("#4821");
     expect(row.textContent).toContain(
-      "Sale #4821 · entered Tue 10:05 AM with time Mon 02:10 PM",
+      "Phone case · entered Tue 10:05 AM with time Mon 02:10 PM",
     );
   });
 
@@ -260,7 +262,8 @@ describe("Checkpoint Timeline — difference status on each row (LIRA-335)", () 
     const row = await rowWith("partly one");
     expect(row.textContent).toContain("Short $20.00");
     expect(within(row).getByText("Partly resolved · $8.00 open")).toBeTruthy();
-    expect(row.textContent).toContain("Expense #4790");
+    expect(row.textContent).toContain("Courier");
+    expect(row.textContent).not.toContain("#4790");
   });
 
   it("a CLOSED Short says Closed · Short and names the shortage expense", async () => {
@@ -270,7 +273,8 @@ describe("Checkpoint Timeline — difference status on each row (LIRA-335)", () 
     const row = await rowWith("closed one");
     expect(row.textContent).toContain("Short $3.00");
     expect(within(row).getByText("Closed · Short")).toBeTruthy();
-    expect(row.textContent).toContain("Drawer shortage expense #4760");
+    expect(row.textContent).toContain("Drawer shortage expense");
+    expect(row.textContent).not.toContain("#4760");
     expect(row.textContent).toContain("Closed by Amir");
   });
 
@@ -320,7 +324,8 @@ describe("Checkpoint Timeline — details window resolution block (LIRA-335)", (
 
     const details = openDetails(await rowWith("partly one"));
     expect(details.textContent).toContain("Resolved by");
-    expect(details.textContent).toContain("Expense #4790");
+    expect(details.textContent).toContain("Courier");
+    expect(details.textContent).not.toContain("#4790");
     expect(details.textContent).toContain("Still open");
     expect(details.textContent).toContain("8.00");
     expect(
@@ -396,7 +401,8 @@ describe("Checkpoint Timeline — details window resolution block (LIRA-335)", (
     expect(mockApi.closeCheckpointDifference).toHaveBeenCalledWith({
       difference_id: 103,
     });
-    expect(details.textContent).toContain("Drawer shortage expense #4801");
+    expect(details.textContent).toContain("Drawer shortage expense");
+    expect(details.textContent).not.toContain("#4801");
     expect(screen.queryByText("Close as short")).toBeNull();
   });
 });
