@@ -165,8 +165,6 @@ export default function SignedInDevices() {
     (s) => !s.is_current && s.user_id === viewerId,
   ).length;
   const groups = groupSessionsByUser(sessions, viewerId);
-  // Only the admin view ever lists more than one user; staff see no headers.
-  const showGroupHeaders = groups.some((g) => g.userId !== viewerId);
   const now = Date.now();
 
   const lastActivityText = (lastActivityAt: string): string => {
@@ -176,14 +174,12 @@ export default function SignedInDevices() {
       : t(`devices.age.${age.unit}`, { n: age.n });
   };
 
-  const rows = groups.flatMap((g) =>
-    showGroupHeaders
-      ? [
-          { kind: "group" as const, group: g },
-          ...g.sessions.map((s) => ({ kind: "session" as const, session: s })),
-        ]
-      : g.sessions.map((s) => ({ kind: "session" as const, session: s })),
-  );
+  // Every group gets a header, even a single one: the username is part of
+  // what this page shows (owner request 2026-10-19).
+  const rows = groups.flatMap((g) => [
+    { kind: "group" as const, group: g },
+    ...g.sessions.map((s) => ({ kind: "session" as const, session: s })),
+  ]);
 
   return (
     <div className="space-y-4">

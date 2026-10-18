@@ -182,4 +182,13 @@ describe("SignedInDevices — real error messages reach the screen", () => {
       screen.getByRole("button", { name: "Sign out everywhere else" }),
     ).toBeDisabled();
   });
+
+  it("shows the signed-in username even when every session is the viewer's own", async () => {
+    listUserSessions.mockResolvedValue([CURRENT, OTHER]);
+
+    render(<SignedInDevices />);
+
+    expect(await screen.findByText("amir")).toBeInTheDocument();
+    expect(screen.getByText(/2 devices/)).toBeInTheDocument();
+  });
 });
