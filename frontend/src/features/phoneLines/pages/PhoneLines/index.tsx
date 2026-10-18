@@ -26,6 +26,7 @@ import { Phone } from "lucide-react";
 import CarrierLinesManager from "@/features/settings/pages/Settings/CarrierLinesManager";
 import { LineStatusChip } from "@/features/phoneLines/components/LineStatusChip";
 import { ResaleLineRechargePanel } from "@/features/phoneLines/components/ResaleLineRechargePanel";
+import { ResaleLineGiveBackPanel } from "@/features/phoneLines/components/ResaleLineGiveBackPanel";
 import logger from "@/utils/logger";
 
 type Tab = "for-sale" | "shop";
@@ -61,6 +62,8 @@ export default function PhoneLines() {
   const [writeOffRow, setWriteOffRow] = useState<ResaleLineRow | null>(null);
   // LIRA-309 phase 5 — the line being recharged.
   const [rechargeRow, setRechargeRow] = useState<ResaleLineRow | null>(null);
+  // LIRA-337 — the line whose credit is being given back.
+  const [giveBackRow, setGiveBackRow] = useState<ResaleLineRow | null>(null);
   const [notice, setNotice] = useState("");
 
   const load = useCallback(async (includeSold: boolean) => {
@@ -255,6 +258,24 @@ export default function PhoneLines() {
             />
           )}
 
+          {giveBackRow && (
+            <ResaleLineGiveBackPanel
+              line={giveBackRow}
+              onCancel={() => setGiveBackRow(null)}
+              onDone={(result) => {
+                setNotice(
+                  t("page.gaveBack", {
+                    number: giveBackRow.phone_number ?? "",
+                    credits: money(result.line.credits),
+                    price: money(result.line.price_usd),
+                  }),
+                );
+                setGiveBackRow(null);
+                void load(showSold);
+              }}
+            />
+          )}
+
           {writeOffRow && (
             <div className="border border-red-700/60 rounded-lg p-4 bg-red-950/30 space-y-3">
               <p className="text-sm text-slate-200">
@@ -335,11 +356,26 @@ export default function PhoneLines() {
                           onClick={() => {
                             setNotice("");
                             setEdit(null);
+                            setGiveBackRow(null);
                             setRechargeRow(row);
                           }}
                           className="px-2 py-0.5 bg-violet-900/40 hover:bg-violet-900/60 text-violet-200 rounded text-xs"
                         >
                           {t("page.recharge")}
+                        </button>
+                      )}
+                      {row.is_unsold === 1 && row.carrier && !isLost(row) && (row.credits ?? 0) > 0 && (
+                        <button
+                          data-testid={`resale-line-give-back-${row.product_id}`}
+                          onClick={() => {
+                            setNotice("");
+                            setEdit(null);
+                            setRechargeRow(null);
+                            setGiveBackRow(row);
+                          }}
+                          className="px-2 py-0.5 bg-sky-900/40 hover:bg-sky-900/60 text-sky-200 rounded text-xs"
+                        >
+                          {t("page.giveBack")}
                         </button>
                       )}
                       {isLost(row) && (

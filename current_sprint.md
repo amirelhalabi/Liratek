@@ -6754,7 +6754,8 @@ Owner decisions 2026-10-18:
   - planner 9/9, service 9/9 and the panel 5/5, all seen failing first;
   - REST route 3 new tests, not proven failing-first;
   - LIRA-309 recharge 15/15 still green.
-- Not run: web e2e, and the desktop app (no Electron on the Mac).
+- Web e2e `lira-web-077` 1/1 passed; it also saves the What's new screenshot. Not run: the desktop app (no Electron on the Mac).
+- What's new: Highlights card "Give back part of a line's credit before selling it", with a screenshot (rule 30, now required for every new UI).
 
 **Built 2026-10-18 (Spec Kit T001–T041, five parallel lanes plus integration):**
 - Core: migration v222 (`checkpoint_differences`, `checkpoint_difference_resolutions`). `createCheckpoint` records each posted correction as a difference and now stores the server's expected figure (the one the correction used). `checkpointResolution.ts` `resolveBackTimedDrawerMovement` runs at the end of every wired flow: a transaction whose time is before a later checkpoint of a drawer it moved gets a `CHECKPOINT_RESOLUTION` offset leg, capped at what is open in that direction. Void mirrors it; refund and item refund skip it. `CheckpointDifferenceRepository` close/reopen books or voids the books-only "Drawer shortage" expense (USD/LBP only), which cannot be voided or re-categorised by hand. A source-scan guard fails any flow passing `transaction_time` without calling the engine.

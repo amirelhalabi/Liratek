@@ -436,6 +436,8 @@ export {
   type ResaleLineResult,
   type ResaleLineRechargeResult,
   type ResaleLineRechargeData,
+  type ResaleLineGiveBackResult,
+  type ResaleLineGiveBackData,
 } from "./ResaleLineService.js";
 // LIRA-312 — wrong-number card recharges.
 export {

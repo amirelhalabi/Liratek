@@ -263,6 +263,8 @@ export const RESET_WIPE_TABLES: readonly string[] = [
   // LIRA-309 v211 — for-sale line details and their internal recharges. The
   // products survive a reset with stock 0, so the line is no longer in
   // stock and its details go with the stock data.
+  // LIRA-337 v223 — give-backs of a for-sale line's credit, same reason.
+  "resale_line_give_backs",
   "resale_line_recharges",
   "resale_lines",
   "sale_items",

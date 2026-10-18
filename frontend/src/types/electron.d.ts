@@ -72,6 +72,8 @@ import type {
   WriteOffResaleLineInput,
   RechargeResaleLineInput,
   ResaleLineRechargeResult,
+  GiveBackResaleLineInput,
+  ResaleLineGiveBackResult,
   // LIRA-312 — wrong-number card recharges.
   ListWrongNumbersQueryInput,
   RecordWrongNumberInput,
@@ -3676,6 +3678,13 @@ export interface ElectronAPI {
       data?: { expense_id: number };
       error?: string;
     }>;
+    recharge: (
+      data: RechargeResaleLineInput,
+    ) => Promise<ResaleLineRechargeResult>;
+    /** LIRA-337 — give part of a line's credit back to a shop line. */
+    giveBack: (
+      data: GiveBackResaleLineInput,
+    ) => Promise<ResaleLineGiveBackResult>;
   };
 
   carrierLines: {
@@ -3687,9 +3696,6 @@ export interface ElectronAPI {
     getAllActive: () => Promise<{
       success: boolean;
       data?: CarrierLine[];
-      recharge: (
-        data: RechargeResaleLineInput,
-      ) => Promise<ResaleLineRechargeResult>;
       error?: string;
     }>;
     getAllAdmin: () => Promise<{

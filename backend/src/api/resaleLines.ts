@@ -16,6 +16,7 @@ import {
   saveResaleLineSchema,
   writeOffResaleLineSchema,
   rechargeResaleLineSchema,
+  giveBackResaleLineSchema,
   type ListResaleLinesQuery,
 } from "@liratek/core";
 import {
@@ -145,6 +146,46 @@ router.post(
           metadata: {
             transaction_id: result.data.transaction_id,
             cost_usd: result.data.cost_usd,
+          },
+        });
+      }
+      res.json(result);
+    } catch (err) {
+      res.json({ success: false, error: errMessage(err) });
+    }
+  },
+);
+
+// POST /api/resale-lines/:productId/give-back — part of a line's credit given
+// back to a shop line before the sale (LIRA-337); admin or staff, actor from
+// the JWT.
+router.post(
+  "/:productId/give-back",
+  requireRole(["admin", "staff"]),
+  validateRequest(giveBackResaleLineSchema),
+  (req, res) => {
+    try {
+      if (Number(req.params.productId) !== req.body.product_id) {
+        res.json({
+          success: false,
+          error: "Product id in the path and body do not match.",
+        });
+        return;
+      }
+      const result = getResaleLineService().giveBack(
+        req.body,
+        (req as AuthRequest).user!.userId,
+      );
+      if (result.success) {
+        auditRest(req as AuthRequest, {
+          action: "create",
+          entity_type: "resale_line",
+          entity_id: String(req.body.product_id),
+          summary: `Gave credit back from line for sale (product #${req.body.product_id}, +$${result.data.credits_sent} to a shop line)`,
+          metadata: {
+            transaction_id: result.data.transaction_id,
+            credits_sent: result.data.credits_sent,
+            price_drop_usd: result.data.price_drop_usd,
           },
         });
       }

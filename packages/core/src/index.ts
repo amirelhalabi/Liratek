@@ -102,6 +102,8 @@ export * from "./utils/activationLink.js";
 export * from "./utils/carrierLineValidity.js";
 // LIRA-309 — line status (OK/EXPIRING/IN_GRACE/LOST) for both kinds of line.
 export * from "./utils/lineStatus.js";
+// LIRA-337 — give-back figures, shared by the Phone Lines panel and the service.
+export * from "./utils/lineGiveBack.js";
 export * from "./utils/insuranceFulfillment.js";
 export * from "./utils/customServiceWorkStatus.js";
 export * from "./utils/phoneNumber.js";

@@ -55,6 +55,7 @@
     "exact": {
       "cashOnly": "Cash only (till)",
       "lineRecharge": "Line recharge",
+      "giveCreditBack": "Give credit back",
       "creditsRecovered": "Credits recovered",
       "lineAdjustment": "Line Adjustment",
       "omtAppCashOut": "OMT App Cash-Out",

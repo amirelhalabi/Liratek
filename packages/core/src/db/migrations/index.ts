@@ -14987,6 +14987,45 @@ DROP INDEX IF EXISTS idx_cpd_closing_drawer_currency;
 DROP TABLE IF EXISTS checkpoint_differences;`);
     },
   },
+  {
+    version: 223,
+    name: "resale_line_give_backs",
+    description:
+      "LIRA-337: part of a for-sale line's credit given back to one of the " +
+      "shop's own lines before the line is sold. One row per give-back, the " +
+      "reversal record for LINE_CREDIT_GIVE_BACK: the credit sent, the SMS " +
+      "fee, the price and cost drops and the line's previous credit, so a " +
+      "void restores everything by delta. A separate table because " +
+      "resale_line_recharges' CHECKs only allow increases.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`CREATE TABLE IF NOT EXISTS resale_line_give_backs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
+    transaction_id INTEGER NOT NULL UNIQUE REFERENCES transactions(id),
+    resale_line_id INTEGER NOT NULL REFERENCES resale_lines(id),
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    carrier_line_id INTEGER NOT NULL REFERENCES carrier_lines(id),
+    credits_sent REAL NOT NULL CHECK(credits_sent > 0),
+    sms_fee_usd REAL NOT NULL DEFAULT 0 CHECK(sms_fee_usd >= 0),
+    credit_sell_price_lbp REAL NOT NULL CHECK(credit_sell_price_lbp > 0),
+    credit_cost_rate_lbp REAL NOT NULL CHECK(credit_cost_rate_lbp > 0),
+    exchange_rate REAL NOT NULL CHECK(exchange_rate > 0),
+    price_drop_usd REAL NOT NULL CHECK(price_drop_usd >= 0),
+    cost_drop_usd REAL NOT NULL CHECK(cost_drop_usd >= 0),
+    prev_credits REAL NOT NULL,
+    batch_id INTEGER REFERENCES product_stock_batches(id),
+    is_reversed INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_resale_line_give_backs_line ON resale_line_give_backs(tenant_id, resale_line_id, is_reversed, id);`);
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP INDEX IF EXISTS idx_resale_line_give_backs_line;
+DROP TABLE IF EXISTS resale_line_give_backs;`);
+    },
+  },
 ];
 
 /** v219 — partner_ledger.settlement_method's allowed values. */

@@ -24,6 +24,7 @@ import type {
   SaveResaleLineInput,
   WriteOffResaleLineInput,
   RechargeResaleLineInput,
+  GiveBackResaleLineInput,
   // LIRA-312 — wrong-number card recharges.
   ListWrongNumbersQueryInput,
   RecordWrongNumberInput,
@@ -812,6 +813,8 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.writeOffResaleLine(data);
   rechargeResaleLine = (data: RechargeResaleLineInput) =>
     api.rechargeResaleLine(data);
+  giveBackResaleLineCredit = (data: GiveBackResaleLineInput) =>
+    api.giveBackResaleLineCredit(data);
 
   // ---------------------------------------------------------------------------
   // Wrong-number cards (LIRA-312)

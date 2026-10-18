@@ -157,6 +157,7 @@ const ONLINE_ONLY: readonly string[] = [
   "auth:revoke-session",
   "auth:revoke-other-sessions",
   "auth:change-own-password",
+  "resale-lines:give-back",
   "resale-lines:recharge",
   "resale-lines:save",
   "resale-lines:write-off",

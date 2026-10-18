@@ -53,6 +53,8 @@ export * from "./utils/calendarDate.js";
 export * from "./utils/carrierLineValidity.js";
 // LIRA-309 — line status (OK/EXPIRING/IN_GRACE/LOST) for both kinds of line.
 export * from "./utils/lineStatus.js";
+// LIRA-337 — give-back figures, shared by the Phone Lines panel and the service.
+export * from "./utils/lineGiveBack.js";
 // Subscription policy constants (v173). Pure data, so it belongs in BOTH
 // entry points: the frontend hides non-entitled modules and must apply the
 // same ungateable rule the backend enforces, rather than keeping a copy.
@@ -335,6 +337,8 @@ export type {
   ResaleLineResult,
   ResaleLineRechargeResult,
   ResaleLineRechargeData,
+  ResaleLineGiveBackResult,
+  ResaleLineGiveBackData,
 } from "./services/ResaleLineService.js";
 // LIRA-312 — wrong-number card records (types only: erased, nothing bundled).
 export type {

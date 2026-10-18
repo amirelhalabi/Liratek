@@ -39,6 +39,8 @@ import type {
   WriteOffResaleLineInput,
   RechargeResaleLineInput,
   ResaleLineRechargeResult,
+  GiveBackResaleLineInput,
+  ResaleLineGiveBackResult,
   ResaleLineRow,
   ResaleLineEntity,
 } from "@liratek/core";
@@ -8042,6 +8044,21 @@ export async function rechargeResaleLine(
     async () =>
       requestJson<ResaleLineRechargeResult>(
         `/api/resale-lines/${data.product_id}/recharge`,
+        { method: "POST", body: data },
+      ),
+  );
+}
+
+/** Give part of a line held for sale's credit back to a shop line; its price
+ *  and cost drop (LIRA-337). */
+export async function giveBackResaleLineCredit(
+  data: GiveBackResaleLineInput,
+): Promise<ResaleLineGiveBackResult> {
+  return ipcOrHttp(
+    async () => getElectronApi().resaleLines.giveBack(data),
+    async () =>
+      requestJson<ResaleLineGiveBackResult>(
+        `/api/resale-lines/${data.product_id}/give-back`,
         { method: "POST", body: data },
       ),
   );

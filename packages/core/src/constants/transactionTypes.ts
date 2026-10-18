@@ -55,6 +55,13 @@ export const TRANSACTION_TYPES = {
    *  via the generic void: `_reversePayments` + `_reverseCarrierLineMovements`
    *  + `_reverseResaleLineRecharge` (newest first, refused once sold). */
   LINE_RECHARGE: "LINE_RECHARGE",
+  /** LIRA-337 — part of a for-sale line's credit given back to one of the
+   *  shop's own lines before the sale: the shop line and carrier drawer gain
+   *  the credit sent, the line's price and cost drop (no expense, profit 0).
+   *  Reversible via the generic void: `_reversePayments` +
+   *  `_reverseCarrierLineMovements` + `_reverseResaleLineGiveBack` (newest
+   *  first across recharges and give-backs, refused once sold). */
+  LINE_CREDIT_GIVE_BACK: "LINE_CREDIT_GIVE_BACK",
   /** CARRIER_LINES_VALIDITY_PLAN.md Phase 6 (D7/D8): a shop-line credit
    *  buy-back — the operator typed the shop's OWN carrier line's phone
    *  number into the Telecom Credit tab, flipping the form into a reversible

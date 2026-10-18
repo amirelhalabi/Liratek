@@ -191,6 +191,8 @@ import {
   writeOffResaleLineSchema,
   rechargeResaleLineSchema,
   type RechargeResaleLineData,
+  giveBackResaleLineSchema,
+  type GiveBackResaleLineData,
   type ListResaleLinesQuery,
   type SaveResaleLineData,
   type WriteOffResaleLineData,
@@ -1183,6 +1185,9 @@ export const WriteOffResaleLineSchema =
   writeOffResaleLineSchema as unknown as z.ZodSchema<WriteOffResaleLineData>;
 export const RechargeResaleLineSchema =
   rechargeResaleLineSchema as unknown as z.ZodSchema<RechargeResaleLineData>;
+// LIRA-337 — give part of a line's credit back to a shop line.
+export const GiveBackResaleLineSchema =
+  giveBackResaleLineSchema as unknown as z.ZodSchema<GiveBackResaleLineData>;
 
 // =============================================================================
 // Wrong-number cards (LIRA-312)

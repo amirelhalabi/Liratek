@@ -33,6 +33,7 @@ const EXACT: ReadonlyMap<string, ExactTitleKey> = new Map(
     [
       ["Cash only (till)", "cashOnly"],
       ["Line recharge", "lineRecharge"],
+      ["Give credit back", "giveCreditBack"],
       ["Credits recovered", "creditsRecovered"],
       ["Line Adjustment", "lineAdjustment"],
       ["OMT App Cash-Out", "omtAppCashOut"],

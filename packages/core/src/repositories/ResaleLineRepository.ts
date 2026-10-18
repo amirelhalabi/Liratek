@@ -129,6 +129,51 @@ export interface RecordRechargeInput {
   };
 }
 
+/** LIRA-337 — one give-back, the reversal record for LINE_CREDIT_GIVE_BACK. */
+export interface ResaleLineGiveBackEntity {
+  id: number;
+  tenant_id: number;
+  transaction_id: number;
+  resale_line_id: number;
+  product_id: number;
+  carrier_line_id: number;
+  credits_sent: number;
+  sms_fee_usd: number;
+  credit_sell_price_lbp: number;
+  credit_cost_rate_lbp: number;
+  exchange_rate: number;
+  price_drop_usd: number;
+  cost_drop_usd: number;
+  prev_credits: number;
+  batch_id: number | null;
+  is_reversed: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RecordGiveBackInput {
+  productId: number;
+  resaleLineId: number;
+  carrier: ResaleLineCarrier;
+  carrierLineId: number;
+  userId: number;
+  today: string;
+  summary: string;
+  creditsSent: number;
+  smsFeeUsd: number;
+  creditSellPriceLbp: number;
+  creditCostRateLbp: number;
+  exchangeRate: number;
+  priceDropUsd: number;
+  costDropUsd: number;
+  prevCredits: number;
+  newCredits: number;
+}
+
+/** The refusal when an older recharge or give-back of a line is undone while
+ *  a newer one is still active (one text for both, rule 14). */
+export const NEWER_LINE_CHANGE_ERROR = "Undo the newer recharge of this line first.";
+
 export interface ListResaleLinesOptions {
   carrier?: ResaleLineCarrier;
   includeSold?: boolean;
@@ -506,6 +551,11 @@ export class ResaleLineRepository extends BaseRepository<ResaleLineEntity> {
 
   /** `+deltaUsd` on a product's cost AND selling price (−delta to undo). */
   private applyCapitalization(productId: number, deltaUsd: number): void {
+    this.applyPriceCostDelta(productId, deltaUsd, deltaUsd);
+  }
+
+  /** `+costDelta` on a product's cost and `+priceDelta` on its selling price. */
+  private applyPriceCostDelta(productId: number, costDelta: number, priceDelta: number): void {
     const res = this.db
       .prepare(
         `UPDATE products
@@ -514,8 +564,230 @@ export class ResaleLineRepository extends BaseRepository<ResaleLineEntity> {
                 updated_at = ?
           WHERE tenant_id = ? AND id = ?`,
       )
-      .run(deltaUsd, deltaUsd, requestNow(), getCurrentTenantId(), productId);
+      .run(costDelta, priceDelta, requestNow(), getCurrentTenantId(), productId);
     if (res.changes !== 1) throw new Error("This line is not in stock.");
+  }
+
+  /** Refuse (throw) once the line is sold: its cost is in a sale's cost of
+   *  goods, so a recharge or give-back of it can no longer be undone. */
+  private assertLineNotSold(productId: number, batchId: number | null): void {
+    const tenantId = getCurrentTenantId();
+    const stock = this.db
+      .prepare(`SELECT stock_quantity FROM products WHERE tenant_id = ? AND id = ?`)
+      .get(tenantId, productId) as { stock_quantity: number } | undefined;
+    const batch = batchId
+      ? (this.db
+          .prepare(
+            `SELECT quantity_remaining FROM product_stock_batches WHERE tenant_id = ? AND id = ?`,
+          )
+          .get(tenantId, batchId) as { quantity_remaining: number } | undefined)
+      : undefined;
+    const sold =
+      !stock ||
+      (stock.stock_quantity ?? 0) <= 0 ||
+      (batchId !== null && (!batch || batch.quantity_remaining <= 0));
+    if (sold) throw new Error("Refund the sale of this line first.");
+  }
+
+  /**
+   * Newest first (LIRA-337 research R7): the line's recharges and give-backs
+   * are undone in reverse order, across BOTH tables. Transaction ids grow
+   * with time, so the active row with the highest one is the newest.
+   */
+  getLatestActiveLineChangeTransactionId(resaleLineId: number): number | null {
+    const tenantId = getCurrentTenantId();
+    const hasGiveBacks = this.tableExists("resale_line_give_backs");
+    const row = this.db
+      .prepare(
+        `SELECT MAX(transaction_id) AS tid FROM (
+           SELECT transaction_id FROM resale_line_recharges
+            WHERE tenant_id = ? AND resale_line_id = ? AND is_reversed = 0
+           ${
+             hasGiveBacks
+               ? `UNION ALL
+           SELECT transaction_id FROM resale_line_give_backs
+            WHERE tenant_id = ? AND resale_line_id = ? AND is_reversed = 0`
+               : ""
+           }
+         )`,
+      )
+      .get(
+        ...(hasGiveBacks
+          ? [tenantId, resaleLineId, tenantId, resaleLineId]
+          : [tenantId, resaleLineId]),
+      ) as { tid: number | null } | undefined;
+    return row?.tid ?? null;
+  }
+
+  private assertNewestLineChange(resaleLineId: number, transactionId: number): void {
+    const latest = this.getLatestActiveLineChangeTransactionId(resaleLineId);
+    if (latest !== null && latest !== transactionId) {
+      throw new Error(NEWER_LINE_CHANGE_ERROR);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // LIRA-337 — give part of a line's credit back to a shop line
+  // ---------------------------------------------------------------------------
+
+  getGiveBackByTransactionId(transactionId: number): ResaleLineGiveBackEntity | null {
+    if (!this.tableExists("resale_line_give_backs")) return null;
+    return (
+      (this.db
+        .prepare(
+          `SELECT * FROM resale_line_give_backs
+            WHERE tenant_id = ? AND transaction_id = ?`,
+        )
+        .get(getCurrentTenantId(), transactionId) as ResaleLineGiveBackEntity | undefined) ??
+      null
+    );
+  }
+
+  /**
+   * Write one give-back, inside the caller's DB transaction. The service has
+   * validated it and computed the figures (`planLineGiveBack`); this posts:
+   *
+   * - one `LINE_CREDIT_GIVE_BACK` transaction (amount +X, profit 0);
+   * - a `+X` USD leg on the carrier drawer (`_reversePayments` undoes it);
+   * - `+X` credits on the shop line, tied to the transaction
+   *   (`_reverseCarrierLineMovements` undoes it);
+   * - `−priceDrop` on the price, `−costDrop` on the cost and open batch;
+   * - the line's new credit, and the `resale_line_give_backs` row
+   *   `_reverseResaleLineGiveBack` reads.
+   */
+  recordGiveBack(input: RecordGiveBackInput): { transactionId: number; giveBackId: number } {
+    const tenantId = getCurrentTenantId();
+    const drawer = input.carrier === "mtc" ? "MTC" : "Alfa";
+    const x = input.creditsSent;
+
+    const transactionId = getTransactionRepository().createTransaction({
+      type: TRANSACTION_TYPES.LINE_CREDIT_GIVE_BACK,
+      source_table: "resale_lines",
+      source_id: input.resaleLineId,
+      user_id: input.userId,
+      amount_usd: x,
+      amount_lbp: 0,
+      profit_usd: 0,
+      profit_lbp: 0,
+      exchange_rate: input.exchangeRate,
+      summary: input.summary,
+      metadata_json: {
+        product_id: input.productId,
+        carrier_line_id: input.carrierLineId,
+        credits_sent: x,
+        sms_fee_usd: input.smsFeeUsd,
+        credit_sell_price_lbp: input.creditSellPriceLbp,
+        price_drop_usd: input.priceDropUsd,
+        cost_drop_usd: input.costDropUsd,
+      },
+    });
+
+    insertPaymentRow(this.db, {
+      transactionId,
+      method: drawer,
+      drawerName: drawer,
+      currencyCode: "USD",
+      amount: x,
+      note: "Credit given back (line for sale)",
+      createdBy: input.userId,
+      tenantId,
+    });
+    applyDrawerDelta(this.db, { drawerName: drawer, currencyCode: "USD", delta: x, tenantId });
+
+    const moved = getCarrierLineService().applyMovement({
+      carrierLineId: input.carrierLineId,
+      creditsDelta: x,
+      validityDaysDelta: 0,
+      reason: "RESALE_GIVE_BACK",
+      transactionId,
+      today: input.today,
+    });
+    if (!moved.success) {
+      throw new Error(moved.error ?? "Could not update the shop line.");
+    }
+
+    this.applyPriceCostDelta(input.productId, -input.costDropUsd, -input.priceDropUsd);
+    const batchId = getStockBatchRepository().addToOpenBatchUnitCost(
+      input.productId,
+      -input.costDropUsd,
+    );
+
+    const now = requestNow();
+    this.db
+      .prepare(
+        `UPDATE resale_lines SET credits = ?, updated_at = ? WHERE tenant_id = ? AND id = ?`,
+      )
+      .run(input.newCredits, now, tenantId, input.resaleLineId);
+
+    const giveBackId = Number(
+      this.db
+        .prepare(
+          `INSERT INTO resale_line_give_backs (
+             tenant_id, transaction_id, resale_line_id, product_id, carrier_line_id,
+             credits_sent, sms_fee_usd, credit_sell_price_lbp, credit_cost_rate_lbp,
+             exchange_rate, price_drop_usd, cost_drop_usd, prev_credits, batch_id,
+             is_reversed, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+        )
+        .run(
+          tenantId,
+          transactionId,
+          input.resaleLineId,
+          input.productId,
+          input.carrierLineId,
+          x,
+          input.smsFeeUsd,
+          input.creditSellPriceLbp,
+          input.creditCostRateLbp,
+          input.exchangeRate,
+          input.priceDropUsd,
+          input.costDropUsd,
+          input.prevCredits,
+          batchId,
+          now,
+          now,
+        ).lastInsertRowid,
+    );
+    return { transactionId, giveBackId };
+  }
+
+  /**
+   * Rule-20 reversal owner for a `LINE_CREDIT_GIVE_BACK`'s own effects
+   * (called by `TransactionRepository._reverseResaleLineGiveBack`, inside the
+   * void's DB transaction). Refuses — throwing, so the whole void rolls back
+   * — once the line is sold or while a newer recharge/give-back is active.
+   * Otherwise adds the price and cost drops back (by DELTA, so a later manual
+   * price edit is kept) and restores the line's credit. The drawer leg and
+   * the shop-line credit are undone by the generic void steps.
+   */
+  reverseGiveBack(transactionId: number): void {
+    const row = this.getGiveBackByTransactionId(transactionId);
+    if (!row || row.is_reversed) return;
+    const tenantId = getCurrentTenantId();
+
+    this.assertLineNotSold(row.product_id, row.batch_id);
+    this.assertNewestLineChange(row.resale_line_id, row.transaction_id);
+
+    this.applyPriceCostDelta(row.product_id, row.cost_drop_usd, row.price_drop_usd);
+    if (row.batch_id !== null) {
+      this.db
+        .prepare(
+          `UPDATE product_stock_batches
+              SET unit_cost_usd = ROUND(unit_cost_usd + ?, 2)
+            WHERE tenant_id = ? AND id = ?`,
+        )
+        .run(row.cost_drop_usd, tenantId, row.batch_id);
+    }
+    const now = requestNow();
+    this.db
+      .prepare(`UPDATE resale_lines SET credits = ?, updated_at = ? WHERE tenant_id = ? AND id = ?`)
+      .run(row.prev_credits, now, tenantId, row.resale_line_id);
+    this.db
+      .prepare(
+        `UPDATE resale_line_give_backs SET is_reversed = 1, updated_at = ?
+          WHERE tenant_id = ? AND id = ?`,
+      )
+      .run(now, tenantId, row.id);
   }
 
   /**
@@ -532,26 +804,9 @@ export class ResaleLineRepository extends BaseRepository<ResaleLineEntity> {
     if (!row || row.is_reversed) return;
     const tenantId = getCurrentTenantId();
 
-    const stock = this.db
-      .prepare(`SELECT stock_quantity FROM products WHERE tenant_id = ? AND id = ?`)
-      .get(tenantId, row.product_id) as { stock_quantity: number } | undefined;
-    const batch = row.batch_id
-      ? (this.db
-          .prepare(
-            `SELECT quantity_remaining FROM product_stock_batches WHERE tenant_id = ? AND id = ?`,
-          )
-          .get(tenantId, row.batch_id) as { quantity_remaining: number } | undefined)
-      : undefined;
-    const sold =
-      !stock ||
-      (stock.stock_quantity ?? 0) <= 0 ||
-      (row.batch_id !== null && (!batch || batch.quantity_remaining <= 0));
-    if (sold) throw new Error("Refund the sale of this line first.");
+    this.assertLineNotSold(row.product_id, row.batch_id);
 
-    const latest = this.getLatestActiveRecharge(row.resale_line_id);
-    if (latest && latest.id !== row.id) {
-      throw new Error("Undo the newer recharge of this line first.");
-    }
+    this.assertNewestLineChange(row.resale_line_id, row.transaction_id);
 
     this.applyCapitalization(row.product_id, -row.cost_usd);
     if (row.batch_id !== null) {

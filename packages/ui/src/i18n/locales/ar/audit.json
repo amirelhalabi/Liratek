@@ -55,6 +55,7 @@
     "exact": {
       "cashOnly": "الكاش فقط (الصندوق)",
       "lineRecharge": "تشريج خط",
+      "giveCreditBack": "استرجاع رصيد",
       "creditsRecovered": "رصيد مسترجع",
       "lineAdjustment": "تعديل خط",
       "omtAppCashOut": "سحب من OMT App",

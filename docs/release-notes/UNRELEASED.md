@@ -8,9 +8,10 @@
   - Only what was really built; a fix for new entries says "from now on".
   - Tests, docs, CI and refactors with no behaviour change get no line.
 
-  Highlights (optional, for a headline change — owner decisions 2026-10-03):
+  Highlights (owner decisions 2026-10-03; since 2026-10-18 REQUIRED for every new or visibly
+  changed UI — page, panel, window, button or field — with a screenshot, CLAUDE.md rule 30):
   put ONE "## ✨ Highlights" section at the very TOP of the file, above the grouped headings,
-  holding 3-5 items, each written as:
+  one item per UI change, each written as:
 
     ### <Title>
     <One short paragraph.>
@@ -63,6 +64,11 @@ On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for yo
 
 On Accounts, tap "Export Excel" to save every client's account in one file, laid out like the sheet you import: a list of names and phones, then a page per client with what they bought, what they paid, and what they still owe in $ and LBP. You can import that file into another shop and every entry keeps its date. Importing it back into the same shop is refused, so nothing gets counted twice.
 ![The Export Excel button on Accounts](whats-new/1.35.0/accounts-export-excel.png)
+### Give back part of a line's credit before selling it
+
+Selling a phone line with more credit than the buyer wants? On Phone Lines → For sale, tap "Give credit back", type how much credit the buyer keeps, and pick the shop line that gets the rest. You see what is sent, the SMS fee, and the line's new price and cost before you save. The credit lands on your shop line, and the line's price and cost drop. Changed your mind? Void it on the Transactions page, as long as the line hasn't been sold.
+![Give credit back: the buyer keeps $9 of $15, $5.68 goes to the shop line](whats-new/1.35.0/give-credit-back.png)
+
 
 ### Send the receipt on WhatsApp
 
@@ -166,6 +172,7 @@ Right after a sale, the POS shows "Sale completed" with a Send on WhatsApp butto
 - Mobile Recharge: the Top-Up window for OMT App, Whish App, iPick and Katsh now opens as soon as you click Top-Up. Drawer balances show "Loading..." for a moment, and if they can't be loaded you see why, with a Retry button.
 - Wrong number: the window now says "Loading cards..." while your MTC and Alfa cards load, instead of "No MTC or Alfa card". If they can't be loaded, you see why, with a Retry button.
 - Mobile Recharge: from now on every sale keeps what you entered on the transaction itself: the customer's name and phone, the shop line used, the Alfa Gift chosen, Days cost and price as typed in dollars, each iPick / Katsh / Whish App item picked, the discount as typed, the Whish / OMT App fee and who paid it, the Binance reference, a wrong number's right number and original sale, and how the customer paid. Items paid in one basket also keep which customer session paid for them.
+- Phone Lines → For sale: a new "Give credit back" button. Use it when a buyer wants a line for sale with less credit than it has. Type the credit the buyer keeps and pick the shop line that gets the rest. The credit price per $1 starts at your Shop Config price and can be changed. Before you save, you see what is sent, the SMS fee, and the line's new price and cost. Example: a $15 line where the buyer keeps $9 sends $5.68 plus a $0.32 SMS fee to your shop line, and its price drops by $6.70 at 100,000 LBP per $1. To undo, void it on the Transactions page; this works only before the line is sold.
 
 ## 📒 Accounts
 

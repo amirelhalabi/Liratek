@@ -21,6 +21,7 @@ import {
   SaveResaleLineSchema,
   WriteOffResaleLineSchema,
   RechargeResaleLineSchema,
+  GiveBackResaleLineSchema,
 } from "../schemas/index.js";
 
 export function registerResaleLineHandlers(): void {
@@ -136,6 +137,40 @@ export function registerResaleLineHandlers(): void {
       return {
         success: false,
         error: error instanceof Error ? error.message : "Failed to recharge the line",
+      };
+    }
+  });
+
+  // Give part of a line's credit back to a shop line before the sale
+  // (LIRA-337) — same roles as the recharge above.
+  ipcMain.handle("resale-lines:give-back", (event, data: unknown) => {
+    try {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(GiveBackResaleLineSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
+      const result = service.giveBack(v.data, auth.userId);
+      if (result.success) {
+        audit(event.sender.id, {
+          action: "create",
+          entity_type: "resale_line",
+          entity_id: String(v.data.product_id),
+          summary: `Gave credit back from line for sale (product #${v.data.product_id}, +$${result.data.credits_sent} to a shop line)`,
+          metadata: {
+            transaction_id: result.data.transaction_id,
+            credits_sent: result.data.credits_sent,
+            price_drop_usd: result.data.price_drop_usd,
+          },
+        });
+      }
+      return result;
+    } catch (error) {
+      inventoryLogger.error({ error }, "resale-lines:give-back failed");
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to give the credit back",
       };
     }
   });

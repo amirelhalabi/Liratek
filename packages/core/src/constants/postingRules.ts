@@ -602,6 +602,19 @@ const TELECOM_RULES = {
       debt: NONE,
     },
   },
+  "LINE_CREDIT_GIVE_BACK/resale": {
+    transactionType: "LINE_CREDIT_GIVE_BACK",
+    mode: "Credit given back from a phone line held for sale (LIRA-337)",
+    mapRef: "specs/337-give-credit-back/research.md R5",
+    ledgers: {
+      // carrierUsd = x = the credit sent to the chosen shop line. The line's
+      // price and cost drop on the product itself, never in a ledger.
+      drawers: { post: "post", lines: [CARRIER_GAIN] },
+      supplier: NONE,
+      partner: NONE,
+      debt: NONE,
+    },
+  },
   "CARRIER_LINE_ADJUSTMENT/manual": {
     transactionType: "CARRIER_LINE_ADJUSTMENT",
     mode: "Shop line created / edited / toggled / archived by hand",

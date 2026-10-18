@@ -31,6 +31,8 @@ export const TRANSACTION_CASH_DIRECTION: Record<
   TELECOM_SELF_CHARGE: null,
   // LIRA-309 — internal: moves only the shop's own balances (like self-charge).
   LINE_RECHARGE: null,
+  // LIRA-337 — the mirror of LINE_RECHARGE: internal, shop's own balances only.
+  LINE_CREDIT_GIVE_BACK: null,
   TELECOM_CREDIT_BUYBACK: "out",
   // LIRA-312 — credits returned onto a shop line (carrier drawer goes up).
   WRONG_NUMBER_CREDITS: "in",

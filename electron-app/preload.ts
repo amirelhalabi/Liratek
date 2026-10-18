@@ -1821,6 +1821,15 @@ contextBridge.exposeInMainWorld("api", {
       exchange_rate?: number;
       client_day?: string;
     }) => ipcRenderer.invoke("resale-lines:recharge", data),
+    // LIRA-337 — give part of a line's credit back to a shop line.
+    giveBack: (data: {
+      product_id: number;
+      credits_kept: number;
+      carrier_line_id?: number;
+      credit_sell_price_lbp: number;
+      exchange_rate?: number;
+      client_day?: string;
+    }) => ipcRenderer.invoke("resale-lines:give-back", data),
   },
 
   // LIRA-312 — a MTC/Alfa card recharged onto the wrong number.

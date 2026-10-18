@@ -538,6 +538,9 @@ export const ACTIONABLE_TYPES: ReadonlySet<string> = new Set([
   // LIRA-309 — internal recharge of a line held for sale; reversible via the
   // generic path plus _reverseResaleLineRecharge (newest first, not once sold).
   "LINE_RECHARGE",
+  // LIRA-337 — credit given back from a line held for sale; reversible via
+  // the generic path plus _reverseResaleLineGiveBack (newest first, not once sold).
+  "LINE_CREDIT_GIVE_BACK",
   // TELECOM_CREDIT_BUYBACK (CARRIER_LINES_VALIDITY_PLAN.md Phase 6, D8): a
   // shop-line credit buy-back — reversible via the generic path (the
   // generic _reversePayments unwinds the drawer-delta leg and every payout

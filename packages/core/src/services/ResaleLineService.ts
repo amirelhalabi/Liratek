@@ -32,9 +32,11 @@ import {
   projectValidityExpiry,
 } from "../utils/carrierLineValidity.js";
 import { planSmsTransfer } from "../utils/telecomCredit.js";
+import { planLineGiveBack } from "../utils/lineGiveBack.js";
 import { clientDay } from "../utils/requestDay.js";
 import { inventoryLogger } from "../utils/logger.js";
 import type {
+  GiveBackResaleLineData,
   ListResaleLinesQuery,
   RechargeResaleLineData,
   SaveResaleLineData,
@@ -67,6 +69,18 @@ export interface ResaleLineRechargeData {
   };
 }
 export type ResaleLineRechargeResult = ResaleLineResult<ResaleLineRechargeData>;
+
+/** What giving credit back from a line held for sale returns (LIRA-337). */
+export interface ResaleLineGiveBackData {
+  transaction_id: number;
+  give_back_id: number;
+  credits_sent: number;
+  sms_fee_usd: number;
+  price_drop_usd: number;
+  cost_drop_usd: number;
+  line: { credits: number; price_usd: number; cost_usd: number };
+}
+export type ResaleLineGiveBackResult = ResaleLineResult<ResaleLineGiveBackData>;
 
 export class ResaleLineService {
   private repo: ResaleLineRepository;
@@ -390,6 +404,103 @@ export class ResaleLineService {
       inventoryLogger.error(
         { error, productId: input.product_id },
         "Failed to recharge for-sale line",
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * LIRA-337 — give part of a line's credit back to one of the shop's own
+   * lines before the sale (owner, 2026-10-18). The figures come from
+   * `planLineGiveBack`, the same function the screen previews with:
+   * the line keeps what the buyer asked for (the sender pays the SMS fee),
+   * the shop line and carrier drawer gain the credit sent, the price drops
+   * by the credit that left × the typed credit price, and the cost drops by
+   * the credit sent × the shop's credit cost rate. One
+   * LINE_CREDIT_GIVE_BACK transaction; undone by the generic void
+   * (`_reverseResaleLineGiveBack`, newest first, not once sold).
+   */
+  giveBack(input: GiveBackResaleLineData, userId: number): ResaleLineGiveBackResult {
+    try {
+      return this.repo.withTransaction(() => {
+        const line = this.repo
+          .listLines({ includeSold: false })
+          .find((l) => l.product_id === input.product_id);
+        if (!line) return fail("This line is not in stock.");
+        if (!line.resale_line_id || !line.carrier) {
+          return fail("Save this line's carrier on the Phone Lines page first.");
+        }
+        const day = input.client_day ?? clientDay();
+        if (classifyLineValidity(line.validity_expires_at, day).state === "BURNED") {
+          return fail(
+            "This line has expired past its grace period and can no longer be recharged.",
+          );
+        }
+        const label = line.carrier === "mtc" ? "MTC" : "Alfa";
+        const shop = this.repo.getSourceShopLine(line.carrier, input.carrier_line_id);
+        if (!shop || !shop.is_active) return fail(`Pick an active ${label} shop line.`);
+        if (shop.carrier !== line.carrier) {
+          return fail(`Use an ${label} card or line for this ${label} number.`);
+        }
+
+        const rate = input.exchange_rate ?? this.repo.getUsdSellRate();
+        const costRate = this.repo.getCreditCostRateLbp();
+        const plan = planLineGiveBack({
+          creditsBefore: line.credits ?? 0,
+          creditsKept: input.credits_kept,
+          creditSellPriceLbp: input.credit_sell_price_lbp,
+          creditCostRateLbp: costRate,
+          exchangeRate: rate,
+        });
+        if (!plan.ok) return fail(plan.error);
+
+        const newPrice = round2(line.selling_price_usd - plan.priceDropUsd);
+        const newCost = round2(line.cost_price_usd - plan.costDropUsd);
+        if (newPrice < 0) return fail("This line's price would go below zero.");
+        if (newCost < 0) return fail("This line's cost would go below zero.");
+
+        const written = this.repo.recordGiveBack({
+          productId: line.product_id,
+          resaleLineId: line.resale_line_id,
+          carrier: line.carrier,
+          carrierLineId: shop.id,
+          userId,
+          today: day,
+          summary: `Give credit back: ${line.phone_number ?? line.name} → ${label} line ${shop.phone_number} +$${plan.creditsSent} — price −$${plan.priceDropUsd}`,
+          creditsSent: plan.creditsSent,
+          smsFeeUsd: plan.smsFeeUsd,
+          creditSellPriceLbp: input.credit_sell_price_lbp,
+          creditCostRateLbp: costRate,
+          exchangeRate: rate,
+          priceDropUsd: plan.priceDropUsd,
+          costDropUsd: plan.costDropUsd,
+          prevCredits: line.credits ?? 0,
+          newCredits: plan.creditsAfter,
+        });
+        inventoryLogger.info(
+          { productId: line.product_id, creditsSent: plan.creditsSent },
+          "Credit given back from for-sale line",
+        );
+        return {
+          success: true as const,
+          data: {
+            transaction_id: written.transactionId,
+            give_back_id: written.giveBackId,
+            credits_sent: plan.creditsSent,
+            sms_fee_usd: plan.smsFeeUsd,
+            price_drop_usd: plan.priceDropUsd,
+            cost_drop_usd: plan.costDropUsd,
+            line: { credits: plan.creditsAfter, price_usd: newPrice, cost_usd: newCost },
+          },
+        };
+      });
+    } catch (error) {
+      inventoryLogger.error(
+        { error, productId: input.product_id },
+        "Failed to give credit back from for-sale line",
       );
       return {
         success: false,

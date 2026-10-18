@@ -75,6 +75,7 @@ export const TRANSACTION_TYPE_LABELS: Record<TransactionType, string | null> = {
   WALLET_EXCHANGE: null,
   TELECOM_SELF_CHARGE: null,
   LINE_RECHARGE: "Line recharge",
+  LINE_CREDIT_GIVE_BACK: "Give credit back",
   TELECOM_CREDIT_BUYBACK: null,
   WRONG_NUMBER_CREDITS: "Credits recovered",
   DRAWER_TRANSFER: null,

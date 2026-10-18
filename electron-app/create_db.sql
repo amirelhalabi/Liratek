@@ -675,6 +675,30 @@ CREATE TABLE IF NOT EXISTS resale_line_recharges (
 );
 CREATE INDEX IF NOT EXISTS idx_resale_line_recharges_line ON resale_line_recharges(tenant_id, resale_line_id, is_reversed, id);
 
+-- LIRA-337 (v223): part of a for-sale line's credit given back to a shop
+-- line before the sale. Reversal record for LINE_CREDIT_GIVE_BACK.
+CREATE TABLE IF NOT EXISTS resale_line_give_backs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
+    transaction_id INTEGER NOT NULL UNIQUE REFERENCES transactions(id),
+    resale_line_id INTEGER NOT NULL REFERENCES resale_lines(id),
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    carrier_line_id INTEGER NOT NULL REFERENCES carrier_lines(id),
+    credits_sent REAL NOT NULL CHECK(credits_sent > 0),
+    sms_fee_usd REAL NOT NULL DEFAULT 0 CHECK(sms_fee_usd >= 0),
+    credit_sell_price_lbp REAL NOT NULL CHECK(credit_sell_price_lbp > 0),
+    credit_cost_rate_lbp REAL NOT NULL CHECK(credit_cost_rate_lbp > 0),
+    exchange_rate REAL NOT NULL CHECK(exchange_rate > 0),
+    price_drop_usd REAL NOT NULL CHECK(price_drop_usd >= 0),
+    cost_drop_usd REAL NOT NULL CHECK(cost_drop_usd >= 0),
+    prev_credits REAL NOT NULL,
+    batch_id INTEGER REFERENCES product_stock_batches(id),
+    is_reversed INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_resale_line_give_backs_line ON resale_line_give_backs(tenant_id, resale_line_id, is_reversed, id);
+
 -- LIRA-312 (v214): a card recharged onto the wrong number. Links the
 -- stock-use expense (the loss) and, from a saved sale, the sale; credits
 -- sent back are WRONG_NUMBER_CREDITS transactions pointing here.
@@ -3200,4 +3224,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (221, 'users_language'),
     -- v222 (LIRA-335) adds checkpoint_differences +
     -- checkpoint_difference_resolutions and their indexes, declared above.
-    (222, 'checkpoint_differences');
+    (222, 'checkpoint_differences'),
+    (223, 'resale_line_give_backs');

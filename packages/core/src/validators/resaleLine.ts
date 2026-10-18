@@ -107,3 +107,24 @@ export const rechargeResaleLineSchema = z
 
 export type RechargeResaleLineInput = z.input<typeof rechargeResaleLineSchema>;
 export type RechargeResaleLineData = z.output<typeof rechargeResaleLineSchema>;
+
+/**
+ * LIRA-337 — give part of a line's credit back to one of the shop's own lines
+ * before the line is sold. The figures come from `planLineGiveBack`
+ * (contract: `specs/337-give-credit-back/contracts/give-back.md`).
+ */
+export const giveBackResaleLineSchema = z.object({
+  product_id: z.number().int().positive(),
+  /** USD credit the buyer keeps on the line. */
+  credits_kept: z.number().min(0, "Credit cannot be negative"),
+  /** Shop line receiving the credit (default: the carrier's primary). */
+  carrier_line_id: z.number().int().positive().optional(),
+  /** LBP the shop sells $1 of credit for (typed on screen). */
+  credit_sell_price_lbp: z.number().positive("Enter the credit price"),
+  /** USD→LBP rate the cashier saw; server sell rate is the fallback. */
+  exchange_rate: z.number().positive().optional(),
+  client_day: clientDayInputSchema,
+});
+
+export type GiveBackResaleLineInput = z.input<typeof giveBackResaleLineSchema>;
+export type GiveBackResaleLineData = z.output<typeof giveBackResaleLineSchema>;

@@ -34,7 +34,9 @@
     "creditUsd": "Credit ($)",
     "saving": "Saving...",
     "saveLine": "Save line",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "giveBack": "Give credit back",
+    "gaveBack": "Line {{number}} now has {{credits}} credit — its price is {{price}}."
   },
   "status": {
     "daysLeft": "{{count}} days left",
@@ -80,6 +82,22 @@
     "failed": "Could not recharge the line.",
     "recharging": "Recharging...",
     "submit": "Recharge line",
+    "cancel": "Cancel"
+  },
+  "giveBack": {
+    "title": "Give credit back from {{number}} ({{carrier}})",
+    "intro": "The buyer keeps only part of the credit. The rest goes to one of your lines, and the line's price and cost drop.",
+    "lineHas": "This line has {{credits}} credit.",
+    "kept": "Credit the buyer keeps ($)",
+    "toShopLine": "Send the rest to shop line",
+    "sellPrice": "Credit price (LBP per $1)",
+    "previewSend": "Send {{sent}} + SMS fee {{fee}} → the line keeps {{after}}.",
+    "previewPrice": "Price {{from}} → {{to}} · Cost {{costFrom}} → {{costTo}}",
+    "previewLoss": "The line would sell at a loss of {{amount}}.",
+    "enterKept": "Enter the credit the buyer keeps.",
+    "failed": "Could not give the credit back.",
+    "saving": "Saving...",
+    "submit": "Give credit back",
     "cancel": "Cancel"
   }
 }

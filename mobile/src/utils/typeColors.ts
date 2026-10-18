@@ -38,6 +38,8 @@ const TYPE_COLORS: Record<TransactionType, string> = {
   RECHARGE: PURPLE,
   CARRIER_LINE_ADJUSTMENT: VIOLET,
   LINE_RECHARGE: VIOLET,
+  // LIRA-337 — credit given back from a line for sale to a shop line.
+  LINE_CREDIT_GIVE_BACK: VIOLET,
   RECHARGE_TOPUP: PURPLE,
   WALLET_CASHOUT: ROSE,
   MTC_TOPUP: VIOLET,

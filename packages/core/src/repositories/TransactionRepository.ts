@@ -6224,6 +6224,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // active, else take the capitalized cost back off the line and restore
       // its credits / expiry. No-op for every other type.
       this._reverseResaleLineRecharge(original);
+      // LIRA-337, rule 20 — a LINE_CREDIT_GIVE_BACK: same guards, adds the
+      // price/cost drops back and restores the line's credit.
+      this._reverseResaleLineGiveBack(original);
 
       // 5e3. LIRA-143 phase 4, rule 20 — flip every SOLD product_unit tied to
       // this SALE back to IN_STOCK. Void never carries flag extras — the
@@ -6871,6 +6874,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // 4g1. LIRA-309, rule 20 — LINE_RECHARGE reversal. See voidTransaction's
     // identical step.
     this._reverseResaleLineRecharge(original);
+    // LIRA-337, rule 20 — a LINE_CREDIT_GIVE_BACK: same guards, adds the
+    // price/cost drops back and restores the line's credit.
+    this._reverseResaleLineGiveBack(original);
 
     // 4e3. LIRA-143 phase 4, rule 20 — flip every SOLD product_unit tied
     // to this SALE back to IN_STOCK, applying the operator's chosen
@@ -10499,6 +10505,18 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   private _reverseResaleLineRecharge(original: TransactionEntity): void {
     if (original.type !== TRANSACTION_TYPES.LINE_RECHARGE) return;
     getResaleLineRepository().reverseRecharge(original.id);
+  }
+
+  /**
+   * LIRA-337, rule 20 — reversal owner for a LINE_CREDIT_GIVE_BACK's own
+   * effects (price/cost drops on product + batch, the line's credit). Its
+   * drawer leg and shop-line credit are undone by `_reversePayments` /
+   * `_reverseCarrierLineMovements`. Throws (rolling the void back) when the
+   * line is sold or a newer recharge/give-back is still active.
+   */
+  private _reverseResaleLineGiveBack(original: TransactionEntity): void {
+    if (original.type !== TRANSACTION_TYPES.LINE_CREDIT_GIVE_BACK) return;
+    getResaleLineRepository().reverseGiveBack(original.id);
   }
 
   private _reverseCarrierLineMovements(original: TransactionEntity): void {

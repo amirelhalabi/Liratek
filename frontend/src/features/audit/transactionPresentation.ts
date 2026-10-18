@@ -99,6 +99,12 @@ export const TRANSACTION_PRESENTATION: Record<
     color: "text-slate-300",
     direction: TRANSACTION_CASH_DIRECTION.LINE_RECHARGE,
   },
+  // LIRA-337 — credit given back from a line held for sale to a shop line.
+  LINE_CREDIT_GIVE_BACK: {
+    label: TRANSACTION_TYPE_LABELS.LINE_CREDIT_GIVE_BACK,
+    color: "text-slate-300",
+    direction: TRANSACTION_CASH_DIRECTION.LINE_CREDIT_GIVE_BACK,
+  },
   // CARRIER_LINES_VALIDITY_PLAN.md Phase 6 (D7): the shop BUYS credits back
   // from the customer and pays cash out — the opposite of a RECHARGE sale.
   TELECOM_CREDIT_BUYBACK: {

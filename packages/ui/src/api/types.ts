@@ -28,6 +28,8 @@ import type {
   WriteOffResaleLineInput,
   RechargeResaleLineInput,
   ResaleLineRechargeResult,
+  GiveBackResaleLineInput,
+  ResaleLineGiveBackResult,
   ResaleLineRow,
   ResaleLineEntity,
 } from "@liratek/core";
@@ -2169,6 +2171,10 @@ export type ApiAdapter = {
   rechargeResaleLine: (
     data: RechargeResaleLineInput,
   ) => Promise<ResaleLineRechargeResult>;
+  /** Give part of a line held for sale's credit back to a shop line (LIRA-337). */
+  giveBackResaleLineCredit: (
+    data: GiveBackResaleLineInput,
+  ) => Promise<ResaleLineGiveBackResult>;
   /** Admin: write off a LOST line held for sale (books its cost as a loss). */
   writeOffResaleLine: (
     data: WriteOffResaleLineInput,

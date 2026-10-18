@@ -50,6 +50,7 @@ import {
   saveResaleLineSchema,
   writeOffResaleLineSchema,
   rechargeResaleLineSchema,
+  giveBackResaleLineSchema,
 } from "@liratek/core";
 import resaleLinesRouter from "../resaleLines.js";
 
@@ -213,6 +214,64 @@ describe("Resale line REST routes (LIRA-309)", () => {
         .send({ product_id: 5, source: "DAYS", days: 30 });
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
+      expect(spy).not.toHaveBeenCalled();
+    });
+  });
+
+  // LIRA-337 — NOT proven failing-first (rule 17): the route was written
+  // before these tests.
+  describe("POST /api/resale-lines/:productId/give-back", () => {
+    const GIVE_BACK = giveBackResaleLineSchema.parse({
+      product_id: 5,
+      credits_kept: 9,
+      credit_sell_price_lbp: 100000,
+      exchange_rate: 89500,
+      client_day: "2026-10-18",
+    });
+
+    it("a cashier (staff) can give credit back — payload + JWT user reach the service", async () => {
+      const spy = jest.spyOn(service, "giveBack").mockReturnValue({
+        success: true,
+        data: {
+          transaction_id: 1,
+          give_back_id: 1,
+          credits_sent: 5.68,
+          sms_fee_usd: 0.32,
+          price_drop_usd: 6.7,
+          cost_drop_usd: 5.68,
+          line: { credits: 9, price_usd: 18.3, cost_usd: 14.32 },
+        },
+      });
+      const res = await request(app)
+        .post(`/api/resale-lines/5/give-back`)
+        .set("x-test-role", "staff")
+        .send({ ...GIVE_BACK, userId: 999 });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(spy).toHaveBeenCalledWith(GIVE_BACK, 7);
+    });
+
+    it("a missing credit price is refused with 200 and never reaches the service", async () => {
+      const spy = jest.spyOn(service, "giveBack");
+      const res = await request(app)
+        .post(`/api/resale-lines/5/give-back`)
+        .set("x-test-role", "staff")
+        .send({ product_id: 5, credits_kept: 9 });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("refuses when the path and body product ids differ", async () => {
+      const spy = jest.spyOn(service, "giveBack");
+      const res = await request(app)
+        .post(`/api/resale-lines/6/give-back`)
+        .set("x-test-role", "staff")
+        .send(GIVE_BACK);
+      expect(res.body).toEqual({
+        success: false,
+        error: "Product id in the path and body do not match.",
+      });
       expect(spy).not.toHaveBeenCalled();
     });
   });

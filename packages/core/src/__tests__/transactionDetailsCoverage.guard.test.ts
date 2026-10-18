@@ -89,6 +89,9 @@ const NO_DETAILS_KIND: Record<string, string> = {
     COMPLETE,
   "repositories/ResaleLineRepository.ts::TRANSACTION_TYPES.LINE_RECHARGE":
     COMPLETE,
+  // LIRA-337 — the mirror of LINE_RECHARGE: the shop's own lines, no customer.
+  "repositories/ResaleLineRepository.ts::TRANSACTION_TYPES.LINE_CREDIT_GIVE_BACK":
+    COMPLETE,
   "repositories/SupplierRepository.ts::TRANSACTION_TYPES.SUPPLIER_STOCK_INTAKE as TransactionType":
     COMPLETE,
   "repositories/WalletExchangeRepository.ts::TRANSACTION_TYPES.WALLET_EXCHANGE":

@@ -183,6 +183,15 @@ function insertTenantFixture(db: Database.Database, tenantId: number): void {
           cost_usd, prev_cost_usd, prev_price_usd, prev_credits)
        VALUES (?, ?, ?, ?, 'DAYS', 30, 3, 15, 25, 0)`,
     ).run(tenantId, txnId, resaleLineId, productId);
+    // LIRA-337 v223 — one give-back of the same line (same fixture
+    // transaction: one row per table).
+    db.prepare(
+      `INSERT INTO resale_line_give_backs
+         (tenant_id, transaction_id, resale_line_id, product_id, carrier_line_id,
+          credits_sent, sms_fee_usd, credit_sell_price_lbp, credit_cost_rate_lbp,
+          exchange_rate, price_drop_usd, cost_drop_usd, prev_credits)
+       VALUES (?, ?, ?, ?, ?, 5.68, 0.32, 100000, 89500, 89500, 6.7, 5.68, 15)`,
+    ).run(tenantId, txnId, resaleLineId, productId, carrierLineId);
 
     // The remaining tables — one plain row each.
     db.prepare(
