@@ -202,6 +202,23 @@ describe("ClosingRepository.getLastCheckpointPerDrawer — per-drawer freshness 
     resetClosingRepository();
     resetTransactionRepository();
     repo = new ClosingRepository();
+    // LIRA-335 FR-023: a checkpoint now stores the SERVER balance it
+    // reconciled against as its expected figure (not the client's
+    // `expected_amount`), so each drawer starts at the figure the fixtures
+    // below send as expected. Setup only; every assertion is unchanged.
+    const seed = db.prepare(
+      `INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (?, ?, ?, ?)`,
+    );
+    for (const [tenant, drawer, currency, balance] of [
+      [1, "General", "USD", 500],
+      [1, "General", "LBP", 1_000_000],
+      [1, "Safe", "USD", 40],
+      [1, "VendorX", "USD", 100],
+      [1, "Shared", "USD", 100],
+      [2, "Shared", "USD", 999],
+    ] as const) {
+      seed.run(tenant, drawer, currency, balance);
+    }
   });
 
   afterEach(() => {

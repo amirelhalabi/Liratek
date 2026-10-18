@@ -9,6 +9,13 @@
 import type { ApiAdapter } from "@liratek/ui";
 // LIRA-333 — open a WhatsApp link outside LiraTek (rule 21).
 import type { OpenExternalUrlInput } from "@liratek/core";
+// LIRA-335 — checkpoint differences (rule 21).
+import type {
+  CheckpointFilters,
+  OpenDifferencesAfterInput,
+  CloseCheckpointDifferenceInput,
+  ReopenCheckpointDifferenceInput,
+} from "@liratek/core";
 import type {
   // LIRA-331 — a user's own UI language (rule 21).
   SetMyLanguageInput,
@@ -551,13 +558,15 @@ export class ElectronApiAdapter implements ApiAdapter {
   renumberPairedPc = (id: number) => api.renumberPairedPc(id);
   createCheckpoint = (data: CreateCheckpointPayload) =>
     api.createCheckpoint(data);
-  getCheckpointTimeline = (filters?: {
-    date_from?: string;
-    date_to?: string;
-    type?: "OPENING" | "CLOSING" | "CHECKPOINT" | "ALL";
-    drawer_name?: string;
-    user_id?: number;
-  }) => api.getCheckpointTimeline(filters);
+  getCheckpointTimeline = (filters?: CheckpointFilters) =>
+    api.getCheckpointTimeline(filters);
+  // LIRA-335 — checkpoint differences.
+  getOpenDifferencesAfter = (input: OpenDifferencesAfterInput) =>
+    api.getOpenDifferencesAfter(input);
+  closeCheckpointDifference = (input: CloseCheckpointDifferenceInput) =>
+    api.closeCheckpointDifference(input);
+  reopenCheckpointDifference = (input: ReopenCheckpointDifferenceInput) =>
+    api.reopenCheckpointDifference(input);
   getCarrierLineAdjustments = (filters?: CarrierLineAdjustmentFilters) =>
     api.getCarrierLineAdjustments(filters);
   getInitialCheckpointDate = () => api.getInitialCheckpointDate();

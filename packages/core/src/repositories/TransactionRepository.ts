@@ -45,6 +45,14 @@ import {
 import { partnerObligationHeadRowSql } from "../constants/partnerObligation.js";
 import { isAuditOnlyPaymentMethod } from "../constants/auditOnlyPaymentMethods.js";
 import {
+  CHECKPOINT_DIFFERENCE_SOURCE_TABLE,
+  CHECKPOINT_RESOLUTION_METHOD,
+} from "../constants/checkpointAdjustment.js";
+// LIRA-335: checkpointResolution imports ClosingRepository, which imports
+// this file — safe for the same reason as the SalesRepository cycle below:
+// only called from inside method bodies, never at module evaluation.
+import { resyncShortageAfterVoid } from "./checkpointResolution.js";
+import {
   PAID_VIA_DRAWER_OWN_TUPLES,
   type PaidViaDrawer,
 } from "../constants/paidViaDrawer.js";
@@ -276,6 +284,11 @@ export interface TransactionPaymentLeg {
  *  away instead of also needing to add the export first. */
 export const CREDIT_RETURN_LEG_METHOD = "CREDIT_RETURN";
 
+/** LIRA-335 (FR-013) — the refusal every manual path gives for a Drawer
+ *  shortage expense (one wording, rule 14; ExpenseRepository reuses it). */
+export const DRAWER_SHORTAGE_LOCKED_MESSAGE =
+  "A Drawer shortage expense belongs to its checkpoint. Reopen the checkpoint difference instead.";
+
 /**
  * The `payments` table is an internal multi-leg ledger: alongside real customer
  * payments and change/returns it also stores provider/system drawer movements
@@ -311,6 +324,12 @@ export const INTERNAL_LEG_METHODS = new Set([
   "CREDIT_USED", // on-account charge (also lives in debt_ledger)
   "SMS_COST", // telecom SMS cost consumed from the provider stock drawer
   "LINE_CREDIT", // carrier-line usage expense (LIRA-145): internal credit-stock consumption, no customer cash
+  // LIRA-335: the offset a back-timed transaction posts when it resolves a
+  // checkpoint's open difference — the shop's own books, never customer
+  // cash. Being in this set also makes `isOverridableLeg` false for it, so
+  // a refund override never treats it as tender (refund mode skips it
+  // anyway — see `_reversePayments`).
+  CHECKPOINT_RESOLUTION_METHOD,
   // LPAY-V3 (OWNER_NOTES_2026-09-21.md §6.5 PA-3.5 review, round 3): a
   // WalletExchangeRepository conversion (OMT_App/Whish_App wallet, never a
   // customer) posts method "WALLET_EXCHANGE" on both its legs — the shop
@@ -2447,8 +2466,17 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    *
    * Returns the reversal transaction's ID.
    */
-  voidTransaction(id: number, userId: number): number {
-    return this._voidTransactionInternal(id, userId, {});
+  voidTransaction(
+    id: number,
+    userId: number,
+    /** LIRA-335 (FR-013) — `internal: true` is passed ONLY by core code that
+     *  owns a protected row (`ExpenseRepository.deleteExpense` called by the
+     *  Drawer shortage writer). No transport forwards it. */
+    opts?: { internal?: boolean },
+  ): number {
+    return this._voidTransactionInternal(id, userId, {
+      internal: opts?.internal === true,
+    });
   }
 
   /**
@@ -5526,7 +5554,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         // this call (the pre-fix state) left the provider/crypto drawer
         // permanently short after an item refund — see this repository's
         // test file for the measured MTC-drawer proof.
-        this._reversePayments(transactionId, refundTxnId, userId);
+        this._reversePayments(transactionId, refundTxnId, userId, "refund");
       }
 
       // Link the REFUND into the session so it shows in the session group
@@ -5988,6 +6016,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       /** LIRA-321 — set ONLY by `_cascadeWaivedShortfallSiblingVoid`: lets
        *  the parent's void/refund reach its own WAIVED_SHORTFALL sibling. */
       allowParentOwnedWaivedSibling?: boolean;
+      /** LIRA-335 (FR-013) — lets the Drawer shortage owner (Reopen / the
+       *  shrink in `syncShortageExpense`) void its own expense. */
+      internal?: boolean;
     },
   ): number {
     const original = this.findById(id);
@@ -6096,7 +6127,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       const reversalId = result.lastInsertRowid as number;
 
       // 3. Reverse drawer balances — negate every payment from the original
-      this._reversePayments(id, reversalId, userId);
+      this._reversePayments(id, reversalId, userId, "void");
 
       // 4. Mark source module record as voided/refunded
       this._markSourceRefunded(original.source_table, original.source_id);
@@ -6257,6 +6288,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // coverage given back). LIRA-310: also a SUPPLIER_SETTLEMENT's Waive
       // (no coverage to give back). No-op without a linked discount.
       this._reverseSupplierBundledDiscount(original, userId);
+
+      // 8. LIRA-335 (FR-016), rule 20 — this transaction's checkpoint
+      // resolutions stopped counting when it became VOIDED (step 1; its
+      // offset legs were mirrored in step 3), so a closed Short it had
+      // explained gets its Drawer shortage expense back. No-op otherwise.
+      resyncShortageAfterVoid(this.db, { transactionId: id, userId });
 
       return reversalId;
     });
@@ -6546,6 +6583,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         id,
         refundId,
         userId,
+        "refund",
         refundLegs,
         opts.exchangeRate,
       );
@@ -6895,8 +6933,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       allowSplitGroupMember?: boolean;
       allowSessionMember?: boolean;
       allowParentOwnedWaivedSibling?: boolean;
+      internal?: boolean;
     } = {},
   ): void {
+    if (!opts.internal) this._assertNotDrawerShortageExpense(original);
     if (NON_REVERSIBLE_TRANSACTION_TYPES.has(original.type)) {
       // LIRA-201c: LOTO_CASH_PRIZE and KEPT_CHANGE stay blocked for a
       // standalone void/refund (the throw below still fires for those), but
@@ -8110,14 +8150,41 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     sourceTable: string,
     sourceId: number,
     userId: number,
+    /** LIRA-335 (FR-013) — the Drawer shortage owner passes `internal: true`
+     *  to void its own expense; without it such an expense is refused. */
+    opts?: { internal?: boolean },
   ): void {
-    this._voidExpensesLinkedTo(sourceTable, sourceId, userId);
+    this._voidExpensesLinkedTo(sourceTable, sourceId, userId, opts?.internal);
+  }
+
+  /**
+   * LIRA-335 (FR-013) — a "Drawer shortage" expense (linked to
+   * `checkpoint_differences`) belongs to its closed checkpoint difference:
+   * only Reopen, or a back-timed transaction that explains the shortage,
+   * removes or shrinks it (both through `{ internal: true }`). Every manual
+   * path — the Transactions table void/refund, the Expenses page delete —
+   * is refused here, the one gate they all pass through.
+   */
+  private _assertNotDrawerShortageExpense(original: TransactionEntity): void {
+    if (original.source_table !== "expenses" || original.source_id == null) {
+      return;
+    }
+    if (!this._expensesHasSourceRefColumns()) return;
+    const row = this.queryOne<{ source_ref_table: string | null }>(
+      `SELECT source_ref_table FROM expenses WHERE id = ? AND tenant_id = ?`,
+      original.source_id,
+      getCurrentTenantId(),
+    );
+    if (row?.source_ref_table === CHECKPOINT_DIFFERENCE_SOURCE_TABLE) {
+      throw new BusinessRuleError(DRAWER_SHORTAGE_LOCKED_MESSAGE);
+    }
   }
 
   private _voidExpensesLinkedTo(
     sourceTable: string,
     sourceId: number,
     userId: number,
+    internal?: boolean,
   ): void {
     if (!this._expensesHasSourceRefColumns()) return;
     const tenantId = getCurrentTenantId();
@@ -8134,6 +8201,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       if (!siblingTxn) continue;
       this._voidTransactionInternal(siblingTxn.id, userId, {
         allowSplitGroupMember: true,
+        internal: internal === true,
       });
     }
   }
@@ -8821,6 +8889,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     originalTxnId: number,
     reversalTxnId: number,
     userId: number,
+    /** LIRA-335 (spec FR-009) — a `"void"` mirrors EVERY leg, including a
+     *  `CHECKPOINT_RESOLUTION` offset (the transaction never happened, so its
+     *  resolution is undone and every drawer nets to zero). A `"refund"`
+     *  skips the offset: the counted cash was real, and the refund is new
+     *  cash handed back now, so the drawer moves by exactly that cash. */
+    mode: "void" | "refund",
     refundLegOverride?: RefundLegOverride[],
     /** LIRA-236 — the cashier-typed rate, threaded through to
      *  `refundLegReversalSign` so a cross-currency override leg's direction
@@ -8843,6 +8917,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     );
 
     for (const p of payments) {
+      if (mode === "refund" && p.method === CHECKPOINT_RESOLUTION_METHOD) {
+        continue;
+      }
       // LIRA-078: when the operator chose override return method(s), skip
       // mirroring the customer-facing legs verbatim here — they are replaced
       // by refundLegOverride below instead. Every OTHER (internal

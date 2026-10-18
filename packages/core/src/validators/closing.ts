@@ -187,3 +187,35 @@ export const updateDailyClosingIpcSchema = updateDailyClosingSchema.extend({
 export type UpdateDailyClosingIpcInput = z.input<
   typeof updateDailyClosingIpcSchema
 >;
+
+/**
+ * LIRA-335 — Close / Reopen a checkpoint difference (`closing:close-difference`
+ * / `closing:reopen-difference`, `POST /api/closing/differences/close|reopen`).
+ * Admin only. No user id: the actor comes from the session / JWT.
+ */
+export const closeCheckpointDifferenceSchema = z.object({
+  difference_id: z.number().int().positive(),
+});
+export const reopenCheckpointDifferenceSchema = z.object({
+  difference_id: z.number().int().positive(),
+});
+
+/**
+ * LIRA-335 — the hint under Transaction time (`closing:get-open-differences-after`,
+ * `GET /api/closing/differences/open-after?at=…`). `at` is the form's own
+ * custom time (ISO or `YYYY-MM-DD HH:MM:SS`), supplied by the client, never
+ * the server's clock (rule 27).
+ */
+export const openDifferencesAfterSchema = z.object({
+  at: z.string().min(1),
+});
+
+export type CloseCheckpointDifferenceInput = z.input<
+  typeof closeCheckpointDifferenceSchema
+>;
+export type ReopenCheckpointDifferenceInput = z.input<
+  typeof reopenCheckpointDifferenceSchema
+>;
+export type OpenDifferencesAfterInput = z.input<
+  typeof openDifferencesAfterSchema
+>;

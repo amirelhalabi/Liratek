@@ -46,6 +46,7 @@ import {
   type CreateLedgerEntryData,
 } from "./PartnerRepository.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
+import { resolveBackTimedDrawerMovement } from "./checkpointResolution.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
 import { getMobileServiceItemRepository } from "./MobileServiceItemRepository.js";
 import {
@@ -3825,6 +3826,13 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         // only — every other FOR branch rejects legs) — debited exactly once
         // by the ONE shared OUT-leg processor.
         processReturnLegs("Partner disbursement");
+        // LIRA-335 (FR-004..006) — a for-partner row saved with a custom time:
+        // only its own drawer legs (e.g. the shop disbursement) can resolve; the
+        // partner debt moves no drawer.
+        resolveBackTimedDrawerMovement(this.db, {
+          transactionId: txnId,
+          userId: createdBy,
+        });
         return { id, drawer: legacyDrawerLabel };
       }
 
@@ -5560,6 +5568,16 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         });
       }
 
+      // LIRA-335 (FR-004..006) — last, after every leg, the auto supplier
+      // siblings and the rounding expense: a SEND/RECEIVE/bill saved with a
+      // custom time before a checkpoint resolves the open difference of the
+      // drawer it moved (the primary cash drawer for OMT/Whish cash) instead of
+      // moving it twice.
+      resolveBackTimedDrawerMovement(this.db, {
+        transactionId: txnId,
+        userId: createdBy,
+      });
+
       return { id, drawer: legacyDrawerLabel };
     })();
   }
@@ -5760,6 +5778,14 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           movement.error ?? "Failed to apply carrier line movement",
         );
       }
+
+      // LIRA-335 (FR-004..006) — a back-timed self-charge: its MTC/Alfa legs
+      // follow the lines and never resolve (see checkpointResolution.ts); any
+      // other drawer it paid from does.
+      resolveBackTimedDrawerMovement(this.db, {
+        transactionId: txnId,
+        userId: createdBy,
+      });
 
       return {
         transactionId: txnId,

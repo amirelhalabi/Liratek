@@ -1503,3 +1503,34 @@ export const OpenExternalUrlSchema =
     z.ZodTypeDef,
     OpenExternalUrlInput
   >;
+
+// LIRA-335 — checkpoint differences. The schemas live in core
+// (validators/closing.ts) and are shared with the REST routes in
+// backend/src/api/closing.ts (rule 14). Each input is `{ difference_id }` /
+// `{ at }` only; the actor is the session's user, never a client field.
+import {
+  closeCheckpointDifferenceSchema as coreCloseCheckpointDifferenceSchema,
+  reopenCheckpointDifferenceSchema as coreReopenCheckpointDifferenceSchema,
+  openDifferencesAfterSchema as coreOpenDifferencesAfterSchema,
+  type CloseCheckpointDifferenceInput,
+  type ReopenCheckpointDifferenceInput,
+  type OpenDifferencesAfterInput,
+} from "@liratek/core";
+export const CloseCheckpointDifferenceSchema =
+  coreCloseCheckpointDifferenceSchema as unknown as z.ZodSchema<
+    CloseCheckpointDifferenceInput,
+    z.ZodTypeDef,
+    CloseCheckpointDifferenceInput
+  >;
+export const ReopenCheckpointDifferenceSchema =
+  coreReopenCheckpointDifferenceSchema as unknown as z.ZodSchema<
+    ReopenCheckpointDifferenceInput,
+    z.ZodTypeDef,
+    ReopenCheckpointDifferenceInput
+  >;
+export const OpenDifferencesAfterSchema =
+  coreOpenDifferencesAfterSchema as unknown as z.ZodSchema<
+    OpenDifferencesAfterInput,
+    z.ZodTypeDef,
+    OpenDifferencesAfterInput
+  >;

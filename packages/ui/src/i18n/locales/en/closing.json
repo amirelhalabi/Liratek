@@ -23,7 +23,8 @@
     "colDrawer": "Drawer",
     "colCounted": "Counted",
     "colUser": "User",
-    "colNotes": "Notes"
+    "colNotes": "Notes",
+    "openOnly": "Open differences only"
   },
   "details": {
     "title": "Checkpoint Details — {{drawer}}",
@@ -35,7 +36,10 @@
     "matched": "Matched",
     "carrierLines": "Carrier Lines",
     "notSet": "not set",
-    "notCounted": "not counted"
+    "notCounted": "not counted",
+    "closeButton": "Close difference…",
+    "reopenButton": "Reopen",
+    "footerHint": "Missing entry found? Re-enter it with Set custom time before {{time}}."
   },
   "variance": {
     "inCurrencies": "Variance in {{n}} currencies",
@@ -142,5 +146,35 @@
   },
   "modalHeader": {
     "close": "Close modal"
+  },
+  "difference": {
+    "status": {
+      "OPEN": "Open",
+      "PARTLY_RESOLVED": "Partly resolved · {{open}} open",
+      "RESOLVED": "Resolved",
+      "CLOSED_SHORT": "Closed · Short",
+      "CLOSED_OVER": "Closed · Over"
+    },
+    "resolvedBy": "Resolved by",
+    "stillOpen": "Still open",
+    "byTxn": "{{label}} · entered {{entered}} with time {{time}}",
+    "closedBy": "Closed by {{name}}",
+    "shortageExpense": "Drawer shortage expense #{{id}}"
+  },
+  "close": {
+    "title": "Close difference",
+    "checkpoint": "Checkpoint",
+    "stillOpen": "Still open",
+    "shortBody": "Records a Drawer shortage expense of {{amount}} on {{day}}. Net profit for that day goes down by {{amount}}. The drawer does not change; the checkpoint already set it.",
+    "overBody": "Marks it closed. Nothing is recorded in Profits or Expenses. Extra cash is usually a missed sale or a customer's money.",
+    "noExpenseCurrency": "Marks it closed. Expenses are kept in dollars and lira only, so no Drawer shortage expense is recorded for {{currency}}. The drawer does not change.",
+    "reopenNote": "You can reopen it later if the missing entry turns up.",
+    "confirmShort": "Close as short",
+    "confirmOver": "Close as over",
+    "cancel": "Cancel"
+  },
+  "hint": {
+    "resolvesOver": "This time is before {{drawer}}'s checkpoint of {{time}} (Over {{amount}} open). Money into {{drawer}} saved at this time will resolve it instead of raising the balance.",
+    "resolvesShort": "This time is before {{drawer}}'s checkpoint of {{time}} (Short {{amount}} open). Money out of {{drawer}} saved at this time will resolve it instead of lowering the balance."
   }
 }

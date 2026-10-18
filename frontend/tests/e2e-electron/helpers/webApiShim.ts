@@ -602,12 +602,31 @@ function webApiShimBody(): void {
       const { user_id: _u, ...body } = (data ?? {}) as Record<string, unknown>;
       return rest("POST", "/api/closing/checkpoint", body);
     },
-    "closing.getCheckpointTimeline": async ([filters]) =>
-      rest(
+    // LIRA-335: open_only goes as "1" only when on, like backendApi.ts.
+    "closing.getCheckpointTimeline": async ([filters]) => {
+      const { open_only, ...others } = (filters ?? {}) as Record<
+        string,
+        unknown
+      >;
+      return rest(
         "GET",
         "/api/closing/checkpoint-timeline" +
-          qs((filters ?? {}) as Record<string, unknown>),
+          qs({ ...others, open_only: open_only === true ? "1" : undefined }),
+      );
+    },
+    // LIRA-335 — checkpoint differences. All three IPC handlers answer an
+    // envelope, so REST's passes through; close/reopen take the actor from
+    // the JWT (IPC from the session), never a client field.
+    "closing.getOpenDifferencesAfter": async ([data]) =>
+      rest(
+        "GET",
+        "/api/closing/differences/open-after" +
+          qs({ at: (data as { at?: string } | undefined)?.at }),
       ),
+    "closing.closeDifference": async ([data]) =>
+      rest("POST", "/api/closing/differences/close", data),
+    "closing.reopenDifference": async ([data]) =>
+      rest("POST", "/api/closing/differences/reopen", data),
     "closing.getLastCheckpointPerDrawer": async () =>
       rest("GET", "/api/closing/last-checkpoint-per-drawer"),
     // IPC returns the stats object raw (and throws on failure).

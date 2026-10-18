@@ -31,6 +31,8 @@ import {
   type TransactionPaymentLeg,
 } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import { CHECKPOINT_RESOLUTION_METHOD } from "../constants/checkpointAdjustment.js";
+import { resolveBackTimedDrawerMovement } from "./checkpointResolution.js";
 import { MOBILE_SERVICE_PROVIDERS_SQL_LIST } from "../constants/mobileServiceProviders.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 // LIRA-237: imported from the LEAF fragment module, not ProfitRepository.js
@@ -482,7 +484,8 @@ const RECEIPT_IS_SESSION_SALE_SQL = `(EXISTS (
    WHERE cst.unified_transaction_id = t.id AND cst.tenant_id = t.tenant_id)
   AND NOT EXISTS (
   SELECT 1 FROM payments p
-   WHERE p.transaction_id = t.id AND p.tenant_id = t.tenant_id AND p.amount > 0)
+   WHERE p.transaction_id = t.id AND p.tenant_id = t.tenant_id AND p.amount > 0
+     AND p.method <> '${CHECKPOINT_RESOLUTION_METHOD}')
   AND NOT EXISTS (
   SELECT 1 FROM debt_ledger dl
    WHERE dl.transaction_id = t.id AND dl.tenant_id = t.tenant_id
@@ -490,11 +493,15 @@ const RECEIPT_IS_SESSION_SALE_SQL = `(EXISTS (
 
 /** Tender actually handed over, per currency: the IN legs (positive
  *  `payments` rows) on the sale's own transaction. Change and return legs
- *  are negative rows and are excluded by sign. */
+ *  are negative rows and are excluded by sign. LIRA-335: a checkpoint-
+ *  resolution offset is the shop's books, never tender — when change handed
+ *  back resolves an open Short its offset is positive, so it is excluded by
+ *  method (constant, never user input). */
 const receiptTenderSql = (currency: "USD" | "LBP") => `COALESCE((
   SELECT SUM(p.amount) FROM payments p
    WHERE p.transaction_id = t.id AND p.tenant_id = t.tenant_id
-     AND p.amount > 0 AND p.currency_code = '${currency}'), 0)`;
+     AND p.amount > 0 AND p.currency_code = '${currency}'
+     AND p.method <> '${CHECKPOINT_RESOLUTION_METHOD}'), 0)`;
 const RECEIPT_TENDER_USD_SQL = receiptTenderSql("USD");
 const RECEIPT_TENDER_LBP_SQL = receiptTenderSql("LBP");
 
@@ -1877,6 +1884,16 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
               }
             }
           }
+
+          // LIRA-335 (FR-004..006) — last, after every leg and the auto
+          // "Change rounding" sibling: a sale saved with a custom (or
+          // offline event) time before a checkpoint of a drawer it moved
+          // resolves that checkpoint's open difference instead of moving the
+          // drawer a second time. No-op for every ordinary sale.
+          resolveBackTimedDrawerMovement(db, {
+            transactionId: txnId,
+            userId: createdBy,
+          });
         }
 
         return {
@@ -2304,23 +2321,29 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    * LBP on the real Sale #182 refund).
    */
   private _itemRefundLegRows<
-    T extends { currency_code: string; amount: number },
+    T extends { currency_code: string; amount: number; method?: string },
   >(rows: T[], shareBefore: number, shareAfter: number): T[] {
     const isFull = shareAfter >= 1 - 1e-9;
-    return rows.map((row) => {
-      const cur = row.currency_code;
-      const before = roundMoneyForCurrency(row.amount * shareBefore, cur);
-      const after = isFull
-        ? row.amount
-        : roundMoneyForCurrency(row.amount * shareAfter, cur);
-      // A legacy row that is not itself a whole unit closes out with its own
-      // fraction rather than leaving it stranded in the drawer.
-      const exact = roundMoneyForCurrency(row.amount, cur) === row.amount;
-      const amount = exact
-        ? roundMoneyForCurrency(after - before, cur)
-        : after - before;
-      return { ...row, amount };
-    });
+    // LIRA-335 (FR-009): a refund never gives back a checkpoint-resolution
+    // offset — the counted cash was real, and the refund is new cash handed
+    // back now. Filtered here, the ONE definition the preview, the override
+    // check and the money-back all read (rule 14).
+    return rows
+      .filter((row) => row.method !== CHECKPOINT_RESOLUTION_METHOD)
+      .map((row) => {
+        const cur = row.currency_code;
+        const before = roundMoneyForCurrency(row.amount * shareBefore, cur);
+        const after = isFull
+          ? row.amount
+          : roundMoneyForCurrency(row.amount * shareAfter, cur);
+        // A legacy row that is not itself a whole unit closes out with its own
+        // fraction rather than leaving it stranded in the drawer.
+        const exact = roundMoneyForCurrency(row.amount, cur) === row.amount;
+        const amount = exact
+          ? roundMoneyForCurrency(after - before, cur)
+          : after - before;
+        return { ...row, amount };
+      });
   }
 
   /**

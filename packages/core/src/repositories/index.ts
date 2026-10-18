@@ -400,7 +400,26 @@ export {
   ClosingRepository,
   getClosingRepository,
   resetClosingRepository,
+  drawerAffectingPayments,
 } from "./ClosingRepository.js";
+// LIRA-335 — checkpoint open differences.
+export {
+  CheckpointDifferenceRepository,
+  getCheckpointDifferenceRepository,
+  resetCheckpointDifferenceRepository,
+  ACTIVE_RESOLUTION_SQL,
+} from "./CheckpointDifferenceRepository.js";
+export type {
+  CheckpointDifferenceView,
+  CheckpointDifferenceResolutionView,
+  CheckpointDifferenceAdjustment,
+  CheckpointDifferenceEntity,
+} from "./CheckpointDifferenceRepository.js";
+export {
+  bookDrawerShortageExpense,
+  DRAWER_SHORTAGE_EXPENSE_CURRENCIES,
+} from "./drawerShortageExpense.js";
+export type { DrawerShortageExpenseInput } from "./drawerShortageExpense.js";
 export type {
   DailyClosingEntity,
   ClosingAmountEntity,
@@ -412,6 +431,7 @@ export type {
   CreateCheckpointData,
   CheckpointRecord,
   CheckpointFilters,
+  CheckpointCurrency,
   DrawerCheckpointStatus,
   CarrierLineAdjustmentRecord,
   CarrierLineAdjustmentFilters,

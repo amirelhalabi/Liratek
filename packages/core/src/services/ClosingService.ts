@@ -7,7 +7,18 @@ import {
   getClosingRepository,
 } from "../repositories/ClosingRepository.js";
 import { ProfitService, getProfitService } from "./ProfitService.js";
-import type { DailyStatsSnapshotQuery } from "../validators/closing.js";
+import type {
+  DailyStatsSnapshotQuery,
+  CloseCheckpointDifferenceInput,
+  ReopenCheckpointDifferenceInput,
+  OpenDifferencesAfterInput,
+} from "../validators/closing.js";
+import {
+  getCheckpointDifferenceRepository,
+  type CheckpointDifferenceRepository,
+  type CheckpointDifferenceView,
+} from "../repositories/CheckpointDifferenceRepository.js";
+import { isOpenCheckpointDifference } from "../utils/checkpointDifference.js";
 import { closingLogger } from "../utils/logger.js";
 import { clientDay } from "../utils/requestDay.js";
 export interface ClosingResult {
@@ -115,10 +126,17 @@ export class ClosingService {
    *  repository directly for a profit figure from this service (rule 13);
    *  everything money-shaped comes through here. */
   private profitService: ProfitService;
+  /** LIRA-335 — checkpoint open differences (read, close, reopen). */
+  private differences: CheckpointDifferenceRepository;
 
-  constructor(repo?: ClosingRepository, profitService?: ProfitService) {
+  constructor(
+    repo?: ClosingRepository,
+    profitService?: ProfitService,
+    differences?: CheckpointDifferenceRepository,
+  ) {
     this.repo = repo ?? getClosingRepository();
     this.profitService = profitService ?? getProfitService();
+    this.differences = differences ?? getCheckpointDifferenceRepository();
   }
 
   /**
@@ -237,18 +255,35 @@ export class ClosingService {
   }
 
   /**
-   * Get checkpoint timeline for a date
+   * Get checkpoint timeline for a date range.
+   *
+   * LIRA-335: every checkpoint carries its `differences` (one query for all
+   * listed checkpoints, FR-017). `open_count` = how many listed checkpoints
+   * still have an Open or Partly resolved difference, counted BEFORE
+   * `open_only` narrows the list, so the filter can show how many match
+   * whether it is on or off (FR-018).
    */
   async getCheckpointTimeline(
     filters: import("../repositories/ClosingRepository.js").CheckpointFilters = {},
   ): Promise<{
     success: boolean;
     checkpoints?: import("../repositories/ClosingRepository.js").CheckpointRecord[];
+    open_count?: number;
     error?: string;
   }> {
     try {
-      const checkpoints = this.repo.getCheckpointTimeline(filters);
-      return { success: true, checkpoints };
+      const { open_only, ...rest } = filters;
+      const all = this.repo.getCheckpointTimeline(rest);
+      const byClosing = this.differences.listForClosings(all.map((c) => c.id));
+      for (const c of all) c.differences = byClosing.get(c.id) ?? [];
+      const hasOpen = (c: { differences: CheckpointDifferenceView[] }) =>
+        c.differences.some(isOpenCheckpointDifference);
+      const open = all.filter(hasOpen);
+      return {
+        success: true,
+        checkpoints: open_only ? open : all,
+        open_count: open.length,
+      };
     } catch (error) {
       closingLogger.error(
         { error, filters },
@@ -495,6 +530,81 @@ export class ClosingService {
         "ClosingService.getLastCheckpointPerDrawer error",
       );
       return {};
+    }
+  }
+
+  /**
+   * LIRA-335 — admin closes what is still open on a difference (FR-011).
+   * A Short in USD/LBP books a books-only Drawer shortage expense on the
+   * checkpoint's day; an Over records nothing. `userId` comes from the
+   * session / JWT, never the client.
+   */
+  closeCheckpointDifference(
+    input: CloseCheckpointDifferenceInput & { userId: number },
+  ): { success: boolean; data?: CheckpointDifferenceView; error?: string } {
+    return this.runDifferenceWrite("close", input.difference_id, () =>
+      this.differences.close(input.difference_id, input.userId),
+    );
+  }
+
+  /** LIRA-335 — admin reopens a closed difference (FR-012): its Drawer
+   *  shortage expense, if any, is voided. */
+  reopenCheckpointDifference(
+    input: ReopenCheckpointDifferenceInput & { userId: number },
+  ): { success: boolean; data?: CheckpointDifferenceView; error?: string } {
+    return this.runDifferenceWrite("reopen", input.difference_id, () =>
+      this.differences.reopen(input.difference_id, input.userId),
+    );
+  }
+
+  /**
+   * LIRA-335 — the differences money saved at `at` (the form's custom time)
+   * could resolve: for each drawer, its first checkpoint after `at`, where
+   * something is still open (closed Shorts included, FR-016). Drives the
+   * hint under Transaction time (FR-020). The engine lives in
+   * `checkpointResolution.ts`; the repository hands it the db (rule 13).
+   */
+  getOpenDifferencesAfter(input: OpenDifferencesAfterInput): {
+    success: boolean;
+    data?: CheckpointDifferenceView[];
+    error?: string;
+  } {
+    try {
+      return {
+        success: true,
+        data: this.differences.openDifferencesAfter(input.at),
+      };
+    } catch (error) {
+      closingLogger.error(
+        { error, at: input.at },
+        "ClosingService.getOpenDifferencesAfter error",
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  private runDifferenceWrite(
+    action: "close" | "reopen",
+    differenceId: number,
+    write: () => { success: boolean; error?: string },
+  ): { success: boolean; data?: CheckpointDifferenceView; error?: string } {
+    try {
+      const res = write();
+      if (!res.success) return { success: false, error: res.error };
+      const data = this.differences.getById(differenceId);
+      return data ? { success: true, data } : { success: true };
+    } catch (error) {
+      closingLogger.error(
+        { error, differenceId },
+        `ClosingService.${action}CheckpointDifference error`,
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 

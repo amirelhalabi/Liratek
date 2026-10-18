@@ -35,7 +35,8 @@
     "Inventory_Loss": "Inventory Loss",
     "Refund_Damaged": "Refund Damaged",
     "Line_Usage": "Line Usage",
-    "Other": "Other"
+    "Other": "Other",
+    "Drawer_shortage": "Drawer shortage"
   },
   "errors": {
     "wholeQuantity": "Please enter a whole quantity of 1 or more.",

@@ -2443,30 +2443,39 @@ export interface ElectronAPI {
       success: boolean;
       error?: string;
     }>;
-    getCheckpointTimeline: (filters: {
-      date_from?: string;
-      date_to?: string;
-      type?: "OPENING" | "CLOSING" | "CHECKPOINT" | "ALL";
-      drawer_name?: string;
-      user_id?: number;
-    }) => Promise<{
+    getCheckpointTimeline: (
+      filters: import("@liratek/core").CheckpointFilters,
+    ) => Promise<{
       success: boolean;
-      checkpoints?: Array<{
-        id: number;
-        closing_date: string;
-        drawer_name: string;
-        checkpoint_type: "OPENING" | "CLOSING" | "CHECKPOINT";
-        created_at: string;
-        created_by: number;
-        user_name: string;
-        notes?: string;
-        currencies: Array<{
-          currency_code: string;
-          opening_amount: number;
-          physical_amount?: number;
-          variance?: number;
-        }>;
-      }>;
+      checkpoints?: Array<import("@liratek/core").CheckpointRecord>;
+      /** LIRA-335 — how many differences are still open. */
+      open_count?: number;
+      error?: string;
+    }>;
+    /** LIRA-335 — differences money saved at `at` could still resolve.
+     *  Admin and staff; for staff `resolutions` is [] and `closed_by_name`
+     *  is null. */
+    getOpenDifferencesAfter: (
+      data: import("@liratek/core").OpenDifferencesAfterInput,
+    ) => Promise<{
+      success: boolean;
+      data?: Array<import("@liratek/core").CheckpointDifferenceView>;
+      error?: string;
+    }>;
+    /** LIRA-335 — admin only. */
+    closeDifference: (
+      data: import("@liratek/core").CloseCheckpointDifferenceInput,
+    ) => Promise<{
+      success: boolean;
+      data?: import("@liratek/core").CheckpointDifferenceView;
+      error?: string;
+    }>;
+    /** LIRA-335 — admin only. */
+    reopenDifference: (
+      data: import("@liratek/core").ReopenCheckpointDifferenceInput,
+    ) => Promise<{
+      success: boolean;
+      data?: import("@liratek/core").CheckpointDifferenceView;
       error?: string;
     }>;
     /** LIRA-252 wave 2 — Checkpoint Timeline companion read for manual

@@ -4,7 +4,7 @@
  * Handles daily opening and closing workflows
  */
 
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { requireAuth, requireRole, AuthRequest } from "../middleware/auth.js";
 import { validateRequest, validateQuery } from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
@@ -22,6 +22,13 @@ import {
   // `repositories/index.ts` (rule 21: the real shared contract, not a
   // `Parameters<...>` derivation off the service's own signature).
   type CarrierLineAdjustmentFilters,
+  // LIRA-335 — checkpoint differences (schemas shared with the IPC twins).
+  closeCheckpointDifferenceSchema,
+  reopenCheckpointDifferenceSchema,
+  openDifferencesAfterSchema,
+  type OpenDifferencesAfterInput,
+  type CloseCheckpointDifferenceInput,
+  redactCheckpointDifferencesForRole,
 } from "@liratek/core";
 import { hasProfitsUnlock } from "../middleware/profitsUnlock.js";
 import { logger } from "../server.js";
@@ -288,6 +295,90 @@ router.post(
   },
 );
 
+// LIRA-335 — checkpoint differences. Twins of the IPC channels
+// closing:get-open-differences-after / close-difference / reopen-difference in
+// electron-app/handlers/dbHandlers.ts: same roles, same core schemas, the
+// IPC-identical envelope (HTTP 200 even on failure), actor from the JWT.
+
+// GET /api/closing/differences/open-after?at=… (admin + staff)
+router.get(
+  "/differences/open-after",
+  requireAuth,
+  requireRole(["admin", "staff"]),
+  validateQuery(openDifferencesAfterSchema),
+  (req: AuthRequest, res) => {
+    try {
+      const input = req.query as unknown as OpenDifferencesAfterInput;
+      const result = closingService.getOpenDifferencesAfter({ at: input.at });
+      if (!result.success || !result.data) {
+        res.json(result);
+        return;
+      }
+      res.json({
+        ...result,
+        // Staff see no user names (one rule shared with IPC).
+        data: redactCheckpointDifferencesForRole(result.data, req.user?.role),
+      });
+    } catch (error) {
+      logger.error({ error }, "Get open checkpoint differences error");
+      res.json({
+        success: false,
+        error: "Failed to get open checkpoint differences",
+      });
+    }
+  },
+);
+
+function differenceWriteRoute(op: "close" | "reopen") {
+  return (req: AuthRequest, res: Response) => {
+    try {
+      const body = req.body as CloseCheckpointDifferenceInput;
+      const input = {
+        difference_id: body.difference_id,
+        userId: req.user!.userId,
+      };
+      const result =
+        op === "close"
+          ? closingService.closeCheckpointDifference(input)
+          : closingService.reopenCheckpointDifference(input);
+      if (result.success) {
+        // Mirrors dbHandlers.ts's closing:close-difference / reopen-difference audit.
+        auditRest(req, {
+          action: `${op}_checkpoint_difference`,
+          entity_type: "checkpoint_differences",
+          entity_id: String(input.difference_id),
+          summary: `Checkpoint difference ${op === "close" ? "closed" : "reopened"}: #${input.difference_id}`,
+        });
+      }
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, `Checkpoint difference ${op} error`);
+      res.json({
+        success: false,
+        error: `Failed to ${op} checkpoint difference`,
+      });
+    }
+  };
+}
+
+// POST /api/closing/differences/close {difference_id} (admin)
+router.post(
+  "/differences/close",
+  requireAuth,
+  adminGate,
+  validateRequest(closeCheckpointDifferenceSchema),
+  differenceWriteRoute("close"),
+);
+
+// POST /api/closing/differences/reopen {difference_id} (admin)
+router.post(
+  "/differences/reopen",
+  requireAuth,
+  adminGate,
+  validateRequest(reopenCheckpointDifferenceSchema),
+  differenceWriteRoute("reopen"),
+);
+
 // GET /api/closing/checkpoint-timeline — read the checkpoint history. Admin
 // only, like the page (owner decision 2026-10-12): counts and variances are
 // not for staff. /last-checkpoint-per-drawer stays open — the Dashboard's
@@ -309,6 +400,8 @@ router.get("/checkpoint-timeline", requireAuth, adminGate, async (req, res) => {
     if (typeof q.drawer_name === "string") filters.drawer_name = q.drawer_name;
     const userId = Number(q.user_id);
     if (Number.isFinite(userId)) filters.user_id = userId;
+    // LIRA-335 — only "1"/"true" turn the open-differences filter on.
+    if (q.open_only === "1" || q.open_only === "true") filters.open_only = true;
 
     const result = await closingService.getCheckpointTimeline(filters);
     res.json(result);

@@ -9,6 +9,10 @@ import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { CHECKPOINT_ADJUSTMENT_METHOD } from "../constants/checkpointAdjustment.js";
 import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
 import {
+  getCheckpointDifferenceRepository,
+  type CheckpointDifferenceView,
+} from "./CheckpointDifferenceRepository.js";
+import {
   getCarrierLineRepository,
   carrierDrawerName,
   CARRIER_DRAWER_NAMES,
@@ -32,8 +36,11 @@ const RECONCILE_EPSILON = 0.0001;
  * customer-account legs and audit-only rows (G35, e.g. PM_FEE) never did.
  * Shared by the full rebuild (`recalculateDrawerBalances`) and the as-of
  * balance a checkpoint reconciles against (`getDrawerBalancesAsOf`).
+ * Exported for LIRA-335's resolution engine (`checkpointResolution.ts`),
+ * which nets a transaction's drawer movement by the same definition.
+ * Unaliased: the columns are the bare `payments` columns.
  */
-function drawerAffectingPayments(): { sql: string; params: string[] } {
+export function drawerAffectingPayments(): { sql: string; params: string[] } {
   const auditOnly = [...AUDIT_ONLY_PAYMENT_METHODS];
   return {
     sql: `method != 'CUSTOMER_ACCOUNT' AND method NOT IN (${auditOnly.map(() => "?").join(", ")})`,
@@ -215,6 +222,11 @@ export interface CheckpointRecord {
   /** Per-line SIM counts recorded with this checkpoint (empty on every
    *  non-carrier drawer). Drives the timeline's validity variance. */
   carrier_lines: CheckpointCarrierLineRecord[];
+  /** LIRA-335 — this checkpoint's differences, one per drawer and currency
+   *  it corrected. Empty for a matched checkpoint and for every checkpoint
+   *  saved before v222 (FR-022). Filled by `ClosingService
+   *  .getCheckpointTimeline`. */
+  differences: CheckpointDifferenceView[];
 }
 
 export interface CheckpointFilters {
@@ -223,6 +235,9 @@ export interface CheckpointFilters {
   type?: "OPENING" | "CLOSING" | "CHECKPOINT" | "ALL";
   drawer_name?: string;
   user_id?: number;
+  /** LIRA-335 — only checkpoints with an Open or Partly resolved
+   *  difference (applied by `ClosingService.getCheckpointTimeline`). */
+  open_only?: boolean;
 }
 
 /**
@@ -630,19 +645,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
             });
           }
 
-          // 1. Persist the audit snapshot (expected vs physical) for variance reports.
-          for (const r of effectiveRows) {
-            upsertAmounts.run(
-              tenantId,
-              result.lastInsertRowid,
-              r.drawer_name,
-              r.currency_code,
-              r.expected_amount,
-              r.physical_amount,
-            );
-          }
-
-          // 2. Compute per-currency reconciliation deltas against the drawer
+          // 1. The expected balance each row reconciles against: the drawer
           //    AS OF the checkpoint's time (LIRA-306 O-new-27) — the live
           //    balance online; the event's instant when an offline count is
           //    applied later, so movements booked after the count survive.
@@ -650,24 +653,43 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           //    projected sum (live) stays on the live balance, keeping
           //    drawer == Σ lines (§0.1).
           const asOf = this.getDrawerBalancesAsOf(now);
-          const adjustments = effectiveRows
-            .map((r) => {
-              const lineDerived =
-                r.currency_code === "USD" && drawerToCarrier.has(r.drawer_name);
-              const existing = getBalance.get(
-                r.drawer_name,
-                r.currency_code,
-                tenantId,
-              ) as { balance: number } | undefined;
-              const current = lineDerived
-                ? (existing?.balance ?? 0)
-                : (asOf[r.drawer_name]?.[r.currency_code] ?? 0);
-              return {
-                drawer_name: r.drawer_name,
-                currency_code: r.currency_code,
-                delta: r.physical_amount - current,
-              };
-            })
+          const expectedRows = effectiveRows.map((r) => {
+            const lineDerived =
+              r.currency_code === "USD" && drawerToCarrier.has(r.drawer_name);
+            const existing = getBalance.get(
+              r.drawer_name,
+              r.currency_code,
+              tenantId,
+            ) as { balance: number } | undefined;
+            const current = lineDerived
+              ? (existing?.balance ?? 0)
+              : (asOf[r.drawer_name]?.[r.currency_code] ?? 0);
+            return { row: r, current };
+          });
+
+          // 2. Persist the audit snapshot (expected vs physical). LIRA-335
+          //    FR-023: the expected figure stored is the server balance the
+          //    correction below is computed from, never the figure the
+          //    client's window showed when it opened — so the timeline's
+          //    "Over/Short" always equals the correction actually posted.
+          for (const { row: r, current } of expectedRows) {
+            upsertAmounts.run(
+              tenantId,
+              result.lastInsertRowid,
+              r.drawer_name,
+              r.currency_code,
+              current,
+              r.physical_amount,
+            );
+          }
+
+          // Per-currency reconciliation deltas against that same figure.
+          const adjustments = expectedRows
+            .map(({ row: r, current }) => ({
+              drawer_name: r.drawer_name,
+              currency_code: r.currency_code,
+              delta: r.physical_amount - current,
+            }))
             .filter((a) => Math.abs(a.delta) > RECONCILE_EPSILON);
 
           const netUsd = adjustments
@@ -688,7 +710,12 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
             amount_lbp: netLbp,
             summary: `Checkpoint: ${data.drawer_name} for ${closingDate}`,
             metadata_json: {
-              amounts: effectiveRows,
+              // FR-023: the same server expected figure stored above, never
+              // the client's possibly stale one.
+              amounts: expectedRows.map(({ row, current }) => ({
+                ...row,
+                expected_amount: current,
+              })),
               adjustments,
               carrier_lines: counted.map((c) => ({
                 carrier_line_id: c.line.id,
@@ -773,6 +800,14 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
               tenantId,
             });
           }
+
+          // 8. LIRA-335 — each posted correction becomes an open difference
+          //    (FR-001): the amount actually posted, not the figure shown on
+          //    screen. Same db transaction, so a failed checkpoint leaves none.
+          getCheckpointDifferenceRepository().recordForCheckpoint(
+            Number(result.lastInsertRowid),
+            adjustments,
+          );
         },
       );
       tx(data.amounts, data.carrier_lines ?? []);
@@ -1134,6 +1169,9 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       );
 
       checkpoint.carrier_lines = this.getCheckpointCarrierLines(checkpoint.id);
+      // LIRA-335 — filled by ClosingService (one query for every listed
+      // checkpoint); empty here so the shape is always complete.
+      checkpoint.differences = [];
 
       // A count of 0 (or below) is a real count — only NULL means "not
       // counted". Treating `<= 0` as missing made the timeline show the
@@ -1320,6 +1358,9 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
                LIMIT ?
             )
           GROUP BY t.id, p.currency_code
+          -- LIRA-335: a back-timed entry's CHECKPOINT_RESOLUTION offset nets
+          -- its legs; one that moved this drawer by nothing is not listed.
+         HAVING ROUND(SUM(p.amount), 2) <> 0
           ORDER BY julianday(t.created_at) DESC, t.id DESC, p.currency_code`,
       )
       .all(

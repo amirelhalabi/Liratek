@@ -8,6 +8,7 @@ import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
+import { resolveBackTimedDrawerMovement } from "./checkpointResolution.js";
 import { getPartnerRepository } from "./PartnerRepository.js";
 import { getSupplierRepository } from "./SupplierRepository.js";
 import {
@@ -611,7 +612,9 @@ export class LotoTicketRepository {
           payment_method: paymentMethod,
           // LIRA-310: read back by lotoKeptChangeLbp/Usd so a discount is
           // never mistaken for negative kept change.
-          ...(verifiedDiscountLbp > 0 ? { discount_lbp: verifiedDiscountLbp } : {}),
+          ...(verifiedDiscountLbp > 0
+            ? { discount_lbp: verifiedDiscountLbp }
+            : {}),
         },
         transaction_time: data.transaction_time,
       });
@@ -841,6 +844,14 @@ export class LotoTicketRepository {
         note: `Ticket sale: we owe LOTO ${amountWeOwe} LBP (sale: ${data.sale_amount}, commission: ${data.commission_amount})`,
         created_by: data.userId,
         transaction_id: txnId,
+      });
+
+      // LIRA-335 (FR-004..006) — last, after the cash legs and the supplier
+      // TOP_UP row: a ticket sold with a custom time before a checkpoint
+      // resolves the open Over of its drawer.
+      resolveBackTimedDrawerMovement(this.db, {
+        transactionId: txnId,
+        userId: data.userId,
       });
 
       return ticket;

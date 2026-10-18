@@ -12,6 +12,16 @@ import type { SaveMaintenanceJobPayload } from "@liratek/core";
 // LIRA-306 T093 — maintenance metadata edit payload (rule 21).
 import type { MaintenanceUpdateMetadataInput } from "@liratek/core";
 import type { SinceLastCountDrawer } from "@liratek/core";
+// LIRA-335 — checkpoint differences: payloads derived from the core schemas,
+// rows from core's own view types (rule 21).
+import type {
+  CheckpointFilters,
+  CheckpointRecord,
+  CheckpointDifferenceView,
+  OpenDifferencesAfterInput,
+  CloseCheckpointDifferenceInput,
+  ReopenCheckpointDifferenceInput,
+} from "@liratek/core";
 import type { UnitWarrantyDisplay } from "@liratek/core";
 import type {
   SubscriptionStatusView as CoreSubscriptionStatusView,
@@ -3165,13 +3175,18 @@ export async function recalculateDrawerBalances(): Promise<{
   );
 }
 
-export async function getCheckpointTimeline(filters?: {
-  date_from?: string;
-  date_to?: string;
-  type?: "OPENING" | "CLOSING" | "CHECKPOINT" | "ALL";
-  drawer_name?: string;
-  user_id?: number;
-}) {
+/** Timeline read. `open_only` (LIRA-335) keeps only checkpoints with an
+ *  open difference; `open_count` is how many differences are still open. */
+export type CheckpointTimelineResult = {
+  success: boolean;
+  checkpoints?: CheckpointRecord[];
+  open_count?: number;
+  error?: string;
+};
+
+export async function getCheckpointTimeline(
+  filters?: CheckpointFilters,
+): Promise<CheckpointTimelineResult> {
   return ipcOrHttp(
     async () => getElectronApi().closing.getCheckpointTimeline(filters),
     async () => {
@@ -3181,13 +3196,74 @@ export async function getCheckpointTimeline(filters?: {
       if (filters?.type) qs.set("type", filters.type);
       if (filters?.drawer_name) qs.set("drawer_name", filters.drawer_name);
       if (filters?.user_id != null) qs.set("user_id", String(filters.user_id));
+      if (filters?.open_only === true) qs.set("open_only", "1");
       const suffix = qs.toString() ? `?${qs.toString()}` : "";
-      return requestJson<{
-        success: boolean;
-        checkpoints?: any[];
-        error?: string;
-      }>(`/api/closing/checkpoint-timeline${suffix}`);
+      return requestJson<CheckpointTimelineResult>(
+        `/api/closing/checkpoint-timeline${suffix}`,
+      );
     },
+  );
+}
+
+/** LIRA-335 — differences that money saved at `at` could still resolve
+ *  (the hint under Set custom time). Admin and staff; for staff the server
+ *  returns `resolutions: []` and `closed_by_name: null`. */
+export async function getOpenDifferencesAfter(
+  input: OpenDifferencesAfterInput,
+): Promise<{
+  success: boolean;
+  data?: CheckpointDifferenceView[];
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().closing.getOpenDifferencesAfter(input),
+    async () =>
+      requestJson<{
+        success: boolean;
+        data?: CheckpointDifferenceView[];
+        error?: string;
+      }>(
+        `/api/closing/differences/open-after?${new URLSearchParams({ at: input.at }).toString()}`,
+      ),
+  );
+}
+
+/** LIRA-335 — close a checkpoint difference (admin). The actor is the
+ *  signed-in user on both transports. */
+export async function closeCheckpointDifference(
+  input: CloseCheckpointDifferenceInput,
+): Promise<{
+  success: boolean;
+  data?: CheckpointDifferenceView;
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().closing.closeDifference(input),
+    async () =>
+      requestJson<{
+        success: boolean;
+        data?: CheckpointDifferenceView;
+        error?: string;
+      }>("/api/closing/differences/close", { method: "POST", body: input }),
+  );
+}
+
+/** LIRA-335 — reopen a closed checkpoint difference (admin). */
+export async function reopenCheckpointDifference(
+  input: ReopenCheckpointDifferenceInput,
+): Promise<{
+  success: boolean;
+  data?: CheckpointDifferenceView;
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().closing.reopenDifference(input),
+    async () =>
+      requestJson<{
+        success: boolean;
+        data?: CheckpointDifferenceView;
+        error?: string;
+      }>("/api/closing/differences/reopen", { method: "POST", body: input }),
   );
 }
 

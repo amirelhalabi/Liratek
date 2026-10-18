@@ -16,6 +16,8 @@ import {
   getUserRepository,
   canIncludeProfit,
   type CreateExpenseData,
+  type CheckpointFilters,
+  redactCheckpointDifferencesForRole,
 } from "@liratek/core";
 import { requireRole, hasProfitsUnlock, getSession } from "../session.js";
 import { audit } from "./auditHelper.js";
@@ -28,6 +30,9 @@ import {
   SinceLastCountQuerySchema,
   UpdateDailyClosingIpcSchema,
   CreateCheckpointSchema,
+  CloseCheckpointDifferenceSchema,
+  ReopenCheckpointDifferenceSchema,
+  OpenDifferencesAfterSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -354,16 +359,9 @@ export function registerDatabaseHandlers(): void {
   // gate as the REST route and the page)
   ipcMain.handle(
     "closing:getCheckpointTimeline",
-    async (
-      e,
-      filters: {
-        date_from?: string;
-        date_to?: string;
-        type?: "OPENING" | "CLOSING" | "CHECKPOINT" | "ALL";
-        drawer_name?: string;
-        user_id?: number;
-      },
-    ) => {
+    // LIRA-335 — core's own filter type (incl. `open_only`), so the handler,
+    // the preload binding and the service cannot drift apart (rule 23).
+    async (e, filters: CheckpointFilters) => {
       try {
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) return { success: false, error: auth.error };
@@ -473,6 +471,93 @@ export function registerDatabaseHandlers(): void {
         };
       }
     },
+  );
+
+  // LIRA-335 — checkpoint differences.
+  // Read: which differences money saved at time `at` could still resolve.
+  // Admin and staff (the hint shows on cashier forms); staff get no names.
+  ipcMain.handle(
+    "closing:get-open-differences-after",
+    async (e, data: unknown) => {
+      try {
+        const auth = requireRole(e.sender.id, ["admin", "staff"]);
+        if (!auth.ok) return { success: false, error: auth.error };
+        const validation = validatePayload(OpenDifferencesAfterSchema, data);
+        if (!validation.ok) return { success: false, error: validation.error };
+        const result = getClosingService().getOpenDifferencesAfter(
+          validation.data,
+        );
+        if (!result.success || !result.data) return result;
+        return {
+          ...result,
+          // LIRA-335: staff see no user names (one rule shared with REST).
+          data: redactCheckpointDifferencesForRole(result.data, auth.role),
+        };
+      } catch (err) {
+        closingLogger.error(
+          { err },
+          "closing:get-open-differences-after failed",
+        );
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
+
+  // Write: close / reopen a difference (admin only). The actor is the
+  // session's user (REST takes it from the JWT), never a client field.
+  // (Literal ipcMain.handle calls, not a loop: the channel-policy
+  // completeness guard scans this file's source for channel names.)
+  const writeDifference = async (
+    webContentsId: number,
+    data: unknown,
+    op: "close" | "reopen",
+  ) => {
+    const channel =
+      op === "close" ? "closing:close-difference" : "closing:reopen-difference";
+    try {
+      const auth = requireRole(webContentsId, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+      const validation = validatePayload(
+        op === "close"
+          ? CloseCheckpointDifferenceSchema
+          : ReopenCheckpointDifferenceSchema,
+        data,
+      );
+      if (!validation.ok) return { success: false, error: validation.error };
+      const input = {
+        difference_id: validation.data.difference_id,
+        userId: auth.userId,
+      };
+      const service = getClosingService();
+      const result =
+        op === "close"
+          ? service.closeCheckpointDifference(input)
+          : service.reopenCheckpointDifference(input);
+      if (result.success) {
+        audit(webContentsId, {
+          action: `${op}_checkpoint_difference`,
+          entity_type: "checkpoint_differences",
+          entity_id: String(input.difference_id),
+          summary: `Checkpoint difference ${op === "close" ? "closed" : "reopened"}: #${input.difference_id}`,
+        });
+      }
+      return result;
+    } catch (err) {
+      closingLogger.error({ err }, `${channel} failed`);
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  };
+  ipcMain.handle("closing:close-difference", (e, data: unknown) =>
+    writeDifference(e.sender.id, data, "close"),
+  );
+  ipcMain.handle("closing:reopen-difference", (e, data: unknown) =>
+    writeDifference(e.sender.id, data, "reopen"),
   );
 
   // Unified checkpoint: get last checkpoint actuals (baseline)

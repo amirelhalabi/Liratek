@@ -7,6 +7,16 @@
 
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
+// LIRA-335 — checkpoint differences: timeline filters/rows and the
+// close/reopen/open-after payloads from core (rule 21).
+import type {
+  CheckpointFilters,
+  CheckpointRecord,
+  CheckpointDifferenceView,
+  OpenDifferencesAfterInput,
+  CloseCheckpointDifferenceInput,
+  ReopenCheckpointDifferenceInput,
+} from "@liratek/core";
 // LIRA-333 — open a WhatsApp link outside LiraTek (rule 21).
 import type { OpenExternalUrlInput } from "@liratek/core";
 // LIRA-331 — a user's own UI language (schema-derived, rule 21).
@@ -1780,13 +1790,38 @@ export type ApiAdapter = {
   createCheckpoint: (
     data: CreateCheckpointPayload,
   ) => Promise<{ success: boolean; id?: number; error?: string }>;
-  getCheckpointTimeline: (filters?: {
-    date_from?: string;
-    date_to?: string;
-    type?: "OPENING" | "CLOSING" | "CHECKPOINT" | "ALL";
-    drawer_name?: string;
-    user_id?: number;
-  }) => Promise<{ success: boolean; checkpoints?: any[]; error?: string }>;
+  /** LIRA-335 — `open_only` keeps only checkpoints with an open difference;
+   *  each record carries its `differences`, and `open_count` is how many are
+   *  still open. Filters and rows are core's own types (rule 21). */
+  getCheckpointTimeline: (filters?: CheckpointFilters) => Promise<{
+    success: boolean;
+    checkpoints?: CheckpointRecord[];
+    open_count?: number;
+    error?: string;
+  }>;
+  /** LIRA-335 — differences money saved at `at` could still resolve. Admin
+   *  and staff; for staff `resolutions` is [] and `closed_by_name` null. */
+  getOpenDifferencesAfter: (input: OpenDifferencesAfterInput) => Promise<{
+    success: boolean;
+    data?: CheckpointDifferenceView[];
+    error?: string;
+  }>;
+  /** LIRA-335 — admin only; the actor is the signed-in user. */
+  closeCheckpointDifference: (
+    input: CloseCheckpointDifferenceInput,
+  ) => Promise<{
+    success: boolean;
+    data?: CheckpointDifferenceView;
+    error?: string;
+  }>;
+  /** LIRA-335 — admin only; the actor is the signed-in user. */
+  reopenCheckpointDifference: (
+    input: ReopenCheckpointDifferenceInput,
+  ) => Promise<{
+    success: boolean;
+    data?: CheckpointDifferenceView;
+    error?: string;
+  }>;
   /** LIRA-252 wave 2 — Checkpoint Timeline companion read for manual
    *  carrier-line (MTC/Alfa) drawer adjustments (CARRIER_LINE_ADJUSTMENT
    *  transactions), sibling of `getCheckpointTimeline` above. Filters and

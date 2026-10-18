@@ -14937,6 +14937,56 @@ DROP TABLE IF EXISTS supplier_settlement_coverage;`);
       db.exec(`ALTER TABLE users DROP COLUMN language`);
     },
   },
+  {
+    version: 222,
+    name: "checkpoint_differences",
+    description:
+      "LIRA-335: checkpoint open differences. checkpoint_differences holds, " +
+      "per checkpoint, drawer and currency, the correction the checkpoint " +
+      "actually posted (amount signed: > 0 Over, < 0 Short) plus the owner's " +
+      "close (closed_at / closed_by). checkpoint_difference_resolutions " +
+      "links a back-timed transaction (the one carrying the " +
+      "CHECKPOINT_RESOLUTION offset leg) to the difference it resolved; a " +
+      "resolution counts while its transaction is not VOIDED (derived, never " +
+      "stored). No backfill: checkpoints saved before this have no rows and " +
+      "stay as they were (owner decision 2026-10-18).",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`CREATE TABLE IF NOT EXISTS checkpoint_differences (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+    closing_id INTEGER NOT NULL REFERENCES daily_closings(id),
+    drawer_name TEXT NOT NULL,
+    currency_code TEXT NOT NULL,
+    amount REAL NOT NULL,
+    closed_at TEXT NULL,
+    closed_by INTEGER NULL REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cpd_closing_drawer_currency ON checkpoint_differences(tenant_id, closing_id, drawer_name, currency_code);
+CREATE INDEX IF NOT EXISTS idx_cpd_drawer_currency ON checkpoint_differences(tenant_id, drawer_name, currency_code);
+CREATE TABLE IF NOT EXISTS checkpoint_difference_resolutions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+    difference_id INTEGER NOT NULL REFERENCES checkpoint_differences(id),
+    transaction_id INTEGER NOT NULL REFERENCES transactions(id),
+    amount REAL NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_cpdr_difference ON checkpoint_difference_resolutions(tenant_id, difference_id);
+CREATE INDEX IF NOT EXISTS idx_cpdr_transaction ON checkpoint_difference_resolutions(tenant_id, transaction_id);`);
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP INDEX IF EXISTS idx_cpdr_transaction;
+DROP INDEX IF EXISTS idx_cpdr_difference;
+DROP TABLE IF EXISTS checkpoint_difference_resolutions;
+DROP INDEX IF EXISTS idx_cpd_drawer_currency;
+DROP INDEX IF EXISTS idx_cpd_closing_drawer_currency;
+DROP TABLE IF EXISTS checkpoint_differences;`);
+    },
+  },
 ];
 
 /** v219 — partner_ledger.settlement_method's allowed values. */

@@ -1,4 +1,5 @@
 import type { TFunction } from "i18next";
+import { DRAWER_SHORTAGE_EXPENSE_CATEGORY } from "@liratek/core";
 
 /**
  * LIRA-331 (OD-3): the label shown for an expense category. The stored value
@@ -28,5 +29,9 @@ export function expenseCategoryLabel(
   t: TFunction<"expenses">,
 ): string {
   if (isSeeded(code)) return t(SEEDED_CATEGORY_KEYS[code]);
+  // LIRA-335: written by closing a Short checkpoint difference, never picked
+  // by hand. The stored value is core's one definition (rule 14).
+  if (code === DRAWER_SHORTAGE_EXPENSE_CATEGORY)
+    return t("category.Drawer_shortage");
   return code.replace(/_/g, " ");
 }

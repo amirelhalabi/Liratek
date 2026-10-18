@@ -83,6 +83,15 @@ import type { DesktopPairInput, DesktopUnpairInput } from "@liratek/core" with {
 import type { OpenExternalUrlInput } from "@liratek/core" with {
   "resolution-mode": "import",
 };
+// LIRA-335 — checkpoint differences; payloads from the core schemas (rule 21).
+import type {
+  CheckpointFilters,
+  OpenDifferencesAfterInput,
+  CloseCheckpointDifferenceInput,
+  ReopenCheckpointDifferenceInput,
+} from "@liratek/core" with {
+  "resolution-mode": "import",
+};
 
 console.log("[PRELOAD] Starting preload script...");
 
@@ -932,13 +941,18 @@ contextBridge.exposeInMainWorld("api", {
   closing: {
     getSystemExpectedBalancesDynamic: () =>
       ipcRenderer.invoke("closing:get-system-expected-balances-dynamic"),
-    getCheckpointTimeline: (filters: {
-      date_from?: string;
-      date_to?: string;
-      type?: "OPENING" | "CLOSING" | "CHECKPOINT" | "ALL";
-      drawer_name?: string;
-      user_id?: number;
-    }) => ipcRenderer.invoke("closing:getCheckpointTimeline", filters),
+    // LIRA-335 — core's own filter type (incl. `open_only`), shared with the
+    // handler, so the binding cannot drop a filter key (rules 12, 23).
+    getCheckpointTimeline: (filters: CheckpointFilters) =>
+      ipcRenderer.invoke("closing:getCheckpointTimeline", filters),
+    // LIRA-335 — checkpoint differences. The actor of close/reopen is the
+    // session's user; the client sends only the difference id.
+    getOpenDifferencesAfter: (data: OpenDifferencesAfterInput) =>
+      ipcRenderer.invoke("closing:get-open-differences-after", data),
+    closeDifference: (data: CloseCheckpointDifferenceInput) =>
+      ipcRenderer.invoke("closing:close-difference", data),
+    reopenDifference: (data: ReopenCheckpointDifferenceInput) =>
+      ipcRenderer.invoke("closing:reopen-difference", data),
     getCarrierLineAdjustments: (filters: {
       date_from?: string;
       date_to?: string;

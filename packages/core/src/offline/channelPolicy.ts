@@ -168,6 +168,11 @@ const ONLINE_ONLY: readonly string[] = [
   "recharge-basket:checkout",
   // LIRA-327 — the basket-wide For Partner submit: a money write, online only.
   "recharge-basket:partner-order",
+  // LIRA-335 — close / reopen a checkpoint difference: rare admin bookkeeping
+  // that books, voids or recreates a "Drawer shortage" expense. Online only;
+  // no replay binding is needed.
+  "closing:close-difference",
+  "closing:reopen-difference",
   "users:create",
   "users:set-password",
   "users:set-active",
@@ -331,6 +336,8 @@ const READ: readonly string[] = [
   "closing:get-initial-checkpoint-date",
   "closing:get-last-checkpoint-actuals",
   "closing:get-last-checkpoint-per-drawer",
+  // LIRA-335: open checkpoint differences after a time (the custom-time hint).
+  "closing:get-open-differences-after",
   "closing:get-since-last-count",
   "closing:get-system-expected-balances-dynamic",
   "closing:getCarrierLineAdjustments",

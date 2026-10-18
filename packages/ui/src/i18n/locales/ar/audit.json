@@ -313,5 +313,8 @@
     "returnedPhones": "الهواتف المُرجعة",
     "warrantyNote": "تُحدَّد الكفالة من جديد عند بيع الهاتف مرة أخرى.",
     "defective": "معطّل"
+  },
+  "legMethod": {
+    "checkpointResolution": "تسوية العدّ · {{drawer}}"
   }
 }

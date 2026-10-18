@@ -1870,6 +1870,40 @@ CREATE TABLE IF NOT EXISTS daily_closing_carrier_lines (
 CREATE INDEX IF NOT EXISTS idx_dccl_tenant_id ON daily_closing_carrier_lines(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_dccl_closing_id ON daily_closing_carrier_lines(closing_id);
 
+-- Checkpoint open differences (v222, LIRA-335). One row per checkpoint,
+-- drawer and currency the checkpoint corrected: amount is the posted delta
+-- (> 0 Over, < 0 Short); closed_at / closed_by record the owner's Close.
+-- A resolution row links the back-timed transaction carrying the
+-- CHECKPOINT_RESOLUTION offset leg to the difference; it counts while that
+-- transaction is not VOIDED. Neither table has a reversal owner of its own:
+-- a difference belongs to its (non-reversible) checkpoint, and a resolution
+-- goes inactive when its transaction is voided.
+CREATE TABLE IF NOT EXISTS checkpoint_differences (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+    closing_id INTEGER NOT NULL REFERENCES daily_closings(id),
+    drawer_name TEXT NOT NULL,
+    currency_code TEXT NOT NULL,
+    amount REAL NOT NULL,
+    closed_at TEXT NULL,
+    closed_by INTEGER NULL REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cpd_closing_drawer_currency ON checkpoint_differences(tenant_id, closing_id, drawer_name, currency_code);
+CREATE INDEX IF NOT EXISTS idx_cpd_drawer_currency ON checkpoint_differences(tenant_id, drawer_name, currency_code);
+CREATE TABLE IF NOT EXISTS checkpoint_difference_resolutions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+    difference_id INTEGER NOT NULL REFERENCES checkpoint_differences(id),
+    transaction_id INTEGER NOT NULL REFERENCES transactions(id),
+    amount REAL NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_cpdr_difference ON checkpoint_difference_resolutions(tenant_id, difference_id);
+CREATE INDEX IF NOT EXISTS idx_cpdr_transaction ON checkpoint_difference_resolutions(tenant_id, transaction_id);
+
 -- =============================================================================
 -- 5. Sync & Infrastructure
 -- =============================================================================
@@ -3163,4 +3197,7 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- trial_ends_at + idx_tenant_subscriptions_trial_ends, declared above.
     (220, 'tenant_subscriptions_trial'),
     -- v221 (LIRA-331) adds users.language (declared above).
-    (221, 'users_language');
+    (221, 'users_language'),
+    -- v222 (LIRA-335) adds checkpoint_differences +
+    -- checkpoint_difference_resolutions and their indexes, declared above.
+    (222, 'checkpoint_differences');

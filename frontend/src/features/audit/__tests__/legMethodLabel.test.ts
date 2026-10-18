@@ -12,7 +12,11 @@
  * a test asserting a payload/constant-driven shape must take it from the
  * shared source, never retype the literal by hand).
  */
-import { CHECKPOINT_ADJUSTMENT_METHOD } from "@liratek/core";
+import {
+  CHECKPOINT_ADJUSTMENT_METHOD,
+  CHECKPOINT_RESOLUTION_METHOD,
+} from "@liratek/core";
+import { loadLanguage } from "@/i18n/setup";
 import {
   legMethodLabel,
   fallbackMethodLabel,
@@ -75,5 +79,45 @@ describe("formatPaymentMethods — Method column stays drawer-agnostic (scope de
     expect(formatPaymentMethods(legs, labelByCode)).toBe(
       "Checkpoint Adjustment",
     );
+  });
+});
+
+/**
+ * LIRA-335 — the offset leg a back-timed transaction posts when it resolves
+ * a checkpoint's open difference names its drawer ("Checkpoint resolution ·
+ * General"), in English and Arabic. Rule 17: written before the label.
+ */
+describe("legMethodLabel — checkpoint resolution leg (LIRA-335)", () => {
+  it("names the drawer in English", () => {
+    const result = legMethodLabel(
+      leg({ method: CHECKPOINT_RESOLUTION_METHOD, drawer_name: "General" }),
+      new Map(),
+    );
+    expect(result).toBe("Checkpoint resolution · General");
+  });
+
+  it("uses the drawer's own label (OMT_System → OMT Cash Drawer)", () => {
+    const result = legMethodLabel(
+      leg({ method: CHECKPOINT_RESOLUTION_METHOD, drawer_name: "OMT_System" }),
+      new Map(),
+    );
+    expect(result).toBe("Checkpoint resolution · OMT Cash Drawer");
+  });
+
+  it("reads in Arabic when asked for Arabic", async () => {
+    await loadLanguage("ar");
+    const result = legMethodLabel(
+      leg({ method: CHECKPOINT_RESOLUTION_METHOD, drawer_name: "General" }),
+      new Map(),
+      "ar",
+    );
+    expect(result).not.toContain("Checkpoint resolution");
+    expect(result).toMatch(/[\u0600-\u06FF]/);
+  });
+
+  it("a resolution leg with no drawer_name falls back to the method label", () => {
+    expect(
+      legMethodLabel(leg({ method: CHECKPOINT_RESOLUTION_METHOD }), new Map()),
+    ).toBe(fallbackMethodLabel(CHECKPOINT_RESOLUTION_METHOD));
   });
 });

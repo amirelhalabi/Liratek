@@ -130,6 +130,10 @@ export * from "./constants/drawerModules.js";
 // (rule 14) instead of retyping the literal ClosingRepository posts it with.
 export * from "./constants/checkpointAdjustment.js";
 
+// LIRA-335 — checkpoint open differences: the one status derivation
+// (pure leaf, no imports beyond constants), shared by core and the timeline.
+export * from "./utils/checkpointDifference.js";
+
 // Drawer currency policy (UNRESTRICTED_DRAWERS / isUnrestrictedDrawer) — pure
 // `as const` tuple + one pure predicate, no Node.js deps. Settings →
 // CurrencyManager imports `isUnrestrictedDrawer` to omit the General drawer
@@ -356,7 +360,19 @@ export type {
 export type {
   CarrierLineAdjustmentRecord,
   CarrierLineAdjustmentFilters,
+  // LIRA-335 — the timeline's own read shape (now carrying `differences`),
+  // so the adapter types it instead of `any[]` (rule 21). Type-only.
+  CheckpointRecord,
+  CheckpointFilters,
+  CheckpointCurrency,
+  CheckpointCarrierLineRecord,
 } from "./repositories/ClosingRepository.js";
+// LIRA-335 — checkpoint difference views. Type-only: erased at compile
+// time, so the repository (db, logger) never lands in the bundle (rule 29).
+export type {
+  CheckpointDifferenceView,
+  CheckpointDifferenceResolutionView,
+} from "./repositories/CheckpointDifferenceRepository.js";
 
 // Commissions Report shape (Profits page "Commissions" tab —
 // OWNER_NOTES_2026-09-21.md §6, lane LC). Type-only, so importing it from

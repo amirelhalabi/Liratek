@@ -20,6 +20,7 @@
  */
 import type Database from "better-sqlite3";
 import { paymentSnapshotSchema } from "../../validators/transactionDetails";
+import { CHECKPOINT_RESOLUTION_METHOD } from "../../constants/checkpointAdjustment";
 
 export interface PaymentRowForSnapshot {
   method: string;
@@ -52,6 +53,9 @@ const PROVIDER_BOOKKEEPING_METHODS: ReadonlySet<string> = new Set([
   "COMMISSION",
   "PM_FEE",
   "VALIDITY_DAYS_COST",
+  // LIRA-335: the offset a back-timed transaction posts when it resolves a
+  // checkpoint difference — the shop's own books, never a customer line.
+  CHECKPOINT_RESOLUTION_METHOD,
 ]);
 export function isProviderBookkeepingRow(row: PaymentRowForSnapshot): boolean {
   return (
@@ -109,6 +113,10 @@ export function expectEverySnapshotMatchesPayments(
       )
       .all(t.id) as PaymentRowForSnapshot[];
     const fromPayments = rows
+      // LIRA-335: a checkpoint-resolution offset is never on the snapshot
+      // (it is added after the flow's legs, by the engine) — for every
+      // flow, so it is left out here rather than by each caller.
+      .filter((r) => r.method !== CHECKPOINT_RESOLUTION_METHOD)
       .filter((r) => !(opts.excludeRow?.(r, { id: t.id, metadata }) ?? false))
       .map((r) =>
         key({

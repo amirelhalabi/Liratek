@@ -17,6 +17,10 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { customServiceLogger } from "../utils/logger.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
+import {
+  resolveBackTimedDrawerMovement,
+  resyncShortageAfterVoid,
+} from "./checkpointResolution.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { requestNow } from "../utils/requestNow.js";
@@ -31,10 +35,7 @@ import { resolveKeptChange } from "./keptChange.js";
 import { resolveRoundingGiven } from "./roundingGiven.js";
 import { bookPayoutRoundingExpense } from "./changeRoundingExpense.js";
 import { hasRoundingGiven } from "../validators/common.js";
-import {
-  paymentMethodToDrawerName,
-  partitionLegs,
-} from "../utils/payments.js";
+import { paymentMethodToDrawerName, partitionLegs } from "../utils/payments.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import type {
   HoldMoneyCreateInput,
@@ -162,9 +163,7 @@ export function buildHoldMoneyDetails(
  * `reconcileLegs` check; the posting loops below read `leg.currency_code`
  * off the original array directly and never see this adapted shape.
  */
-function toReconciliationLeg(
-  leg: HoldMoneyPaymentLegInput,
-): ReconciliationLeg {
+function toReconciliationLeg(leg: HoldMoneyPaymentLegInput): ReconciliationLeg {
   return {
     method: leg.method,
     currencyCode: leg.currency_code,
@@ -353,8 +352,25 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
             });
           }
         } else {
-          this.postFallbackCashLeg(txnId, usd, lbp, 1, noteText, createdBy, tenantId);
+          this.postFallbackCashLeg(
+            txnId,
+            usd,
+            lbp,
+            1,
+            noteText,
+            createdBy,
+            tenantId,
+          );
         }
+
+        // LIRA-335 (FR-004..006) — a drop-off saved with a custom time resolves
+        // the open Over of its drawer. HOLD_MONEY has no reversal (a pickup is
+        // its correction, a new movement now), so the offset stays, like a
+        // refund (FR-009).
+        resolveBackTimedDrawerMovement(this.db, {
+          transactionId: txnId,
+          userId: createdBy,
+        });
 
         return holdId;
       })();
@@ -554,7 +570,8 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
             usd_amount: portionUsd,
             lbp_amount: portionLbp,
             kind: "collect",
-            partial: portionUsd < remainingUsd - USD_EPSILON ||
+            partial:
+              portionUsd < remainingUsd - USD_EPSILON ||
               portionLbp < remainingLbp - LBP_EPSILON,
             ...(keptUsd > 0 || keptLbp > 0
               ? { kept_change_usd: keptUsd, kept_change_lbp: keptLbp }
@@ -620,7 +637,15 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
                tenant_id, hold_money_id, transaction_id, usd_amount, lbp_amount, created_by, created_at, updated_at
              ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
           )
-          .run(tenantId, hold.id, txnId, portionUsd, portionLbp, collectedBy, requestNow());
+          .run(
+            tenantId,
+            hold.id,
+            txnId,
+            portionUsd,
+            portionLbp,
+            collectedBy,
+            requestNow(),
+          );
         const pickupId = Number(pickupResult.lastInsertRowid);
 
         // LIRA-334: the verified round-up — one books-only "Change rounding"
@@ -651,7 +676,12 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
                SET status = 'collected', collected_by = ?, collected_at = ?, updated_at = CURRENT_TIMESTAMP
                WHERE id = ? AND tenant_id = ?`,
             )
-            .run(collectedBy, data.transaction_time ?? requestNow(), hold.id, tenantId);
+            .run(
+              collectedBy,
+              data.transaction_time ?? requestNow(),
+              hold.id,
+              tenantId,
+            );
         }
 
         // 5. Service History row — paid_by derived from the REAL legs
@@ -681,6 +711,14 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
             tenantId,
             requestNow(),
           );
+
+        // LIRA-335 (FR-004..006) — a pickup saved with a custom time resolves
+        // the open Short of its drawer. Void pickup mirrors every leg of the
+        // pickup, the offset included.
+        resolveBackTimedDrawerMovement(this.db, {
+          transactionId: txnId,
+          userId: collectedBy,
+        });
 
         return txnId;
       })();
@@ -852,6 +890,16 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
           voidedBy,
         );
 
+        // LIRA-335 (FR-016), rule 20 — the legs above mirrored the pickup's
+        // checkpoint-resolution offset too; a closed Short it had explained
+        // gets its Drawer shortage expense back. No-op otherwise.
+        if (pickup.transaction_id != null) {
+          resyncShortageAfterVoid(this.db, {
+            transactionId: pickup.transaction_id,
+            userId: voidedBy,
+          });
+        }
+
         // The derived remaining balance just went back up — reopen the hold
         // if it had reached 'collected'.
         if (hold.status === "collected") {
@@ -865,7 +913,10 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
         return txnId;
       })();
 
-      customServiceLogger.info({ pickupId }, `Hold pickup voided: #${pickupId}`);
+      customServiceLogger.info(
+        { pickupId },
+        `Hold pickup voided: #${pickupId}`,
+      );
       return { success: true, id: result };
     } catch (error) {
       customServiceLogger.error(

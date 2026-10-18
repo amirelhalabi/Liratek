@@ -19,6 +19,7 @@ import {
   partitionLegs,
 } from "../utils/payments.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
+import { resolveBackTimedDrawerMovement } from "./checkpointResolution.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
 import {
   reconcileLegs,
@@ -2032,6 +2033,15 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           }
         }
 
+        // LIRA-335 (FR-004..006) — last, after the customer legs, change and the
+        // SMS-fee sibling: the customer cash of a back-timed recharge resolves
+        // the open difference of its drawer. The MTC/Alfa stock legs follow
+        // their lines and never resolve.
+        resolveBackTimedDrawerMovement(this.db, {
+          transactionId: txnId,
+          userId: createdBy,
+        });
+
         return rechargeId;
       })();
 
@@ -2238,7 +2248,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
               lbp: data.rounding_given_lbp,
             },
             claimedKept,
-            notAllowed: data.partnerMode === "FOR" || data.deferPayment === true,
+            notAllowed:
+              data.partnerMode === "FOR" || data.deferPayment === true,
             exchangeRate: sellRate,
             ...(data.tender_exchange_rate !== undefined
               ? { tenderExchangeRate: data.tender_exchange_rate }
@@ -2517,6 +2528,14 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             tenantId,
           });
         }
+
+        // LIRA-335 (FR-004..006) — a back-timed credit buyback: the cash paid
+        // out of a cash drawer resolves an open Short there; the carrier stock
+        // leg never resolves.
+        resolveBackTimedDrawerMovement(this.db, {
+          transactionId: txnId,
+          userId: createdBy,
+        });
 
         return rechargeId;
       })();

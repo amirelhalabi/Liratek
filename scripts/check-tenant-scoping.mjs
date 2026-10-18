@@ -116,6 +116,9 @@ const TENANT_SCOPED_TABLES = [
   "daily_closings",
   "daily_closing_amounts",
   "daily_closing_carrier_lines",
+  // v222 (LIRA-335): checkpoint open differences + their resolutions.
+  "checkpoint_differences",
+  "checkpoint_difference_resolutions",
   "vouchers",
   "loto_tickets",
   "loto_monthly_fees",

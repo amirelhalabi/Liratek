@@ -1111,6 +1111,9 @@ LIRA-305 decisions Y1–Y14). The old "Syria provider on the OMT/Whish page" pla
 - The Checkpoint Timeline flags **any** variance (no tolerance) on both the row badge
   and the detail modal, using a single amber "attention" style for overage and
   shortage alike — never green/red (lira-091-checkpoint-timeline-variance).
+  Since LIRA-335 an amber difference is also an **open difference** with a status
+  (Open, Partly resolved, Resolved, Closed · Short, Closed · Over). Open keeps
+  the amber look; see §12.2.
 - **Closing profit = the Profits Overview's GROSS profit for the client's day**
   (LIRA-219). `ClosingService.getDailyStatsSnapshot` computes NO profit SQL of its
   own — `ClosingRepository.getDailyActivityStats` returns only activity stats
@@ -1182,6 +1185,131 @@ grace window purely by the calendar while nobody recharges it, and the
 owner's "never burned because of days sold ahead" rule extends to that
 remainder too — only a burn with **zero** `days_owed` in play still refuses
 the whole charge.
+
+### 12.2 Open differences and back-timed resolution (LIRA-335, v222)
+
+Spec Kit: `specs/335-checkpoint-open-differences/` (owner decisions 2026-10-18).
+
+**The problem it solves.** A checkpoint corrects the drawer's expected balance
+to the counted cash at once (a `CHECKPOINT_ADJUSTMENT` leg for the delta).
+When the owner later finds the missed transaction and re-enters it with
+**Set custom time**, the re-entered money used to move the drawer a second
+time, so the next checkpoint showed the opposite difference. Now the
+re-entered transaction **resolves** the difference instead.
+
+**Open differences.**
+- `createCheckpoint` writes one `checkpoint_differences` row per drawer and
+  currency it actually corrected (|delta| > the checkpoint's epsilon). `amount`
+  is the posted delta, signed: > 0 is Over, < 0 is Short. It is the figure the
+  checkpoint posted, not the expected figure the window showed (FR-001). The
+  expected figure stored on the checkpoint is now the one the delta was computed
+  from (FR-023).
+- An all-drawers checkpoint gets one row per drawer and currency, keyed on the
+  real drawer name, never `AGGREGATED`.
+- Status comes from ONE pure helper, `describeCheckpointDifference`
+  (`utils/checkpointDifference.ts`, browser-safe, shared by core and UI):
+  `open = max(0, |amount| − Σ active resolutions)`; Resolved when open is
+  within epsilon, Closed when `closed_at` is set, Partly resolved when some is
+  resolved, otherwise Open. A difference never expires.
+- **From now on only** (FR-022, owner decision). Checkpoints saved before v222
+  have no difference rows. They stay amber with no status, are never resolved,
+  and never appear in the "Open differences only" filter.
+
+**Resolution by a back-timed transaction.**
+- The effective time of a transaction is `transactions.created_at`. That is the
+  Set custom time when one was given, and the original event time for an
+  offline transaction replayed later. `payments.created_at` never carries it.
+- Each flow calls `resolveBackTimedDrawerMovement(db, { transactionId, userId })`
+  (`repositories/checkpointResolution.ts`, server-only) at the end of its own db
+  transaction, after all its legs are posted. It does nothing unless a
+  checkpoint of a touched drawer exists after the effective time.
+- For each drawer and currency the transaction moved, it nets the transaction's
+  drawer-affecting legs (IN and change legs together, once). It then looks at
+  the **first** checkpoint of that drawer after the effective time only. When
+  that checkpoint has an open difference in the same currency and direction
+  (money in resolves an Over, money out resolves a Short), it resolves
+  `resolved = min(|net movement|, open)`, carrying the movement's sign (a $30
+  expense against a $20 open Short resolves $20). An older or newer checkpoint is never touched,
+  even if it has an open difference.
+- The resolved part is cancelled on the drawer by an offset leg on the SAME
+  transaction: `method = 'CHECKPOINT_RESOLUTION'`, same drawer and currency,
+  amount = −resolved, plus the matching `applyDrawerDelta`. Anything above
+  the resolved part moves the drawer as before. A
+  `checkpoint_difference_resolutions` row links the transaction to the
+  difference.
+- The transaction keeps its sales, profit, client and history records. Only the
+  drawer movement is offset (FR-008). `CHECKPOINT_RESOLUTION` is an internal leg
+  (`INTERNAL_LEG_METHODS`): hidden from customer-facing legs, cash flow and
+  Profits "By payment", but counted in drawer balances.
+- A transaction saved without an earlier time behaves exactly as before.
+- **Coverage.** Every flow that saves with `transaction_time` must call the
+  resolution step. A source-scan guard
+  (`src/__tests__/checkpointResolution.wiring.guard.test.ts`) fails any
+  repository that passes `transaction_time` to `createTransaction` without the
+  call, unless it is on the guard's exclusion list with a reason. Read that
+  list before assuming a flow is covered (session checkout is decided there,
+  research R7).
+
+**Void undoes, refund keeps.**
+- **Void** means the transaction never happened. The generic void mirrors every
+  payments row, so it mirrors the offset leg too. A resolution is active only
+  while its transaction is not voided (one named fragment,
+  `ACTIVE_RESOLUTION_SQL`), so the difference reopens by the same amount.
+  Create + void nets to 0 on every drawer, per currency.
+- **Refund** (full, partial or item) keeps the resolution. The counted cash was
+  real, and the refund is new cash handed back today. `_reversePayments` runs
+  in `refund` mode and skips `CHECKPOINT_RESOLUTION` legs, and item-refund
+  scaling filters them out, so the drawer moves by exactly the cash returned.
+
+**Close and Reopen (admin only).**
+- **Close** settles what is still open. A Short books one automatic
+  **"Drawer shortage"** expense for the open amount:
+  - books-only (no payments row, no drawer movement; the checkpoint already set
+    the drawer);
+  - dated the checkpoint's `closing_date`;
+  - linked by `source_ref_table = 'checkpoint_differences'` and
+    `source_ref_id = difference id`, so it is `is_auto` (rule 26): hidden in
+    Transactions by default, shown on the Expenses page;
+  - lowers net profit for that day.
+
+  An Over records nothing in Expenses or Profits. Expenses hold USD and LBP
+  only, so closing a Short in another currency records the closed state with
+  no expense, and the Close window says so.
+- **Reopen** voids the shortage expense and returns the difference to Open or
+  Partly resolved.
+- "Drawer shortage" is not offered in Add New Expense, and the Expenses page
+  cannot void or edit it on its own. Only Reopen (or a resolution) changes it.
+- A resolution that arrives after a Short was closed still resolves it, and the
+  shortage expense shrinks by the explained amount (voided when fully
+  explained). Voiding that transaction grows it back (FR-016). All of this
+  goes through one idempotent `syncShortageExpense(differenceId)` (void +
+  recreate at the derived target), called after close, reopen, a new
+  resolution and a void of a resolver.
+- A Closed · Over that a back-timed sale later explains is reopened and
+  resolved, so the drawer is not raised twice.
+- Never call this "write off": that word means dismissing a party's debt.
+
+**Reversal owners (rule 20).**
+
+| Row written | Reversal owner |
+| --- | --- |
+| `CHECKPOINT_RESOLUTION` payments leg + drawer delta | generic void (`_reversePayments`, mode `void`); refund skips it by design |
+| `checkpoint_difference_resolutions` row | none needed: inactive once its transaction is voided (derived) |
+| Drawer shortage expense | `syncShortageExpense` (Reopen, new resolution, void of a resolver); manual void refused |
+| `checkpoint_differences` row | none: belongs to its checkpoint, which is non-reversible |
+
+**Screens.** The Checkpoints timeline shows each difference's status, a short
+"resolved by" or "closed" line, and an "Open differences only" filter with a
+count. The details window lists what resolved each currency, what is still
+open, and offers Close difference… or Reopen to admins. Forms with Set custom
+time show one hint line under Transaction time when the chosen time is before
+a checkpoint with an open difference (`getOpenDifferencesAfter({ at })`, the
+time comes from the client, rule 27).
+
+**Guards.** Core: `checkpointResolution.test.ts`,
+`checkpointResolution.flows.test.ts` (create + void nets to 0 per flow),
+`checkpointResolution.reversal.test.ts`, `CheckpointDifferenceRepository.test.ts`,
+the wiring guard above. Web e2e: `lira-web-075-checkpoint-open-differences`.
 
 ---
 
@@ -1270,6 +1398,14 @@ Copy this into your task when building any flow that moves money:
     silently affects zero rows must never count as success.
     **This bug class is LIVE in shipped code** (`settleTransactions`, `recordSupplierCashflow`) —
     LIRA-193.
+
+16. **Back-timed transactions resolve checkpoint differences** (LIRA-335, §12.2). A flow that
+    accepts `transaction_time` (Set custom time) and moves a drawer must call
+    `resolveBackTimedDrawerMovement` at the end of its db transaction, after all legs are posted.
+    Otherwise a re-entered missed transaction moves the drawer a second time and the next
+    checkpoint shows a false opposite difference. The wiring guard
+    (`checkpointResolution.wiring.guard.test.ts`) fails a repository that skips it, unless the
+    exclusion list names it with a reason. Prove create + void nets to 0 per drawer and currency.
 
 ### Offline replay (LIRA-306)
 

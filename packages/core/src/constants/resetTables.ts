@@ -211,6 +211,11 @@ export const RESET_WIPE_TABLES: readonly string[] = [
   "audit_log",
   "carrier_line_movements",
   "carrier_line_owed_deliveries",
+  // LIRA-335 v222 — checkpoint open differences and what resolved them;
+  // wiped with the checkpoints and transactions they point at (children
+  // before parents).
+  "checkpoint_difference_resolutions",
+  "checkpoint_differences",
   "clients",
   "custom_services",
   "customer_session_transactions",

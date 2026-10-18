@@ -313,5 +313,8 @@
     "returnedPhones": "Returned phones",
     "warrantyNote": "The warranty is set again when the phone is resold.",
     "defective": "Defective"
+  },
+  "legMethod": {
+    "checkpointResolution": "Checkpoint resolution · {{drawer}}"
   }
 }

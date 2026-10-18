@@ -35,7 +35,8 @@
     "Inventory_Loss": "خسارة مخزون",
     "Refund_Damaged": "مرتجع تالف",
     "Line_Usage": "استهلاك الخط",
-    "Other": "أخرى"
+    "Other": "أخرى",
+    "Drawer_shortage": "نقص الصندوق"
   },
   "errors": {
     "wholeQuantity": "الرجاء إدخال كمية صحيحة من 1 أو أكثر.",

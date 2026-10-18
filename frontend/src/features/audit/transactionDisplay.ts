@@ -15,8 +15,11 @@
  * components or helpers, not both (react-refresh/only-export-components).
  */
 import type { CSSProperties } from "react";
+import { i18n } from "@/i18n/setup";
+import { DRAWER_CONFIGS } from "@/features/closing/config/drawers";
 import {
   CHECKPOINT_ADJUSTMENT_METHOD,
+  CHECKPOINT_RESOLUTION_METHOD,
   PROVIDER_LABELS,
   COMMISSION_MODE_OTHER_PAYMENT,
   COMMISSION_MODE_TOP_UP,
@@ -203,9 +206,27 @@ export function displaySummary(row: TransactionRow): string | null {
 export function legMethodLabel(
   leg: TransactionPaymentLeg,
   labelByCode: Map<string, string>,
+  /** The language to word it in; the app's current one when left out
+   *  (LIRA-335). */
+  lng?: string,
 ): string {
   if (leg.method === CHECKPOINT_ADJUSTMENT_METHOD && leg.drawer_name) {
     return `Checkpoint ${leg.drawer_name}`;
+  }
+  // LIRA-335 — the offset leg of a back-timed transaction that resolved a
+  // checkpoint's open difference, named after the drawer it offsets.
+  if (leg.method === CHECKPOINT_RESOLUTION_METHOD && leg.drawer_name) {
+    const name = leg.drawer_name;
+    const drawer = Object.prototype.hasOwnProperty.call(DRAWER_CONFIGS, name)
+      ? i18n.getFixedT(
+          lng ?? null,
+          "closing",
+        )(`drawers.${name as keyof typeof DRAWER_CONFIGS}.label`)
+      : name.replace(/_/g, " ");
+    return i18n.getFixedT(lng ?? null, "audit")(
+      "legMethod.checkpointResolution",
+      { drawer },
+    );
   }
   return labelByCode.get(leg.method) ?? fallbackMethodLabel(leg.method);
 }

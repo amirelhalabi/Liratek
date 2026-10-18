@@ -7,7 +7,12 @@ import {
   partitionLegs,
 } from "../utils/payments.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
-import { getTransactionRepository } from "./TransactionRepository.js";
+import {
+  DRAWER_SHORTAGE_LOCKED_MESSAGE,
+  getTransactionRepository,
+} from "./TransactionRepository.js";
+import { CHECKPOINT_DIFFERENCE_SOURCE_TABLE } from "../constants/checkpointAdjustment.js";
+import { resolveBackTimedDrawerMovement } from "./checkpointResolution.js";
 import {
   TRANSACTION_TYPES,
   STOCK_EXPENSE_CATALOG_PROVIDERS,
@@ -71,6 +76,9 @@ export interface ExpenseEntity {
    *  dormant. */
   is_refunded: number;
   refunded_at: string | null;
+  /** LIRA-335: the parent link of an automatic expense (e.g.
+   *  `checkpoint_differences` for a Drawer shortage). Null for manual ones. */
+  source_ref_table?: string | null;
 }
 
 /**
@@ -276,7 +284,14 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
   // one change fixes the read path identically for desktop and web (rule
   // 19).
   protected getColumns(): string {
-    return "id, description, category, amount_usd, amount_lbp, expense_date, paid_by_method, note, status, edited_by, edited_at, is_refunded, refunded_at";
+    const base =
+      "id, description, category, amount_usd, amount_lbp, expense_date, paid_by_method, note, status, edited_by, edited_at, is_refunded, refunded_at";
+    // LIRA-335 FR-013: the Expenses history locks a "Drawer shortage"
+    // expense by its parent link, so the read must carry it. Older
+    // hand-rolled test schemas lack the v166 columns.
+    return this._expensesHasSourceRefColumns()
+      ? `${base}, source_ref_table`
+      : base;
   }
 
   /**
@@ -311,7 +326,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
       !data.drawer_override &&
       (data.payments?.length ?? 0) > 0;
 
-    return this.db.transaction(() => {
+    const book = (): number => {
       // LIRA-262: a stock-use expense is only ever written on a v193 schema
       // (it is reached through createStockExpense alone), which also has the
       // v166 source-ref columns — so it gets its own fixed INSERT.
@@ -395,6 +410,29 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
         tenantId,
         cash ?? undefined,
       );
+    };
+
+    return this.db.transaction(() => {
+      const expenseId = book();
+      // LIRA-335 (FR-004..006) — last, after every leg: an expense saved with
+      // a custom (or offline event) time before a checkpoint of the drawer it
+      // paid from resolves that checkpoint's open Short instead of taking the
+      // money out a second time. Only for an expense the operator entered:
+      // an auto sibling (`source_ref_table` set — SMS fee, change rounding,
+      // Drawer shortage) is netted by its parent's own engine call.
+      if (!data.source_ref_table) {
+        const txn = getTransactionRepository().getBySourceId(
+          "expenses",
+          expenseId,
+        );
+        if (txn) {
+          resolveBackTimedDrawerMovement(this.db, {
+            transactionId: txn.id,
+            userId,
+          });
+        }
+      }
+      return expenseId;
     })();
   }
 
@@ -1002,15 +1040,43 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
   }
 
   /**
+   * LIRA-335 (FR-013) — a Drawer shortage expense (linked to
+   * `checkpoint_differences`) is removed only by Reopen on its checkpoint
+   * difference. Same refusal as the Transactions table void
+   * (`TransactionRepository._assertNotDrawerShortageExpense`).
+   */
+  private _assertNotDrawerShortage(id: number): void {
+    if (!this._expensesHasSourceRefColumns()) return;
+    const row = this.db
+      .prepare(
+        `SELECT source_ref_table FROM expenses WHERE id = ? AND tenant_id = ?`,
+      )
+      .get(id, getCurrentTenantId()) as
+      | { source_ref_table: string | null }
+      | undefined;
+    if (row?.source_ref_table === CHECKPOINT_DIFFERENCE_SOURCE_TABLE) {
+      throw new BusinessRuleError(DRAWER_SHORTAGE_LOCKED_MESSAGE);
+    }
+  }
+
+  /**
    * Delete an expense by ID and void its transaction
    */
-  deleteExpense(id: number, userId: number): void {
+  deleteExpense(
+    id: number,
+    userId: number,
+    /** LIRA-335 (FR-013) — only the Drawer shortage owner passes
+     *  `internal: true`; no transport forwards it. */
+    opts?: { internal?: boolean },
+  ): void {
+    const internal = opts?.internal === true;
+    if (!internal) this._assertNotDrawerShortage(id);
     this.db.transaction(() => {
       // Void the unified transaction (if exists)
       const txnRepo = getTransactionRepository();
       const originalTxn = txnRepo.getBySourceId("expenses", id);
       if (originalTxn) {
-        txnRepo.voidTransaction(originalTxn.id, userId);
+        txnRepo.voidTransaction(originalTxn.id, userId, { internal });
       }
       // Soft-delete: mark as voided instead of removing the record
       this.db
@@ -1032,6 +1098,11 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
   ): ExpenseEntity | null {
     const existing = this.findById(id);
     if (!existing) return null;
+    // LIRA-335 (FR-013): a Drawer shortage expense keeps its category — the
+    // category is what marks it as the checkpoint's own row.
+    if (data.category !== undefined && data.category !== existing.category) {
+      this._assertNotDrawerShortage(id);
+    }
 
     const fields: string[] = [];
     const values: unknown[] = [];

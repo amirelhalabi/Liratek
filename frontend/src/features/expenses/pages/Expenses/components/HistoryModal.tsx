@@ -14,6 +14,7 @@ import { localDay } from "@/shared/utils/localDay";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { UsdLbpTotalChips } from "@/shared/components/UsdLbpTotalChips";
 import { usdLbpTotals } from "@/shared/utils/usdLbpTotals";
+import { CHECKPOINT_DIFFERENCE_SOURCE_TABLE } from "@liratek/core";
 
 interface Expense {
   id?: number;
@@ -28,6 +29,17 @@ interface Expense {
   edited_by?: string | null;
   edited_at?: string | null;
   note?: string | null;
+  /** The parent row an automatic expense belongs to (v166). */
+  source_ref_table?: string | null;
+}
+
+/**
+ * LIRA-335 (FR-013): a Drawer shortage expense belongs to the checkpoint
+ * difference that was closed. Only Reopen on that difference may remove it,
+ * so its row offers neither Void nor Edit here.
+ */
+function isCheckpointShortage(expense: Expense): boolean {
+  return expense.source_ref_table === CHECKPOINT_DIFFERENCE_SOURCE_TABLE;
 }
 
 /**
@@ -200,7 +212,10 @@ export function HistoryModal({
                   sortKey: "amount_usd",
                 },
                 { header: tc("currency.LBP"), className: "px-6 py-3 text-end" },
-                { header: t("history.action"), className: "px-6 py-3 text-center" },
+                {
+                  header: t("history.action"),
+                  className: "px-6 py-3 text-center",
+                },
               ]}
               data={filteredData}
               exportExcel
@@ -269,7 +284,7 @@ export function HistoryModal({
                       </td>
                       <td className="px-6 py-4 text-center">
                         <div className="flex items-center justify-center gap-1">
-                          {isEditing ? (
+                          {isCheckpointShortage(expense) ? null : isEditing ? (
                             <>
                               <button
                                 onClick={handleSaveEdit}
@@ -296,13 +311,15 @@ export function HistoryModal({
                               <Pencil size={14} />
                             </button>
                           )}
-                          <button
-                            onClick={() => onVoid(expense.id!)}
-                            className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
-                            title={t("history.void")}
-                          >
-                            <Ban size={16} />
-                          </button>
+                          {!isCheckpointShortage(expense) && (
+                            <button
+                              onClick={() => onVoid(expense.id!)}
+                              className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
+                              title={t("history.void")}
+                            >
+                              <Ban size={16} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

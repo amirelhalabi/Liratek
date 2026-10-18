@@ -114,3 +114,19 @@ describe("transactions since the last count", () => {
     expect(omt.transactions.map((t) => t.id)).toEqual([otherDrawer]);
   });
 });
+
+describe("LIRA-335 — a back-timed entry that resolved a checkpoint difference", () => {
+  it("nets its CHECKPOINT_RESOLUTION offset: fully resolved is not listed, partly resolved shows only what moved the drawer", () => {
+    // Custom time before the count, legs saved after it (as a re-entered sale is).
+    const fully = txn({ at: "2026-10-09 17:30:00" });
+    leg(fully, "Whish_App", 50, "2026-10-09 22:00:00");
+    leg(fully, "Whish_App", -50, "2026-10-09 22:00:00", "CHECKPOINT_RESOLUTION");
+    const partly = txn({ at: "2026-10-09 17:40:00" });
+    leg(partly, "Whish_App", 60, "2026-10-09 22:01:00");
+    leg(partly, "Whish_App", -50, "2026-10-09 22:01:00", "CHECKPOINT_RESOLUTION");
+
+    const rows = getClosingService().getTransactionsSinceLastCount(["Whish_App"])[0].transactions;
+    expect(rows.map((t) => t.id)).not.toContain(fully);
+    expect(rows.find((t) => t.id === partly)?.drawer_amounts).toEqual({ USD: 10 });
+  });
+});

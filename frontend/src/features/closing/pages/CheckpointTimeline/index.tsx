@@ -18,64 +18,45 @@ import {
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { localDay } from "@/shared/utils/localDay";
 import type { DrawerType } from "../../types";
+import {
+  isOpenCheckpointDifference,
+  type CarrierLineAdjustmentRecord,
+  type CheckpointCurrency,
+  type CheckpointDifferenceView,
+  type CheckpointFilters as CoreCheckpointFilters,
+  type CheckpointRecord as CoreCheckpointRecord,
+} from "@liratek/core";
+import { useOptionalAuth } from "@/features/auth/context/AuthContext";
+import {
+  DifferenceResolutionBlock,
+  DifferenceStatusLine,
+} from "../../components/DifferenceStatusLine";
+import {
+  CloseDifferenceDialog,
+  ReopenDifferenceButton,
+} from "../../components/CloseDifferenceDialog";
 
-interface CheckpointCurrency {
-  currency_code: string;
-  opening_amount: number;
-  physical_amount?: number;
-  variance?: number;
-  drawer_name?: string;
-}
+/**
+ * The timeline's read shapes are core's own (rule 21): `CheckpointCurrency`,
+ * `CheckpointCarrierLineRecord` and `CarrierLineAdjustmentRecord` are used
+ * as is. Two page-only differences, both derived from core rather than
+ * copied:
+ *   - `CheckpointRecord` keeps `carrier_lines` / `differences` optional, as
+ *     this page always read them (`?? []`), so a payload without them
+ *     (older rows, a test fixture) still renders today's look (FR-022).
+ *   - `CheckpointFilters` is the filter bar's form state, so its four
+ *     inputs are always set; it stays assignable to core's filters.
+ */
+type CheckpointRecord = Omit<
+  CoreCheckpointRecord,
+  "carrier_lines" | "differences"
+> &
+  Partial<Pick<CoreCheckpointRecord, "carrier_lines" | "differences">>;
 
-/** A shop SIM line counted during the checkpoint (MTC/Alfa, plan Phase 3). */
-interface CheckpointCarrierLine {
-  carrier_line_id: number;
-  carrier: string;
-  phone_number: string;
-  label: string | null;
-  expected_credits: number;
-  counted_credits: number;
-  expected_expires_at: string | null;
-  /** Null when validity was not counted for this line. */
-  counted_expires_at: string | null;
-}
-
-interface CheckpointRecord {
-  id: number;
-  closing_date: string;
-  drawer_name: string;
-  checkpoint_type: "OPENING" | "CLOSING" | "CHECKPOINT";
-  created_at: string;
-  created_by: number;
-  user_name: string;
-  notes?: string;
-  currencies: CheckpointCurrency[];
-  /** Absent on rows written before v148 and on every non-carrier drawer. */
-  carrier_lines?: CheckpointCarrierLine[];
-}
-
-interface CheckpointFilters {
-  date_from: string;
-  date_to: string;
-  type: "OPENING" | "CLOSING" | "CHECKPOINT" | "ALL";
-  drawer_name: string;
-  user_id?: number;
-}
-
-/** LIRA-252 wave 2 — one manual MTC/Alfa SIM-line drawer adjustment
- *  (`CARRIER_LINE_ADJUSTMENT` transaction), as `ClosingRepository
- *  .getCarrierLineAdjustments` returns it. Local interface mirroring core's
- *  `CarrierLineAdjustmentRecord`, same convention this file already uses for
- *  `CheckpointRecord` above rather than importing the type. */
-interface CarrierLineAdjustmentEntry {
-  id: number;
-  created_at: string;
-  user_id: number | null;
-  user_name: string;
-  amount_usd: number;
-  summary: string;
-  metadata_json: string | null;
-}
+type CheckpointFilters = Required<
+  Pick<CoreCheckpointFilters, "date_from" | "date_to" | "type" | "drawer_name">
+> &
+  Pick<CoreCheckpointFilters, "user_id" | "open_only">;
 
 /** Only the fields this page reads out of a `CARRIER_LINE_ADJUSTMENT` row's
  *  `metadata_json` (see `postCarrierDrawerAdjustment`'s stamp). Defensive
@@ -112,7 +93,7 @@ type TimelineRow =
   | {
       kind: "adjustment";
       created_at: string;
-      adjustment: CarrierLineAdjustmentEntry;
+      adjustment: CarrierLineAdjustmentRecord;
     };
 
 function todayISO(): string {
@@ -156,6 +137,8 @@ export default function CheckpointTimeline() {
   /** counted − expected in words, e.g. "Short $3.00" / "Over 50,000 LBP". */
   const shortOrOver = (variance: number, amount: string): string =>
     t(variance < 0 ? "timeline.short" : "timeline.over", { amount });
+  const auth = useOptionalAuth();
+  const isAdmin = auth?.user?.role === "admin";
   const api = useApi();
   // Rule 25 — `api`'s identity is only stable because `ApiProvider` happens
   // to hand out a module-level singleton; nothing enforces that, and a test
@@ -170,7 +153,7 @@ export default function CheckpointTimeline() {
   // `timelineRows` below) so the operator can see why the next checkpoint's
   // "expected" moved.
   const [carrierAdjustments, setCarrierAdjustments] = useState<
-    CarrierLineAdjustmentEntry[]
+    CarrierLineAdjustmentRecord[]
   >([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -184,6 +167,11 @@ export default function CheckpointTimeline() {
   const [viewCheckpoint, setViewCheckpoint] = useState<CheckpointRecord | null>(
     null,
   );
+  // LIRA-335: how many checkpoints have an Open / Partly resolved difference
+  // across the chosen filters (the server's count).
+  const [openCount, setOpenCount] = useState<number | null>(null);
+  const [closingDifference, setClosingDifference] =
+    useState<CheckpointDifferenceView | null>(null);
   // closing_date of the initial (setup) checkpoint, for the "jump to setup" hint.
   const [initialCheckpointDate, setInitialCheckpointDate] = useState<
     string | null
@@ -223,17 +211,19 @@ export default function CheckpointTimeline() {
         filters.drawer_name === "MTC" || filters.drawer_name === "Alfa"
           ? filters.drawer_name
           : undefined;
+      // An Open-differences list holds checkpoints only.
       const skipAdjustments =
-        filters.drawer_name !== "" &&
-        filters.drawer_name !== "MTC" &&
-        filters.drawer_name !== "Alfa";
+        !!filters.open_only ||
+        (filters.drawer_name !== "" &&
+          filters.drawer_name !== "MTC" &&
+          filters.drawer_name !== "Alfa");
 
       const [checkpointResult, adjustmentResult] = await Promise.all([
         apiRef.current.getCheckpointTimeline(filters),
         skipAdjustments
           ? Promise.resolve<{
               success: boolean;
-              adjustments: CarrierLineAdjustmentEntry[];
+              adjustments: CarrierLineAdjustmentRecord[];
             }>({ success: true, adjustments: [] })
           : apiRef.current.getCarrierLineAdjustments({
               date_from: filters.date_from,
@@ -242,8 +232,19 @@ export default function CheckpointTimeline() {
             }),
       ]);
       if (checkpointResult.success && checkpointResult.checkpoints) {
-        setCheckpoints(checkpointResult.checkpoints);
+        const list: CheckpointRecord[] = checkpointResult.checkpoints;
+        setCheckpoints(list);
+        // Keep an open details window on the fresh record (after Close /
+        // Reopen, or any reload), so it never shows a stale status.
+        setViewCheckpoint((prev) =>
+          prev ? (list.find((c) => c.id === prev.id) ?? prev) : prev,
+        );
       }
+      setOpenCount(
+        typeof checkpointResult.open_count === "number"
+          ? checkpointResult.open_count
+          : null,
+      );
       if (adjustmentResult.success && adjustmentResult.adjustments) {
         setCarrierAdjustments(adjustmentResult.adjustments);
       } else {
@@ -529,7 +530,10 @@ export default function CheckpointTimeline() {
     }
 
     const checkpoint = row.checkpoint;
-    const diffs = getCheckpointDiffs(checkpoint);
+    const differences = checkpoint.differences ?? [];
+    // LIRA-335: a checkpoint saved with recorded differences shows each
+    // one's server status; older ones keep today's computed summary.
+    const diffs = differences.length > 0 ? [] : getCheckpointDiffs(checkpoint);
     const validityDiffs = getValidityDiffs(checkpoint);
     return (
       <tr
@@ -555,12 +559,15 @@ export default function CheckpointTimeline() {
             <span className="text-white font-mono font-medium">
               {getAmountDisplay(checkpoint)}
             </span>
+            {differences.map((d) => (
+              <DifferenceStatusLine key={d.id} difference={d} />
+            ))}
             {diffs.length > 0 || validityDiffs.length > 0 ? (
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-400 font-mono">
                 <AlertTriangle className="w-3 h-3 flex-shrink-0" />
                 {getVarianceSummary(diffs, validityDiffs)}
               </span>
-            ) : (
+            ) : differences.length > 0 ? null : (
               checkpoint.currencies.length > 0 && (
                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400">
                   <Check className="w-3 h-3 flex-shrink-0" />
@@ -629,6 +636,26 @@ export default function CheckpointTimeline() {
             onFromChange={(v) => setFilters({ ...filters, date_from: v })}
             onToChange={(v) => setFilters({ ...filters, date_to: v })}
           />
+
+          <label className="inline-flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={!!filters.open_only}
+              onChange={(e) => {
+                const { open_only: _off, ...rest } = filters;
+                setFilters(
+                  e.target.checked ? { ...rest, open_only: true } : rest,
+                );
+              }}
+              className="w-3.5 h-3.5 rounded accent-amber-500"
+            />
+            {t("timeline.openOnly")}
+            {openCount !== null && (
+              <span className="rounded-full bg-amber-500/20 px-1.5 text-[11px] font-mono text-amber-300">
+                {openCount}
+              </span>
+            )}
+          </label>
 
           <div className="flex items-center gap-2 ms-auto">
             <label className="text-sm text-slate-400">
@@ -814,18 +841,14 @@ export default function CheckpointTimeline() {
                 </button>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-slate-400">
-                  {t("timeline.colTime")}
-                </span>
+                <span className="text-slate-400">{t("timeline.colTime")}</span>
                 <span className="text-white">
                   {formatFullDate(viewCheckpoint.created_at)} ·{" "}
                   {formatTime(viewCheckpoint.created_at)}
                 </span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-slate-400">
-                  {t("timeline.colUser")}
-                </span>
+                <span className="text-slate-400">{t("timeline.colUser")}</span>
                 <span className="text-white">{viewCheckpoint.user_name}</span>
               </div>
               {viewCheckpoint.notes && (
@@ -901,10 +924,19 @@ export default function CheckpointTimeline() {
                               expected,
                             );
                             const matched = status === "match";
-                            return (
+                            const difference = viewCheckpoint.differences?.find(
+                              (d) =>
+                                d.drawer_name === drawer &&
+                                d.currency_code === code,
+                            );
+                            const line = (
                               <div
                                 key={`${drawer}-${code}`}
-                                className="flex items-center gap-3 rounded-lg bg-slate-900/50 border border-slate-700/50 px-3 py-2.5"
+                                className={
+                                  difference
+                                    ? "flex items-center gap-3"
+                                    : "flex items-center gap-3 rounded-lg bg-slate-900/50 border border-slate-700/50 px-3 py-2.5"
+                                }
                               >
                                 {/* Currency pill */}
                                 <span className="flex-shrink-0 w-12 text-center text-xs font-bold text-slate-300 bg-slate-800 border border-slate-700 rounded-md py-1">
@@ -916,7 +948,9 @@ export default function CheckpointTimeline() {
                                   <span className="text-sm text-slate-500 truncate">
                                     {formatCurrencyAmount(expected, code)}
                                   </span>
-                                  <span className="inline-block text-slate-600 rtl:-scale-x-100">→</span>
+                                  <span className="inline-block text-slate-600 rtl:-scale-x-100">
+                                    →
+                                  </span>
                                   <span className="text-base text-white font-semibold truncate">
                                     {formatCurrencyAmount(amount, code)}
                                   </span>
@@ -925,7 +959,8 @@ export default function CheckpointTimeline() {
                                 {/* Variance badge */}
                                 {matched ? (
                                   <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
-                                    <Check className="w-3.5 h-3.5" /> {t("details.matched")}
+                                    <Check className="w-3.5 h-3.5" />{" "}
+                                    {t("details.matched")}
                                   </span>
                                 ) : (
                                   <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-bold font-mono text-amber-400">
@@ -939,6 +974,20 @@ export default function CheckpointTimeline() {
                                     )}
                                   </span>
                                 )}
+                              </div>
+                            );
+                            if (!difference) return line;
+                            // LIRA-335: only a currency with a recorded
+                            // difference gets the resolution block.
+                            return (
+                              <div
+                                key={`${drawer}-${code}`}
+                                className="rounded-lg bg-slate-900/50 border border-slate-700/50 px-3 py-2.5 space-y-2"
+                              >
+                                {line}
+                                <DifferenceResolutionBlock
+                                  difference={difference}
+                                />
                               </div>
                             );
                           })}
@@ -999,7 +1048,9 @@ export default function CheckpointTimeline() {
                                   "USD",
                                 )}
                               </span>
-                              <span className="inline-block text-slate-600 rtl:-scale-x-100">→</span>
+                              <span className="inline-block text-slate-600 rtl:-scale-x-100">
+                                →
+                              </span>
                               <span className="text-sm text-white font-semibold truncate">
                                 {formatCurrencyAmount(
                                   line.counted_credits,
@@ -1009,7 +1060,8 @@ export default function CheckpointTimeline() {
                             </div>
                             {credits.status === "match" ? (
                               <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
-                                <Check className="w-3.5 h-3.5" /> {t("details.matched")}
+                                <Check className="w-3.5 h-3.5" />{" "}
+                                {t("details.matched")}
                               </span>
                             ) : (
                               <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-bold font-mono text-amber-400">
@@ -1026,16 +1078,21 @@ export default function CheckpointTimeline() {
                             </span>
                             <div className="flex-1 min-w-0 flex items-baseline gap-2 font-mono">
                               <span className="text-sm text-slate-500 truncate">
-                                {line.expected_expires_at ?? t("details.notSet")}
+                                {line.expected_expires_at ??
+                                  t("details.notSet")}
                               </span>
-                              <span className="inline-block text-slate-600 rtl:-scale-x-100">→</span>
+                              <span className="inline-block text-slate-600 rtl:-scale-x-100">
+                                →
+                              </span>
                               <span className="text-sm text-white font-semibold truncate">
-                                {line.counted_expires_at ?? t("details.notCounted")}
+                                {line.counted_expires_at ??
+                                  t("details.notCounted")}
                               </span>
                             </div>
                             {validity.status === "match" ? (
                               <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
-                                <Check className="w-3.5 h-3.5" /> {t("details.matched")}
+                                <Check className="w-3.5 h-3.5" />{" "}
+                                {t("details.matched")}
                               </span>
                             ) : (
                               <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-bold font-mono text-amber-400">
@@ -1052,7 +1109,61 @@ export default function CheckpointTimeline() {
               )}
             </div>
 
-            <div className="px-6 py-4 border-t border-slate-700 flex justify-end">
+            <div className="px-6 py-4 border-t border-slate-700 flex items-center justify-end gap-3 flex-wrap">
+              {(viewCheckpoint.differences?.length ?? 0) > 0 && (
+                <>
+                  {viewCheckpoint.differences!.some(
+                    isOpenCheckpointDifference,
+                  ) && (
+                    <span className="text-xs text-slate-400 me-auto">
+                      {t("details.footerHint", {
+                        time: formatTime(viewCheckpoint.created_at),
+                      })}
+                    </span>
+                  )}
+                  {isAdmin &&
+                    viewCheckpoint.differences!.map((d) => {
+                      const many = viewCheckpoint.differences!.length > 1;
+                      const tag = many && (
+                        <span className="text-[11px] font-bold text-slate-400">
+                          {d.currency_code}
+                        </span>
+                      );
+                      if (isOpenCheckpointDifference(d)) {
+                        return (
+                          <span
+                            key={d.id}
+                            className="inline-flex items-center gap-1.5"
+                          >
+                            {tag}
+                            <button
+                              type="button"
+                              onClick={() => setClosingDifference(d)}
+                              className="px-3 py-1.5 rounded-lg text-sm font-medium text-amber-100 bg-amber-600/30 hover:bg-amber-600/50 border border-amber-500/40 whitespace-nowrap transition-colors"
+                            >
+                              {t("details.closeButton")}
+                            </button>
+                          </span>
+                        );
+                      }
+                      if (d.status === "CLOSED") {
+                        return (
+                          <span
+                            key={d.id}
+                            className="inline-flex items-center gap-1.5"
+                          >
+                            {tag}
+                            <ReopenDifferenceButton
+                              differenceId={d.id}
+                              onDone={() => loadCheckpoints()}
+                            />
+                          </span>
+                        );
+                      }
+                      return null;
+                    })}
+                </>
+              )}
               <button
                 onClick={() => setViewCheckpoint(null)}
                 className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors"
@@ -1062,6 +1173,20 @@ export default function CheckpointTimeline() {
             </div>
           </div>
         </div>
+      )}
+
+      {closingDifference && viewCheckpoint && (
+        <CloseDifferenceDialog
+          difference={closingDifference}
+          checkpointLabel={`${drawerLabel(closingDifference.drawer_name)} · ${formatFullDate(
+            viewCheckpoint.created_at,
+          )}, ${formatTime(viewCheckpoint.created_at)}`}
+          onCancel={() => setClosingDifference(null)}
+          onDone={() => {
+            setClosingDifference(null);
+            loadCheckpoints();
+          }}
+        />
       )}
     </div>
   );

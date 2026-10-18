@@ -6704,6 +6704,77 @@ Owner decisions at build (2026-10-17): impersonation is gated like the shop; use
 
 **What users will notice:** new shops that sign up on the web app start a free 14-day trial; every page (and the phone app) shows the days left with a WhatsApp button to activate; after it ends they can still sign in, see and export everything, but new sales and records wait until LiraTek activates the shop.
 
+## LIRA-335: Checkpoint open differences — a re-entered missed transaction resolves the count, owner closes the rest — BUILT 2026-10-18 (owner decisions 2026-10-18)
+
+The owner's case: a cashier forgets to enter a $50 sale. The evening checkpoint shows Over $50 and corrects the drawer to the cash. Next day the owner finds the sale on camera, re-enters it in POS with "Set custom time" and makes a new checkpoint, which then shows a false Short $50: the checkpoint already took the $50 into the drawer and the re-entered sale adds it again. Spec Kit: `specs/335-checkpoint-open-differences/`. Design pages: https://claude.ai/artifact/VvoSEJNgZ4ACPaFygm6YjR (review, proposal, current vs proposed screens) and https://claude.ai/artifact/VxqWjjdycf89oi87tZqvmd (how checkpoints work today).
+
+Owner decisions 2026-10-18:
+- Every Over/Short on a checkpoint stays an open difference per drawer and currency, with no time limit. The checkpoint still corrects the drawer at once, as today.
+- A transaction saved with a custom time before a checkpoint of the same drawer resolves the first checkpoint after that time: same currency, same direction, capped at the open amount. The drawer is not raised a second time; the transaction keeps its sales, profit and history. Partial resolution allowed. Status word: **Resolved** (also Partly resolved).
+- No manual "link" button: the custom time is the link.
+- Nothing found: the owner closes it by hand. Short becomes an automatic "Drawer shortage" expense (books-only, like "Change rounding") on the checkpoint's day; Over is closed with nothing recorded. Reopen allowed.
+- Not "write off" — that word already means dismissing a party's debt.
+- Open differences are found with a filter on the Checkpoints timeline. No dashboard badge. Notes stay optional.
+- Proposed, not yet confirmed: a hint under "Transaction time" on forms with Set custom time; the Close button lives in the checkpoint details window.
+
+**What users will notice:** from now on, a checkpoint's Over or Short stays open until it is explained. Re-entering the missed transaction with "Set custom time" before that checkpoint marks the difference Resolved without counting the money twice, so the next checkpoint is balanced. The Checkpoints page has an "Open differences only" filter, and an admin can close an unexplained difference from the checkpoint's details (a Short appears under Expenses as "Drawer shortage"; Reopen undoes it). Checkpoints saved before the update stay as they were.
+
+## LIRA-336: Customer adds change on payouts — IN PROGRESS (owner decisions 2026-10-18)
+
+The owner's case: the shop owes a $197 payout, asks the customer for $3 (or 268,500 LBP) and hands out $200. Today this can't be recorded:
+- the "Customer pays" section refuses any overpay;
+- what the shop pays out ignores what the customer handed in;
+- typing $200 books a false $3 LIRA-334 "Change rounding" expense.
+
+Spec Kit: `specs/336-customer-adds-change/`.
+
+Owner decisions 2026-10-18:
+- All payout screens: OMT/Whish system receive, Binance, app receive, From client, Exchange, Hold Money (one currency) and buy-back. Debts cash-out and refunds are excluded.
+- Money the customer adds above what they owe raises what the shop pays out. It is applied before the round-up and kept-change checks.
+- Cap: $5 / 450,000 LBP. A bigger swap goes through Exchange.
+
+**What users will notice:** when paying out, you can tap "+ Customer gives change" and enter the few dollars or pounds the customer hands you. The payment window then expects you to pay out that much more (for example $197 owed + $3 = $200), and both drawers are recorded correctly.
+
+## LIRA-337: Give credit back from a line for sale — BUILT 2026-10-18 (owner decisions 2026-10-18)
+
+The owner's case: a line held for sale has $15 of credit (it had to be recharged), and the buyer only wants $9. Today there is no single step. A sale plus a Mobile Recharge credit buy-back pays cash out at the buy-back rate, and the manual route takes three unlinked edits that cannot be voided. Spec Kit: `specs/337-give-credit-back/`.
+
+Owner decisions 2026-10-18:
+- The price drops by the credit given back × the credit's selling price per $1, which the cashier can change (default: Shop Config, 100,000 LBP).
+- The sender pays the SMS fee, so the buyer keeps exactly what they asked for. The shop line and MTC/Alfa drawer get the credit actually sent.
+- The cost drops by the credit sent × the shop's credit cost rate, so the fee stays in the line's cost. No expense row.
+- One transaction (`LINE_CREDIT_GIVE_BACK`), undone with one Void. Refused once the line is sold or while a newer recharge/give-back exists. Allowed even if the shop line has spent the credit (same as LIRA-309).
+
+**Built 2026-10-18:**
+- Core: pure `utils/lineGiveBack.ts` `planLineGiveBack`, shared by the panel and the service. Migration v223 adds `resale_line_give_backs`. `ResaleLineService.giveBack`; `ResaleLineRepository.recordGiveBack` / `reverseGiveBack`, plus one newest-first check across recharges and give-backs; `TransactionRepository._reverseResaleLineGiveBack` (void and refund).
+- Transports: IPC `resale-lines:give-back` (admin, staff, online-only) and REST `POST /api/resale-lines/:productId/give-back`; adapter `giveBackResaleLineCredit`.
+- UI: the "Give credit back" button and panel on Phone Lines → For sale, in English and Arabic.
+- Fixed in passing: the LIRA-309 `resaleLines.recharge` desktop type sat inside `carrierLines.getAllActive` in `electron.d.ts`.
+- Tests:
+  - planner 9/9, service 9/9 and the panel 5/5, all seen failing first;
+  - REST route 3 new tests, not proven failing-first;
+  - LIRA-309 recharge 15/15 still green.
+- Not run: web e2e, and the desktop app (no Electron on the Mac).
+
+**Built 2026-10-18 (Spec Kit T001–T041, five parallel lanes plus integration):**
+- Core: migration v222 (`checkpoint_differences`, `checkpoint_difference_resolutions`). `createCheckpoint` records each posted correction as a difference and now stores the server's expected figure (the one the correction used). `checkpointResolution.ts` `resolveBackTimedDrawerMovement` runs at the end of every wired flow: a transaction whose time is before a later checkpoint of a drawer it moved gets a `CHECKPOINT_RESOLUTION` offset leg, capped at what is open in that direction. Void mirrors it; refund and item refund skip it. `CheckpointDifferenceRepository` close/reopen books or voids the books-only "Drawer shortage" expense (USD/LBP only), which cannot be voided or re-categorised by hand. A source-scan guard fails any flow passing `transaction_time` without calling the engine.
+- Desktop + web: `closing:get-open-differences-after` (staff see no names), `closing:close-difference`, `closing:reopen-difference` (admin, online only), `open_only` on the timeline read. The web e2e shim is updated.
+- Screens: timeline status pills, sublines and the "Open differences only" filter; details resolution list with Close difference… / Reopen; Close window; a hint under Transaction time on every form that has Set custom time (Over = money in, Short = money out); Expense history locks Drawer shortage rows; Arabic throughout.
+
+**Not covered (move the drawer as today, in the engine's exclusion list):** session checkout's pooled customer payment (each item's own legs still resolve); drawer top-up, cash-out and wallet exchange; MTC/Alfa (resolving the drawer without its SIM line would break drawer = sum of lines; close by hand). The release note says so.
+
+**Tests (affected files only):** core 34 suites / 283 tests plus 31 related flow suites / 363; electron-app 3 / 39; backend 7 / 63; frontend 23 / 107. Seen failing first, then green: checkpointDifference, CheckpointDifferenceRepository, storedExpected (FR-023), checkpointResolution (worked example: "Expected 1050, Received 1100"), the reversal and flows tables (every flow red), the wiring guard (8 offenders), handlers, backend routes, channelPolicy.complete, timeline/Close/hint/HistoryModal/category/leg-label tests, the Arabic resolution label, staff redaction, the since-last-count netting and the Expenses read of the parent link. Not failing-first (labelled in the agents' reports): some negative and edge cases written after their code, ClosingService.differences, resetTables.guard, the Short hint assertion. Typecheck and lint have 0 errors in our files. Two typecheck errors come from another session's untracked tests (`measureCustomerLegs.test.ts`, `addedChangeReplayShape.test.ts`). Static gates are green: i18n, tenant-scoping, bind-arity, schema-equivalence, transport-parity, release notes.
+- Not run: web e2e `lira-web-075` (written and typechecked; owner chose affected jest only), desktop app.
+
+**Follow-ups:**
+1. In the shared e2e database, open differences left by earlier specs (lira-web-010, 075) absorb later specs' back-timed money; reset or close them in specs that back-date.
+2. The D1 cash-flow report and Profits "By payment" appear to count today's `CHECKPOINT_ADJUSTMENT` legs (research R11).
+3. MTC/Alfa line-aware resolution.
+4. A per-form hint naming the exact drawer and amount.
+5. Decide whether back-timed drawer top-ups should resolve.
+
+**What users will notice:** on Phone Lines → For sale, a "Give credit back" button sends part of a line's credit to your shop line before you sell it. The line's price and cost drop, and you can undo it with Void.
+
 ## LIRA-334: Round-up overpays — payouts book "Change rounding", customer pays fills "+ Extra" — BUILT 2026-10-18 (owner decisions 2026-10-18)
 
 The owner's case: a total of 102.90, and the cashier pays out or takes 103.00 because there are no coins. Today a payout is refused with "The payment is more than the total." The cashier then types 102.90, hands out $103 anyway, and the drawer ends the day 10¢ short with no reason. Spec Kit: `specs/334-round-up-overpays/`.

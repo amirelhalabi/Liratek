@@ -7,6 +7,7 @@
 
 import { BaseRepository } from "./BaseRepository.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
+import { resolveBackTimedDrawerMovement } from "./checkpointResolution.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import {
@@ -984,6 +985,15 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       // (margin only) but ARE in the unified row's profit_usd, and callers
       // (the session stamp, FEATURE_GUIDE §10/§11) must match the unified
       // row — so they are added back here.
+      // LIRA-335 (FR-004..006) — last, after every leg, the rounding expense
+      // sibling and the partner row: an exchange saved with a custom time before
+      // a checkpoint resolves the open difference per drawer and currency (e.g.
+      // the USD taken in against an Over) instead of moving the drawer twice.
+      resolveBackTimedDrawerMovement(this.db, {
+        transactionId: txnId,
+        userId: createdBy,
+      });
+
       const bookedProfitUsd =
         (this.findById(id)!.profit_usd ?? profitUsd) + kept.profitUsd;
 

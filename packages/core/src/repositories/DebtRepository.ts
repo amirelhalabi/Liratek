@@ -30,6 +30,7 @@ import {
 } from "../utils/debtRepaymentAllocation.js";
 import { coverBasketMember } from "./basketMemberCoverage.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
+import { resolveBackTimedDrawerMovement } from "./checkpointResolution.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { buildCounterpartyMetadata } from "../validators/counterparty.js";
@@ -945,6 +946,15 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
             : undefined,
         );
       }
+
+      // LIRA-335 (FR-004..006) — last, after the cash legs and the bundled
+      // discount (a COUNTERPARTY_DISCOUNT row that moves no drawer): a repayment
+      // saved with a custom time before a checkpoint resolves its open Over
+      // instead of raising the drawer twice.
+      resolveBackTimedDrawerMovement(this.db, {
+        transactionId: txnId,
+        userId: data.created_by,
+      });
 
       return { id: repaymentId };
     });
@@ -2075,6 +2085,14 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         upsertBalance.run(drawer, leg.currencyCode, -amt, tenantId);
       }
 
+      // LIRA-335 (FR-004..006) — a back-timed credit cash-out resolves an open
+      // Short. CREDIT_CASH_OUT is non-reversible: its module correction is a new
+      // movement now, so the offset stays (like a refund, FR-009).
+      resolveBackTimedDrawerMovement(this.db, {
+        transactionId: txnId,
+        userId: data.created_by,
+      });
+
       return { id: ledgerId };
     });
   }
@@ -2318,6 +2336,15 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         );
         upsertBalance.run(drawer, leg.currencyCode, drawerSign * amt, tenantId);
       }
+
+      // LIRA-335 (FR-004..006) — a back-timed cash entry (credit in / debt cash
+      // out) resolves the open difference in its direction; the paper path above
+      // moves no drawer and returns before this. Non-reversible types keep the
+      // offset (module correction is a new movement).
+      resolveBackTimedDrawerMovement(this.db, {
+        transactionId: txnId,
+        userId: data.created_by,
+      });
 
       return { id: ledgerId };
     });

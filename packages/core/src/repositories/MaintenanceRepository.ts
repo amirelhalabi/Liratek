@@ -10,6 +10,7 @@ import {
 import { getDebtService } from "../services/DebtService.js";
 import { maintenanceLogger } from "../utils/logger.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
+import { resolveBackTimedDrawerMovement } from "./checkpointResolution.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
   applyDrawerDelta,
@@ -1119,6 +1120,13 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
 
     if (defer) {
       // Basket owns customer cash; nothing more to post on this transaction.
+      // LIRA-335 (FR-004..006) — a basket item: only the legs on the job own
+      // transaction (never the pooled basket cash, see
+      // CHECKPOINT_RESOLUTION_EXCLUSIONS) can resolve.
+      resolveBackTimedDrawerMovement(this.db, {
+        transactionId: txnId,
+        userId: createdBy,
+      });
       return;
     }
 
@@ -1258,6 +1266,14 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
         `Debt created for maintenance job #${jobId}: ${debtAmount} ${opts.currency ?? "USD"}`,
       );
     }
+
+    // LIRA-335 (FR-004..006) — last, after the payment and change legs, the
+    // rounding sibling and the debt row: a repair paid with a custom time before
+    // a checkpoint resolves the open difference of its drawer.
+    resolveBackTimedDrawerMovement(this.db, {
+      transactionId: txnId,
+      userId: createdBy,
+    });
   }
 
   /**

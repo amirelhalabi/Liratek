@@ -50,6 +50,7 @@ import {
 } from "../utils/insuranceFulfillment.js";
 import { type WorkStatus } from "../utils/customServiceWorkStatus.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
+import { resolveBackTimedDrawerMovement } from "./checkpointResolution.js";
 import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
 import {
   TRANSACTION_DETAILS_VERSION,
@@ -88,7 +89,6 @@ function customerAmountDue(data: CreateCustomServiceInput): ExpectedTotals {
     lbp: (data.price_lbp ?? 0) + (data.extra_lbp ?? 0),
   };
 }
-
 
 function toReconciliationLegs(
   legs: NonNullable<CreateCustomServiceInput["payments"]>,
@@ -1160,6 +1160,14 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           }
         }
 
+        // LIRA-335 (FR-004..006) — last, after every leg, the partner rows and
+        // the rounding sibling: a service saved with a custom time before a
+        // checkpoint resolves the open difference of the drawer it moved.
+        resolveBackTimedDrawerMovement(this.db, {
+          transactionId: txnId,
+          userId: createdBy,
+        });
+
         return serviceId;
       })();
 
@@ -1428,7 +1436,14 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
              fulfilled_at = CASE WHEN ? = ? THEN ? ELSE NULL END
          WHERE id = ? AND tenant_id = ?`,
       )
-      .run(status, status, TERMINAL_FULFILLMENT_STATUS, requestNow(), id, tenantId);
+      .run(
+        status,
+        status,
+        TERMINAL_FULFILLMENT_STATUS,
+        requestNow(),
+        id,
+        tenantId,
+      );
     return this.findById(id);
   }
 

@@ -233,6 +233,10 @@ export * from "./constants/drawerModules.js";
 // SAME definition ClosingRepository posts it with (rule 14).
 export * from "./constants/checkpointAdjustment.js";
 
+// LIRA-335 — checkpoint open differences: the one status derivation
+// (pure leaf, no imports beyond constants), shared by core and the timeline.
+export * from "./utils/checkpointDifference.js";
+
 // LIRA-306 offline desktop fallback — pure modules (also in browser.ts).
 export * from "./offline/index.js";
 // LIRA-306 — server-only replay readers (tenant context; never in browser.ts).
