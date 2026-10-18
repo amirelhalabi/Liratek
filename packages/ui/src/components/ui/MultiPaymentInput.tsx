@@ -1928,8 +1928,17 @@ export default function MultiPaymentInput({
   const roundUpLinesKey = paymentLines
     .map((l) => `${l.id}:${l.currencyCode}:${l.amount}`)
     .join("|");
+  // Only an amount the CASHIER typed (or a split they built) can be a
+  // round-up: an untouched single line is the box's own prefill, and it
+  // follows the total INCLUDING the extra — autofilling from it chases its
+  // own tail (seen on an OMT send with fees included: the line sat above
+  // the total, the extra raised the line, the line raised the extra, until
+  // the cap withdrew it and the cycle restarted — a synchronous render loop).
   const roundUpEligible =
-    extraAllowed && payer === "customer" && !perCurrencyTotals;
+    extraAllowed &&
+    payer === "customer" &&
+    !perCurrencyTotals &&
+    (isSplitMode || singleAmountTouchedRef.current);
   const roundUpSuggestion = roundUpEligible
     ? suggestRoundUpExtra({
         paidInTarget: totalPaid,
