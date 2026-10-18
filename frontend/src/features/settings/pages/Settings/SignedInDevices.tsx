@@ -208,6 +208,8 @@ export default function SignedInDevices() {
 
       <div className="border border-slate-700 rounded-lg overflow-hidden">
         <DataTable
+          // <th> centres by default while the cells start-align; match them.
+          thClassName="p-2 text-start"
           columns={[
             t("devices.col.device"),
             t("devices.col.ip"),
