@@ -125,6 +125,10 @@ export interface PaymentSheetProps {
    *  2026-10-06 — no "Keep change" button); unwired, an under-return stays
    *  the red "not covered" warning. */
   onKeptChange?: (kept: { usd: number; lbp: number } | null) => void;
+  /** LIRA-334 payout round-up pass-through (MultiPaymentInput's
+   *  `onRoundUpChange`) — only on a payout sheet whose backend accepts
+   *  `rounding_given_*` on the same payload. */
+  onRoundUpChange?: (roundUp: { usd: number; lbp: number } | null) => void;
   /** Pass-through to MultiPaymentInput's `direction`: "payout" when the
    *  lines are cash the shop hands OUT (Exchange) — keep-change then keeps
    *  a small SHORTFALL instead of an overpay. Default "payment". */
@@ -216,6 +220,7 @@ export function PaymentSheet({
   onPaymentChange,
   onReturnChange,
   onKeptChange,
+  onRoundUpChange,
   direction,
   payer,
   unreturnedChangeTo,
@@ -460,6 +465,7 @@ export function PaymentSheet({
                 onPaymentChange(lines);
               }}
               {...(onKeptChange ? { onKeptChange } : {})}
+              {...(onRoundUpChange ? { onRoundUpChange } : {})}
               {...(direction ? { direction } : {})}
               {...(payer ? { payer } : {})}
               {...(unreturnedChangeTo ? { unreturnedChangeTo } : {})}

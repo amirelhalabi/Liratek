@@ -220,6 +220,14 @@ export default function MobileRecharge() {
     lbp: number;
     payout: boolean;
   } | null>(null);
+  // LIRA-334 — payout round-up on the credit buy-back (a little MORE handed
+  // out than owed, booked as change rounding). `payout` is the same stale
+  // guard as `keptChange`; only ever sent on a buy-back.
+  const [telecomRoundUp, setTelecomRoundUp] = useState<{
+    usd: number;
+    lbp: number;
+    payout: boolean;
+  } | null>(null);
   // Payment-Legs Integrity plan (false-reject fix): the rate the
   // PaymentSheet is ACTUALLY using (default, or the operator's own edit of
   // the sheet's header field) — sent as tender_exchange_rate so the backend
@@ -413,7 +421,21 @@ export default function MobileRecharge() {
     lbp: number;
     payout: boolean;
   } | null>(null);
+  // LIRA-334 — payout round-up on a Binance cash-out (see `telecomRoundUp`).
+  const [cryptoRoundUp, setCryptoRoundUp] = useState<{
+    usd: number;
+    lbp: number;
+    payout: boolean;
+  } | null>(null);
   const [cryptoPaidBy, setCryptoPaidBy] = useState("CASH");
+  // LIRA-334: a Binance cash-out rounds up only where it keeps change — a
+  // walk-in (no session: the basket pays out) cash payout (not credited to
+  // the customer's account, which is credited in full). Gates both the
+  // sheet's `onRoundUpChange` and the payload (rule 14).
+  const cryptoRoundUpApplies =
+    cryptoType === "RECEIVE" &&
+    !activeSession &&
+    cryptoPaidBy !== "CUSTOMER_ACCOUNT";
   // LIRA-269: the crypto sheet's discount. On a cash-out it comes off the
   // shop's fee (the customer receives more): booked as `commission = fee −
   // discount` via cryptoAmounts — the helper CryptoForm sized the sheet with.
@@ -580,6 +602,7 @@ export default function MobileRecharge() {
     setCryptoPaymentLines([]);
     setCryptoReturnLegs([]);
     setCryptoKeptChange(null);
+    setCryptoRoundUp(null);
     setCryptoClientId(null);
     setCryptoClientName("");
     setCryptoClientPhone("");
@@ -965,6 +988,7 @@ export default function MobileRecharge() {
       setTelecomClientPhone("");
       setReturnLegs([]);
       setKeptChange(null);
+      setTelecomRoundUp(null);
       return;
     }
 
@@ -1025,6 +1049,17 @@ export default function MobileRecharge() {
               kept_change_lbp: keptChange.lbp,
             }
           : {}),
+        // LIRA-334: the buy-back payout round-up — a buy-back only, and only
+        // when it was reported in payout mode.
+        ...(isBuyback &&
+        telecomRoundUp &&
+        telecomRoundUp.payout &&
+        (telecomRoundUp.usd > 0 || telecomRoundUp.lbp > 0)
+          ? {
+              rounding_given_usd: telecomRoundUp.usd,
+              rounding_given_lbp: telecomRoundUp.lbp,
+            }
+          : {}),
         transaction_time: telecomTransactionTime,
         // The shop's own calendar day, not the server's (untrustworthy on
         // web): decides the DAYS-sale validity decrement, the CREDIT_BUYBACK
@@ -1081,6 +1116,7 @@ export default function MobileRecharge() {
       setTelecomClientPhone("");
       setReturnLegs([]);
       setKeptChange(null);
+      setTelecomRoundUp(null);
       setTelecomTransactionTime(undefined);
       setTelecomExtra(0);
       loadFinancialData();
@@ -1116,6 +1152,7 @@ export default function MobileRecharge() {
     paymentLines,
     returnLegs,
     keptChange,
+    telecomRoundUp,
     telecomClientId,
     telecomClientName,
     telecomClientPhone,
@@ -1415,6 +1452,7 @@ export default function MobileRecharge() {
     setPaymentLines([]);
     setReturnLegs([]);
     setKeptChange(null);
+    setTelecomRoundUp(null);
     setTelecomTransactionTime(undefined);
     setTelecomExtra(0);
   }, []);
@@ -1737,6 +1775,7 @@ export default function MobileRecharge() {
       setCryptoPaymentLines([]);
       setCryptoReturnLegs([]);
       setCryptoKeptChange(null);
+      setCryptoRoundUp(null);
       setCryptoDiscount(0);
       setCryptoExtra(0);
       return;
@@ -1805,6 +1844,16 @@ export default function MobileRecharge() {
               kept_change_lbp: cryptoKeptChange.lbp,
             }
           : {}),
+        // LIRA-334: the cash-out round-up (see `cryptoRoundUpApplies`).
+        ...(cryptoRoundUpApplies &&
+        cryptoRoundUp &&
+        cryptoRoundUp.payout &&
+        (cryptoRoundUp.usd > 0 || cryptoRoundUp.lbp > 0)
+          ? {
+              rounding_given_usd: cryptoRoundUp.usd,
+              rounding_given_lbp: cryptoRoundUp.lbp,
+            }
+          : {}),
       });
 
       // LIRA-247: `addOMTTransaction` can RESOLVE `{success:false, error}`
@@ -1849,6 +1898,7 @@ export default function MobileRecharge() {
       setCryptoPaymentLines([]);
       setCryptoReturnLegs([]);
       setCryptoKeptChange(null);
+      setCryptoRoundUp(null);
       setCryptoDiscount(0);
       setCryptoExtra(0);
       setCryptoTransactionTime(undefined);
@@ -1880,6 +1930,8 @@ export default function MobileRecharge() {
     cryptoPaymentLines,
     cryptoReturnLegs,
     cryptoKeptChange,
+    cryptoRoundUp,
+    cryptoRoundUpApplies,
     cryptoDiscount,
     cryptoExtra,
     cryptoPaidBy,
@@ -2212,6 +2264,12 @@ export default function MobileRecharge() {
                 k ? { usd: k.usd, lbp: k.lbp, payout: telecomIsBuyback } : null,
               )
             }
+            // LIRA-334: TelecomForm forwards this to the buy-back sheet only.
+            onRoundUpChange={(r) =>
+              setTelecomRoundUp(
+                r ? { usd: r.usd, lbp: r.lbp, payout: telecomIsBuyback } : null,
+              )
+            }
             onEffectiveRateChange={setTelecomTenderRate}
             onDiscountChange={setTelecomDiscount}
             onExtraChange={setTelecomExtra}
@@ -2424,6 +2482,21 @@ export default function MobileRecharge() {
                         : null,
                     ),
                 })}
+            // LIRA-334: a small overpay on the cash-out is a round-up.
+            {...(cryptoRoundUpApplies
+              ? {
+                  onRoundUpChange: (r: { usd: number; lbp: number } | null) =>
+                    setCryptoRoundUp(
+                      r
+                        ? {
+                            usd: r.usd,
+                            lbp: r.lbp,
+                            payout: cryptoType === "RECEIVE",
+                          }
+                        : null,
+                    ),
+                }
+              : {})}
             isSubmitting={isSubmitting}
             binanceTransactions={binanceTransactions}
             loadCryptoData={loadBinanceData}

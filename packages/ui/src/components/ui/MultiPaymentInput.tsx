@@ -8,6 +8,7 @@ import { DecimalInput } from "./DecimalInput";
 import { DiscountLine, discountFieldClass } from "./DiscountLine";
 import { SplitToggle } from "./SplitToggle";
 import { useLinesSection, type LinesSectionState } from "./useLinesSection";
+import { matchToleranceFor, suggestRoundUpExtra } from "./roundUpExtra";
 import { formatWithCommas } from "../../utils/number";
 import { roundLBPUp } from "../../config/denominations";
 import {
@@ -237,6 +238,17 @@ export interface MultiPaymentInputProps {
    *  debt (Debts → Cash Out above the credit). The Paid figure is not
    *  flagged red, and a note says how much the other side will owe. */
   payoutExcessToAccount?: boolean;
+  /** LIRA-334 — payout only, OPT-IN by wiring: paying out a little MORE
+   *  than the total (up to and including the shared core cap,
+   *  `isWithinShortfallMax` — $5 / 450,000 LBP, in the total's currency) is
+   *  accepted as a round-up the shop books as a change-rounding expense.
+   *  The Paid figure is not flagged red, an emerald note says so, and this
+   *  fires with the round-up `{usd, lbp}` (rounded: USD cents, LBP whole
+   *  pounds, in the total's currency only) — null whenever there is none,
+   *  including when the payer is not payout. The caller sends it as
+   *  `rounding_given_*` on the SAME payload as the legs. Ignored when
+   *  `payoutExcessToAccount` is set (the excess is the other side's debt). */
+  onRoundUpChange?: (roundUp: { usd: number; lbp: number } | null) => void;
   /** Payment methods to display in dropdown */
   paymentMethods: PaymentMethod[];
   /** Available currencies */
@@ -703,6 +715,7 @@ export default function MultiPaymentInput({
   accountLabel,
   returnCurrencies,
   payoutExcessToAccount = false,
+  onRoundUpChange,
   clientId,
   fetchClientVouchers,
   onWaiveRemaining,
@@ -724,6 +737,7 @@ export default function MultiPaymentInput({
   payer: payerProp,
 }: MultiPaymentInputProps) {
   const { t } = useTranslation("payment");
+  const { t: tUi } = useTranslation("ui");
   const paidLabel = paidLabelProp ?? t("summary.paid");
   const afterDiscountLabel =
     afterDiscountLabelProp ?? t("summary.afterDiscount");
@@ -752,6 +766,13 @@ export default function MultiPaymentInput({
   const [discountCurrency, setDiscountCurrency] = useState<string>(currency);
   // LIRA-319 — which side of the built-in line is active (see onExtraChange).
   const [lineMode, setLineMode] = useState<"discount" | "extra">("discount");
+  // LIRA-334 — the built-in Extra was filled in automatically from a small
+  // overpay (round-up autofill below); drives the "clear it to give change"
+  // hint and lets the autofill update or withdraw its own value.
+  const [extraAutofilled, setExtraAutofilled] = useState(false);
+  // LIRA-334 — the cashier switched the line or typed in it: no autofill
+  // until the payment lines change again.
+  const roundUpDismissedRef = useRef<boolean>(false);
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>(
     seededLinesRef.current ?? [
       {
@@ -1057,6 +1078,9 @@ export default function MultiPaymentInput({
   const handleLineModeChange = (m: "discount" | "extra") => {
     setLineMode(m);
     setDiscountRaw("");
+    // LIRA-334 — the cashier's choice: do not autofill over it.
+    roundUpDismissedRef.current = true;
+    setExtraAutofilled(false);
   };
 
   // Update custom rate when exchange rate prop changes. Skipped once the
@@ -1466,7 +1490,7 @@ export default function MultiPaymentInput({
   }, 0);
 
   // Tolerance for matching: LBP amounts are large so use higher tolerance
-  const matchTolerance = totalAmountCurrency === "LBP" ? 100 : 0.01;
+  const matchTolerance = matchToleranceFor(totalAmountCurrency);
 
   // ── LIRA-322 — perCurrencyTotals: each currency settles on its own ──
   // What is owed, paid, short and extra PER CURRENCY, in that currency
@@ -1723,6 +1747,117 @@ export default function MultiPaymentInput({
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [payoutKeptKey]);
+
+  // --- Payout round-up (LIRA-334, research R6) ---
+  // The mirror of kept change: the shop hands out a little MORE than owed
+  // (owner example: $102.90 owed, $103 handed over) and books the difference
+  // as change rounding. Same cap predicate as the server, in the total's own
+  // currency. Never with `payoutExcessToAccount` (there the excess is the
+  // other side's debt). Not offered with `perCurrencyTotals` — the cap is a
+  // single figure in the total's currency.
+  const payoutRoundUpActive =
+    isPayout &&
+    !!onRoundUpChange &&
+    !payoutExcessToAccount &&
+    !perCurrencyTotals &&
+    overpaidTarget > matchTolerance &&
+    isWithinShortfallMax(overpaidTarget, totalAmountCurrency);
+  const payoutRoundUpRounded = payoutRoundUpActive
+    ? totalAmountCurrency === "LBP"
+      ? Math.round(overpaidTarget)
+      : Number(overpaidTarget.toFixed(2))
+    : 0;
+  // `payer` is in the key, and this effect reports null ITSELF whenever the
+  // round-up is off — including a switch away from payout — since no other
+  // effect clears it (unlike kept change, which the T3 effect also owns).
+  const payoutRoundUpKey = `${payer}|${
+    payoutRoundUpActive
+      ? `${totalAmountCurrency}:${payoutRoundUpRounded}`
+      : "off"
+  }`;
+  useEffect(() => {
+    onRoundUpChange?.(
+      payoutRoundUpActive
+        ? totalAmountCurrency === "LBP"
+          ? { usd: 0, lbp: payoutRoundUpRounded }
+          : { usd: payoutRoundUpRounded, lbp: 0 }
+        : null,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payoutRoundUpKey]);
+
+  // --- Customer-pays round-up autofill (LIRA-334, research R7) ---
+  // A small overpay on a page that allows Extra becomes the built-in line's
+  // extra (owner example: $103 handed over on $102.90 → "+ Extra" 0.10), so
+  // the total matches what was paid and no change box opens. Measured
+  // against the total BEFORE the extra (`totalInTarget`), so the fill never
+  // re-triggers itself. Only for a customer payer, never with
+  // `perCurrencyTotals`, and only while no discount/extra was typed by the
+  // cashier (an autofilled value may be updated or withdrawn). Clearing the
+  // field or switching the line dismisses it until the lines change.
+  const roundUpLinesKey = paymentLines
+    .map((l) => `${l.id}:${l.currencyCode}:${l.amount}`)
+    .join("|");
+  const roundUpEligible =
+    extraAllowed && payer === "customer" && !perCurrencyTotals;
+  const roundUpSuggestion = roundUpEligible
+    ? suggestRoundUpExtra({
+        paidInTarget: totalPaid,
+        baseTotalInTarget: totalInTarget,
+        currency: totalAmountCurrency,
+        cap: extraCap,
+      })
+    : 0;
+  const prevRoundUpLinesKeyRef = useRef(roundUpLinesKey);
+  useEffect(() => {
+    if (prevRoundUpLinesKeyRef.current !== roundUpLinesKey) {
+      prevRoundUpLinesKeyRef.current = roundUpLinesKey;
+      roundUpDismissedRef.current = false;
+    }
+    if (!roundUpEligible) {
+      // E.g. the payer switched to payout: an autofilled value must not
+      // linger and turn into a discount.
+      if (extraAutofilled) {
+        setDiscountRaw("");
+        setLineMode("discount");
+        setExtraAutofilled(false);
+      }
+      return;
+    }
+    if (discountRaw !== "" && !extraAutofilled) return;
+    if (roundUpDismissedRef.current) return;
+    if (roundUpSuggestion > 0) {
+      const fieldCurrency =
+        !isSplitMode && paymentLines.length === 1
+          ? paymentLines[0].currencyCode
+          : discountCurrency;
+      const converted = convertSafe(
+        roundUpSuggestion,
+        totalAmountCurrency,
+        fieldCurrency,
+      );
+      // Same precision rule as Waive: a USD field against an LBP total
+      // keeps 4 dp (one cent is ~900 LBP, far above the match tolerance).
+      const inField =
+        fieldCurrency === "LBP"
+          ? Math.round(converted)
+          : totalAmountCurrency === "LBP"
+            ? Math.round(converted * 10_000) / 10_000
+            : Math.round(converted * 100) / 100;
+      if (fieldCurrency !== discountCurrency)
+        setDiscountCurrency(fieldCurrency);
+      if (showDiscount) setLineMode("extra");
+      setDiscountRaw(String(inField));
+      setExtraAutofilled(true);
+    } else if (extraAutofilled) {
+      // The overpay went away (e.g. the amount was corrected): withdraw the
+      // autofilled extra rather than leave a stale one behind.
+      setDiscountRaw("");
+      if (showDiscount) setLineMode("discount");
+      setExtraAutofilled(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roundUpLinesKey, roundUpSuggestion, roundUpEligible]);
 
   // LIRA-310 — Waive. Rendered inside the Remaining row, so it inherits
   // every one of that row's visibility rules ("Waive follows Remaining").
@@ -2146,7 +2281,10 @@ export default function MultiPaymentInput({
     !paidExact &&
     (((perCurrencyTotals ? pcAnyShort : remainingShortfall > matchTolerance) &&
       !payoutKeepActive) ||
-      (isPayout && overpaidTarget > matchTolerance && !payoutExcessToAccount) ||
+      (isPayout &&
+        overpaidTarget > matchTolerance &&
+        !payoutExcessToAccount &&
+        !payoutRoundUpActive) ||
       (effectiveReturnMethod === "CASH" &&
         hasReturnMismatch &&
         !underReturnKept) ||
@@ -3007,6 +3145,11 @@ export default function MultiPaymentInput({
                   onModeChange: handleLineModeChange,
                 }
               : {})}
+            hint={
+              isExtraMode && extraAutofilled
+                ? tUi("discountLine.autoExtraHint")
+                : undefined
+            }
             capNote={
               isExtraMode
                 ? discountNormalized > extraCap + 1e-9
@@ -3061,6 +3204,10 @@ export default function MultiPaymentInput({
                   const raw = e.target.value.replace(/,/g, "");
                   if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
                     setDiscountRaw(raw);
+                    // LIRA-334 — the cashier's own value (or a cleared
+                    // field): the round-up autofill stays out of it.
+                    roundUpDismissedRef.current = true;
+                    setExtraAutofilled(false);
                   }
                 }}
                 className={`${discountFieldClass(
@@ -3332,6 +3479,21 @@ export default function MultiPaymentInput({
               />
             </p>
           )}
+        {/* LIRA-334 — payout handed out a little more than owed: booked as
+            change rounding. */}
+        {payoutRoundUpActive && (
+          <p
+            data-testid="payout-roundup-summary"
+            className="text-[11px] text-emerald-400 px-2"
+          >
+            <Trans
+              t={t}
+              i18nKey="summary.roundUpBooked"
+              values={{ amount: dualAmountText(overpaidTarget) }}
+              components={LTR_SLOT}
+            />
+          </p>
+        )}
 
         {/* Return / Change (overpaid). One compact box on every page (owner
             2026-10-13), three rows:

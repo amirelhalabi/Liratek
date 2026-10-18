@@ -169,6 +169,10 @@ async function cartOneCardAndPay() {
   );
   if (!amount) throw new Error("no payment-amount input rendered");
   fireEvent.change(amount, { target: { value: "6" } });
+  // LIRA-334: an overpay within $5 / 450,000 LBP is first filled in as
+  // "+ Extra"; the cashier clears it to give the change back instead.
+  const extra = await screen.findByLabelText("Extra", { selector: "input" });
+  fireEvent.change(extra, { target: { value: "" } });
   await screen.findByTestId("return-change");
 }
 

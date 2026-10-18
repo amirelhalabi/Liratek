@@ -818,6 +818,16 @@ test.describe("LIRA-095 — multi-bill checkout", () => {
       .first()
       .selectOption("USD");
     await sheet.locator('[data-testid^="payment-amount-"]').first().fill("5");
+    // LIRA-334 (owner 2026-10-18): $5 on a 313,000 LBP bill overpays by
+    // ~130,000 LBP at a ~89,000 rate — within the 450,000 LBP round-up — so the extra-only line
+    // (a bills-only checkout offers no discount) fills in "+ Extra" and the
+    // change box stays closed. The cashier clears it to give change back.
+    const extra = sheet.getByLabel("Extra", { exact: true });
+    await expect(extra).toBeVisible({ timeout: 5_000 });
+    await expect(extra).not.toHaveValue("");
+    await expect(sheet.locator('[data-testid="return-change"]')).toHaveCount(0);
+    await extra.fill("");
+    await expect(extra).toHaveValue("");
     await expect(sheet.locator('[data-testid="return-change"]')).toBeVisible({
       timeout: 5_000,
     });

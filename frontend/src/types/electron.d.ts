@@ -1567,6 +1567,9 @@ export interface ElectronAPI {
       // Payout keep-change (owner decision 2026-10-06) — exchangeSubmitSchema.
       kept_change_usd?: number;
       kept_change_lbp?: number;
+      // LIRA-334: payout round-up (roundingGivenFields).
+      rounding_given_usd?: number;
+      rounding_given_lbp?: number;
       // LIRA-321 "Customer pays" — exchangeSubmitSchema (rule 12): the
       // linked client, the customer's lines (fromCurrency only) and the
       // forgiven leftover.
@@ -4020,6 +4023,9 @@ export interface ElectronAPI {
       // a claim the server verifies (resolveKeptChange, payer "payout").
       kept_change_usd?: number;
       kept_change_lbp?: number;
+      // LIRA-334: payout round-up (roundingGivenFields).
+      rounding_given_usd?: number;
+      rounding_given_lbp?: number;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     voidPickup: (
       pickupId: number,

@@ -552,6 +552,9 @@ contextBridge.exposeInMainWorld("api", {
       // Payout keep-change (owner decision 2026-10-06) — exchangeSubmitSchema.
       kept_change_usd?: number;
       kept_change_lbp?: number;
+      // LIRA-334: payout round-up (roundingGivenFields).
+      rounding_given_usd?: number;
+      rounding_given_lbp?: number;
       // LIRA-321 "Customer pays" (money in) — exchangeSubmitSchema.
       clientId?: number;
       customerPayments?: Array<{
@@ -654,6 +657,9 @@ contextBridge.exposeInMainWorld("api", {
       clientId?: number;
       kept_change_usd?: number;
       kept_change_lbp?: number;
+      // LIRA-334: payout round-up (roundingGivenFields).
+      rounding_given_usd?: number;
+      rounding_given_lbp?: number;
       includingFees?: boolean;
     }) => ipcRenderer.invoke("recharge:top-up-from-client", data),
     updateMetadata: (data: {
@@ -1977,6 +1983,9 @@ contextBridge.exposeInMainWorld("api", {
       // a claim the server verifies (resolveKeptChange, payer "payout").
       kept_change_usd?: number;
       kept_change_lbp?: number;
+      // LIRA-334: payout round-up (roundingGivenFields).
+      rounding_given_usd?: number;
+      rounding_given_lbp?: number;
     }) => ipcRenderer.invoke("hold-money:collect", data),
     // Void (reverse) one pickup event — rule-20 reversal owner.
     voidPickup: (pickupId: number) =>

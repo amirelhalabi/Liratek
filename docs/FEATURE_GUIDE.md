@@ -306,6 +306,23 @@ stored on the unified row as `transactions.extra_usd` / `extra_lbp` (v212):
   REFUND row `−share`; undo re-adds it. A refunded share lands on the refund's
   own day.
 
+### 4.2.1 Round-up overpays (LIRA-334, owner decisions 2026-10-18)
+
+The cashier rounds to the notes in the drawer: 102.90 owed, 103.00 handed.
+
+- **Payout (shop hands money out).**
+  - The payment box accepts an overpay up to the shared cap (`isWithinShortfallMax`, $5 / 450,000 LBP in the payout's own currency). It shows it ("Rounded up … — booked as change rounding", `payout-roundup-summary`) and reports it through MultiPaymentInput's opt-in `onRoundUpChange`.
+  - The page sends `rounding_given_usd` / `rounding_given_lbp` (schema `roundingGivenFields`, optional, no default).
+  - The repository verifies it with `resolveRoundingGiven` (legs = owed + rounding). It is refused together with kept change, on FOR-partner, session-basket, account and wallet payouts, and on two-currency Hold Money pickups.
+  - It then books the rounding with `bookPayoutRoundingExpense`: one books-only "Change rounding" expense linked to the payout. That expense is hidden in Transactions by default (rule 26), shown on Expenses, and counts in Expenses Deducted.
+  - The module's profit stamp never moves.
+  - Reversal: the generic expense cascade. Hold Money is the exception: `voidPickup` calls `voidLinkedExpenses`.
+  - Debts cash-out is excluded (`payoutExcessToAccount` sends the excess to the account).
+- **Customer pays.**
+  - When the legs exceed the total by up to the same cap and no discount is typed, the "+ Extra" side of the Discount line is filled in with the difference (`suggestRoundUpExtra`, one helper for MultiPaymentInput and CheckoutModal). It is then saved as an ordinary extra charge (§4.2).
+  - Clearing the extra, or switching to "− Discount", stops the autofill until the legs change, and the change box returns.
+  - The autofill only runs where Extra is allowed (no partner sale, session-basket item or settle).
+
 ### 4.3 "Customer pays" — the money-in side of payout screens (LIRA-321)
 
 Exchange, Whish App / OMT App receive and Binance cash-out pay money OUT

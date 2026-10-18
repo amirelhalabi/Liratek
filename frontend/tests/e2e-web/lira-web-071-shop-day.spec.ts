@@ -63,6 +63,7 @@ import {
   addLine,
   bugCheck,
   bugCheckAsync,
+  clearRoundUpExtra,
   clientByName,
   clientDebt,
   closeDetails,
@@ -486,7 +487,10 @@ test.describe.serial("lira-web-071 Shop Day", () => {
         .fill(`SD ${carrier} ${day.stamp}`);
       // LIRA-331: Credits is a text field with a decimal keypad (it accepts
       // Arabic-Indic digits), no longer type="number".
-      await form.locator('input[inputmode="decimal"]').first().fill(String(credits));
+      await form
+        .locator('input[inputmode="decimal"]')
+        .first()
+        .fill(String(credits));
       await form.locator('input[type="date"]').fill("2026-12-31");
       const saved = waitPost(page, "/api/carrier-lines");
       await form.getByRole("button", { name: "Create" }).click();
@@ -700,6 +704,9 @@ test.describe.serial("lira-web-071 Shop Day", () => {
     await payMethod(modal, 0).selectOption("CASH");
     await payCurrency(modal, 0).selectOption("LBP");
     await payAmount(modal, 0).fill("2400000");
+    // LIRA-334: $0.97 over a $26 total is within the $5 round-up — "+ Extra"
+    // fills in; the cashier clears it to hand the change back.
+    await clearRoundUpExtra(modal);
     const sale = waitPost(page, "/api/sales/process");
     await modal.getByTestId("checkout-complete-btn").click();
     const { body, request } = await sale;
@@ -1062,6 +1069,9 @@ test.describe.serial("lira-web-071 Shop Day", () => {
     await payMethod(page, 0).selectOption("CASH");
     await payCurrency(page, 0).selectOption("LBP");
     await payAmount(page, 0).fill("1000000");
+    // LIRA-334: 400,000 over a 600,000 LBP total is within the 450,000 LBP
+    // round-up — "+ Extra" fills in; clear it to give change.
+    await clearRoundUpExtra(page);
     await page.getByTestId("return-lbp").fill("350000");
     await expect(page.getByTestId("change-to-account-summary")).toContainText(
       "50,000",
@@ -1107,6 +1117,8 @@ test.describe.serial("lira-web-071 Shop Day", () => {
     await payMethod(page, 0).selectOption("CASH");
     await payCurrency(page, 0).selectOption("USD");
     await payAmount(page, 0).fill("10");
+    // LIRA-334: $4 over a $6 price is within the $5 round-up — clear it.
+    await clearRoundUpExtra(page);
     await page.getByTestId("return-usd").fill("3");
     await expect(page.getByTestId("keep-change-summary")).toContainText("$1");
     await rechargePay();
@@ -1397,6 +1409,9 @@ test.describe.serial("lira-web-071 Shop Day", () => {
     await payMethod(page, 0).selectOption("CASH");
     await payCurrency(page, 0).selectOption("LBP");
     await payAmount(page, 0).fill("3700000");
+    // LIRA-334: ≈ $0.57 over the $41 total is within the $5 round-up — clear
+    // it, or the change box (and its "all in LBP" button) never opens.
+    await clearRoundUpExtra(page);
     await page.getByTestId("return-all-lbp").click();
     const res = waitPost(page, "/api/services/transactions");
     await page
@@ -1634,6 +1649,9 @@ test.describe.serial("lira-web-071 Shop Day", () => {
     await payMethod(page, 0).selectOption("CASH");
     await payCurrency(page, 0).selectOption("USD");
     await payAmount(page, 0).fill("6");
+    // LIRA-334: 34,000 over a 500,000 LBP ticket is within the round-up —
+    // clear it to give the change.
+    await clearRoundUpExtra(page);
     await page.getByTestId("return-lbp").fill("34000");
     const res = waitPost(page, "/api/loto/sell");
     await page.getByRole("button", { name: "Sell Ticket" }).last().click();
@@ -1704,6 +1722,9 @@ test.describe.serial("lira-web-071 Shop Day", () => {
     await payLine(page, 0, "CASH", 15, "USD");
     await addLine(page);
     await payLine(page, 1, "CASH", 900_000, "LBP");
+    // LIRA-334: 10,000 LBP (≈ $0.11) over the $25 price is within the $5
+    // round-up — clear it to give the change.
+    await clearRoundUpExtra(page);
     await page.getByTestId("return-lbp").fill("10000");
     const res = waitPost(page, "/api/custom-services");
     await page.getByRole("button", { name: "Submit Service" }).click();
@@ -1781,6 +1802,8 @@ test.describe.serial("lira-web-071 Shop Day", () => {
     await page.locator("#svc-price").fill("45");
     await pickClientOption(page, page.locator("#svc-client"), S.hassan);
     await payLine(page, 0, "CASH", 50, "USD");
+    // LIRA-334 does not apply: a Via Partner service offers no "+ Extra", so
+    // the exact-$5 overpay opens the change box straight away.
     await page.getByTestId("return-usd").fill("5");
     const res = waitPost(page, "/api/custom-services");
     await page.getByRole("button", { name: "Submit Service" }).click();
@@ -1974,6 +1997,9 @@ test.describe.serial("lira-web-071 Shop Day", () => {
     await page.getByRole("button", { name: /Checkout \(3 items?\)/i }).click();
     await expect(page.getByText("Session Checkout")).toBeVisible();
     const pay = page.getByTestId("multi-payment-input");
+    // The $1 extra is typed BEFORE paying: a typed extra is the cashier's own,
+    // so the LIRA-334 round-up never fills over it — the change box opens as
+    // before.
     await pay.getByTestId("discount-mode-extra").click();
     await pay.getByLabel("Extra", { exact: true }).fill("1");
     await splitOn(pay);

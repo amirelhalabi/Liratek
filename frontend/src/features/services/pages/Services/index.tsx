@@ -355,6 +355,16 @@ export default function Services() {
     !activeSession &&
     (serviceType === "SEND" ||
       (serviceType === "RECEIVE" && !forPartner && cashoutMethod === "CASH"));
+  // LIRA-334 — payout round-up: the shop hands out a little MORE than owed
+  // ($102.90 owed, $103 handed over) and books the difference as change
+  // rounding. A CASH walk-in RECEIVE payout only (the payout half of
+  // `keptChangeApplies`). `payout` is the same stale guard as `keptChange`.
+  const roundUpApplies = keptChangeApplies && serviceType === "RECEIVE";
+  const [roundUp, setRoundUp] = useState<{
+    usd: number;
+    lbp: number;
+    payout: boolean;
+  } | null>(null);
   // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C: the counter-flow lines
   // collecting a customer-paid fee-on-top on an OMT/WHISH system RECEIVE.
   // Independent of paymentLines (the shop's payout) — never merged into it.
@@ -877,6 +887,7 @@ export default function Services() {
         setPaymentBoxNonce((n) => n + 1);
         setReturnLegs([]);
         setKeptChange(null);
+        setRoundUp(null);
         setFeePaymentLines([]);
         setIncludingFees(false);
         setPmFeeAmount("");
@@ -1279,6 +1290,17 @@ export default function Services() {
                     kept_change_lbp: keptChange.lbp,
                   }
                 : {}),
+              // LIRA-334: the payout round-up rides the same payload — a
+              // CASH walk-in RECEIVE only, reported in payout mode.
+              ...(roundUpApplies &&
+              roundUp &&
+              roundUp.payout &&
+              (roundUp.usd > 0 || roundUp.lbp > 0)
+                ? {
+                    rounding_given_usd: roundUp.usd,
+                    rounding_given_lbp: roundUp.lbp,
+                  }
+                : {}),
               // LIRA-319: the extra rides its own field (walk-in SEND only).
               ...(extraApplies && extraCharge > 0
                 ? currency === "LBP"
@@ -1441,6 +1463,7 @@ export default function Services() {
         setPaymentLines([]);
         setReturnLegs([]);
         setKeptChange(null);
+        setRoundUp(null);
         setFeePaymentLines([]);
         setIncludingFees(false);
         setPmFeeAmount("");
@@ -1488,6 +1511,8 @@ export default function Services() {
     returnLegs,
     keptChange,
     keptChangeApplies,
+    roundUp,
+    roundUpApplies,
     extraCharge,
     extraApplies,
     feePaymentLines,
@@ -2654,6 +2679,24 @@ export default function Services() {
                                 ? {
                                     usd: k.usd,
                                     lbp: k.lbp,
+                                    payout: serviceType === "RECEIVE",
+                                  }
+                                : null,
+                            ),
+                        }
+                      : {})}
+                    // LIRA-334: a small overpay on the payout is a round-up
+                    // (booked as change rounding) — CASH walk-in RECEIVE only.
+                    {...(roundUpApplies
+                      ? {
+                          onRoundUpChange: (
+                            r: { usd: number; lbp: number } | null,
+                          ) =>
+                            setRoundUp(
+                              r
+                                ? {
+                                    usd: r.usd,
+                                    lbp: r.lbp,
                                     payout: serviceType === "RECEIVE",
                                   }
                                 : null,

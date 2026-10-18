@@ -259,6 +259,9 @@ export interface WalletTransferPayloadInput {
   discount?: number;
   /** Kept change that joins the profit stamp, when it applies to this direction. */
   keptChange?: { usd: number; lbp: number };
+  /** LIRA-334 — RECEIVE payout round-up (handed MORE than owed), in the
+   *  payout currency. Sent only when non-zero; the server verifies it. */
+  roundingGiven?: { usd: number; lbp: number } | null;
   transactionTime?: string;
 }
 
@@ -357,6 +360,13 @@ export function buildWalletTransferPayload(
       ? {
           kept_change_usd: input.keptChange.usd,
           kept_change_lbp: input.keptChange.lbp,
+        }
+      : {}),
+    ...(input.roundingGiven &&
+    (input.roundingGiven.usd > 0 || input.roundingGiven.lbp > 0)
+      ? {
+          rounding_given_usd: input.roundingGiven.usd,
+          rounding_given_lbp: input.roundingGiven.lbp,
         }
       : {}),
     transaction_time: input.transactionTime,

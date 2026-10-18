@@ -181,6 +181,9 @@ interface TelecomFormProps {
   onReturnChange?: (returnLegs: PaymentLine[]) => void;
   /** T3 keep-change opt-in (plumbed to PaymentSheet → MultiPaymentInput). */
   onKeptChange?: (kept: { usd: number; lbp: number } | null) => void;
+  /** LIRA-334 payout round-up opt-in — forwarded to the credit buy-back
+   *  sheet only (never the sale or the Alfa gift sheet). */
+  onRoundUpChange?: (roundUp: { usd: number; lbp: number } | null) => void;
   /** Payment-Legs Integrity plan (false-reject fix): fires with the rate the
    *  PaymentSheet is ACTUALLY using for its conversions (the operator may
    *  edit the sheet's header rate field away from the `exchangeRate` this
@@ -288,6 +291,7 @@ export function TelecomForm({
   onExtraChange,
   onReturnChange,
   onKeptChange,
+  onRoundUpChange,
   onEffectiveRateChange,
   onRefreshHistory,
   onRefreshBalances,
@@ -1267,6 +1271,11 @@ export function TelecomForm({
                     ? { unreturnedChangeTo: "CUSTOMER_ACCOUNT" as const }
                     : {})}
                   {...(onKeptChange ? { onKeptChange } : {})}
+                  // LIRA-334: a small overpay on the buy-back payout is a
+                  // round-up (booked as change rounding) — buy-back only.
+                  {...(onRoundUpChange && isCreditBuyback
+                    ? { onRoundUpChange }
+                    : {})}
                   hasClient={!!telecomClientId}
                   // Charge flow: shortfall → debt on the resolved client.
                   // Buy-back (D7): HARD off, regardless of client — an auto

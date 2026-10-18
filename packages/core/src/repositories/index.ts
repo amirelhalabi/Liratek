@@ -381,9 +381,19 @@ export type {
 // Owner decision 2026-10-16 — LBP change rounding booked as an expense.
 export {
   bookChangeRoundingExpense,
+  bookPayoutRoundingExpense,
   CHANGE_ROUNDING_EXPENSE_CATEGORY,
 } from "./changeRoundingExpense.js";
-export type { ChangeRoundingExpenseInput } from "./changeRoundingExpense.js";
+export type {
+  ChangeRoundingExpenseInput,
+  PayoutRoundingExpenseInput,
+} from "./changeRoundingExpense.js";
+// LIRA-334 — payout round-up check.
+export { resolveRoundingGiven } from "./roundingGiven.js";
+export type {
+  ResolveRoundingGivenInput,
+  RoundingGiven,
+} from "./roundingGiven.js";
 
 // Closing Repository
 export {

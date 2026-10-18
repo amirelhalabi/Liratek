@@ -21,6 +21,8 @@ import {
   EXTRA_ABOVE_TOTAL_MESSAGE,
   EXTRA_ON_SESSION_ITEM_MESSAGE,
   NO_EXTRA_FOR_PARTNER_MESSAGE,
+  ROUNDING_GIVEN_NOT_ALLOWED_MESSAGE,
+  hasRoundingGiven,
 } from "../validators/common.js";
 import {
   atSettlementCommission,
@@ -77,6 +79,8 @@ import {
   type ReconciliationLeg,
 } from "./moneyPosting.js";
 import { resolveKeptChange } from "./keptChange.js";
+import { resolveRoundingGiven, type RoundingGiven } from "./roundingGiven.js";
+import { bookPayoutRoundingExpense } from "./changeRoundingExpense.js";
 import { bookForgivenShortfallSibling } from "./forgivenShortfall.js";
 import {
   buildFinancialServiceSummary,
@@ -522,6 +526,12 @@ export interface CreateFinancialServiceData {
   /** T3 keep-change (KC-4): kept change per currency → profit stamp. */
   kept_change_usd?: number;
   kept_change_lbp?: number;
+  /** LIRA-334 — payout round-up claim (a RECEIVE handed out MORE than
+   *  owed), in the payout currency. Verified by `resolveRoundingGiven` in
+   *  the CASH / wallet cashout branch and booked as a "Change rounding"
+   *  expense; refused everywhere else. */
+  rounding_given_usd?: number;
+  rounding_given_lbp?: number;
   /**
    * LIRA-319 — the extra the cashier added on top of what the customer owes
    * (a SEND / BILL / catalog checkout, never a RECEIVE payout). In the
@@ -3249,6 +3259,80 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         return { usd: r.keptUsd, lbp: r.keptLbp };
       };
 
+      // ── LIRA-334 payout round-up (owner decision 2026-10-18) ─────────────
+      // The cashier hands out a little MORE than owed (no coins / small
+      // notes). Same three-step guard as kept change above:
+      //   - refused up front where no payout branch can honour it (not a
+      //     RECEIVE payout, partner, session basket, other providers, a
+      //     payout credited to the account or sent from a wallet);
+      //   - verified by `resolveRoundingGiven` inside the system CASH and
+      //     wallet cashout branches, which then post legs worth
+      //     owed − kept + rounding; booked as a books-only "Change rounding"
+      //     expense linked to this row (voided with it, rule 20);
+      //   - fail-closed at the end: a claim no branch verified is refused.
+      // Keyed on the RAW claim (not gated on `isReceivePayout`), so a claim
+      // on a SEND is refused too (rule 23: every accepted key used or refused).
+      const roundingClaim = {
+        usd: data.rounding_given_usd ?? 0,
+        lbp: data.rounding_given_lbp ?? 0,
+      };
+      const roundingClaimed = hasRoundingGiven(data);
+      // An object, not a `let`: the closure below sets it, and TypeScript
+      // does not track assignments made inside closures.
+      const receiveRounding: { verified: RoundingGiven | null } = {
+        verified: null,
+      };
+      if (roundingClaimed) {
+        const cashout = data.cashoutMethod || "CASH";
+        const isSystemReceive =
+          data.provider === "OMT" || data.provider === "WHISH";
+        const isWalletReceive =
+          data.provider === "BINANCE" ||
+          data.provider === "OMT_APP" ||
+          data.provider === "WHISH_APP";
+        const refusal = !isReceivePayout
+          ? "only a payout (RECEIVE) can be rounded up"
+          : isForPartner
+            ? "a partner transaction is paid out exactly"
+            : deferPayment
+              ? "a customer-session item is paid out at the session checkout"
+              : !isSystemReceive && !isWalletReceive
+                ? "this provider has no cash payout"
+                : cashout === "CUSTOMER_ACCOUNT"
+                  ? "the payout is credited to the customer's account"
+                  : isSystemReceive && cashout !== "CASH"
+                    ? "a wallet payout is sent exactly"
+                    : null;
+        if (refusal) {
+          throw new Error(
+            `${ROUNDING_GIVEN_NOT_ALLOWED_MESSAGE} (${data.provider} ${data.serviceType}: ${refusal})`,
+          );
+        }
+      }
+      const resolveReceiveRounding = (
+        owed: number,
+        owedCurrency: string,
+        legs: ReconciliationLeg[] | undefined,
+        context: string,
+      ): RoundingGiven => {
+        // Runs BEFORE kept change resolves, so a claim of both is refused
+        // with the round-up's own message.
+        const r = resolveRoundingGiven({
+          owed,
+          owedCurrency,
+          payoutLegs: legs,
+          claimed: roundingClaim,
+          claimedKept: receiveKeptClaim,
+          exchangeRate: stampedExchangeRate,
+          ...(data.tender_exchange_rate !== undefined
+            ? { tenderExchangeRate: data.tender_exchange_rate }
+            : {}),
+          context,
+        });
+        receiveRounding.verified = r;
+        return r;
+      };
+
       // Shared OUT-leg processor — the ONE loop that debits drawer-affecting
       // OUT legs (rule 16: no flow-specific branch may iterate them again).
       // Legacy path: change handed back to the customer. FOR-partner path:
@@ -4389,7 +4473,17 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 // legs count toward the payout total but route to store
                 // credit, not a drawer — mirroring the SEND leg loop above.
                 const payoutLegs = data.payments ?? [];
-                if (receiveKeptClaimed) {
+                if (roundingClaimed) {
+                  // LIRA-334: the legs must cover owed + rounding (the
+                  // resolver runs the same S2 reconcile against the raised
+                  // target, plus the cap / currency / drawer-leg checks).
+                  resolveReceiveRounding(
+                    payoutAmount,
+                    cashCurrency,
+                    payoutLegs,
+                    `${data.provider} RECEIVE cashout`,
+                  );
+                } else if (receiveKeptClaimed) {
                   // Payout kept change: the legs must cover owed − kept
                   // (resolveKeptChange runs the same S2 reconcile against
                   // the reduced target, plus the cap/currency/tamper checks).
@@ -5137,6 +5231,16 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               // paid the full amount a second time in cash.
               // Payout kept change (owner decision 2026-10-07): verified
               // here, then the legs reconcile against owed − kept.
+              // LIRA-334: a round-up claim is verified first (it refuses a
+              // claim together with kept change).
+              const cashRounding = roundingClaimed
+                ? resolveReceiveRounding(
+                    payoutAmount,
+                    currency,
+                    data.payments,
+                    `${data.provider} RECEIVE cashout`,
+                  )
+                : undefined;
               const receiveKept = receiveKeptClaimed
                 ? resolveReceiveKept(
                     payoutAmount,
@@ -5153,6 +5257,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 exchangeRate: stampedExchangeRate,
                 tenderExchangeRate: data.tender_exchange_rate,
                 ...(receiveKept ? { keptChange: receiveKept } : {}),
+                ...(cashRounding ? { roundingGiven: cashRounding } : {}),
                 context: `${data.provider} RECEIVE cashout`,
                 txnId,
                 tenantId,
@@ -5431,6 +5536,28 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         throw new Error(
           `${data.provider} RECEIVE: keeping change is not available for this payout — hand out the exact amount.`,
         );
+      }
+
+      // LIRA-334 fail-closed: a round-up claim no cashout branch verified
+      // was never handed out — refuse rather than book an expense for it.
+      if (roundingClaimed && !receiveRounding.verified) {
+        throw new Error(
+          `${ROUNDING_GIVEN_NOT_ALLOWED_MESSAGE} (${data.provider} ${data.serviceType}: no cash payout verified the round-up)`,
+        );
+      }
+      // The verified round-up: one books-only "Change rounding" expense
+      // linked to this row (the payout legs already took the full handed
+      // amount from the drawer). The generic void/refund cascade voids it.
+      if (receiveRounding.verified) {
+        bookPayoutRoundingExpense({
+          parentSourceTable: "financial_services",
+          parentSourceId: id,
+          parentLabel: `${providerDisplayLabel(data.provider)} receive #${id}`,
+          amount: receiveRounding.verified,
+          exchangeRate: stampedExchangeRate,
+          userId: createdBy,
+          transactionTime: data.transaction_time,
+        });
       }
 
       return { id, drawer: legacyDrawerLabel };

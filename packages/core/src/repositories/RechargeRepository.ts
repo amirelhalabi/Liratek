@@ -33,6 +33,8 @@ import {
   resolveStampedExchangeRate,
 } from "./moneyPosting.js";
 import { resolveKeptChange } from "./keptChange.js";
+import { resolveRoundingGiven } from "./roundingGiven.js";
+import { bookPayoutRoundingExpense } from "./changeRoundingExpense.js";
 import { formatMoneyAmount } from "../utils/formatMoney.js";
 import { applyRechargeDiscount } from "../utils/rechargeDiscount.js";
 import {
@@ -40,6 +42,8 @@ import {
   EXTRA_ABOVE_TOTAL_MESSAGE,
   EXTRA_ON_SESSION_ITEM_MESSAGE,
   NO_EXTRA_FOR_PARTNER_MESSAGE,
+  ROUNDING_GIVEN_NOT_ALLOWED_MESSAGE,
+  hasRoundingGiven,
 } from "../validators/common.js";
 import {
   NO_EXTRA_ON_BUYBACK_MESSAGE,
@@ -205,6 +209,11 @@ export interface RechargeData {
    *  added to the transaction's profit stamp (tender-native amounts). */
   kept_change_usd?: number;
   kept_change_lbp?: number;
+  /** LIRA-334 — payout round-up claim (CREDIT_BUYBACK only: handed out MORE
+   *  than owed), in the payout currency. Verified by `resolveRoundingGiven`
+   *  and booked as a "Change rounding" expense; refused on every sale. */
+  rounding_given_usd?: number;
+  rounding_given_lbp?: number;
   /**
    * Payment-Legs Integrity plan (false-reject fix, 2026-07-2x): the USD→LBP
    * rate the caller's own till/MultiPaymentInput actually converted the
@@ -1222,6 +1231,15 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           "A discount cannot be applied to a credit buy-back — it is a payout, not a sale",
       };
     }
+    // LIRA-334 (rule 23): a payout round-up exists only on the credit
+    // buy-back (a payout). Every other type is a sale — refuse the claim
+    // rather than drop it silently.
+    if (hasRoundingGiven(input) && input.type !== "CREDIT_BUYBACK") {
+      return {
+        success: false,
+        error: `${ROUNDING_GIVEN_NOT_ALLOWED_MESSAGE} (${input.provider} ${input.type}: only a credit buy-back is a payout)`,
+      };
+    }
     // Owner decision #1 follow-up (2026-10-02): CREDIT_TRANSFER books its own
     // SMS_Transfer_Fee expense below (step 5b) on top of `cost` — a discount
     // at the plain margin nets a LOSS equal to that fee. Shrink the cap by
@@ -2206,6 +2224,28 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         usd: data.kept_change_usd ?? 0,
         lbp: data.kept_change_lbp ?? 0,
       };
+      // LIRA-334 payout round-up (handed out MORE than owed) — verified
+      // before kept change so a claim of both is refused with its own
+      // message; refused for a partner or session item. Only when claimed:
+      // with none, `postPayoutLegs` below is the whole check (as before).
+      const rounding = hasRoundingGiven(data)
+        ? resolveRoundingGiven({
+            owed: payoutAmount,
+            owedCurrency: currency,
+            payoutLegs,
+            claimed: {
+              usd: data.rounding_given_usd,
+              lbp: data.rounding_given_lbp,
+            },
+            claimedKept,
+            notAllowed: data.partnerMode === "FOR" || data.deferPayment === true,
+            exchangeRate: sellRate,
+            ...(data.tender_exchange_rate !== undefined
+              ? { tenderExchangeRate: data.tender_exchange_rate }
+              : {}),
+            context: `${data.provider} credit buy-back`,
+          })
+        : null;
       const kept =
         claimedKept.usd > 0 || claimedKept.lbp > 0
           ? resolveKeptChange({
@@ -2225,7 +2265,9 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       const keptUsd = kept?.keptUsd ?? 0;
       const keptLbp = kept?.keptLbp ?? 0;
       const paidOutAmount =
-        payoutAmount - (currency === "LBP" ? keptLbp : keptUsd);
+        payoutAmount -
+        (currency === "LBP" ? keptLbp : keptUsd) +
+        (currency === "LBP" ? (rounding?.lbp ?? 0) : (rounding?.usd ?? 0));
 
       const result = this.db.transaction(() => {
         const clientName = data.clientId
@@ -2331,6 +2373,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           tenderExchangeRate: data.tender_exchange_rate,
           context: `${data.provider} credit buy-back`,
           ...(kept ? { keptChange: { usd: keptUsd, lbp: keptLbp } } : {}),
+          ...(rounding ? { roundingGiven: rounding } : {}),
           txnId,
           tenantId,
           createdBy,
@@ -2357,6 +2400,22 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             });
           },
         });
+
+        // LIRA-334: the verified round-up — one books-only "Change
+        // rounding" expense linked to this buy-back (the legs above already
+        // took the full handed amount). The generic void cascade voids it.
+        if (rounding) {
+          bookPayoutRoundingExpense({
+            parentSourceTable: "recharges",
+            parentSourceId: rechargeId,
+            parentLabel: `${data.provider} credit buy-back #${rechargeId}`,
+            amount: rounding,
+            exchangeRate: recordExchangeRate,
+            userId: createdBy,
+            transactionTime: data.transaction_time,
+            clientDay: data.client_day,
+          });
+        }
 
         // Credit the shop's own line — D9: credits only, validity never
         // moves. Established call convention (mirrors
@@ -3132,6 +3191,11 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
      *  leftover as profit. Verified by `resolveKeptChange` — never trusted. */
     kept_change_usd?: number;
     kept_change_lbp?: number;
+    /** LIRA-334 — payout round-up (handed out MORE than `amount − fee`),
+     *  in `currency`. Verified by `resolveRoundingGiven`, booked as a
+     *  "Change rounding" expense. */
+    rounding_given_usd?: number;
+    rounding_given_lbp?: number;
     userId: number;
   }): { success: boolean; error?: string } {
     try {
@@ -3260,7 +3324,28 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       };
       let keptUsd = 0;
       let keptLbp = 0;
-      if (claimedKept.usd > 0 || claimedKept.lbp > 0) {
+      // LIRA-334 payout round-up: when claimed, `resolveRoundingGiven`
+      // replaces the reconcile (legs = payoutTarget + rounding) and refuses
+      // a claim together with kept change.
+      const rounding = hasRoundingGiven(data)
+        ? resolveRoundingGiven({
+            owed: payoutTarget,
+            owedCurrency: currency,
+            payoutLegs,
+            claimed: {
+              usd: data.rounding_given_usd,
+              lbp: data.rounding_given_lbp,
+            },
+            claimedKept,
+            exchangeRate: sellRate,
+            ...(data.exchangeRate !== undefined
+              ? { tenderExchangeRate: data.exchangeRate }
+              : {}),
+            context: "Client top-up payout",
+          })
+        : null;
+      // (A verified round-up already reconciled the legs — nothing below runs.)
+      if (!rounding && (claimedKept.usd > 0 || claimedKept.lbp > 0)) {
         const kept = resolveKeptChange({
           payer: "payout",
           owed: payoutTarget,
@@ -3275,7 +3360,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         });
         keptUsd = kept.keptUsd;
         keptLbp = kept.keptLbp;
-      } else {
+      } else if (!rounding) {
         reconcileLegs({
           inLegs: payoutLegs,
           outLegs: [],
@@ -3481,6 +3566,22 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             currencyCode: leg.currencyCode,
             delta: -legAmount,
             tenantId,
+          });
+        }
+
+        // LIRA-334: the verified round-up — one books-only "Change
+        // rounding" expense linked to this top-up (the legs above already
+        // took the full handed amount). The generic void cascade voids it.
+        // `cashPaid` / `recharges.cost` deliberately stay `payoutTarget −
+        // kept`: the round-up is counted once, on the expense.
+        if (rounding) {
+          bookPayoutRoundingExpense({
+            parentSourceTable: "recharges",
+            parentSourceId: rechargeId,
+            parentLabel: `Whish App top-up #${rechargeId}`,
+            amount: rounding,
+            exchangeRate: recordExchangeRate,
+            userId: data.userId,
           });
         }
 

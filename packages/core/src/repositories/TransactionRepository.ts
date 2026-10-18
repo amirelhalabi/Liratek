@@ -8092,14 +8092,41 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     userId: number,
   ): void {
     if (!original.source_table || original.source_id == null) return;
+    this._voidExpensesLinkedTo(
+      original.source_table,
+      original.source_id,
+      userId,
+    );
+  }
+
+  /**
+   * LIRA-334, rule 20 — public entry to the same expense cascade, for a
+   * parent the generic void/refund never reaches. Hold Money pickups are
+   * NON_REVERSIBLE (`voidPickup` owns their reversal) and link their payout
+   * round-up expense to `hold_money_pickups` / pickup id, so `voidPickup`
+   * calls this. Call it inside the caller's db transaction.
+   */
+  voidLinkedExpenses(
+    sourceTable: string,
+    sourceId: number,
+    userId: number,
+  ): void {
+    this._voidExpensesLinkedTo(sourceTable, sourceId, userId);
+  }
+
+  private _voidExpensesLinkedTo(
+    sourceTable: string,
+    sourceId: number,
+    userId: number,
+  ): void {
     if (!this._expensesHasSourceRefColumns()) return;
     const tenantId = getCurrentTenantId();
     const siblings = this.query<{ id: number }>(
       `SELECT id FROM expenses
         WHERE source_ref_table = ? AND source_ref_id = ? AND tenant_id = ?
           AND COALESCE(is_refunded, 0) = 0`,
-      original.source_table,
-      original.source_id,
+      sourceTable,
+      sourceId,
       tenantId,
     );
     for (const sibling of siblings) {

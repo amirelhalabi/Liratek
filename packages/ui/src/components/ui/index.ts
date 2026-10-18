@@ -61,3 +61,4 @@ export { SearchBar } from "./SearchBar";
 export type { SearchBarProps } from "./SearchBar";
 export { default as PageAlerts } from "./PageAlerts";
 export type { PageAlertsProps, PageAlertItem } from "./PageAlerts";
+export { suggestRoundUpExtra, matchToleranceFor } from "./roundUpExtra";

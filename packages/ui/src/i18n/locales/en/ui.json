@@ -38,7 +38,8 @@
     "extra": "+ Extra",
     "extraLabel": "Extra",
     "reasonAria": "{{label}} reason",
-    "reasonPlaceholder": "Reason (optional)"
+    "reasonPlaceholder": "Reason (optional)",
+    "autoExtraHint": "Rounded up — clear it to give change"
   },
   "notifications": {
     "moreOne": "+{{count}} more notification",

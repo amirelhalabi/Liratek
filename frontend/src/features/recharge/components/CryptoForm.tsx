@@ -81,6 +81,9 @@ interface CryptoFormProps {
   onReturnChange?: (returnLegs: PaymentLine[]) => void;
   /** T3 keep-change opt-in (plumbed to PaymentSheet → MultiPaymentInput). */
   onKeptChange?: (kept: { usd: number; lbp: number } | null) => void;
+  /** LIRA-334 payout round-up opt-in (plumbed to PaymentSheet →
+   *  MultiPaymentInput) — the page passes it on a cash-out only. */
+  onRoundUpChange?: (roundUp: { usd: number; lbp: number } | null) => void;
   onDiscountChange?: (discount: number) => void;
   /** LIRA-319 — the sheet's "+ Extra" on a walk-in SEND (USD). */
   onExtraChange?: (extra: number) => void;
@@ -127,6 +130,7 @@ export function CryptoForm({
   onPaymentLinesChange,
   onReturnChange,
   onKeptChange,
+  onRoundUpChange,
   onDiscountChange,
   onExtraChange,
   exchangeRate,
@@ -927,6 +931,9 @@ export function CryptoForm({
             ? { unreturnedChangeTo: "CUSTOMER_ACCOUNT" as const }
             : {})}
           {...(onKeptChange ? { onKeptChange } : {})}
+          {...(onRoundUpChange && cryptoType === "RECEIVE"
+            ? { onRoundUpChange }
+            : {})}
           // LIRA-321 (US4): the "Customer pays" section — the USDT line
           // (+ the fee line when paid separately), independent of the payout
           // lines. Two seed lines open it in split mode; one keeps it

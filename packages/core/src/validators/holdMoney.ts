@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { roundingGivenFields } from "./common.js";
 
 /**
  * Hold-money validation contracts — shared by the Electron IPC handlers
@@ -127,10 +128,12 @@ export const holdMoneyCollectSchema = z.object({
   //  - TWO-currency pickup (USD and LBP both returned): per currency, NO cap
   //    — kept = portion − handed in that currency (handed ≤ portion), and
   //    the claim must match exactly — verified by `resolveKeptChange`'s
-//    `perCurrencyNoCap` payout mode, which does its arithmetic with
-//    `holdPickupKeptPerCurrency` below.
+  //    `perCurrencyNoCap` payout mode, which does its arithmetic with
+  //    `holdPickupKeptPerCurrency` below.
   kept_change_usd: z.number().nonnegative().optional(),
   kept_change_lbp: z.number().nonnegative().optional(),
+  // LIRA-334 — payout round-up (handed more than owed).
+  ...roundingGivenFields,
 });
 
 export type HoldMoneyCollectInput = z.infer<typeof holdMoneyCollectSchema>;

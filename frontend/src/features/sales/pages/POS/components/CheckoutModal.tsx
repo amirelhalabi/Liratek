@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { suggestRoundUpExtra } from "@liratek/ui/components/ui/roundUpExtra";
 import { useFormat } from "@/i18n/useFormat";
 import logger from "@/utils/logger";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
@@ -192,6 +193,7 @@ export default function CheckoutModal({
 }: CheckoutModalProps) {
   useModalFocusFix(true);
   const { t } = useTranslation("sales");
+  const { t: tUi } = useTranslation("ui");
   const { formatNumber } = useFormat();
   // Currency the total is expressed in ("USD" by default). When "LBP" the
   // settlement math runs in LBP; otherwise behaviour is identical to before.
@@ -251,13 +253,21 @@ export default function CheckoutModal({
   const isExtraMode = canExtra && lineMode === "extra";
   /** The extra that is actually charged and sent. */
   const appliedExtra = isExtraMode ? extra : 0;
+  // LIRA-334 — the extra was filled in from a round-up (not typed), and the
+  // cashier has cleared / switched it away (no refill until the legs change).
+  const [extraAutofilled, setExtraAutofilled] = useState(false);
+  const roundUpDismissedRef = useRef(false);
   const handleExtraChange = (v: number) => {
+    roundUpDismissedRef.current = true;
+    setExtraAutofilled(false);
     // Default cap (FR-006): never more than the sale itself (pre-extra).
     const capped = Math.min(Math.max(0, v), totalAmount);
     setExtraCapped(capped < v);
     setExtra(capped);
   };
   const handleLineModeChange = (m: "discount" | "extra") => {
+    roundUpDismissedRef.current = true;
+    setExtraAutofilled(false);
     setLineMode(m);
     setDiscount(0);
     setDiscountCapped(false);
@@ -270,6 +280,7 @@ export default function CheckoutModal({
     setLineMode("discount");
     setExtra(0);
     setExtraCapped(false);
+    setExtraAutofilled(false);
   }, [forPartner]);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
 
@@ -558,6 +569,44 @@ export default function CheckoutModal({
   const totalPaidInTotalCurrency = isLbpTotal
     ? paidLBP + paidUSD * effectiveExchangeRate
     : paidUSD + convertLBPToUSD(paidLBP, effectiveExchangeRate);
+  // LIRA-334 (owner 2026-10-18): the customer paid a little more than owed
+  // (≤ $5 / 450,000 LBP) → fill "+ Extra" with the difference; the cashier
+  // clears it to give the change back. Measured against the PRE-extra total
+  // so the fill never feeds its own measurement; the same helper as the
+  // payment box's built-in line (rule 14). One-currency totals only.
+  const roundUpSuggestion =
+    canExtra && !hasMultipleCurrencyTotals && (discount ?? 0) === 0
+      ? suggestRoundUpExtra({
+          paidInTarget: totalPaidInTotalCurrency,
+          baseTotalInTarget: finalAmount,
+          currency: totalCurrency,
+          cap: totalAmount,
+        })
+      : 0;
+  const paymentLinesKey = paymentLines
+    .map((l) => `${l.id}:${l.currencyCode}:${l.amount}`)
+    .join("|");
+  const prevPaymentLinesKeyRef = useRef(paymentLinesKey);
+  useEffect(() => {
+    if (prevPaymentLinesKeyRef.current !== paymentLinesKey) {
+      prevPaymentLinesKeyRef.current = paymentLinesKey;
+      roundUpDismissedRef.current = false;
+    }
+    if (roundUpDismissedRef.current) return;
+    if (roundUpSuggestion > 0) {
+      // A typed (or draft-restored) extra is the cashier's own — keep it.
+      if (lineMode === "extra" && !extraAutofilled && extra > 0) return;
+      if (lineMode !== "extra") setLineMode("extra");
+      if (extra !== roundUpSuggestion) setExtra(roundUpSuggestion);
+      setExtraCapped(false);
+      if (!extraAutofilled) setExtraAutofilled(true);
+    } else if (extraAutofilled) {
+      // The overpay went away (amount corrected): withdraw the filled extra.
+      setExtra(0);
+      setLineMode("discount");
+      setExtraAutofilled(false);
+    }
+  }, [paymentLinesKey, roundUpSuggestion, lineMode, extra, extraAutofilled]);
   // Change/return legs from MultiPaymentInput. cashOnlyReturn={true} below
   // guarantees every leg here is CASH (see the prop on the element), so this
   // is the same value the old changeGivenUSD/LBP state used to hold — just
@@ -1327,6 +1376,9 @@ export default function CheckoutModal({
                       <DiscountLine
                         label={t("checkout.discount")}
                         testId="checkout-discount-line"
+                        {...(isExtraMode && extraAutofilled
+                          ? { hint: tUi("discountLine.autoExtraHint") }
+                          : {})}
                         {...(isExtraMode
                           ? extraCapNote
                             ? { capNote: extraCapNote }

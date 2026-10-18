@@ -73,6 +73,14 @@ export function HoldMoneyPickupSheet({
     usd: number;
     lbp: number;
   } | null>(null);
+  // LIRA-334 — payout round-up: handing out a little MORE than is returned
+  // (held $50.90, hands $51) books the difference as change rounding.
+  // ONE-currency pickups only (the cap and the claim are in that currency);
+  // the sheet is always a payout, so (like `keptChange`) no mode flag.
+  const [roundUp, setRoundUp] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
   const [effectiveRate, setEffectiveRate] = useState<number | undefined>(
     undefined,
   );
@@ -121,6 +129,9 @@ export function HoldMoneyPickupSheet({
     return { usd: k.keptUsd, lbp: k.keptLbp };
   }, [pickupCurrency, payoutLegs, returnUsd, returnLbp]);
   const keptToSend = pickupCurrency ? keptChange : twoCurrencyKept;
+  // A two-currency pickup never claims a round-up — any stale one-currency
+  // figure is ignored (the server refuses a claim there).
+  const roundUpToSend = pickupCurrency ? roundUp : null;
 
   const isPartial =
     returnUsd < hold.remaining_usd - EPS_USD ||
@@ -147,6 +158,12 @@ export function HoldMoneyPickupSheet({
           ? {
               kept_change_usd: keptToSend.usd,
               kept_change_lbp: keptToSend.lbp,
+            }
+          : {}),
+        ...(roundUpToSend && (roundUpToSend.usd > 0 || roundUpToSend.lbp > 0)
+          ? {
+              rounding_given_usd: roundUpToSend.usd,
+              rounding_given_lbp: roundUpToSend.lbp,
             }
           : {}),
       });
@@ -300,6 +317,8 @@ export function HoldMoneyPickupSheet({
                 ? {
                     onKeptChange: (k: { usd: number; lbp: number } | null) =>
                       setKeptChange(k ? { usd: k.usd, lbp: k.lbp } : null),
+                    onRoundUpChange: (r: { usd: number; lbp: number } | null) =>
+                      setRoundUp(r ? { usd: r.usd, lbp: r.lbp } : null),
                   }
                 : {})}
               showDiscount={false}

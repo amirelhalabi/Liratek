@@ -28,6 +28,9 @@ import {
   type ReconciliationLeg,
 } from "./moneyPosting.js";
 import { resolveKeptChange } from "./keptChange.js";
+import { resolveRoundingGiven } from "./roundingGiven.js";
+import { bookPayoutRoundingExpense } from "./changeRoundingExpense.js";
+import { hasRoundingGiven } from "../validators/common.js";
 import {
   paymentMethodToDrawerName,
   partitionLegs,
@@ -464,7 +467,36 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
         const returnsLbp = portionLbp > LBP_EPSILON;
         let keptUsd = 0;
         let keptLbp = 0;
-        if (legs.length > 0 || claimsKept) {
+        // LIRA-334 payout round-up (handed out MORE than the portion): ONE-
+        // currency pickups only — a two-currency pickup's per-currency
+        // no-cap rule already refuses handing out more in a currency, so a
+        // claim there is refused (notAllowed). When claimed, the shared
+        // resolver replaces the kept/exact check below (legs = portion +
+        // rounding) and refuses a claim together with kept change.
+        let roundingUsd = 0;
+        let roundingLbp = 0;
+        const claimsRounding = hasRoundingGiven(data);
+        if (claimsRounding) {
+          const owedCurrency = returnsLbp ? "LBP" : "USD";
+          const r = resolveRoundingGiven({
+            owed: owedCurrency === "LBP" ? portionLbp : portionUsd,
+            owedCurrency,
+            payoutLegs: reconLegs,
+            claimed: {
+              usd: data.rounding_given_usd,
+              lbp: data.rounding_given_lbp,
+            },
+            claimedKept,
+            notAllowed: returnsUsd && returnsLbp,
+            exchangeRate: sellRate,
+            ...(data.exchange_rate !== undefined
+              ? { tenderExchangeRate: data.exchange_rate }
+              : {}),
+            context,
+          });
+          roundingUsd = r.usd;
+          roundingLbp = r.lbp;
+        } else if (legs.length > 0 || claimsKept) {
           const rates = {
             exchangeRate: sellRate,
             ...(data.exchange_rate !== undefined
@@ -590,6 +622,23 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
           )
           .run(tenantId, hold.id, txnId, portionUsd, portionLbp, collectedBy, requestNow());
         const pickupId = Number(pickupResult.lastInsertRowid);
+
+        // LIRA-334: the verified round-up — one books-only "Change rounding"
+        // expense linked to THIS pickup (`hold_money_pickups` / pickupId —
+        // the `hold_money` source pair is shared by the drop-off and every
+        // pickup, so it cannot be the link). HOLD_MONEY_COLLECT is
+        // non-reversible by the generic path; `voidPickup` voids it (rule 20).
+        if (roundingUsd > 0 || roundingLbp > 0) {
+          bookPayoutRoundingExpense({
+            parentSourceTable: "hold_money_pickups",
+            parentSourceId: pickupId,
+            parentLabel: `Hold #${hold.id} pickup #${pickupId}`,
+            amount: { usd: roundingUsd, lbp: roundingLbp },
+            exchangeRate: stampedRate,
+            userId: collectedBy,
+            transactionTime: data.transaction_time,
+          });
+        }
 
         // 4. Flip status to 'collected' only once NOTHING remains in either
         // currency (partial pickups keep it 'held').
@@ -793,6 +842,15 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
              WHERE id = ? AND tenant_id = ?`,
           )
           .run(voidedBy, requestNow(), pickup.id, tenantId);
+
+        // LIRA-334 (rule 20): this pickup's payout round-up expense, if
+        // any, is voided with it — the module-owned reversal, since the
+        // generic void never reaches a HOLD_MONEY_COLLECT row.
+        getTransactionRepository().voidLinkedExpenses(
+          "hold_money_pickups",
+          pickup.id,
+          voidedBy,
+        );
 
         // The derived remaining balance just went back up — reopen the hold
         // if it had reached 'collected'.

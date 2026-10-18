@@ -99,3 +99,57 @@ export function bookChangeRoundingExpense(
   );
   return rounding;
 }
+
+/**
+ * LIRA-334 (owner decision 2026-10-18) — a payout the cashier rounded UP to
+ * the notes at hand (owed 102.90, handed 103.00). Same category, same
+ * books-only rule and the same parent link as the LBP change rounding above,
+ * so every rounding cost sits on one line of the Expenses page and the void
+ * cascade reverses it with the payout. The amount is verified first by
+ * `resolveRoundingGiven` (roundingGiven.ts); this only writes it.
+ */
+export interface PayoutRoundingExpenseInput {
+  /** The parent transaction's own `source_table` / `source_id`. */
+  parentSourceTable: string;
+  parentSourceId: number;
+  /** Shown in the expense description, e.g. "OMT receive #418". */
+  parentLabel: string;
+  /** The verified round-up — exactly one side non-zero (the payout currency). */
+  amount: { usd: number; lbp: number };
+  exchangeRate: number;
+  userId: number;
+  transactionTime?: string | undefined;
+  clientDay?: string | undefined;
+}
+
+/** Books the payout round-up (no-op for zero). Call inside the parent's
+ *  db transaction, after the parent's transaction row exists. */
+export function bookPayoutRoundingExpense(
+  input: PayoutRoundingExpenseInput,
+): void {
+  const usd = input.amount.usd || 0;
+  const lbp = input.amount.lbp || 0;
+  if (usd <= 0 && lbp <= 0) return;
+  getExpenseRepository().createExpense(
+    {
+      description: `Payout rounded up to the next note (${input.parentLabel})`,
+      category: CHANGE_ROUNDING_EXPENSE_CATEGORY,
+      paid_by_method: "CASH",
+      amount_usd: usd,
+      amount_lbp: lbp,
+      // Same day rule as the LBP rounding / SMS fee expense (rule 27).
+      expense_date: input.transactionTime ?? input.clientDay ?? clientDay(),
+      transaction_time: input.transactionTime,
+      // The payout legs already took the full amount from the drawer.
+      books_only: true,
+      source_ref_table: input.parentSourceTable,
+      source_ref_id: input.parentSourceId,
+      tender_exchange_rate: input.exchangeRate,
+      extra_metadata: {
+        payout_rounding_usd: usd,
+        payout_rounding_lbp: lbp,
+      },
+    },
+    input.userId,
+  );
+}

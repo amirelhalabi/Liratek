@@ -4,6 +4,7 @@ import {
   currencyCodeSchema,
   transactionTimeSchema,
   historyAllQuerySchema,
+  roundingGivenFields,
 } from "./common.js";
 import { customerPaymentsField } from "./customerLegs.js";
 
@@ -47,7 +48,10 @@ export const KEPT_CHANGE_ROUNDING_TOLERANCE = { USD: 0.005, LBP: 0.5 } as const;
  * rounding tolerance? False for a negative amount and for any currency
  * without a cap. The one predicate the screen and the server share.
  */
-export function isWithinShortfallMax(amount: number, currency: string): boolean {
+export function isWithinShortfallMax(
+  amount: number,
+  currency: string,
+): boolean {
   if (currency !== "USD" && currency !== "LBP") return false;
   if (!Number.isFinite(amount) || amount < 0) return false;
   return (
@@ -62,6 +66,8 @@ const keptChangeFields = {
    *  profit instead of handing it out. See ExchangeRepository. */
   kept_change_usd: z.number().nonnegative().optional(),
   kept_change_lbp: z.number().nonnegative().optional(),
+  // LIRA-334 — payout round-up (handed more than owed).
+  ...roundingGivenFields,
 };
 
 /**

@@ -38,7 +38,8 @@
     "extra": "+ إضافة",
     "extraLabel": "إضافة",
     "reasonAria": "سبب {{label}}",
-    "reasonPlaceholder": "السبب (اختياري)"
+    "reasonPlaceholder": "السبب (اختياري)",
+    "autoExtraHint": "تقريب للأعلى — امسحه لإرجاع الفكّة"
   },
   "notifications": {
     "moreOne": "+{{count}} إشعار إضافي",

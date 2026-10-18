@@ -196,6 +196,10 @@ export class RechargeService {
     /** Payout kept change — verified by the repository (resolveKeptChange). */
     kept_change_usd?: number;
     kept_change_lbp?: number;
+    /** LIRA-334 payout round-up — verified by the repository
+     *  (resolveRoundingGiven) and booked as a "Change rounding" expense. */
+    rounding_given_usd?: number;
+    rounding_given_lbp?: number;
     userId: number;
   }): { success: boolean; error?: string } {
     if (!(data.amount > 0)) {

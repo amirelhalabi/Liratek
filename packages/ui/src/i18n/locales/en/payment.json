@@ -68,6 +68,7 @@
     "total": "total",
     "theBalance": "the balance",
     "payoutExcess": "<ltr>{{amount}}</ltr> more than {{account}} — it is added to their account as debt.",
+    "roundUpBooked": "Rounded up <ltr>{{amount}}</ltr> — booked as change rounding.",
     "grandTotal": "Grand Total",
     "inclWalletFee": "incl. <ltr>{{amount}}</ltr> wallet fee"
   },

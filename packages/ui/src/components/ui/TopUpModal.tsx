@@ -217,6 +217,14 @@ export default function TopUpModal({
     usd: number;
     lbp: number;
   } | null>(null);
+  // LIRA-334 — payout round-up: the shop hands out a little MORE than it
+  // owes (up to $5 / 450,000 LBP, payout currency) and books the extra as
+  // change rounding. Reported by the same payout MultiPaymentInput; never
+  // together with kept change (short vs over); the server verifies it.
+  const [clientPayoutRoundUp, setClientPayoutRoundUp] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
 
   // i18n-exempt: brand names, shown as they are
   const providerLabels: Record<TopUpProvider, string> = {
@@ -302,6 +310,7 @@ export default function TopUpModal({
       setClientPayoutLines([]);
       setClientPayoutExchangeRate(undefined);
       setClientPayoutKept(null);
+      setClientPayoutRoundUp(null);
       // D4: OMT credit is the default every time the modal (re)opens.
       setOmtAppFundingMode("credit");
     }
@@ -385,6 +394,14 @@ export default function TopUpModal({
             ? {
                 kept_change_usd: clientPayoutKept.usd,
                 kept_change_lbp: clientPayoutKept.lbp,
+              }
+            : {}),
+          // LIRA-334 — the round-up rides the same payload too (rule 22).
+          ...(clientPayoutRoundUp &&
+          (clientPayoutRoundUp.usd > 0 || clientPayoutRoundUp.lbp > 0)
+            ? {
+                rounding_given_usd: clientPayoutRoundUp.usd,
+                rounding_given_lbp: clientPayoutRoundUp.lbp,
               }
             : {}),
           ...(selectedClientId ? { clientId: selectedClientId } : {}),
@@ -715,6 +732,7 @@ export default function TopUpModal({
                         payer="payout"
                         onChange={setClientPayoutLines}
                         onKeptChange={setClientPayoutKept}
+                        onRoundUpChange={setClientPayoutRoundUp}
                         onExchangeRateChange={setClientPayoutExchangeRate}
                         showDiscount={false}
                         requiresClientForDebt={false}

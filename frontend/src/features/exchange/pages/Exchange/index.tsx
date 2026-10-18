@@ -430,6 +430,14 @@ export default function Exchange() {
     usd: number;
     lbp: number;
   } | null>(null);
+  // LIRA-334 — the payout round-up: the cashier hands out a little MORE than
+  // owed (8,950,000 LBP on 8,900,000) and the shop books the difference as
+  // change rounding. Reported by the payout sheet, sent next to the payout
+  // legs. The sheet is always a payout, so (like `payoutKept`) no mode flag.
+  const [payoutRoundUp, setPayoutRoundUp] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
   // LIRA-321 "Customer pays — <fromCurrency>" (IN) section of the payout
   // sheet: the lines the customer hands over (a short one leaves a leftover
   // on the client's account) and the section's balance, which gates Confirm.
@@ -1255,6 +1263,14 @@ export default function Exchange() {
                     kept_change_lbp: payoutKept.lbp,
                   }
                 : {}),
+              // LIRA-334: the round-up also rides with the payout legs only.
+              ...(payoutRoundUp &&
+              (payoutRoundUp.usd > 0 || payoutRoundUp.lbp > 0)
+                ? {
+                    rounding_given_usd: payoutRoundUp.usd,
+                    rounding_given_lbp: payoutRoundUp.lbp,
+                  }
+                : {}),
             }
           : {}),
       });
@@ -1308,6 +1324,7 @@ export default function Exchange() {
         setShowPayoutSheet(false);
         setPayoutLines([]);
         setPayoutKept(null);
+        setPayoutRoundUp(null);
         setPayoutTenderRate(undefined);
         loadHistory();
       } else {
@@ -2121,6 +2138,7 @@ export default function Exchange() {
                     setCustomerLines([]);
                     setCustomerState(null);
                     setPayoutKept(null);
+                    setPayoutRoundUp(null);
                     setPayoutTenderRate(undefined);
                     setPayoutSheetKey((k) => k + 1);
                     setShowPayoutSheet(true);
@@ -2255,6 +2273,7 @@ export default function Exchange() {
         onPaymentChange={setPayoutLines}
         direction="payout"
         onKeptChange={setPayoutKept}
+        onRoundUpChange={setPayoutRoundUp}
         {...(canSplitPayout && fromCurrency && amountIn > 0
           ? {
               counterFlow: {

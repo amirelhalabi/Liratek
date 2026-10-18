@@ -68,6 +68,7 @@
     "total": "الإجمالي",
     "theBalance": "الرصيد",
     "payoutExcess": "<ltr>{{amount}}</ltr> أكثر من {{account}} — يُضاف إلى حسابه كدين.",
+    "roundUpBooked": "تقريب للأعلى <ltr>{{amount}}</ltr> — يُسجَّل كفرق تقريب الفكّة.",
     "grandTotal": "المجموع الكلّي",
     "inclWalletFee": "يشمل <ltr>{{amount}}</ltr> رسم المحفظة"
   },

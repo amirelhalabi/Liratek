@@ -6704,6 +6704,21 @@ Owner decisions at build (2026-10-17): impersonation is gated like the shop; use
 
 **What users will notice:** new shops that sign up on the web app start a free 14-day trial; every page (and the phone app) shows the days left with a WhatsApp button to activate; after it ends they can still sign in, see and export everything, but new sales and records wait until LiraTek activates the shop.
 
+## LIRA-334: Round-up overpays — payouts book "Change rounding", customer pays fills "+ Extra" — BUILT 2026-10-18 (owner decisions 2026-10-18)
+
+The owner's case: a total of 102.90, and the cashier pays out or takes 103.00 because there are no coins. Today a payout is refused with "The payment is more than the total." The cashier then types 102.90, hands out $103 anyway, and the drawer ends the day 10¢ short with no reason. Spec Kit: `specs/334-round-up-overpays/`.
+
+Owner decisions 2026-10-18:
+- **Payout (OUT):** accept an overpay of up to $5 / 450,000 LBP and book the difference as the existing automatic "Change rounding" expense. It is books-only, hidden in Transactions by default, voided with the payout, shown on the Expenses page, and lowers net profit while module margins stay unchanged. This applies on every payout screen: OMT/Whish system receive, Binance cash-out, OMT/Whish App receive and "From client" top-up, Exchange, Hold Money pickup (one currency) and credit buy-back. Debts cash-out keeps sending the excess to the client's account.
+  - Rejected: using the payout "+" discount (it exists on only 2 screens and is capped at the fee) and taking the difference off the payout's profit (no reason shown, and an OMT receive would show a loss).
+- **Customer pays (IN):** an overpay within the same cap fills in "+ Extra" automatically; the cashier clears it to hand the change back. Waive will be used less, which the owner accepts.
+
+**Built 2026-10-18 (Spec Kit T001–T039):** core `resolveRoundingGiven` + `bookPayoutRoundingExpense` and all six payout flows (Hold Money reversal through `voidPickup` → `voidLinkedExpenses`); MultiPaymentInput `onRoundUpChange` + "+ Extra" autofill (`suggestRoundUpExtra`, shared with CheckoutModal); every payout screen wired. Tests: core 296/296 and frontend 129/129 on the affected suites, guards seen failing first (exceptions labelled in the files); typecheck, lint and the CI checks green; web e2e `lira-web-074` 2/2. Not run: the desktop app (no Electron on the Mac), and the shop-day web e2e (`lira-web-071`), which stops at step 0.1 (opening drawers: 10 fields shown, 6 expected), a failure unrelated to this ticket, so its six updated "clear the extra" steps are unverified.
+
+**Owner decision 2026-10-18 (after the shop-day check):** keep the $5 / 450,000 LBP cap for customer payments too, even though the autofill then fills in on most normal change cases (6 of about 15 customer payments in the shop day). The cashier clears the extra to give change.
+
+**What users will notice:** when you hand a customer a little more than owed on a payout (for example $103 on $102.90), the payment is accepted and the 10¢ is listed under Expenses as "Change rounding". When a customer pays a little more than the total, the extra is filled in for you as an extra charge; clear it to give the change back.
+
 ## LIRA-333: Send the receipt on WhatsApp (wa.me link) — BUILT 2026-10-17 (owner decisions 2026-10-17)
 
 Owner decision: free `wa.me` link with the receipt text pre-filled, the cashier taps Send. No WhatsApp Cloud API, no per-message cost. Why: MAPOS and Managely advertise WhatsApp receipts; LiraTek has WhatsApp API settings but nothing sends. Spec Kit: `specs/333-whatsapp-receipt/`.

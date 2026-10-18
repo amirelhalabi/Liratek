@@ -6,6 +6,7 @@ import {
   transactionTimeSchema,
   historyAllQuerySchema,
   extraChargeFields,
+  roundingGivenFields,
   hasExtraCharge,
   NO_EXTRA_FOR_PARTNER_MESSAGE,
   EXTRA_ON_SESSION_ITEM_MESSAGE,
@@ -260,6 +261,8 @@ export const createFinancialServiceSchema = z
     // T3 keep-change (KC-4): kept change per currency → profit stamp.
     kept_change_usd: z.number().nonnegative().optional(),
     kept_change_lbp: z.number().nonnegative().optional(),
+    // LIRA-334 — payout round-up (handed more than owed).
+    ...roundingGivenFields,
     // LIRA-319: the extra the cashier added on top of what the customer
     // owes (OMT/Whish send, Katsh/catalog cart carrier, crypto send, app
     // transfer). Its own field — never folded into amount/price/fee/

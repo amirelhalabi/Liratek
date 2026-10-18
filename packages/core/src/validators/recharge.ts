@@ -5,6 +5,7 @@ import {
   transactionTimeSchema,
   historyAllQuerySchema,
   extraChargeFields,
+  roundingGivenFields,
   hasExtraCharge,
   discountAndExtraNotBoth,
   extraNotBothRefineOptions,
@@ -159,6 +160,8 @@ export const createRechargeSchema = z
     // returned) change per currency → added to the transaction's profit stamp.
     kept_change_usd: z.number().nonnegative().optional(),
     kept_change_lbp: z.number().nonnegative().optional(),
+    // LIRA-334 — payout round-up (handed more than owed).
+    ...roundingGivenFields,
     // LIRA-319: the extra the cashier added on top of the sale, in the
     // sale's currency. Optional with NO default (offline replay, research
     // R4). `price` stays the sale price; the repository charges
@@ -402,6 +405,8 @@ export const topUpFromClientSchema = z.object({
    */
   kept_change_usd: z.number().nonnegative().optional(),
   kept_change_lbp: z.number().nonnegative().optional(),
+  // LIRA-334 — payout round-up (handed more than owed).
+  ...roundingGivenFields,
   /** LIRA-329 — informational only: the "Fee included in amount" choice as
    *  ticked (kept on the transaction's details; `fee` above stays the
    *  figure every money step uses). */

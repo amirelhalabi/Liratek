@@ -553,6 +553,57 @@ export async function payLine(
   await payAmount(scope, i).fill(String(amount));
 }
 
+/**
+ * LIRA-334 (owner 2026-10-18) — the cashier's "give the change back" action.
+ *
+ * On a customer-pays box that offers "+ Extra", a small overpay (above the
+ * match tolerance, at most $5 / 450,000 LBP in the total's currency) with no
+ * discount or extra typed turns the Discount line into "+ Extra" filled with
+ * the difference, and the change box stays closed. This asserts that fill
+ * happened, clears it, and waits for the change box — so the step's existing
+ * change / keep assertions run as before. ONE place, so a later cap change
+ * touches the call sites only where a step crosses the cap.
+ *
+ * Call it AFTER the last payment-line edit: any later line change re-arms
+ * the fill. Filling the return inputs afterwards is fine (not payment lines).
+ *
+ * The amount is deliberately not asserted — the field shows it in the
+ * payment line's currency, converted at the sheet's rate (SHOP_DAY.md quotes
+ * it in the total's currency). One locator covers both widgets: the POS /
+ * Maintenance checkout field and the payment box's built-in line are both
+ * labelled "Extra" only in extra mode, so its visibility proves the switch.
+ */
+export async function clearRoundUpExtra(scope: Locator | Page): Promise<void> {
+  const extra = scope
+    .getByLabel("Extra", { exact: true })
+    .filter({ visible: true })
+    .first();
+  await expect(extra).toBeVisible();
+  await expect(extra).not.toHaveValue("");
+  await expect(
+    scope
+      .getByText(/Rounded up/)
+      .filter({ visible: true })
+      .first(),
+  ).toBeVisible();
+  // An extra-only line (no discount offered) has no switch to check.
+  const toggle = scope
+    .getByTestId("discount-mode-extra")
+    .filter({ visible: true });
+  if ((await toggle.count()) > 0) {
+    await expect(toggle.first()).toHaveAttribute("aria-pressed", "true");
+  }
+  // Checked only after the fill is seen, so this cannot pass early.
+  await expect(
+    scope.getByTestId("return-change").filter({ visible: true }),
+  ).toHaveCount(0);
+  await extra.fill("");
+  await expect(extra).toHaveValue("");
+  await expect(
+    scope.getByTestId("return-change").filter({ visible: true }).first(),
+  ).toBeVisible();
+}
+
 /** Click a client suggestion (ClientAutocompleteInput) after typing a name. */
 export async function pickClientOption(
   page: Page,

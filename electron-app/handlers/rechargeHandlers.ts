@@ -326,6 +326,9 @@ export function registerRechargeHandlers(): void {
         clientId?: number;
         kept_change_usd?: number;
         kept_change_lbp?: number;
+        // LIRA-334: payout round-up (roundingGivenFields).
+        rounding_given_usd?: number;
+        rounding_given_lbp?: number;
         includingFees?: boolean;
       },
     ) => {

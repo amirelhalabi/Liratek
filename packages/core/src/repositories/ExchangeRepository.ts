@@ -19,6 +19,9 @@ import {
   bookCustomerLegs,
 } from "./moneyPosting.js";
 import { resolveKeptChange } from "./keptChange.js";
+import { resolveRoundingGiven } from "./roundingGiven.js";
+import { bookPayoutRoundingExpense } from "./changeRoundingExpense.js";
+import { hasRoundingGiven } from "../validators/common.js";
 import { bookForgivenShortfallSibling } from "./forgivenShortfall.js";
 import { formatMoneyAmount } from "../utils/formatMoney.js";
 import { getPartnerRepository } from "./PartnerRepository.js";
@@ -166,6 +169,15 @@ export interface CreateExchangeData {
    */
   kept_change_usd?: number;
   kept_change_lbp?: number;
+  /**
+   * LIRA-334 — payout round-up: the cashier handed out MORE than amountOut
+   * (no coins / small notes), in `toCurrency`. Verified by
+   * `resolveRoundingGiven`, booked as a books-only "Change rounding"
+   * expense linked to this exchange. Refused for a partner exchange or
+   * without payout legs.
+   */
+  rounding_given_usd?: number;
+  rounding_given_lbp?: number;
   /**
    * LIRA-321 — the client picked on the Exchange screen. Saved on
    * `exchange_transactions.client_id` and the unified row (rule 11);
@@ -402,6 +414,11 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
           );
         }
       }
+
+      // LIRA-334 payout round-up — verified before kept change so a claim
+      // of both is refused with the round-up's own message. Guarded before
+      // any row is written.
+      const rounding = this._resolvePayoutRoundingGiven(data, isForPartner);
 
       // Payout "keep the change" (owner decision 2026-10-06, D9 refined).
       // Guarded before any row is written (throwing rolls back everything).
@@ -853,13 +870,13 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         // Keep-change: the lines must cover amountOut MINUS the kept
         // leftover (per currency). `keptChange` is deliberately NOT passed —
         // reconcileLegs subtracts it from the tender (overpay semantics), the
-        // opposite of a payout.
+        // opposite of a payout. LIRA-334: PLUS the verified round-up.
         const owed = expectedTotalIn(Math.abs(data.amountOut), data.toCurrency);
         reconcileLegs({
           inLegs: payoutLegs,
           expectedTotals: {
-            usd: owed.usd - kept.usd,
-            lbp: owed.lbp - kept.lbp,
+            usd: owed.usd - kept.usd + rounding.usd,
+            lbp: owed.lbp - kept.lbp + rounding.lbp,
           },
           // Fallback rate only, used when `tenderExchangeRate` is absent —
           // the stamped `rate` is the from→to exchange rate (possibly
@@ -912,6 +929,21 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
           currencyCode: data.toCurrency,
           delta: toDelta,
           tenantId,
+        });
+      }
+
+      // LIRA-334: the verified round-up — one books-only "Change rounding"
+      // expense linked to this exchange (the payout legs above already took
+      // the full handed amount). The generic refund/void cascade voids it.
+      if (rounding.usd > 0 || rounding.lbp > 0) {
+        bookPayoutRoundingExpense({
+          parentSourceTable: "exchange_transactions",
+          parentSourceId: id,
+          parentLabel: `Exchange #${id}`,
+          amount: { usd: rounding.usd, lbp: rounding.lbp },
+          exchangeRate: rounding.rate,
+          userId: createdBy,
+          transactionTime: data.transaction_time,
         });
       }
 
@@ -1111,6 +1143,42 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
     );
     const profitUsd = kept.keptUsd + kept.keptLbp / rate;
     return { usd: kept.keptUsd, lbp: kept.keptLbp, profitUsd };
+  }
+
+  /**
+   * LIRA-334 — payout round-up: the verified amount the cashier handed out
+   * ABOVE amountOut, plus the rate it is valued at. The shared
+   * `resolveRoundingGiven` (rule 14) refuses it for a partner exchange,
+   * together with kept change, without drawer payout legs, outside USD/LBP,
+   * in the other currency or over the cap. Called only when a round-up is
+   * claimed — with none, the split-payout reconcile is the whole check, so
+   * lump and exotic-target payouts are untouched.
+   */
+  private _resolvePayoutRoundingGiven(
+    data: CreateExchangeData,
+    isForPartner: boolean,
+  ): { usd: number; lbp: number; rate: number } {
+    // No claim → nothing read, nothing checked (the path is as before).
+    if (!hasRoundingGiven(data)) return { usd: 0, lbp: 0, rate: 0 };
+    const sellRate = getUsdLbpSellRate(this.db);
+    const rate = resolveStampedExchangeRate(
+      sellRate,
+      data.tender_exchange_rate,
+    );
+    const r = resolveRoundingGiven({
+      owed: Math.abs(data.amountOut),
+      owedCurrency: data.toCurrency,
+      payoutLegs: data.payments ?? [],
+      claimed: { usd: data.rounding_given_usd, lbp: data.rounding_given_lbp },
+      claimedKept: { usd: data.kept_change_usd, lbp: data.kept_change_lbp },
+      notAllowed: isForPartner,
+      exchangeRate: sellRate,
+      ...(data.tender_exchange_rate !== undefined
+        ? { tenderExchangeRate: data.tender_exchange_rate }
+        : {}),
+      context: "Exchange payout",
+    });
+    return { usd: r.usd, lbp: r.lbp, rate };
   }
 
   // ---------------------------------------------------------------------------

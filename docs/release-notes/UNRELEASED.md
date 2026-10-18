@@ -91,6 +91,8 @@ Right after a sale, the POS shows "Sale completed" with a Send on WhatsApp butto
 - Debts (Settle Debt) and Partners (Settle): the separate green Discount / Forgive box is gone. Forgiving is now a "Forgive (no cash)" line in the payment box, and typing an amount there no longer changes the payment you entered. A "Client will owe" (or "Partner will owe") line shows what is left after you confirm. To forgive part of it, lower the payment first.
 - Dark mode: greyed-out buttons now show their text on the Mobile Recharge screens (MTC / Alfa, Katsh, Binance, Whish App / OMT App, card sales and money transfers) and on the OMT/Whish page. Before, a button that could not be pressed yet looked like an empty bar.
 - Screen readers now call the currency picker next to the Extra amount "Extra currency". It used to say "Discount currency".
+- Paying out a little more than owed because you have no coins (for example $103.00 on $102.90) is now accepted, up to $5 or 450,000 LBP. The payment window shows "Rounded up", and the difference is recorded on the Expenses page as "Change rounding". This works on OMT/Whish receive, Binance cash-out, Whish App / OMT App receive and "From client", Exchange, Hold Money pickups in one currency, and MTC / Alfa credit buy-back. Voiding the payout removes it. Above $5 / 450,000 LBP the payment is still refused.
+- When a customer pays a little more than the total (up to $5 or 450,000 LBP), the Discount line switches to "+ Extra" and fills in the difference, so the extra is kept as an extra charge. To give the change back instead, clear the extra and the change box appears.
 
 ## ➕ Extra charges
 

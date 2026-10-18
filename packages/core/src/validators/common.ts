@@ -150,7 +150,9 @@ export const clientDayInputSchema = localDayFormatSchema.optional();
  * one (a bare `z.coerce.number().positive().finite().optional()` with no
  * `.nullish()`/transform at all).
  */
-function _buildRefundExchangeRateSchema<T extends z.ZodNumber>(numberSchema: T) {
+function _buildRefundExchangeRateSchema<T extends z.ZodNumber>(
+  numberSchema: T,
+) {
   return numberSchema
     .positive()
     .finite()
@@ -159,7 +161,9 @@ function _buildRefundExchangeRateSchema<T extends z.ZodNumber>(numberSchema: T) 
     .optional();
 }
 
-export const refundExchangeRateSchema = _buildRefundExchangeRateSchema(z.number());
+export const refundExchangeRateSchema = _buildRefundExchangeRateSchema(
+  z.number(),
+);
 
 /**
  * The SAME rate, for a caller that reads it off a query string
@@ -210,6 +214,38 @@ export const EXTRA_ABOVE_TOTAL_MESSAGE =
 /** LIRA-319 — a session-basket item takes its extra at the checkout. */
 export const EXTRA_ON_SESSION_ITEM_MESSAGE =
   "Add the extra at the session checkout.";
+
+/**
+ * LIRA-334 — a payout the cashier rounded UP to the notes at hand (owed
+ * 102.90, handed 103.00): the claimed round-up, in the payout's own
+ * currency. Verified by `resolveRoundingGiven` (repositories/roundingGiven.ts)
+ * and booked as a "Change rounding" expense. Optional with NO `.default()`
+ * (offline replay — same rule as {@link extraChargeFields}). Absent = none.
+ */
+export const roundingGivenFields = {
+  rounding_given_usd: z.number().nonnegative().optional(),
+  rounding_given_lbp: z.number().nonnegative().optional(),
+};
+
+/** LIRA-334 refusals — one wording for every payout flow (rule 14). */
+export const ROUNDING_GIVEN_OVER_CAP_MESSAGE =
+  "You can only round a payout up by $5 / 450,000 LBP.";
+export const ROUNDING_GIVEN_WITH_KEPT_MESSAGE =
+  "A payout can't keep change and round up at the same time.";
+export const ROUNDING_GIVEN_NOT_ALLOWED_MESSAGE =
+  "Rounding up isn't available on this payout.";
+export const ROUNDING_GIVEN_CURRENCY_MESSAGE =
+  "The round-up must be in the payout's currency.";
+
+/** True when the payload claims a positive payout round-up. */
+export function hasRoundingGiven(data: {
+  rounding_given_usd?: number | undefined;
+  rounding_given_lbp?: number | undefined;
+}): boolean {
+  return (
+    (data.rounding_given_usd ?? 0) > 0 || (data.rounding_given_lbp ?? 0) > 0
+  );
+}
 
 /** True when the payload carries a positive extra in either currency. */
 export function hasExtraCharge(data: {

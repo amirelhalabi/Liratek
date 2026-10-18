@@ -43,6 +43,25 @@ describe("buildWalletTransferPayload", () => {
     expect(receive.cashoutMethod).toBe("WHISH");
     expect(receive.kept_change_usd).toBe(0.5);
   });
+
+  // LIRA-334: the payout round-up rides the same builder (rule 22), sent
+  // only when non-zero, under the schema's own field names (rule 24).
+  it("sends the payout round-up only when non-zero, and the schema keeps it", () => {
+    const base = {
+      provider: "WHISH_APP" as const, serviceType: "RECEIVE" as const, currency: "USD" as const, fees: fees("WHISH_APP", "RECEIVE"), includingFees: false,
+      client: { name: "A", phone: "1" }, paidByMethod: "CASH", cashoutMethod: "CASH" as const,
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 50 }],
+    };
+    const none = buildWalletTransferPayload({ ...base, roundingGiven: { usd: 0, lbp: 0 } });
+    expect("rounding_given_usd" in none).toBe(false);
+    expect("rounding_given_lbp" in none).toBe(false);
+    const nul = buildWalletTransferPayload({ ...base, roundingGiven: null });
+    expect("rounding_given_usd" in nul).toBe(false);
+    const body = buildWalletTransferPayload({ ...base, roundingGiven: { usd: 0.1, lbp: 0 } });
+    const parsed = createFinancialServiceSchema.parse(body);
+    expect(parsed.rounding_given_usd).toBe(0.1);
+    expect(parsed.rounding_given_lbp).toBe(0);
+  });
 });
 
 // LIRA-321 (T038): on a Whish App / OMT App RECEIVE the customer's side

@@ -890,6 +890,13 @@ export interface PostPayoutLegsInput {
    * used for this.
    */
   keptChange?: KeptChange;
+  /**
+   * LIRA-334 — the payout round-up (handed MORE than owed), already verified
+   * by `resolveRoundingGiven` (roundingGiven.ts). The legs then cover
+   * `payoutAmount − kept + rounding`. Defaults to 0; the caller books it as
+   * a "Change rounding" expense.
+   */
+  roundingGiven?: KeptChange;
 }
 
 export function postPayoutLegs(input: PostPayoutLegsInput): void {
@@ -909,6 +916,7 @@ export function postPayoutLegs(input: PostPayoutLegsInput): void {
     fallbackMethod = "CASH",
     onCustomerAccountLeg,
     keptChange,
+    roundingGiven,
   } = input;
 
   const keptUsd = keptChange?.usd ?? 0;
@@ -926,8 +934,8 @@ export function postPayoutLegs(input: PostPayoutLegsInput): void {
   reconcileLegs({
     inLegs: legs,
     expectedTotals: {
-      usd: owedTotals.usd - keptUsd,
-      lbp: owedTotals.lbp - keptLbp,
+      usd: owedTotals.usd - keptUsd + (roundingGiven?.usd ?? 0),
+      lbp: owedTotals.lbp - keptLbp + (roundingGiven?.lbp ?? 0),
     },
     exchangeRate,
     tenderExchangeRate,

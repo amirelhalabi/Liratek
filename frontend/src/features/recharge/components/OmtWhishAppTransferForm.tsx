@@ -332,6 +332,22 @@ function OmtWhishAppTransferFormInner({
   // LIRA-319 — never on a RECEIVE (a payout), inside a session (the
   // session checkout takes it) or for a partner (no customer pays).
   const extraOffered = serviceType === "SEND" && !activeSession && !forPartner;
+  // LIRA-334 — payout round-up (a little MORE handed out than owed, booked as
+  // change rounding): a walk-in CASH RECEIVE payout only — never in a
+  // session (the basket pays out), never For Partner, never paid into the
+  // customer's account or a wallet (the server refuses those). Gates both
+  // the sheet's `onRoundUpChange` and the payload (rule 14).
+  const roundUpApplies =
+    serviceType === "RECEIVE" &&
+    !activeSession &&
+    !forPartner &&
+    cashoutMethod === "CASH";
+  // `payout` is the same stale guard as `keptChange`.
+  const [roundUp, setRoundUp] = useState<{
+    usd: number;
+    lbp: number;
+    payout: boolean;
+  } | null>(null);
   const sendExtra = extraOffered ? extraCharge : 0;
 
   const handleSubmit = async () => {
@@ -427,6 +443,7 @@ function OmtWhishAppTransferFormInner({
       setPaymentLines([]);
       setReturnLegs([]);
       setKeptChange(null);
+      setRoundUp(null);
       setManualFee("");
       setFeeMode("SENDER");
       setCustomerLines([]);
@@ -512,6 +529,10 @@ function OmtWhishAppTransferFormInner({
           ...(keptChange && keptChange.payout === (serviceType === "RECEIVE")
             ? { keptChange: { usd: keptChange.usd, lbp: keptChange.lbp } }
             : {}),
+          // LIRA-334: the payout round-up (see `roundUpApplies`).
+          ...(roundUpApplies && roundUp && roundUp.payout
+            ? { roundingGiven: { usd: roundUp.usd, lbp: roundUp.lbp } }
+            : {}),
           ...(transactionTime !== undefined ? { transactionTime } : {}),
         }),
         // LIRA-319: the extra rides its own field (walk-in SEND only).
@@ -555,6 +576,7 @@ function OmtWhishAppTransferFormInner({
         setPaymentLines([]);
         setReturnLegs([]);
         setKeptChange(null);
+        setRoundUp(null);
         setExtraCharge(0);
         setManualFee("");
         setFeeMode("SENDER");
@@ -1420,6 +1442,21 @@ function OmtWhishAppTransferFormInner({
                       : null,
                   ),
               })}
+          // LIRA-334: a small overpay on a CASH payout is a round-up.
+          {...(roundUpApplies
+            ? {
+                onRoundUpChange: (r: { usd: number; lbp: number } | null) =>
+                  setRoundUp(
+                    r
+                      ? {
+                          usd: r.usd,
+                          lbp: r.lbp,
+                          payout: serviceType === "RECEIVE",
+                        }
+                      : null,
+                  ),
+              }
+            : {})}
           // LIRA-321 (US3): the "Customer pays" section — the transfer
           // line (+ the fee line when paid separately on Whish App),
           // independent of the payout lines above. Two seed lines open it
