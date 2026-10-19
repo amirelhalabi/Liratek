@@ -1,0 +1,147 @@
+/* Features section: 4 spotlight rows (text + real screenshot) and a compact
+   grid for the rest. Loaded after styles.css; uses only its tokens. */
+
+/* ---- spotlight rows ---- */
+.spots {
+  display: grid;
+  gap: 56px;
+  margin-bottom: 56px;
+}
+
+.spot {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 48px;
+  align-items: center;
+  scroll-margin-top: 88px;
+}
+
+/* Every second row puts the picture first. Grid columns follow the page
+   direction, so the alternation mirrors on its own in Arabic (RTL). */
+.spot:nth-child(even) {
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+}
+
+.spot:nth-child(even) .spot-media {
+  order: -1;
+}
+
+.spot-copy h3 {
+  margin: 0 0 10px;
+  font-size: clamp(22px, 2.6vw, 28px);
+  line-height: 1.25;
+}
+
+.spot-copy p {
+  margin: 0;
+  max-width: 46ch;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.spot-media {
+  margin: 0;
+  min-width: 0;
+}
+
+.spot-media img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(
+    --shadow-lg,
+    0 2px 6px rgba(37, 37, 37, 0.06),
+    0 28px 64px -24px rgba(37, 37, 37, 0.32)
+  );
+}
+
+/* Placeholder until a real light-mode screenshot is taken (see TODO in the
+   HTML). Same frame as a picture, so nothing moves when one arrives. */
+.spot-ph {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  color: var(--accent);
+  background: var(--bg-2);
+  border: 2px dashed var(--line);
+  border-radius: var(--radius);
+}
+
+.spot-ph svg {
+  opacity: 0.35;
+}
+
+/* ---- compact grid for the other features ---- */
+.mini-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.mini {
+  padding: 18px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(
+    --shadow-sm,
+    0 1px 2px rgba(37, 37, 37, 0.04),
+    0 4px 14px rgba(37, 37, 37, 0.06)
+  );
+  scroll-margin-top: 88px;
+}
+
+.mini .card-ic {
+  width: 36px;
+  height: 36px;
+  margin-bottom: 10px;
+}
+
+.mini h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.mini p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ---- narrow screens ---- */
+@media (max-width: 960px) {
+  .mini-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .spot,
+  .spot:nth-child(even) {
+    gap: 32px;
+  }
+}
+
+@media (max-width: 760px) {
+  .spots {
+    gap: 40px;
+    margin-bottom: 40px;
+  }
+  .spot,
+  .spot:nth-child(even) {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+  /* One column: text first, then the picture, on every row. */
+  .spot:nth-child(even) .spot-media {
+    order: 0;
+  }
+}
+
+@media (max-width: 520px) {
+  .mini-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

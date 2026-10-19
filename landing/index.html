@@ -58,7 +58,7 @@
     <link rel="icon" href="/assets/favicon-48.png" type="image/png" sizes="48x48" />
     <link rel="icon" href="/assets/icon-192.png" type="image/png" sizes="192x192" />
     <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" />
-    <meta name="theme-color" content="#020222" />
+    <meta name="theme-color" content="#f8f7f4" />
 
     <!-- Link previews (WhatsApp, Facebook, X). Static on purpose: those
          crawlers do not run JavaScript. -->
@@ -105,6 +105,7 @@
       />
     </noscript>
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/sections.css" />
     <!-- Vercel Web Analytics (page views; cookie-free). Does nothing until
          Web Analytics is enabled for the project. -->
     <script>
@@ -218,16 +219,8 @@
 
     <main>
       <section class="hero">
-        <!-- Decoration only: a faint grid and the shop's features drifting
-             around the edges. Hidden from screen readers; still under "reduce motion". -->
-        <div class="hero-bg" aria-hidden="true">
-          <span class="badge badge-1"><span class="badge-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-transfer" /></svg></span><span class="badge-label">OMT &amp; Whish</span></span>
-          <span class="badge badge-2"><span class="badge-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-signal" /></svg></span><span class="badge-label">MTC &amp; Alfa</span></span>
-          <span class="badge badge-3"><span class="badge-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-currency" /></svg></span><span class="badge-label">USD + LBP</span></span>
-          <span class="badge badge-4"><span class="badge-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-shield" /></svg></span><span class="badge-label">Warranty</span></span>
-          <span class="badge badge-5"><span class="badge-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-book" /></svg></span><span class="badge-label">Debts</span></span>
-          <span class="badge badge-6"><span class="badge-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-drawer" /></svg></span><span class="badge-label">Drawer counts</span></span>
-        </div>
+        <!-- Decoration only: a soft background glow. Hidden from screen readers. -->
+        <div class="hero-bg" aria-hidden="true"></div>
         <div class="wrap hero-grid">
           <div class="hero-copy">
             <p class="eyebrow pill"><span class="pill-dot" aria-hidden="true"></span><span data-i18n="hero.eyebrow">Built for Lebanese phone shops</span></p>
@@ -296,63 +289,77 @@
       <section class="features" id="features">
         <div class="wrap">
           <h2 data-i18n="features.title">Everything a phone shop does in a day</h2>
-          <div class="feature-grid">
-            <article class="card" id="f-pos">
+          <div class="spots">
+            <article class="spot" id="f-cur">
+              <div class="spot-copy">
+                <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-currency" /></svg></span>
+                <h3 data-i18n="f.cur.t">Dollars and lira together</h3>
+                <p data-i18n="f.cur.d">Prices, payments, change and drawers in USD and LBP. Split a payment across both, and run currency exchange.</p>
+              </div>
+              <figure class="spot-media"><img src="/assets/screens/exchange.png" loading="lazy" width="2336" height="1460" alt="Exchange screen: the customer hands $100 and gets 8,900,000 LBP" /></figure>
+            </article>
+            <article class="spot" id="f-omt">
+              <div class="spot-copy">
+                <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-transfer" /></svg></span>
+                <h3 data-i18n="f.omt.t">OMT and Whish</h3>
+                <p data-i18n="f.omt.d">Send and receive transfers with fees worked out, and check your balance against OMT's statement.</p>
+              </div>
+              <figure class="spot-media"><img src="/assets/screens/omt.png" loading="lazy" width="2336" height="1460" alt="OMT send screen: a $200 transfer with the $3.00 fee worked out" /></figure>
+            </article>
+            <article class="spot" id="f-debt">
+              <div class="spot-copy">
+                <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-book" /></svg></span>
+                <h3 data-i18n="f.debt.t">Customer debts</h3>
+                <p data-i18n="f.debt.d">Sell on credit, take repayments in either currency, and see who owes what.</p>
+              </div>
+              <figure class="spot-media"><img src="/assets/screens/accounts.png" loading="lazy" width="2336" height="1460" alt="Accounts screen: what a client owes in $ and LBP, with purchases and payments" /></figure>
+            </article>
+            <article class="spot" id="f-close">
+              <div class="spot-copy">
+                <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-chart" /></svg></span>
+                <h3 data-i18n="f.close.t">Daily closing and profits</h3>
+                <p data-i18n="f.close.d">Close each drawer at the end of the day and see the profit from every part of the shop.</p>
+              </div>
+              <figure class="spot-media"><img src="/assets/screens/profits.png" loading="lazy" width="2336" height="1460" alt="Profits screen: net profit in $ and LBP for the month" /></figure>
+            </article>
+          </div>
+          <div class="mini-grid">
+            <article class="mini" id="f-pos">
               <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-cart" /></svg></span>
               <h3 data-i18n="f.pos.t">Sales and stock</h3>
               <p data-i18n="f.pos.d">Fast checkout, barcodes, stock levels, and phones tracked by IMEI.</p>
             </article>
-            <article class="card" id="f-cur">
-              <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-currency" /></svg></span>
-              <h3 data-i18n="f.cur.t">Dollars and lira together</h3>
-              <p data-i18n="f.cur.d">Prices, payments, change and drawers in USD and LBP. Split a payment across both, and run currency exchange.</p>
-            </article>
-            <article class="card" id="f-omt">
-              <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-transfer" /></svg></span>
-              <h3 data-i18n="f.omt.t">OMT and Whish</h3>
-              <p data-i18n="f.omt.d">Send and receive transfers with fees worked out, and check your balance against OMT's statement.</p>
-            </article>
-            <article class="card" id="f-rec">
+            <article class="mini" id="f-rec">
               <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-signal" /></svg></span>
               <h3 data-i18n="f.rec.t">MTC and Alfa</h3>
               <p data-i18n="f.rec.d">Credit and days recharges, with what you owe each supplier kept up to date.</p>
             </article>
-            <article class="card" id="f-debt">
-              <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-book" /></svg></span>
-              <h3 data-i18n="f.debt.t">Customer debts</h3>
-              <p data-i18n="f.debt.d">Sell on credit, take repayments in either currency, and see who owes what.</p>
-            </article>
-            <article class="card" id="f-rep">
+            <article class="mini" id="f-rep">
               <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-wrench" /></svg></span>
               <h3 data-i18n="f.rep.t">Repairs</h3>
               <p data-i18n="f.rep.d">Repair jobs from intake to pickup, with the parts used and what the customer paid.</p>
             </article>
-            <article class="card" id="f-close">
-              <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-chart" /></svg></span>
-              <h3 data-i18n="f.close.t">Daily closing and profits</h3>
-              <p data-i18n="f.close.d">Close each drawer at the end of the day and see the profit from every part of the shop.</p>
-            </article>
-            <article class="card" id="f-where">
+            <article class="mini" id="f-where">
               <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-monitor" /></svg></span>
               <h3 data-i18n="f.where.t">On your computer or in the browser</h3>
               <p data-i18n="f.where.d">Use the desktop app in the shop, or sign in from any browser at your shop's own address.</p>
             </article>
-            <article class="card" id="f-war">
+            <article class="mini" id="f-war">
               <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-shield" /></svg></span>
               <h3 data-i18n="f.war.t">Warranty on any item</h3>
               <p data-i18n="f.war.d">Set a warranty per category or at the till, print your terms on the receipt, and find any sold item by customer, phone, receipt number or serial.</p>
             </article>
-            <article class="card" id="f-count">
+            <article class="mini" id="f-count">
               <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-drawer" /></svg></span>
               <h3 data-i18n="f.count.t">Count a drawer any time</h3>
               <p data-i18n="f.count.d">Count each drawer during the day, see the sales since its last count, and spot a difference straight away.</p>
             </article>
-            <article class="card" id="f-change">
+            <article class="mini" id="f-change">
               <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-coins" /></svg></span>
               <h3 data-i18n="f.change.t">Keep the small change</h3>
               <p data-i18n="f.change.d">Hand back a round amount and the leftover counts as shop profit — at checkout and on refunds.</p>
             </article>
-            <article class="card card-link" id="f-phone">
+            <article class="mini card-link" id="f-phone">
               <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-phone" /></svg></span>
               <h3 data-i18n="f.phone.t">On the owner's phone</h3>
               <p data-i18n="f.phone.d">Record Whish App and OMT App transfers and follow debts from your phone, after closing too.</p>

@@ -50,7 +50,7 @@
     <link rel="icon" href="/assets/favicon-48.png" type="image/png" sizes="48x48" />
     <link rel="icon" href="/assets/icon-192.png" type="image/png" sizes="192x192" />
     <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" />
-    <meta name="theme-color" content="#020222" />
+    <meta name="theme-color" content="#f8f7f4" />
 
     <!-- Link previews (WhatsApp, Facebook, X). Static on purpose: those
          crawlers do not run JavaScript. -->
@@ -98,6 +98,7 @@
       />
     </noscript>
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/sections.css" />
     <!-- Vercel Web Analytics (page views; cookie-free). Does nothing until
          Web Analytics is enabled for the project. -->
     <script>
@@ -211,16 +212,8 @@
 
     <main>
       <section class="hero">
-        <!-- Decoration only: a faint grid and the shop's features drifting
-             around the edges. Hidden from screen readers; still under "reduce motion". -->
-        <div class="hero-bg" aria-hidden="true">
-          <span class="badge badge-1"><span class="badge-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-transfer" /></svg></span><span class="badge-label">OMT وWhish</span></span>
-          <span class="badge badge-2"><span class="badge-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-signal" /></svg></span><span class="badge-label">MTC وAlfa</span></span>
-          <span class="badge badge-3"><span class="badge-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-currency" /></svg></span><span class="badge-label">دولار + ليرة</span></span>
-          <span class="badge badge-4"><span class="badge-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-shield" /></svg></span><span class="badge-label">الكفالة</span></span>
-          <span class="badge badge-5"><span class="badge-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-book" /></svg></span><span class="badge-label">الديون</span></span>
-          <span class="badge badge-6"><span class="badge-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-drawer" /></svg></span><span class="badge-label">عدّ الصناديق</span></span>
-        </div>
+        <!-- Decoration only: a soft background glow. Hidden from screen readers. -->
+        <div class="hero-bg" aria-hidden="true"></div>
         <div class="wrap hero-grid">
           <div class="hero-copy">
             <p class="eyebrow pill"><span class="pill-dot" aria-hidden="true"></span><span data-i18n="hero.eyebrow">برنامج محل خليوي مصمّم للبنان</span></p>
@@ -285,63 +278,77 @@
       <section class="features" id="features">
         <div class="wrap">
           <h2 data-i18n="features.title">كل ما يحتاجه محل الخليوي في يومه</h2>
-          <div class="feature-grid">
-            <article class="card" id="f-pos">
+          <div class="spots">
+            <article class="spot" id="f-cur">
+              <div class="spot-copy">
+                <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-currency" /></svg></span>
+                <h3 data-i18n="f.cur.t">الدولار والليرة معاً</h3>
+                <p data-i18n="f.cur.d">الأسعار والدفعات والفكّة والصناديق بالدولار والليرة. قسّم الدفعة بين العملتين، وصرّف العملات.</p>
+              </div>
+              <figure class="spot-media"><img src="/assets/screens/exchange.png" loading="lazy" width="2336" height="1460" alt="شاشة الصرافة: الزبون يدفع 100$ ويستلم 8,900,000 ليرة" /></figure>
+            </article>
+            <article class="spot" id="f-omt">
+              <div class="spot-copy">
+                <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-transfer" /></svg></span>
+                <h3 data-i18n="f.omt.t">OMT وWhish</h3>
+                <p data-i18n="f.omt.d">أرسل واستلم التحويلات مع حساب العمولة تلقائياً، وطابق رصيدك مع كشف OMT.</p>
+              </div>
+              <figure class="spot-media"><img src="/assets/screens/omt.png" loading="lazy" width="2336" height="1460" alt="شاشة إرسال OMT: تحويل 200$ مع حساب العمولة 3.00$" /></figure>
+            </article>
+            <article class="spot" id="f-debt">
+              <div class="spot-copy">
+                <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-book" /></svg></span>
+                <h3 data-i18n="f.debt.t">دفتر ديون الزبائن</h3>
+                <p data-i18n="f.debt.d">بِع بالدين، استلم الدفعات بأي عملة، واعرف ما على كل زبون.</p>
+              </div>
+              <figure class="spot-media"><img src="/assets/screens/accounts.png" loading="lazy" width="2336" height="1460" alt="شاشة الحسابات: ما على الزبون بالدولار والليرة مع المشتريات والدفعات" /></figure>
+            </article>
+            <article class="spot" id="f-close">
+              <div class="spot-copy">
+                <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-chart" /></svg></span>
+                <h3 data-i18n="f.close.t">إقفال اليوم والأرباح</h3>
+                <p data-i18n="f.close.d">أقفل كل صندوق في نهاية اليوم واطّلع على الربح من كل قسم في المحل.</p>
+              </div>
+              <figure class="spot-media"><img src="/assets/screens/profits.png" loading="lazy" width="2336" height="1460" alt="شاشة الأرباح: صافي الربح بالدولار والليرة للشهر" /></figure>
+            </article>
+          </div>
+          <div class="mini-grid">
+            <article class="mini" id="f-pos">
               <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-cart" /></svg></span>
               <h3 data-i18n="f.pos.t">المبيعات والمخزون</h3>
               <p data-i18n="f.pos.d">بيع سريع، باركود، كميات المخزون، وتتبّع الهواتف برقم IMEI.</p>
             </article>
-            <article class="card" id="f-cur">
-              <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-currency" /></svg></span>
-              <h3 data-i18n="f.cur.t">الدولار والليرة معاً</h3>
-              <p data-i18n="f.cur.d">الأسعار والدفعات والفكّة والصناديق بالدولار والليرة. قسّم الدفعة بين العملتين، وصرّف العملات.</p>
-            </article>
-            <article class="card" id="f-omt">
-              <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-transfer" /></svg></span>
-              <h3 data-i18n="f.omt.t">OMT وWhish</h3>
-              <p data-i18n="f.omt.d">أرسل واستلم التحويلات مع حساب العمولة تلقائياً، وطابق رصيدك مع كشف OMT.</p>
-            </article>
-            <article class="card" id="f-rec">
+            <article class="mini" id="f-rec">
               <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-signal" /></svg></span>
               <h3 data-i18n="f.rec.t">MTC وAlfa</h3>
               <p data-i18n="f.rec.d">تشريج رصيد وأيام، مع تحديث ما عليك لكل مورّد.</p>
             </article>
-            <article class="card" id="f-debt">
-              <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-book" /></svg></span>
-              <h3 data-i18n="f.debt.t">دفتر ديون الزبائن</h3>
-              <p data-i18n="f.debt.d">بِع بالدين، استلم الدفعات بأي عملة، واعرف ما على كل زبون.</p>
-            </article>
-            <article class="card" id="f-rep">
+            <article class="mini" id="f-rep">
               <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-wrench" /></svg></span>
               <h3 data-i18n="f.rep.t">التصليحات</h3>
               <p data-i18n="f.rep.d">أشغال التصليح من الاستلام حتى التسليم، مع القطع المستعملة وما دفعه الزبون.</p>
             </article>
-            <article class="card" id="f-close">
-              <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-chart" /></svg></span>
-              <h3 data-i18n="f.close.t">إقفال اليوم والأرباح</h3>
-              <p data-i18n="f.close.d">أقفل كل صندوق في نهاية اليوم واطّلع على الربح من كل قسم في المحل.</p>
-            </article>
-            <article class="card" id="f-where">
+            <article class="mini" id="f-where">
               <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-monitor" /></svg></span>
               <h3 data-i18n="f.where.t">على الكمبيوتر أو من المتصفح</h3>
               <p data-i18n="f.where.d">استعمل تطبيق الكمبيوتر في المحل، أو ادخل من أي متصفح على عنوان محلك الخاص.</p>
             </article>
-            <article class="card" id="f-war">
+            <article class="mini" id="f-war">
               <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-shield" /></svg></span>
               <h3 data-i18n="f.war.t">كفالة على أي قطعة</h3>
               <p data-i18n="f.war.d">حدّد الكفالة لكل فئة أو عند البيع، اطبع شروطك على الفاتورة، وابحث عن أي قطعة مبيعة باسم الزبون أو رقم هاتفه أو رقم الفاتورة أو الرقم التسلسلي.</p>
             </article>
-            <article class="card" id="f-count">
+            <article class="mini" id="f-count">
               <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-drawer" /></svg></span>
               <h3 data-i18n="f.count.t">عُدّ الصندوق متى شئت</h3>
               <p data-i18n="f.count.d">عُدّ كل صندوق خلال النهار، اطّلع على المبيعات منذ آخر عدّ، واكتشف أي فرق فوراً.</p>
             </article>
-            <article class="card" id="f-change">
+            <article class="mini" id="f-change">
               <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-coins" /></svg></span>
               <h3 data-i18n="f.change.t">احتفظ بالفكّة الصغيرة</h3>
               <p data-i18n="f.change.d">أرجِع مبلغاً مدوّراً ويُحسب الباقي ربحاً للمحل — عند الدفع وعند الاسترجاع.</p>
             </article>
-            <article class="card card-link" id="f-phone">
+            <article class="mini card-link" id="f-phone">
               <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-phone" /></svg></span>
               <h3 data-i18n="f.phone.t">على هاتف صاحب المحل</h3>
               <p data-i18n="f.phone.d">سجّل تحويلات Whish App وOMT App وتابع الديون من هاتفك، حتى بعد الإقفال.</p>

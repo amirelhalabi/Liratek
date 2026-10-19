@@ -1,15 +1,39 @@
 :root {
-  --bg: #020222;
-  --bg-2: #050938;
-  --card: #0c134f;
-  --line: #25336a;
-  --text: #ffffff;
-  --muted: #bfc7dc;
-  --accent: #d4adfc;
-  --accent-hover: #dfc3ff;
-  --accent-ink: #0c134f;
-  --blue: #518cff;
-  --focus: #dfc3ff;
+  /* Light theme (Porcelain + Signal Blue), matching the app's light mode. */
+  --bg: #f8f7f4;
+  --bg-2: #f2f0ef;
+  --card: #f8f7f4;
+  --line: #e4e2db;
+  --line-strong: #d4d1c9;
+  --text: #252525;
+  --text-2: #44423c;
+  --muted: #59574f;
+  --subtle: #77746b;
+  --accent: #0057ff;
+  --accent-hover: #003edd;
+  --accent-deep: #0020c4;
+  --accent-ink: #ffffff;
+  --accent-tint: rgba(0, 87, 255, 0.08);
+  --blue: #0020c4;
+  --blue-tint: rgba(0, 32, 196, 0.08);
+  --focus: #0057ff;
+  --danger: #b42318;
+  --shadow-sm:
+    0 1px 2px rgba(37, 37, 37, 0.04), 0 4px 14px rgba(37, 37, 37, 0.06);
+  --shadow-lg:
+    0 2px 6px rgba(37, 37, 37, 0.06), 0 28px 64px -24px rgba(37, 37, 37, 0.32);
+  /* Cosmic Navy, used only for the dark bands (.phone, .closing-cta). */
+  --band-bg: #020222;
+  --band-bg-2: #050938;
+  --band-card: #0c134f;
+  --band-line: #25336a;
+  --band-text: #ffffff;
+  --band-muted: #bfc7dc;
+  --band-accent: #d4adfc;
+  --band-accent-hover: #dfc3ff;
+  --band-accent-ink: #0c134f;
+  --band-blue: #518cff;
+  --band-focus: #dfc3ff;
   --radius: 14px;
   --font: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-ar: "IBM Plex Sans Arabic", "Inter", system-ui, sans-serif;
@@ -62,8 +86,9 @@ a {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: rgba(2, 2, 34, 0.85);
-  backdrop-filter: blur(8px);
+  background: rgba(248, 247, 244, 0.85);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--line);
 }
 
@@ -184,8 +209,13 @@ a {
   border-color: var(--line);
 }
 
+.btn-ghost {
+  background: transparent;
+}
+
 .btn-ghost:hover {
-  border-color: var(--muted);
+  border-color: var(--line-strong);
+  background: var(--bg-2);
 }
 
 .btn:focus-visible,
@@ -199,7 +229,12 @@ input:focus-visible {
 .hero {
   padding: 56px 0 64px;
   background:
-    radial-gradient(1000px 500px at 80% 0%, #1a276166, transparent), var(--bg);
+    radial-gradient(
+      1000px 500px at 80% 0%,
+      rgba(0, 87, 255, 0.07),
+      transparent
+    ),
+    var(--bg);
 }
 
 .hero-grid {
@@ -252,9 +287,9 @@ html[lang="ar"] h1 {
   border-radius: var(--radius);
   overflow: hidden;
   border: 1px solid var(--line);
-  background: var(--bg-2);
+  background: var(--band-card); /* the demo video is dark */
   aspect-ratio: 16 / 9;
-  box-shadow: 0 30px 80px -30px #000c;
+  box-shadow: var(--shadow-lg);
 }
 
 .demo {
@@ -272,9 +307,9 @@ html[lang="ar"] h1 {
   height: 44px;
   display: grid;
   place-items: center;
-  color: var(--text);
+  color: var(--band-text);
   background: rgba(4, 8, 30, 0.75);
-  border: 1px solid var(--line);
+  border: 1px solid var(--band-line);
   border-radius: 999px;
   cursor: pointer;
 }
@@ -289,7 +324,7 @@ html[lang="ar"] h1 {
 }
 
 .sound-toggle:hover {
-  border-color: var(--accent);
+  border-color: var(--band-accent);
 }
 
 .sound-toggle:focus-visible {
@@ -321,6 +356,9 @@ h2 {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 20px;
+  box-shadow:
+    0 1px 2px rgba(37, 37, 37, 0.04),
+    0 6px 18px rgba(37, 37, 37, 0.06);
 }
 
 .card h3 {
@@ -337,6 +375,7 @@ h2 {
 /* ---- shop login ---- */
 .login {
   padding: 64px 0;
+  background: var(--bg-2);
 }
 
 .login-box {
@@ -367,13 +406,14 @@ h2 {
   min-height: 48px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: var(--card);
+  background: var(--bg);
   padding: 0 14px;
   overflow: hidden;
 }
 
 .shop-input:focus-within {
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(0, 87, 255, 0.15);
 }
 
 .prefix,
@@ -404,14 +444,27 @@ h2 {
 }
 
 .form-msg.error {
-  color: #fca5a5;
+  color: var(--danger);
+}
+
+/* ---- light bands: the phone section and the closing CTA. The page used
+   to switch to Cosmic Navy here; the owner wants the whole page light. ---- */
+.phone {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.closing-cta {
+  background:
+    radial-gradient(700px 260px at 50% 0%, var(--accent-tint), transparent),
+    var(--bg);
+  color: var(--text);
 }
 
 /* ---- closing ---- */
 .closing-cta {
   padding: 64px 0 72px;
   text-align: center;
-  background: var(--bg-2);
   border-top: 1px solid var(--line);
 }
 
@@ -425,6 +478,7 @@ h2 {
 }
 
 .footer {
+  background: var(--bg);
   border-top: 1px solid var(--line);
   padding: 20px 0;
   color: var(--muted);
@@ -567,7 +621,8 @@ h2 {
   padding: 32px 20px;
   text-align: center;
   background:
-    radial-gradient(400px 220px at 50% 0%, #1a276199, transparent), var(--card);
+    radial-gradient(400px 220px at 50% 0%, var(--accent-tint), transparent),
+    var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius);
 }
@@ -621,14 +676,14 @@ h2 {
   flex: none;
   color: var(--accent);
   border: 1px solid var(--line);
-  background: rgba(212, 173, 252, 0.08);
+  background: var(--accent-tint);
 }
 
 .card-ic.tone-b,
 .mega-ic.tone-b,
 .badge-ic.tone-b {
   color: var(--blue);
-  background: rgba(81, 140, 255, 0.1);
+  background: var(--blue-tint);
 }
 
 .card-ic {
@@ -666,7 +721,7 @@ h2 {
 .menu-btn:hover,
 .menu-btn[aria-expanded="true"] {
   color: var(--text);
-  background: var(--card);
+  background: var(--bg-2);
   border-color: var(--line);
 }
 
@@ -691,10 +746,10 @@ h2 {
   translate: -50% 0;
   width: min(640px, calc(100vw - 32px));
   padding: 16px;
-  background: #060a33;
+  background: var(--bg);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  box-shadow: 0 30px 80px -20px #000d;
+  box-shadow: var(--shadow-lg);
   animation: mega-in 0.16s ease-out;
 }
 
@@ -738,7 +793,7 @@ html[dir="rtl"] .mega {
 }
 
 .topnav .mega a:hover {
-  background: var(--card);
+  background: var(--bg-2);
   color: var(--text);
 }
 
@@ -796,13 +851,18 @@ html[dir="rtl"] .mega {
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  /* Faint grid that fades out towards the edges. */
-  background-image:
-    linear-gradient(to right, rgba(37, 51, 106, 0.45) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(37, 51, 106, 0.45) 1px, transparent 1px);
-  background-size: 64px 64px;
-  -webkit-mask-image: radial-gradient(ellipse 80% 75% at 50% 45%, #000 40%, transparent 100%);
-  mask-image: radial-gradient(ellipse 80% 75% at 50% 45%, #000 40%, transparent 100%);
+  /* Light theme: a soft Signal Blue glow instead of the old dark grid. */
+  background:
+    radial-gradient(
+      ellipse 60% 55% at 15% 20%,
+      rgba(0, 87, 255, 0.06),
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 50% 50% at 90% 80%,
+      rgba(0, 32, 196, 0.04),
+      transparent 70%
+    );
 }
 
 .badge {
@@ -818,17 +878,17 @@ html[dir="rtl"] .mega {
   width: 52px;
   height: 52px;
   border-radius: 999px;
-  background-color: #070c3a;
-  box-shadow: 0 0 24px -4px rgba(212, 173, 252, 0.35);
+  background-color: var(--bg);
+  box-shadow: 0 6px 20px -6px rgba(0, 87, 255, 0.3);
 }
 
 .badge-ic.tone-b {
-  background-color: #070c3a;
-  box-shadow: 0 0 24px -4px rgba(81, 140, 255, 0.4);
+  background-color: var(--bg);
+  box-shadow: 0 6px 20px -6px rgba(0, 32, 196, 0.3);
 }
 
 .badge-label {
-  color: var(--muted);
+  color: var(--text-2);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -860,27 +920,75 @@ html[lang="ar"] .badge-label {
   .badge {
     display: flex;
   }
-  .badge-1 { animation-delay: 0s; }
-  .badge-2 { animation-delay: -2.5s; animation-duration: 8s; }
-  .badge-3 { animation-delay: -4s; animation-duration: 9s; }
-  .badge-4 { animation-delay: -1.5s; animation-duration: 8.5s; }
-  .badge-5 { animation-delay: -3.5s; }
-  .badge-6 { animation-delay: -5s; animation-duration: 7.5s; }
+  .badge-1 {
+    animation-delay: 0s;
+  }
+  .badge-2 {
+    animation-delay: -2.5s;
+    animation-duration: 8s;
+  }
+  .badge-3 {
+    animation-delay: -4s;
+    animation-duration: 9s;
+  }
+  .badge-4 {
+    animation-delay: -1.5s;
+    animation-duration: 8.5s;
+  }
+  .badge-5 {
+    animation-delay: -3.5s;
+  }
+  .badge-6 {
+    animation-delay: -5s;
+    animation-duration: 7.5s;
+  }
   /* Narrow gutters: all six sit in the bands above and below the content. */
-  .badge-1 { inset-inline-start: 4%; top: 6px; }
-  .badge-4 { inset-inline-end: 4%; top: 6px; }
-  .badge-2 { inset-inline-start: 3%; bottom: 3%; }
-  .badge-3 { inset-inline-start: 30%; bottom: 3%; }
-  .badge-6 { inset-inline-end: 30%; bottom: 3%; }
-  .badge-5 { inset-inline-end: 3%; bottom: 3%; }
+  .badge-1 {
+    inset-inline-start: 4%;
+    top: 6px;
+  }
+  .badge-4 {
+    inset-inline-end: 4%;
+    top: 6px;
+  }
+  .badge-2 {
+    inset-inline-start: 3%;
+    bottom: 3%;
+  }
+  .badge-3 {
+    inset-inline-start: 30%;
+    bottom: 3%;
+  }
+  .badge-6 {
+    inset-inline-end: 30%;
+    bottom: 3%;
+  }
+  .badge-5 {
+    inset-inline-end: 3%;
+    bottom: 3%;
+  }
 }
 
 /* Wide screens: the gutters beside the column are wide enough for badges. */
 @media (min-width: 1440px) {
-  .badge-1 { inset-inline-start: 2.5%; top: 9%; }
-  .badge-2 { inset-inline-start: 1%; top: 52%; bottom: auto; }
-  .badge-4 { inset-inline-end: 2.5%; top: 7%; }
-  .badge-5 { inset-inline-end: 1%; top: 56%; bottom: auto; }
+  .badge-1 {
+    inset-inline-start: 2.5%;
+    top: 9%;
+  }
+  .badge-2 {
+    inset-inline-start: 1%;
+    top: 52%;
+    bottom: auto;
+  }
+  .badge-4 {
+    inset-inline-end: 2.5%;
+    top: 7%;
+  }
+  .badge-5 {
+    inset-inline-end: 1%;
+    top: 56%;
+    bottom: auto;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -899,7 +1007,8 @@ html[lang="ar"] .badge-label {
   padding: 5px 14px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: rgba(12, 19, 79, 0.7);
+  background: var(--accent-tint);
+  border-color: rgba(0, 87, 255, 0.18);
 }
 
 .pill-dot {
