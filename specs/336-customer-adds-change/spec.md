@@ -100,7 +100,9 @@ The same works on Whish system receive, Binance cash-out, Whish App / OMT App re
 - **FR-007**: The server MUST check that the outgoing lines equal what is owed plus the added change, minus kept change, plus any round-up. If they don't, it MUST refuse the payout.
 - **FR-008**: Added change MUST be accepted only when the request says it carries added change. A request without that, including any recorded before this feature, MUST behave exactly as today.
 - **FR-009**: Customer-account and forgiven amounts MUST NOT count as added change.
-- **FR-010**: There MUST be no added change on Debts cash-out, refunds, payouts made for a partner (FOR), or payouts inside a customer session.
+- **FR-010**: There MUST be no added change on Debts cash-out, refunds, payouts made for a partner (FOR), or payouts inside a customer session (sessions: separate ticket, owner 2026-10-19).
+- **FR-013 (phase 2, owner 2026-10-19)**: Added change MUST also work on an OMT/Whish system receive made THROUGH a partner. The customer's lines and the payout go in and out of the same drawer as today (General for the partner system), and the partner ledger is unchanged (it depends only on the transfer amount).
+- **FR-014 (phase 2)**: Added change MUST also work when the payout is made by wallet (for example the shop pays $200 from Whish_App and the customer gives $3 cash): the wallet line comes out of its wallet drawer and the customer's lines go into their own drawers. On OMT/Whish system receive the wallet payout is posted line by line only when added change is claimed, so existing wallet payouts are unchanged.
 - **FR-011**: The added change MUST be at most $5 (USD payouts) or 450,000 LBP (LBP payouts), measured in the payout's currency. This is the same cap as round-up and kept change. A larger swap goes through the Exchange page. Above the cap, the payment window and the server refuse it.
 - **FR-012**: Desktop and web MUST behave identically.
 
@@ -122,6 +124,10 @@ The same works on Whish system receive, Binance cash-out, Whish App / OMT App re
 ### Session 2026-10-18
 
 - Q: Should added change have a ceiling? → A: $5 / 450,000 LBP, the same cap as round-up and kept change (owner).
+
+### Session 2026-10-19 (phase 2)
+
+- Q: Through a partner, by wallet, inside a session? → A: Through a partner and by wallet now (phase 2); sessions in a separate ticket.
 
 ## Assumptions
 

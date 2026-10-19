@@ -98,3 +98,15 @@
 - Core (T008–T009, T013–T016) and UI (T010–T011) can run in parallel.
 - Screens (T012, T017, T018) need T011 and T003. Run T012 after the core rebuild (T016).
 - Polish comes last.
+
+## Phase 6: Phase 2, through a partner + wallet payout (owner 2026-10-19)
+
+- [X] T023 [P] Write failing guard tests in `packages/core/src/repositories/__tests__/lira336.phase2.test.ts`:
+  - (a) OMT and WHISH system RECEIVE with THROUGH partner, customerPayments Cash 3, payout Cash 200, claim 3 → saved; General −197 net; partner ledger delta equals a plain $197 THROUGH receive; void nets 0.
+  - (b) system RECEIVE paid by Whish wallet with Cash 3 in and WHISH 200 out, claim 3 → Whish_App −200, General +3; no claim → wallet lump exactly as today.
+  - (c) FOR partner stays refused.
+  - (d) The suspected existing bug: a THROUGH Whish RECEIVE with the fee on top (feePayments + partnerId) is refused today. Prove it first, then fix it so it saves with the fee lines posted as for a walk-in.
+- [X] T024 Core: allow `customerPayments` with a THROUGH partner (only RECEIVE, OMT/WHISH, with a claim) in `validators/financial.ts` (~:632) and FS (~:2381). Allow `feePayments` with a THROUGH partner (~:544, FS ~:2431) if T023(d) confirms the bug. Remove the cash-only added-change terms (FS ~:3420, ~:5196). In the wallet branch (~:5372), post by lines via `postPayoutLegs` when a claim is present. Rebuild and sync core.
+- [X] T025 [P] Screens: Services `addedChangeApplies` drops `throughPartnerId === null` and `cashoutMethod === "CASH"` (keep "not CUSTOMER_ACCOUNT"); with a THROUGH partner the optional section is used (not the fee section). The Services fee section and payload must not be blocked by a THROUGH partner (T023 d). In OmtWhishAppTransferForm, `roundUpApplies` / `addedChangeApplies` drop the cash-only term. Payload tests fail first.
+- [X] T026 Docs: Feature Guide §4.2.2 and Posting Map row; release-note line.
+- [X] T027 Run the affected tests, typecheck and lint; commit.

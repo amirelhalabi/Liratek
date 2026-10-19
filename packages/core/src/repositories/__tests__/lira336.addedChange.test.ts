@@ -793,7 +793,9 @@ describe("LIRA-336 (a) — OMT system RECEIVE, CASH cashout", () => {
     );
   });
 
-  it("a wallet (non-cash) system cashout with a claim → refused", () => {
+  // Phase 2 (FR-014): a wallet cashout now takes the claim WITH payout lines
+  // (lira336.phase2.test.ts (b)); with none it is still refused.
+  it("a wallet (non-cash) system cashout with a claim and no payout lines → refused", () => {
     expectRefused(
       () =>
         fsCreate({

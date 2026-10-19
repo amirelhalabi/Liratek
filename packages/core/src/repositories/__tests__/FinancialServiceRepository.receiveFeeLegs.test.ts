@@ -807,36 +807,42 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
     expect(after.drawers).toEqual(before.drawers);
   });
 
-  it("(l) THROUGH-partner RECEIVE + feePayments throws before any row is written (§6bis finding 1)", () => {
+  // LIRA-336 phase 2 (T023 d, 2026-10-19): this case USED to assert the
+  // refusal. That refusal was the bug — the Services screen sends the fee
+  // lines with the THROUGH partnerId, so a fee-on-top Whish receive through
+  // a partner could not be saved at all. Rewritten (rule 24) into a guard
+  // that the THROUGH fee lines post exactly like the synthesized fee leg of
+  // (g): +5 into General, payout −100, General −95. The failing-first proof
+  // is in lira336.phase2.test.ts (d); FOR stays refused, case (k).
+  it("(l) THROUGH-partner RECEIVE + feePayments books the fee lines like (g)'s synthesized leg (LIRA-336 phase 2)", () => {
     db.prepare(
       `INSERT INTO partners (name) VALUES ('Test Partner THROUGH')`,
     ).run();
     const before = snapshot(db);
-    const fsCountBefore = rowCount(db, "financial_services");
-    const txnCountBefore = rowCount(db, "transactions");
-    const paymentsCountBefore = rowCount(db, "payments");
 
-    expect(() =>
-      repo.createTransaction({
-        provider: "WHISH",
-        serviceType: "RECEIVE",
-        amount: 100,
-        currency: "USD",
-        commission: 0,
-        whishFee: 5,
-        cashoutMethod: "CASH",
-        partnerId: 1,
-        // partnerMode omitted → defaults to THROUGH (isThroughPartner).
-        feePayments: [{ method: "CASH", currencyCode: "USD", amount: 5 }],
-        exchangeRate: 90000,
-      }),
-    ).toThrow(/feePayments cannot be used on a partner transaction/i);
+    const { id: fsId } = repo.createTransaction({
+      provider: "WHISH",
+      serviceType: "RECEIVE",
+      amount: 100,
+      currency: "USD",
+      commission: 0,
+      whishFee: 5,
+      cashoutMethod: "CASH",
+      partnerId: 1,
+      // partnerMode omitted → defaults to THROUGH (isThroughPartner).
+      feePayments: [{ method: "CASH", currencyCode: "USD", amount: 5 }],
+      exchangeRate: 90000,
+    });
 
     const after = snapshot(db);
-    expect(rowCount(db, "financial_services")).toBe(fsCountBefore);
-    expect(rowCount(db, "transactions")).toBe(txnCountBefore);
-    expect(rowCount(db, "payments")).toBe(paymentsCountBefore);
-    expect(after.drawers).toEqual(before.drawers);
+    const legs = feeLegRows(db, fsId);
+    expect(legs).toHaveLength(1);
+    expect(legs[0].method).toBe("CASH");
+    expect(legs[0].drawer_name).toBe("General");
+    expect(legs[0].amount).toBeCloseTo(5, 5);
+    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(-95, 5);
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(0, 5);
+    expect(drawerDelta(before, after, "Whish_System_USD")).toBeCloseTo(0, 5);
   });
 
   it("(m) deferPayment + feePayments throws before any row is written (§6bis finding 4)", () => {

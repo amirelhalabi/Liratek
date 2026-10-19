@@ -12,7 +12,11 @@
  *    currency, from `onAddedChange`).
  *  - WHISH fee paid on top → the existing fee section gets
  *    `allowAddedChange`; all its lines go as `feePayments` + the claim.
- *  - Partner (THROUGH) or session → no section, no claim.
+ *  - Phase 2 (FR-013/FR-014): a THROUGH partner keeps the section (the
+ *    payload adds partnerId + partnerMode THROUGH); a wallet payout (OMT /
+ *    WHISH line) gets it too; a customer-account payout — or a split payout
+ *    with a customer-account line — never does.
+ *  - For Partner (FOR) or session → no section, no claim.
  *
  * Payload parsed through the shared core schema (rule 24); the `useApi`
  * mock returns a stable reference (rule 25).
@@ -140,6 +144,62 @@ jest.mock("@liratek/ui", () => ({
             });
             props.onAddedChange?.(null);
           }}
+        />
+        {/* The customer's lines only (payout set by its own click first). */}
+        <button
+          data-testid="mpi-customer-gives-3"
+          onClick={() => {
+            props.counterFlow?.onChange([
+              { id: "C1", method: "CASH", currencyCode: "USD", amount: 3 },
+            ]);
+            props.counterFlow?.onStateChange?.(BALANCED);
+            props.onAddedChange?.({ usd: 3, lbp: 0 });
+          }}
+        />
+        {/* Payout variants (FR-014): Whish wallet, account, splits. */}
+        <button
+          data-testid="mpi-payout-whish-200"
+          onClick={() =>
+            props.onChange([
+              { id: "P1", method: "WHISH", currencyCode: "USD", amount: 200 },
+            ])
+          }
+        />
+        <button
+          data-testid="mpi-payout-account"
+          onClick={() =>
+            props.onChange([
+              {
+                id: "P1",
+                method: "CUSTOMER_ACCOUNT",
+                currencyCode: "USD",
+                amount: 197,
+              },
+            ])
+          }
+        />
+        <button
+          data-testid="mpi-payout-split-cash-whish"
+          onClick={() =>
+            props.onChange([
+              { id: "P1", method: "CASH", currencyCode: "USD", amount: 100 },
+              { id: "P2", method: "WHISH", currencyCode: "USD", amount: 100 },
+            ])
+          }
+        />
+        <button
+          data-testid="mpi-payout-split-cash-account"
+          onClick={() =>
+            props.onChange([
+              { id: "P1", method: "CASH", currencyCode: "USD", amount: 100 },
+              {
+                id: "P2",
+                method: "CUSTOMER_ACCOUNT",
+                currencyCode: "USD",
+                amount: 97,
+              },
+            ])
+          }
         />
         {/* WHISH fee $5 on top; the customer hands $8 (fee + $3 added). */}
         <button
@@ -427,17 +487,124 @@ describe("Services page — customer adds change on an OMT/Whish system RECEIVE 
     );
   });
 
-  it("THROUGH partner (partner system tab): no section, no onAddedChange", async () => {
+  it("THROUGH partner (FR-013): the section stays; payload carries partnerId + THROUGH + customerPayments + added_change_usd", async () => {
     mockPartnersGetAll.mockResolvedValue([
       { id: 7, name: "P", system_association: "WHISH", is_active: 1 },
     ]);
     await renderPage();
     fireEvent.click(directionButton("WHISH", "↓"));
     await waitFor(() => expect(mockSeen.payer).toBe("payout"));
-    // No partner picked yet: the section is there…
-    await waitFor(() => expect(mockSeen.counterFlow?.optional).toBe(true));
-    // …and goes the moment one is.
     fireEvent.click(screen.getByTestId("pick-partner"));
+    typeAmount("197");
+    // Give the partner pick a render before checking the section.
+    await waitFor(() =>
+      expect(mockSeen.counterFlow).toEqual(
+        expect.objectContaining({ optional: true, allowAddedChange: true }),
+      ),
+    );
+    expect(typeof mockSeen.onAddedChange).toBe("function");
+    fireEvent.click(screen.getByTestId("mpi-customer-adds-3"));
+    submit();
+
+    await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
+    const raw = mockAddOMTTransaction.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(raw.partnerId).toBe(7);
+    expect(raw.partnerMode).toBe("THROUGH");
+    // The core schema still refuses customerPayments with any partner until
+    // the server half of phase 2 (T024) lands, so the partner keys are
+    // asserted raw and the rest is parsed through the schema (rule 24).
+    const { partnerId: _p, partnerMode: _m, ...walkInShape } = raw;
+    const parsed = createFinancialServiceSchema.parse(walkInShape);
+    expect(parsed.customerPayments).toEqual([
+      { method: "CASH", currencyCode: "USD", amount: 3 },
+    ]);
+    expect(parsed.added_change_usd).toBe(3);
+    expect(parsed.payments).toEqual([
+      expect.objectContaining({ currencyCode: "USD", amount: 200 }),
+    ]);
+  });
+
+  it("For Partner (FOR): no payment box, so no section", async () => {
+    mockPartnersGetAll.mockResolvedValue([
+      { id: 7, name: "P", system_association: "WHISH", is_active: 1 },
+    ]);
+    await renderPage();
+    fireEvent.click(directionButton("OMT", "↓"));
+    await waitFor(() => expect(mockSeen.payer).toBe("payout"));
+    await waitFor(() => expect(mockSeen.counterFlow?.optional).toBe(true));
+    fireEvent.click(screen.getByRole("checkbox", { name: /For Partner/i }));
+    // A For-Partner RECEIVE replaces the whole payment box with a notice —
+    // there is no customer section to put added change in.
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("stub-multi-payment-input"),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it("Whish wallet payout (FR-014): the section is offered; customerPayments + claim + cashoutMethod WHISH", async () => {
+    await renderPage();
+    fireEvent.click(directionButton("OMT", "↓"));
+    await waitFor(() => expect(mockSeen.payer).toBe("payout"));
+    typeAmount("197");
+    fireEvent.click(screen.getByTestId("mpi-payout-whish-200"));
+    // Checked only AFTER the WHISH line is in (cashout starts as CASH).
+    await waitFor(() =>
+      expect(mockSeen.counterFlow).toEqual(
+        expect.objectContaining({ optional: true, allowAddedChange: true }),
+      ),
+    );
+    fireEvent.click(screen.getByTestId("mpi-customer-gives-3"));
+    submit();
+
+    const parsed = await sentPayload();
+    expect(parsed.cashoutMethod).toBe("WHISH");
+    expect(parsed.customerPayments).toEqual([
+      { method: "CASH", currencyCode: "USD", amount: 3 },
+    ]);
+    expect(parsed.added_change_usd).toBe(3);
+    expect(parsed.payments).toEqual([
+      expect.objectContaining({
+        method: "WHISH",
+        currencyCode: "USD",
+        amount: 200,
+      }),
+    ]);
+    expect(parsed.rounding_given_usd).toBeUndefined();
+  });
+
+  it("customer-account payout: no section, no claim", async () => {
+    await renderPage();
+    fireEvent.click(directionButton("OMT", "↓"));
+    await waitFor(() => expect(mockSeen.payer).toBe("payout"));
+    fireEvent.click(screen.getByTestId("mpi-payout-account"));
+    await waitFor(() => expect(mockSeen.counterFlow).toBeUndefined());
+    expect(mockSeen.onAddedChange).toBeUndefined();
+  });
+
+  it("split payout after a single account line: still no section (the stale account cashout would be refused)", async () => {
+    await renderPage();
+    fireEvent.click(directionButton("OMT", "↓"));
+    await waitFor(() => expect(mockSeen.payer).toBe("payout"));
+    fireEvent.click(screen.getByTestId("mpi-payout-account"));
+    await waitFor(() => expect(mockSeen.counterFlow).toBeUndefined());
+    // The split leaves the single-line cashout at CUSTOMER_ACCOUNT and the
+    // server branches on it — so added change stays off (conservative).
+    fireEvent.click(screen.getByTestId("mpi-payout-split-cash-whish"));
+    await waitFor(() => expect(mockSeen.counterFlow).toBeUndefined());
+    expect(mockSeen.onAddedChange).toBeUndefined();
+  });
+
+  it("split payout with an account line (after a single cash line): no section", async () => {
+    await renderPage();
+    fireEvent.click(directionButton("OMT", "↓"));
+    await waitFor(() => expect(mockSeen.payer).toBe("payout"));
+    fireEvent.click(screen.getByTestId("mpi-payout-exact"));
+    await waitFor(() => expect(mockSeen.counterFlow?.optional).toBe(true));
+    fireEvent.click(screen.getByTestId("mpi-payout-split-cash-account"));
     await waitFor(() => expect(mockSeen.counterFlow).toBeUndefined());
     expect(mockSeen.onAddedChange).toBeUndefined();
   });
@@ -478,5 +645,45 @@ describe("Services page — customer adds change on an OMT/Whish system RECEIVE 
     expect(mockAddOMTTransaction.mock.calls[0][0]).not.toHaveProperty(
       "customerPayments",
     );
+  });
+
+  it("THROUGH partner + WHISH fee $5 on top: the fee section takes the added change; feePayments + partnerId + claim", async () => {
+    mockPartnersGetAll.mockResolvedValue([
+      { id: 7, name: "P", system_association: "WHISH", is_active: 1 },
+    ]);
+    await renderPage();
+    fireEvent.click(directionButton("WHISH", "↓"));
+    await waitFor(() => expect(mockSeen.payer).toBe("payout"));
+    fireEvent.click(screen.getByTestId("pick-partner"));
+    typeAmount("100");
+    fireEvent.change(
+      document.getElementById("service-whish-fee") as HTMLInputElement,
+      { target: { value: "5" } },
+    );
+    await waitFor(() =>
+      expect(mockSeen.counterFlow).toEqual(
+        expect.objectContaining({ totalAmount: 5, allowAddedChange: true }),
+      ),
+    );
+    expect(mockSeen.counterFlow?.optional).toBeFalsy();
+    fireEvent.click(screen.getByTestId("mpi-fee-plus-3"));
+    submit();
+
+    await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
+    const raw = mockAddOMTTransaction.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(raw.partnerId).toBe(7);
+    expect(raw.partnerMode).toBe("THROUGH");
+    expect(raw).not.toHaveProperty("customerPayments");
+    // feePayments with a partner is refused by the core schema until T024
+    // lands: partner keys raw, the rest parsed (rule 24).
+    const { partnerId: _p, partnerMode: _m, ...walkInShape } = raw;
+    const parsed = createFinancialServiceSchema.parse(walkInShape);
+    expect(parsed.feePayments).toEqual([
+      { method: "CASH", currencyCode: "USD", amount: 8 },
+    ]);
+    expect(parsed.added_change_usd).toBe(3);
   });
 });

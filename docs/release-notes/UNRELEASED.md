@@ -111,6 +111,7 @@ Right after a sale, the POS shows "Sale completed" with a Send on WhatsApp butto
 - When a customer pays a little more than the total (up to $5 or 450,000 LBP), the Discount line switches to "+ Extra" and fills in the difference, so the extra is kept as an extra charge. To give the change back instead, clear the extra and the change box appears.
 - When paying out, if the customer hands you a few dollars or pounds so you can give a round amount (for example $197 owed, the customer gives $3, you give $200), tap "+ Customer gives change" (or add a line under "Customer pays") and enter it. The payment window then expects you to pay out that much more, and both drawers are recorded correctly, with nothing booked as rounding. Up to $5 or 450,000 LBP; use the Exchange page for more. This works on OMT/Whish receive, Binance cash-out, Whish App / OMT App receive and "From client", Exchange, Hold Money pickups in one currency, and MTC / Alfa credit buy-back.
 - "+ Customer gives change" now also works on OMT/Whish receive done through your partner, and when you pay the customer out by wallet (for example $200 from Whish, $3 back in cash).
+- OMT/Whish page: a Whish receive done through your partner with the fee paid on top can be saved again. Before, it was refused.
 
 ## ➕ Extra charges
 

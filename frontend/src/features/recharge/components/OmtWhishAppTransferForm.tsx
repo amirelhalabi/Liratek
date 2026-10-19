@@ -349,10 +349,17 @@ function OmtWhishAppTransferFormInner({
     payout: boolean;
   } | null>(null);
   // LIRA-336 — change the customer adds on the payout (a second customer
-  // line above what they owe): the same walk-in CASH payout as the round-up
-  // (`roundUpApplies`), on the "Customer pays" section. Reported in the
-  // payout currency; `payout` is the stale guard.
-  const addedChangeApplies = roundUpApplies && showCustomerSection;
+  // line above what they owe), on the "Customer pays" section: a walk-in
+  // RECEIVE outside a session, not For Partner, paid out in cash or by
+  // wallet (FR-014) — never into the customer's account (FR-009). Its own
+  // gate: the round-up above stays cash-only. Reported in the payout
+  // currency; `payout` is the stale guard.
+  const addedChangeApplies =
+    serviceType === "RECEIVE" &&
+    !activeSession &&
+    !forPartner &&
+    cashoutMethod !== "CUSTOMER_ACCOUNT" &&
+    showCustomerSection;
   const [addedChange, setAddedChange] = useState<{
     usd: number;
     lbp: number;

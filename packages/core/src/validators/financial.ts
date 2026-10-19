@@ -14,6 +14,9 @@ import {
   EXTRA_ON_SESSION_ITEM_MESSAGE,
 } from "./common.js";
 import { customerPaymentsField } from "./customerLegs.js";
+// LIRA-336 phase 2: the one "is this payload FOR?" test (rule 14) — a
+// `partnerId` with `partnerMode` omitted is THROUGH, as in the repository.
+import { isForPartnerPayload } from "../utils/sessionForPartnerItem.js";
 
 /**
  * Financial services validation schemas (OMT, WHISH, iPick, Katsh, Binance, etc.)
@@ -127,6 +130,29 @@ export function hasCustomerPayments(data: {
   customerPayments?: ReadonlyArray<unknown> | null;
 }): boolean {
   return !!data.customerPayments && data.customerPayments.length > 0;
+}
+
+/**
+ * LIRA-336 phase 2 (FR-013) — "Customer pays" lines on a partner payload:
+ * only on an OMT / WHISH system RECEIVE made THROUGH the partner, and only
+ * as change the customer adds (with the claim). Every other partner payload
+ * refuses them (`CUSTOMER_PAYMENTS_PARTNER_MESSAGE`).
+ */
+export function customerPaymentsPartnerAllowed(data: {
+  partnerId?: number | null;
+  partnerMode?: string | null;
+  provider: string;
+  serviceType: string;
+  added_change_usd?: number | undefined;
+  added_change_lbp?: number | undefined;
+}): boolean {
+  return (
+    !data.partnerId ||
+    (!isForPartnerPayload({ partnerMode: data.partnerMode }) &&
+      data.serviceType === "RECEIVE" &&
+      CUSTOMER_PAYMENTS_ADDED_CHANGE_PROVIDERS.includes(data.provider) &&
+      hasAddedChange(data))
+  );
 }
 
 // OMT/WHISH Money Transfer & iPick/Katsh/WishApp/Binance services
@@ -547,8 +573,19 @@ export const createFinancialServiceSchema = z
       // transaction (FOR or THROUGH) has no walk-in fee to collect — FOR
       // never reads feePayments at all (PFT-3b dispatch), THROUGH suppresses
       // the fee leg via skipSystemDrawer — both used to silently drop the
-      // field. Reject either mode up front.
-      if (data.feePayments && data.feePayments.length > 0 && data.partnerId) {
+      // field. Rejected up front — FOR only since LIRA-336 phase 2:
+      // LIRA-336 phase 2 (T023 d): THROUGH is no longer refused. LIRA-124
+      // already posts the fee-on-top leg for a THROUGH receive (the customer
+      // pays THIS shop's fee at its counter), and the Services screen sends
+      // the fee lines with the THROUGH partnerId — refusing them blocked a
+      // fee-on-top Whish receive through a partner outright. The lines are
+      // booked by the same `bookFeeCollectionLegs` as a walk-in. FOR still
+      // has no walk-in fee and stays refused.
+      if (
+        data.feePayments &&
+        data.feePayments.length > 0 &&
+        isForPartnerPayload({ partnerMode: data.partnerMode })
+      ) {
         return false;
       }
       return true;
@@ -630,10 +667,14 @@ export const createFinancialServiceSchema = z
       path: ["customerPayments"],
     },
   )
-  .refine((data) => !hasCustomerPayments(data) || !data.partnerId, {
-    message: CUSTOMER_PAYMENTS_PARTNER_MESSAGE,
-    path: ["customerPayments"],
-  })
+  .refine(
+    (data) =>
+      !hasCustomerPayments(data) || customerPaymentsPartnerAllowed(data),
+    {
+      message: CUSTOMER_PAYMENTS_PARTNER_MESSAGE,
+      path: ["customerPayments"],
+    },
+  )
   .refine((data) => !hasCustomerPayments(data) || data.deferPayment !== true, {
     message: CUSTOMER_PAYMENTS_SESSION_MESSAGE,
     path: ["customerPayments"],

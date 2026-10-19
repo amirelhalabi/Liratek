@@ -339,6 +339,10 @@ Example: $197 owed. The customer hands $3 (or 268,500 LBP) and the shop hands ou
   - Refused for payouts made for a partner (FOR), in sessions, to the customer's account or a wallet, and on two-currency Hold Money pickups.
   - Exchange allows it only when both currencies are USD/LBP.
 - **Reversal.** The customer's lines are ordinary payment rows on the payout's transaction, mirrored by `_reversePayments` (Hold Money: `voidPickup`). No new reversal owner.
+- **Phase 2 (owner 2026-10-19).**
+  - **Through a partner.** On an OMT/Whish system receive through a partner (THROUGH), added change works the same way. The customer's lines and the payout use the partner system's cash drawer (General), and the partner ledger is unchanged because it depends only on the transfer amount.
+  - **Wallet payout.** When the payout is made by wallet (e.g. Whish_App −200), the customer's cash lines go into their own drawer. On OMT/Whish system receive the wallet payout posts line by line only when added change is claimed; without a claim, the legacy single wallet debit is unchanged.
+  - **Sessions:** separate ticket.
 
 ### 4.3 "Customer pays" — the money-in side of payout screens (LIRA-321)
 

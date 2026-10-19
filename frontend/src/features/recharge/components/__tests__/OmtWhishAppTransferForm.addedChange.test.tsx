@@ -9,7 +9,8 @@
  * form sends it as `added_change_*` through the ONE shared builder
  * (`buildWalletTransferPayload`, rule 22), with the customer's lines in
  * `customerPayments`. Never on a SEND, a session, For Partner, or a
- * wallet / customer-account payout (mirrors `roundUpApplies`).
+ * customer-account payout. Phase 2 (FR-014): a wallet payout gets it too
+ * (the cash-only term is gone; round-up stays cash-only).
  *
  * Real form, PaymentSheet stubbed (harness from
  * OmtWhishAppTransferForm.roundUp.test.tsx). Payload parsed through the core
@@ -96,6 +97,32 @@ jest.mock("../PaymentSheet", () => ({
           onClick={() =>
             props.onPaymentChange([
               { id: "L1", method: "WHISH", currencyCode: "USD", amount: 100 },
+            ])
+          }
+        />
+        {/* The customer's lines only (the payout set by its own click). */}
+        <button
+          data-testid="stub-customer-lines-3"
+          onClick={() => {
+            props.counterFlow?.onChange([
+              { id: "C1", method: "WHISH", currencyCode: "USD", amount: 100 },
+              { id: "C2", method: "CASH", currencyCode: "USD", amount: 3 },
+            ]);
+            props.counterFlow?.onStateChange?.(BALANCED);
+            props.onAddedChange?.({ usd: 3, lbp: 0 });
+          }}
+        />
+        {/* Paid into the customer's account instead. */}
+        <button
+          data-testid="stub-payout-account"
+          onClick={() =>
+            props.onPaymentChange([
+              {
+                id: "L1",
+                method: "CUSTOMER_ACCOUNT",
+                currencyCode: "USD",
+                amount: 100,
+              },
             ])
           }
         />
@@ -277,10 +304,33 @@ describe("OmtWhishAppTransferForm — RECEIVE, customer adds change (LIRA-336)",
     ]);
   });
 
-  it("wallet payout after added change: not wired, and the stale claim is not sent", async () => {
+  it("wallet payout (FR-014): added change is offered and sent with cashoutMethod WHISH", async () => {
+    await openReceive("100");
+    fireEvent.click(screen.getByTestId("stub-payout-wallet"));
+    // Checked only AFTER the wallet line is in (cashout starts as CASH).
+    await waitFor(() =>
+      expect(mockSheetProps.last?.onAddedChange).toEqual(expect.any(Function)),
+    );
+    await waitFor(() => expect(sheetCounterFlow()?.allowAddedChange).toBe(true));
+    fireEvent.click(screen.getByTestId("stub-customer-lines-3"));
+    fireEvent.click(screen.getByTestId("stub-confirm"));
+
+    await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
+    const parsed = parsedPayload();
+    expect(parsed.cashoutMethod).toBe("WHISH");
+    expect(parsed.customerPayments).toEqual([
+      { method: "WHISH", currencyCode: "USD", amount: 100 },
+      { method: "CASH", currencyCode: "USD", amount: 3 },
+    ]);
+    expect(parsed.added_change_usd).toBe(3);
+    // Round-up stays cash-only.
+    expect(parsed.rounding_given_usd).toBeUndefined();
+  });
+
+  it("customer-account payout after added change: not wired, and the stale claim is not sent", async () => {
     await openReceive("100");
     fireEvent.click(screen.getByTestId("stub-customer-adds-3"));
-    fireEvent.click(screen.getByTestId("stub-payout-wallet"));
+    fireEvent.click(screen.getByTestId("stub-payout-account"));
     await waitFor(() =>
       expect(mockSheetProps.last?.onAddedChange).toBeUndefined(),
     );
@@ -288,9 +338,12 @@ describe("OmtWhishAppTransferForm — RECEIVE, customer adds change (LIRA-336)",
     fireEvent.click(screen.getByTestId("stub-confirm"));
 
     await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
-    const parsed = parsedPayload();
-    expect(parsed.added_change_usd).toBeUndefined();
-    expect(parsed.added_change_lbp).toBeUndefined();
+    const raw = mockAddOMTTransaction.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(raw).not.toHaveProperty("added_change_usd");
+    expect(raw).not.toHaveProperty("added_change_lbp");
   });
 
   it("SEND: no onAddedChange", async () => {

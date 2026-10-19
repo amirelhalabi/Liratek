@@ -372,13 +372,30 @@ export default function Services() {
     payout: boolean;
   } | null>(null);
   // LIRA-336 — change the customer adds on the payout ($197 owed, the
-  // customer hands over $3, the shop hands out $200). A CASH walk-in RECEIVE
-  // only (`roundUpApplies`), and never with any partner — core refuses a
-  // THROUGH-partner claim too for now. Reported by the payment box in the
-  // payout currency (`onAddedChange`); `section` is the stale guard: which
-  // customer section reported it (the fee section on a Whish fee-on-top
-  // receive, else the optional "Customer gives change" section).
-  const addedChangeApplies = roundUpApplies && throughPartnerId === null;
+  // customer hands over $3, the shop hands out $200). Any walk-in RECEIVE
+  // outside a session, THROUGH partner included (FR-013), paid out in cash
+  // or by wallet (FR-014) — never For Partner (no customer, and no payment
+  // box at all) and never into the customer's account (FR-009: the account
+  // is credited in full, there is no cash to make change with). Its own gate,
+  // not `roundUpApplies`: round-up and kept change stay cash-only.
+  // The account test reads the payout LINES when the payout is split:
+  // `cashoutMethod` only follows a single line, so on a split it still holds
+  // whatever the last single line was.
+  // `cashoutMethod` only follows a SINGLE payout line, so after a split it
+  // can still read CUSTOMER_ACCOUNT — and the server branches on it. Either
+  // signal is enough to keep added change off (conservative: no payload the
+  // server would refuse or book to the account).
+  const payoutHasAccountLine =
+    cashoutMethod === "CUSTOMER_ACCOUNT" ||
+    paymentLines.some((l) => l.method === "CUSTOMER_ACCOUNT");
+  // Reported by the payment box in the payout currency (`onAddedChange`);
+  // `section` is the stale guard: which customer section reported it (see
+  // `showAddedChangeSection` for which one is used).
+  const addedChangeApplies =
+    serviceType === "RECEIVE" &&
+    !activeSession &&
+    !forPartner &&
+    !payoutHasAccountLine;
   const [addedChange, setAddedChange] = useState<{
     usd: number;
     lbp: number;
@@ -565,6 +582,10 @@ export default function Services() {
   // section is now WHISH-only (`provider === "WHISH"`); `renderProviderFee`
   // (OMT-only by construction) is replaced with `renderWhishFee` so the
   // condition can never accidentally re-open for OMT via a shared fee value.
+  //
+  // LIRA-336 phase 2: a THROUGH partner does NOT hide this section — the
+  // walk-in customer still pays the fee on top, so the page sends
+  // `feePayments` with the partner (the server accepts it from T024).
   const showFeeCounterFlow =
     serviceType === "RECEIVE" &&
     provider === "WHISH" &&
@@ -581,9 +602,12 @@ export default function Services() {
     (feeSectionState.overpaid ||
       feeSectionState.needsClient ||
       !feeSectionState.balanced);
-  // LIRA-336 — where the customer's added change goes: the fee section on a
-  // Whish fee-on-top receive (its lines go out as `feePayments`), else the
-  // optional "Customer gives change" section (`customerPayments`).
+  // LIRA-336 — where the customer's added change goes. The payment box has
+  // ONE customer section, so the rule is: the fee section takes it whenever
+  // that section is shown (a Whish fee-on-top receive — its lines go out as
+  // `feePayments`, walk-in or THROUGH partner alike), else the optional
+  // "Customer gives change" section (`customerPayments`). A partner never
+  // changes which section is used.
   const showAddedChangeSection = addedChangeApplies && !showFeeCounterFlow;
   const feeSectionTakesAddedChange = addedChangeApplies && showFeeCounterFlow;
   // Confirm waits while the optional section is over the cap (the box

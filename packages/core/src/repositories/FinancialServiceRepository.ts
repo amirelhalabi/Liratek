@@ -21,6 +21,7 @@ import {
   CUSTOMER_PAYMENTS_PROVIDERS,
   CUSTOMER_PAYMENTS_ADDED_CHANGE_PROVIDERS,
   hasCustomerPayments,
+  customerPaymentsPartnerAllowed,
 } from "../validators/financial.js";
 import {
   EXTRA_ABOVE_TOTAL_MESSAGE,
@@ -2378,7 +2379,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         if (data.feePayments && data.feePayments.length > 0) {
           throw new Error(CUSTOMER_PAYMENTS_WITH_FEE_PAYMENTS_MESSAGE);
         }
-        if (data.partnerId) {
+        // LIRA-336 phase 2: a THROUGH system RECEIVE with the claim is the
+        // one partner shape that takes them (shared predicate, rule 14).
+        if (!customerPaymentsPartnerAllowed(data)) {
           throw new Error(CUSTOMER_PAYMENTS_PARTNER_MESSAGE);
         }
         if (data.deferPayment === true) {
@@ -2429,7 +2432,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // site, but `!deferPayment && !receiveFeeIncluded && receiveFeeAmt > 0`
       // remains); this is the one that actually rejects instead of dropping.
       if (data.feePayments && data.feePayments.length > 0) {
-        if (data.partnerId) {
+        // LIRA-336 phase 2 (T023 d): FOR only. A THROUGH RECEIVE's fee lines
+        // (the Services screen sends them with the THROUGH partnerId) are
+        // booked by `bookFeeCollectionLegs` like a walk-in's — the
+        // single-leg note below described the refusal this lifts.
+        if (isForPartner) {
           // Covers BOTH partner modes: FOR (PFT-3b dispatch never reads
           // feePayments at all) and THROUGH. LIRA-124 removed the
           // `skipSystemDrawer` gate from the fee leg further down — THROUGH
@@ -3417,9 +3424,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 ? "this provider has no cash payout"
                 : cashout === "CUSTOMER_ACCOUNT"
                   ? "the payout is credited to the customer's account"
-                  : isSystemReceive && cashout !== "CASH"
-                    ? "a wallet payout is sent exactly"
-                    : null;
+                  : // LIRA-336 phase 2 (FR-014): a system wallet cashout
+                    // takes the claim too — posted line by line below.
+                    null;
         if (refusal) {
           throw new Error(
             `${ADDED_CHANGE_NOT_ALLOWED_MESSAGE} (${data.provider} ${data.serviceType}: ${refusal})`,
@@ -5190,10 +5197,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             data.provider !== "OMT" &&
             !!data.feePayments &&
             data.feePayments.length > 0;
+          // LIRA-336 phase 2 (FR-014): CASH and wallet cashouts alike (the
+          // up-front block refused CUSTOMER_ACCOUNT).
           const systemAdded: AddedChange | null =
             addedClaimed &&
             useSystemDrawerFlow &&
-            cashoutMethod === "CASH" &&
+            cashoutMethod !== "CUSTOMER_ACCOUNT" &&
             !deferPayment
               ? feeLinesApply
                 ? resolveReceiveAdded(
@@ -5387,16 +5396,57 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               // OMT_System/Whish_System (the PCD) and from the supplier
               // ledger (the provider-obligation tracking, gated separately by
               // `skipSecondarySupplierLedger` and untouched by this change).
-              insertPayment.run(
-                txnId,
-                cashoutMethod,
-                cashoutDrawer,
-                currency,
-                -payoutAmount,
-                `${cashoutMethod} paid to customer (${data.provider} RECEIVE)`,
-                createdBy,
-              );
-              upsertBalanceDelta.run(cashoutDrawer, currency, -payoutAmount);
+              //
+              // LIRA-336 phase 2 (FR-014): with an added-change claim the
+              // payout is posted LINE BY LINE (each line out of its own
+              // drawer: a WHISH line → Whish_App) and the customer's lines go
+              // into their own drawers, exactly as the CASH branch below.
+              // `postPayoutLegs` refuses a claim with no payout lines, so a
+              // verified claim can never fall through to the lump. Without
+              // a claim: the legacy lump, unchanged (FR-008).
+              if (systemAdded) {
+                if (systemAdded.measured && !feeLinesApply) {
+                  writeCustomerLegs(this.db, {
+                    measured: systemAdded.measured,
+                    debtType: "Service Debt",
+                    clientId: resolvedPrimaryClientId ?? null,
+                    transactionId: txnId,
+                    drawerFor: (leg) =>
+                      resolveServiceCashDrawer(leg.method, cashDrawerCtx),
+                    tenantId,
+                    createdBy,
+                    note: `Change added by the customer (${data.provider} RECEIVE)`,
+                  });
+                }
+                postPayoutLegs({
+                  db: this.db,
+                  legs: data.payments,
+                  payoutAmount,
+                  currency,
+                  exchangeRate: stampedExchangeRate,
+                  tenderExchangeRate: data.tender_exchange_rate,
+                  addedChange: { usd: systemAdded.usd, lbp: systemAdded.lbp },
+                  context: `${data.provider} RECEIVE cashout`,
+                  txnId,
+                  tenantId,
+                  createdBy,
+                  resolveDrawer: (method) =>
+                    resolveServiceCashDrawer(method, cashDrawerCtx),
+                  fallbackMethod: cashoutMethod,
+                  note: `${cashoutMethod} paid to customer (${data.provider} RECEIVE)`,
+                });
+              } else {
+                insertPayment.run(
+                  txnId,
+                  cashoutMethod,
+                  cashoutDrawer,
+                  currency,
+                  -payoutAmount,
+                  `${cashoutMethod} paid to customer (${data.provider} RECEIVE)`,
+                  createdBy,
+                );
+                upsertBalanceDelta.run(cashoutDrawer, currency, -payoutAmount);
+              }
             } else if (
               !deferPayment &&
               cashoutMethod === "CASH" &&
