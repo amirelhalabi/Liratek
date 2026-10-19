@@ -1946,9 +1946,9 @@ export default function Debts() {
           {selectedClient ? (
             <>
               <div className="px-5 py-3 border-b border-slate-700 bg-slate-800/50">
-                <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
                   {/* Left: Client name & phone number */}
-                  <div className="flex items-baseline gap-2 shrink-0">
+                  <div className="flex items-baseline gap-2 min-w-0">
                     <h2 className="text-xl font-bold text-white">
                       {selectedClient.full_name}
                     </h2>
@@ -1975,7 +1975,7 @@ export default function Debts() {
                       the other counterparty-owes) renders neutral rather
                       than guessing which currency should win the border. */}
                   <div
-                    className={`flex items-center gap-3 px-5 py-2 rounded-xl border ${
+                    className={`flex items-center gap-3 px-4 py-1.5 rounded-xl border whitespace-nowrap ${
                       BALANCE_BORDER_COLOR[
                         combinedBalanceBucket(-netUsd, -netLbp, BALANCE_EPS)
                       ]
@@ -1985,13 +1985,13 @@ export default function Debts() {
                       {t("page.balance")}
                     </span>
                     {clientDetailsLoading ? (
-                      <span className="font-mono text-2xl font-bold text-slate-500">
+                      <span className="font-mono text-xl font-bold text-slate-500">
                         …
                       </span>
                     ) : (
                       <span
                         dir="ltr"
-                        className={`font-mono text-2xl font-bold ${balanceTextColor(-netUsd, BALANCE_EPS)}`}
+                        className={`font-mono text-xl font-bold ${balanceTextColor(-netUsd, BALANCE_EPS)}`}
                       >
                         {netUsd < 0 ? "+" : "-"}${Math.abs(netUsd).toFixed(2)}
                       </span>
@@ -2001,7 +2001,7 @@ export default function Debts() {
                         <span className="text-slate-600 text-lg">|</span>
                         <span
                           dir="ltr"
-                          className={`font-mono text-2xl font-bold ${balanceTextColor(-netLbp, BALANCE_EPS)}`}
+                          className={`font-mono text-xl font-bold ${balanceTextColor(-netLbp, BALANCE_EPS)}`}
                         >
                           {netLbp < 0 ? "+" : "-"}
                           {formatNumber(Math.abs(netLbp))} LBP
@@ -2016,7 +2016,7 @@ export default function Debts() {
                       the other side unreachable (and offered "Settle Debt"
                       with zero due to a pure-LBP creditor, where any typed
                       amount booked a repayment that GREW the liability). */}
-                  <div className="shrink-0 flex items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-end gap-2 ms-auto">
                     {hasDebt && (
                       <button
                         data-testid="debts-settle-open"
@@ -2030,9 +2030,9 @@ export default function Debts() {
                           setRepayDiscountReason("");
                           setShowRepaymentModal(true);
                         }}
-                        className="px-6 py-2 rounded-lg font-bold shadow-lg active:scale-95 transition-all flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/20"
+                        className="px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap shadow-lg active:scale-95 transition-all flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/20"
                       >
-                        <ArrowDownLeft size={20} />
+                        <ArrowDownLeft size={16} />
                         {t("page.settleDebt")}
                       </button>
                     )}
@@ -2046,9 +2046,9 @@ export default function Debts() {
                           setRepayReturnLegs([]);
                           setShowRepaymentModal(true);
                         }}
-                        className="px-6 py-2 rounded-lg font-bold shadow-lg active:scale-95 transition-all flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white shadow-red-900/20"
+                        className="px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap shadow-lg active:scale-95 transition-all flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white shadow-red-900/20"
                       >
-                        <ArrowUpRight size={20} />
+                        <ArrowUpRight size={16} />
                         {t("page.cashOut")}
                       </button>
                     )}
@@ -2063,10 +2063,10 @@ export default function Debts() {
                           setWriteOffReason("");
                           setShowWriteOffModal(true);
                         }}
-                        className="px-4 py-2 rounded-lg font-bold shadow-lg active:scale-95 transition-all flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-slate-200"
+                        className="px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap shadow-lg active:scale-95 transition-all flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-slate-200"
                         title={t("page.writeOffTitle")}
                       >
-                        <Eraser size={18} />
+                        <Eraser size={16} />
                         {t("page.writeOff")}
                       </button>
                     )}

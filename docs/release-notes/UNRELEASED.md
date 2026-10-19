@@ -158,6 +158,8 @@ Right after a sale, the POS shows "Sale completed" with a Send on WhatsApp butto
 
 - Light mode: cards and input boxes now use a soft warm grey instead of bright white, and the dark text on OMT's yellow buttons and tabs is a softer charcoal instead of pure black.
 - Exchange: the form and the Rates list now fill the whole page width, with the same margins at any window size. Before, wide windows left an empty strip on the right.
+- Accounts: a client's balance in $ and LBP now stays on one line, and the Settle Debt, Cash Out and Write off buttons are never cut off. On narrower windows they move under the balance.
+- Profits: the tabs show only their icons, except the one you are on, so the tabs and the From / To dates fit on one line. Point at an icon to see its name.
 
 ## 🌐 Web app
 

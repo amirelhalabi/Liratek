@@ -1213,21 +1213,34 @@ export default function Profits() {
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
       <PageHeader title={t("page.title")} />
 
-      {/* Tab bar + date range */}
+      {/* Tab bar + date range. Eight labelled tabs plus the date range need
+          ~2,400px, so below 2700px wide only the ACTIVE tab shows its label
+          and the others are icon-only (label kept as tooltip + accessible
+          name), which keeps tabs and dates on one row. */}
       <div className="flex flex-wrap items-center gap-4">
         <div className="flex bg-slate-800 rounded-lg p-1 flex-wrap">
           {tabs.map((t) => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
+              title={t.label}
+              aria-label={t.label}
               className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                 tab === t.key
                   ? "bg-blue-600 text-white"
                   : "text-slate-400 hover:text-white hover:bg-slate-700"
               }`}
             >
-              <t.icon className="h-4 w-4" />
-              {t.label}
+              <t.icon className="h-4 w-4 shrink-0" />
+              <span
+                className={
+                  tab === t.key
+                    ? "whitespace-nowrap"
+                    : "hidden min-[2700px]:inline whitespace-nowrap"
+                }
+              >
+                {t.label}
+              </span>
             </button>
           ))}
         </div>
