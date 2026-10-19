@@ -6735,6 +6735,39 @@ Owner decisions 2026-10-18:
 
 **What users will notice:** when paying out, you can tap "+ Customer gives change" and enter the few dollars or pounds the customer hands you. The payment window then expects you to pay out that much more (for example $197 owed + $3 = $200), and both drawers are recorded correctly.
 
+## LIRA-338: Pick the line "Charge to shop line" charges — BUILT 2026-10-19 (owner decisions 2026-10-19)
+
+The owner's case: on the iPick/Katsh grids, "Charge to shop line" always charged the carrier's main line, with no way to pick another shop line or a line held for sale.
+
+Owner decisions 2026-10-19:
+- The window opens with the main line already picked.
+- Shop lines and lines for sale are listed as two groups in one window.
+- Only active lines of the card's carrier are listed: turned-off shop lines and lost or sold lines for sale are left out.
+- Whish App MTC/Alfa cards get the button too.
+
+**Built 2026-10-19 (no Spec Kit, built directly on the owner's request):**
+- Core:
+  - `constants/lineChargeProviders.ts` holds the one provider list (iPick, Katsh, WHISH_APP). `selfChargeTelecomItem` and `ResaleLineService.recharge` CARD both read it, and so does the grid button (`isSelfChargeEligible`).
+  - The self-charge now refuses a turned-off line.
+  - The fallback for the Whish App balance name is fixed.
+- UI:
+  - New shared `ChargeLineModal`, used by KatshForm (replacing its old one-line modal) and by the Whish App grid in FinancialForm (LBP cards only).
+  - A shop line goes through the existing self-charge; a line for sale goes through the existing LIRA-309 CARD recharge.
+  - Phone Lines → Recharge → Card now lists Whish App cards too.
+- Tests:
+  - core `chargeLine.lira338.test.ts` 4/4: 3 seen failing first. The "chosen line" case already passed, because the server accepted any line before.
+  - `ChargeLineModal` 4/4, seen failing first.
+  - Affected KatshForm/FinancialForm/Phone Lines suites pass; two test mocks gained the new line-list calls.
+  - Web e2e `lira-web-078` 1/1 passed; it also saves the What's new screenshot.
+  - Every-case tests, added after the owner asked "did you test every case?" (NOT proven failing-first):
+    - core `chargeLine.matrix.lira338.test.ts` 18/18: iPick / Katsh / Whish App × MTC / Alfa × main line / other shop line / line for sale, each checking the balances and that one Void restores everything exactly;
+    - `ChargeLineModal` 10/10: burned (Charge disabled), grace, 365-day cap, days sold ahead, no lines, MTC card lists MTC lines only;
+    - Whish App grid: button only on LBP cards with credit and days, none in USD mode;
+    - Phone Lines → Recharge → Card lists Whish App cards.
+  - Desktop app not run.
+
+**What users will notice:** "Charge to shop line" on iPick, Katsh and Whish App cards now asks which line to charge: any active shop line, or a line held for sale.
+
 ## LIRA-337: Give credit back from a line for sale — BUILT 2026-10-18 (owner decisions 2026-10-18)
 
 The owner's case: a line held for sale has $15 of credit (it had to be recharged), and the buyer only wants $9. Today there is no single step. A sale plus a Mobile Recharge credit buy-back pays cash out at the buy-back rate, and the manual route takes three unlinked edits that cannot be voided. Spec Kit: `specs/337-give-credit-back/`.

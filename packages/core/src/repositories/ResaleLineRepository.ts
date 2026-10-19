@@ -843,7 +843,7 @@ export class ResaleLineRepository extends BaseRepository<ResaleLineEntity> {
     } catch {
       // service_providers unavailable — fall back to the historic names.
     }
-    return provider === "Katsh" ? "Katsh" : "iPick";
+    return provider === "Katsh" ? "Katsh" : provider === "WHISH_APP" ? "Whish_App" : "iPick";
   }
 
   /** An active shop line of a carrier: the given one, else the primary. */

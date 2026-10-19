@@ -1,9 +1,11 @@
+import { isLineChargeProvider } from "@liratek/core";
 import type { ServiceItem } from "../hooks/useMobileServiceItems";
 
 /**
  * Self-charge (LIRA-090 §5.2) is only eligible for MTC/Alfa Prepaid items
- * that carry BOTH a face credit and validity days, sold by iPick/Katsh (the
- * two providers `selfChargeTelecomItem` accepts — see
+ * that carry BOTH a face credit and validity days, sold by iPick, Katsh or
+ * (LIRA-338) Whish App — `LINE_CHARGE_PROVIDERS`, the list
+ * `selfChargeTelecomItem` accepts — see
  * `FinancialServiceRepository.selfChargeTelecomItem`). This mirrors that
  * repository's own guard clauses so no entry point ever offers an item the
  * backend would reject.
@@ -19,7 +21,7 @@ export function isSelfChargeEligible(
   return (
     item.id != null &&
     item.category.toLowerCase() === carrier &&
-    (item.provider === "iPick" || item.provider === "Katsh") &&
+    isLineChargeProvider(item.provider) &&
     typeof item.credits === "number" &&
     item.credits > 0 &&
     typeof item.validityDays === "number" &&

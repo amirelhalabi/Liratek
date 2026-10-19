@@ -17,6 +17,7 @@ import { useApi, type CarrierLineEntity, type MobileServiceItemEntity } from "@l
 import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import { formatNumber } from "@liratek/ui/i18n/format";
 import {
+  isLineChargeProvider,
   planSmsTransfer,
   type RechargeResaleLineInput,
   type ResaleLineRow,
@@ -88,7 +89,7 @@ export function ResaleLineRechargePanel({
         setCards(
           (Array.isArray(items) ? items : []).filter(
             (i) =>
-              (i.provider === "iPick" || i.provider === "Katsh") &&
+              isLineChargeProvider(i.provider) &&
               i.category.toLowerCase() === carrier &&
               i.cost_lbp > 0,
           ),
@@ -286,7 +287,7 @@ export function ResaleLineRechargePanel({
               <option value="">{t("recharge.choose")}</option>
               {cards.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.provider} {carrierLabel} {c.label} — {formatNumber(c.cost_lbp)} LBP
+                  {c.provider === "WHISH_APP" ? "Whish App" : c.provider} {carrierLabel} {c.label} — {formatNumber(c.cost_lbp)} LBP
                 </option>
               ))}
             </select>

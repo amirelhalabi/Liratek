@@ -104,6 +104,8 @@ export * from "./utils/carrierLineValidity.js";
 export * from "./utils/lineStatus.js";
 // LIRA-337 — give-back figures, shared by the Phone Lines panel and the service.
 export * from "./utils/lineGiveBack.js";
+// LIRA-338 — which providers' cards can be charged to the shop's own lines.
+export * from "./constants/lineChargeProviders.js";
 export * from "./utils/insuranceFulfillment.js";
 export * from "./utils/customServiceWorkStatus.js";
 export * from "./utils/phoneNumber.js";

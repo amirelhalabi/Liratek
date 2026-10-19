@@ -8,7 +8,7 @@ import {
   startTransition,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Trans, useTranslation } from "react-i18next";
+import { useTranslation } from "react-i18next";
 import { formatNumber } from "@liratek/ui/i18n/format";
 import { ChevronDown, Phone, Plus } from "lucide-react";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
@@ -28,7 +28,6 @@ import { cardGroupLabel } from "../utils/cardGroupLabel";
 import { Collapsible } from "@/shared/components/Collapsible";
 import {
   type PaymentLine,
-  type CarrierLineEntity,
   useApi,
   DecimalInput,
   hasNewClientInfo,
@@ -39,11 +38,6 @@ import {
   resolveMaxReturnedCredits,
   isTelecomSplitComplete,
   resolveCreditSellPriceLbp,
-  // LIRA-157 — the SAME rule the repository applies on write. Imported, never
-  // re-implemented: a second copy here would drift and promise the operator
-  // days the backend then refuses or clips.
-  projectValidityExpiry,
-  MAX_LINE_VALIDITY_DAYS,
   buildCatalogSalePayload,
   catalogCartTotals,
 } from "@liratek/core";
@@ -67,12 +61,11 @@ import {
 import { formatCatalogItemName } from "../hooks/useMobileServiceItems";
 import { getCategoryColor } from "../utils/categoryColors";
 import { isSelfChargeEligible } from "../utils/selfChargeEligibility";
-import { localDay } from "@/shared/utils/localDay";
+import { ChargeLineModal } from "./ChargeLineModal";
 import { HistoryModal } from "./HistoryModal";
 import { PaymentSheet, type PaymentSheetItem } from "./PaymentSheet";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import logger from "@/utils/logger";
-import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { SUPPLIER_KEYS } from "@/features/suppliers/hooks/useSuppliers";
 import {
   useBasketBills,
@@ -343,10 +336,6 @@ interface ItemCardProps {
    *  for the "Charge to shop line" self-charge action (see
    *  `isSelfChargeEligible`). */
   selfChargeEligible: boolean;
-  /** The carrier's current primary line (`getPrimary`), or null when the
-   *  carrier has no active line yet — the button stays visible but disabled
-   *  with an explanatory tooltip rather than erroring on click (§0.5). */
-  selfChargeTargetLine: CarrierLineEntity | null;
   onSelfCharge: (item: ServiceItem) => void;
 }
 
@@ -366,7 +355,6 @@ const ItemCard = memo(function ItemCard({
   onSellDaysLbpChange,
   onCreditPriceLbpChange,
   selfChargeEligible,
-  selfChargeTargetLine,
   onSelfCharge,
 }: ItemCardProps) {
   const { t } = useTranslation("recharge");
@@ -481,18 +469,6 @@ const ItemCard = memo(function ItemCard({
             type="button"
             data-testid="katsh-self-charge"
             onClick={() => onSelfCharge(item)}
-            disabled={!selfChargeTargetLine}
-            title={
-              selfChargeTargetLine
-                ? t("katsh.chargeItemTo", {
-                    line:
-                      selfChargeTargetLine.label ||
-                      selfChargeTargetLine.phone_number,
-                  })
-                : t("katsh.noLineConfigured", {
-                    carrier: item.category.toUpperCase(),
-                  })
-            }
             className="mt-2 w-full py-1 rounded text-[10px] font-medium bg-emerald-900/30 hover:bg-emerald-900/50 text-emerald-400 disabled:bg-slate-800/60 disabled:text-slate-500 disabled:cursor-not-allowed transition-colors"
           >
             {t("katsh.chargeToShopLine")}
@@ -948,44 +924,13 @@ function KatshFormInner({
     setPriced(pricedLines);
   }, [pricedLines, setPriced]);
 
-  // ── Self-charge (LIRA-090 §5.2, carrier-lines-validity plan Phase 5 / D5) ──
-  // Item-card entry point: charge an eligible iPick/Katsh item straight to
-  // the shop's own primary MTC/Alfa line — no customer, no sale row, no
-  // profit row. The target line is resolved automatically via
-  // getPrimary(carrier) (there is one line per carrier today — §0.5)
-  // instead of offered as a picker.
-  const [primaryLines, setPrimaryLines] = useState<
-    Record<"alfa" | "mtc", CarrierLineEntity | null>
-  >({ alfa: null, mtc: null });
+  // ── Charge to a line (LIRA-090 §5.2, LIRA-338) ──
+  // Item-card entry point: charge an eligible card to one of the shop's own
+  // lines. `ChargeLineModal` lets the cashier pick the line (any active shop
+  // line of the carrier, main line pre-picked, or a line held for sale).
   const [selfChargeItem, setSelfChargeItem] = useState<ServiceItem | null>(
     null,
   );
-  const [selfChargeSubmitting, setSelfChargeSubmitting] = useState(false);
-  const [selfChargeError, setSelfChargeError] = useState("");
-  const [selfChargeResult, setSelfChargeResult] = useState<{
-    costLbp: number;
-    creditsAdded: number;
-    validityDaysAdded: number;
-  } | null>(null);
-
-  const loadPrimaryLines = useCallback(async () => {
-    try {
-      const [mtc, alfa] = await Promise.all([
-        api.getPrimaryCarrierLine("mtc"),
-        api.getPrimaryCarrierLine("alfa"),
-      ]);
-      setPrimaryLines({
-        mtc: mtc.success ? (mtc.data ?? null) : null,
-        alfa: alfa.success ? (alfa.data ?? null) : null,
-      });
-    } catch (err) {
-      logger.error("Failed to load primary carrier lines:", err);
-    }
-  }, [api]);
-
-  useEffect(() => {
-    loadPrimaryLines();
-  }, [loadPrimaryLines]);
 
   // Reset and defer card grid rendering on every provider switch so the shell
   // (search bar + proceed button) paints before the heavy DOM is created.
@@ -1187,110 +1132,8 @@ function KatshFormInner({
     });
   }, []);
 
-  // Carrier-lines-validity plan Phase 5 / D5 — opens the confirm modal for a
-  // self-charge-eligible item. Disabled targets (no primary line) are
-  // filtered at the button (ItemCard), so this only ever fires when a
-  // target line exists.
-  const handleSelfChargeClick = useCallback((item: ServiceItem) => {
-    setSelfChargeItem(item);
-    setSelfChargeError("");
-    setSelfChargeResult(null);
-  }, []);
-
-  const closeSelfCharge = useCallback(() => {
-    setSelfChargeItem(null);
-    setSelfChargeError("");
-    setSelfChargeResult(null);
-  }, []);
-
-  // Writes a TELECOM_SELF_CHARGE transaction
-  // (FinancialServiceRepository.selfChargeTelecomItem) — debits the item's
-  // own iPick/Katsh LBP drawer and credits the carrier's primary line's
-  // credits/validity by the item's own `credits`/`validity_days`. No
-  // arithmetic happens here; the repository owns it — this only collects the
-  // item + resolved line and reports what came back.
-  const handleConfirmSelfCharge = useCallback(async () => {
-    if (!selfChargeItem?.id) return;
-    const carrier = selfChargeItem.category.toLowerCase() as "alfa" | "mtc";
-    const targetLine = primaryLines[carrier];
-    if (!targetLine) return;
-    setSelfChargeSubmitting(true);
-    setSelfChargeError("");
-    try {
-      const res = await api.selfChargeTelecomItem({
-        mobileServiceItemId: selfChargeItem.id,
-        carrierLineId: targetLine.id,
-        // The shop's own calendar day, not the server's (untrustworthy on
-        // web — Fly runs UTC, the shop is Beirut UTC+3): decides whether the
-        // line's validity extension lands as VALID/GRACE/BURNED.
-        client_day: localDay(),
-      });
-      if (!res.success || !res.data) {
-        setSelfChargeError(res.error || t("katsh.selfChargeFailed"));
-        return;
-      }
-      setSelfChargeResult({
-        costLbp: res.data.costLbp,
-        creditsAdded: res.data.creditsAdded,
-        validityDaysAdded: res.data.validityDaysAdded,
-      });
-      await loadPrimaryLines();
-    } catch (err) {
-      // LIRA-247: `err instanceof Error` is false for a thrown ApiError
-      // (e.g. a web 403 role refusal), so it used to fall back to this
-      // generic string and hide the real reason.
-      setSelfChargeError(getApiErrorMessage(err, t("katsh.selfChargeFailed")));
-    } finally {
-      setSelfChargeSubmitting(false);
-    }
-  }, [selfChargeItem, primaryLines, api, loadPrimaryLines, t]);
-
-  // LIRA-157 — what the charge would ACTUALLY do to the line, computed with the
-  // repository's own rule so the dialog cannot promise something the write path
-  // refuses. Three outcomes matter to the operator:
-  //   burned  → the line is past the 5-day revival grace; the charge is refused
-  //             server-side, so the button is disabled rather than failing late
-  //   capped  → part of the card's days are lost to the 365-day ceiling
-  //   GRACE   → the line is lapsed but revivable; the new validity starts today
-  //
-  // Lives ABOVE the early return, with the other hooks, and therefore derives
-  // the carrier and target line itself instead of reusing the `selfCharge*`
-  // locals below (rules-of-hooks: a hook after a conditional return is called
-  // conditionally). Same two values, same source state.
-  const selfChargeValidityProjection = useMemo(() => {
-    const requestedDays = selfChargeItem?.validityDays;
-    if (!selfChargeItem || requestedDays == null || requestedDays <= 0) {
-      return null;
-    }
-    const carrier = selfChargeItem.category.toLowerCase() as "alfa" | "mtc";
-    const targetLine = primaryLines[carrier];
-    if (!targetLine) return null;
-
-    // M7 fix (2026-09-24 adversarial review): pass the line's CURRENT
-    // days_owed balance (#28) through as the 4th arg — omitting it made
-    // this preview show the full `requestedDays` landing on the real
-    // expiry with `owedApplied` always 0, disagreeing with the server (one
-    // shared rule, rule 14, means BOTH callers read the same daysOwed
-    // input, not just the same function). Example: 210 owed, a 365-day
-    // card — the server lands at today+155; this preview used to claim
-    // today+365.
-    const projection = projectValidityExpiry(
-      targetLine.validity_expires_at,
-      requestedDays,
-      undefined,
-      targetLine.days_owed ?? 0,
-    );
-    return {
-      ...projection,
-      requestedDays,
-      /** Days the line actually gains ON THE REAL EXPIRY once the ceiling
-       *  has taken its cut AND any days_owed payoff has been split out —
-       *  `projection.owedApplied` is the portion that went to the debt
-       *  instead (M7). */
-      appliedDays:
-        requestedDays - projection.daysLostToCap - projection.owedApplied,
-    };
-  }, [selfChargeItem, primaryLines]);
+  // A state setter is already stable — handed to the cards as is.
+  const handleSelfChargeClick = setSelfChargeItem;
 
   if (!activeConfig || !activeProvider) return null;
 
@@ -1298,22 +1141,6 @@ function KatshFormInner({
 
   const categories = getCategoriesForProvider(activeProvider);
 
-  // Resolved once per render for the self-charge confirm modal below — the
-  // modal only ever shows one item at a time, so this is cheap to derive
-  // straight from state rather than threaded through as extra props.
-  const selfChargeCarrier: "alfa" | "mtc" | null = selfChargeItem
-    ? (selfChargeItem.category.toLowerCase() as "alfa" | "mtc")
-    : null;
-  const selfChargeTargetLine = selfChargeCarrier
-    ? primaryLines[selfChargeCarrier]
-    : null;
-  const selfChargeLineName = selfChargeTargetLine
-    ? selfChargeTargetLine.label || selfChargeTargetLine.phone_number
-    : t("katsh.theCarrierLine", {
-        carrier: selfChargeCarrier?.toUpperCase(),
-      });
-
-  const selfChargeBlocked = selfChargeValidityProjection?.burned === true;
 
   const filterItemsBySearch = (items: ServiceItem[]): ServiceItem[] => {
     if (!searchQuery.trim()) return items;
@@ -2354,9 +2181,6 @@ function KatshFormInner({
                       const selfChargeEligible =
                         (itemCarrier === "alfa" || itemCarrier === "mtc") &&
                         isSelfChargeEligible(item, itemCarrier);
-                      const selfChargeTargetLine = selfChargeEligible
-                        ? primaryLines[itemCarrier as "alfa" | "mtc"]
-                        : null;
                       return (
                         <ItemCard
                           key={item.key}
@@ -2383,7 +2207,6 @@ function KatshFormInner({
                           onSellDaysLbpChange={handleSellDaysLbpChange}
                           onCreditPriceLbpChange={handleCreditPriceLbpChange}
                           selfChargeEligible={selfChargeEligible}
-                          selfChargeTargetLine={selfChargeTargetLine}
                           onSelfCharge={handleSelfChargeClick}
                         />
                       );
@@ -2613,211 +2436,11 @@ function KatshFormInner({
           plan Phase 5 / D5) — the target line is resolved automatically via
           getPrimary(carrier) instead of offered as a picker. */}
       {selfChargeItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
-          <div className="relative w-full max-w-sm bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl p-6">
-            <h3 className="text-lg font-bold text-white mb-1">
-              {t("katsh.selfChargeTitle")}
-            </h3>
-            <p className="text-slate-400 text-xs mb-4">
-              {formatCatalogItemName(selfChargeItem)}
-            </p>
-
-            {selfChargeResult ? (
-              <div className="space-y-4">
-                <div className="bg-emerald-900/20 border border-emerald-700/40 rounded-lg p-3 text-sm text-emerald-300">
-                  {t("katsh.chargedSuccessfully")}
-                </div>
-                <div className="text-sm text-slate-300 space-y-1">
-                  <p>
-                    {t("katsh.costDebited")}{" "}
-                    <span className="text-white font-mono">
-                      {formatNumber(selfChargeResult.costLbp)} LBP
-                    </span>
-                  </p>
-                  <p>
-                    {t("katsh.creditsAdded")}{" "}
-                    <span className="text-emerald-400 font-mono">
-                      +${selfChargeResult.creditsAdded}
-                    </span>
-                  </p>
-                  <p>
-                    {t("katsh.validityAdded")}{" "}
-                    <span className="text-emerald-400 font-mono">
-                      {t("katsh.plusDays", {
-                        n: selfChargeResult.validityDaysAdded,
-                      })}
-                    </span>
-                  </p>
-                </div>
-                <div className="flex gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={closeSelfCharge}
-                    className="px-4 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded text-sm"
-                  >
-                    {t("katsh.done")}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {selfChargeError && (
-                  <div className="text-red-400 text-sm bg-red-900/20 px-3 py-1.5 rounded">
-                    {selfChargeError}
-                  </div>
-                )}
-
-                <div className="bg-slate-900/60 border border-slate-700 rounded-lg p-3 text-sm text-slate-300 space-y-1">
-                  <p className="text-slate-400 text-xs uppercase mb-1">
-                    {t("katsh.thisWill")}
-                  </p>
-                  <p>
-                    <Trans
-                      t={t}
-                      i18nKey="katsh.debitFromDrawer"
-                      values={{
-                        amount: `${formatNumber(selfChargeItem.catalogCost ?? 0)} LBP`,
-                        provider: selfChargeItem.provider,
-                      }}
-                      components={{
-                        amt: <span className="text-white font-mono" />,
-                      }}
-                    />
-                  </p>
-                  <p>
-                    <Trans
-                      t={t}
-                      i18nKey="katsh.addCreditTo"
-                      values={{
-                        amount: `+$${selfChargeItem.credits}`,
-                        line: selfChargeLineName,
-                      }}
-                      components={{
-                        amt: <span className="text-emerald-400 font-mono" />,
-                      }}
-                    />
-                  </p>
-                  <p>
-                    <Trans
-                      t={t}
-                      i18nKey="katsh.addValidityTo"
-                      values={{
-                        n: selfChargeItem.validityDays,
-                        line: selfChargeLineName,
-                      }}
-                      components={{
-                        amt: (
-                          <span
-                            className={
-                              selfChargeValidityProjection?.capped ||
-                              selfChargeBlocked
-                                ? "text-amber-400 font-mono line-through"
-                                : "text-emerald-400 font-mono"
-                            }
-                          />
-                        ),
-                      }}
-                    />
-                  </p>
-                  {!selfChargeTargetLine && (
-                    <p className="text-amber-400 text-xs pt-1">
-                      {t("katsh.noActiveLine", {
-                        carrier: selfChargeCarrier?.toUpperCase(),
-                      })}
-                    </p>
-                  )}
-                  {/* LIRA-157 — say what the rule will really do, before the
-                      operator spends the card. */}
-                  {selfChargeBlocked && (
-                    <p
-                      className="text-red-400 text-xs pt-1"
-                      data-testid="self-charge-burned-warning"
-                    >
-                      {t("katsh.lineBurned", {
-                        n: selfChargeValidityProjection?.lapseDays,
-                      })}
-                    </p>
-                  )}
-                  {/* #28/M7 — the line carries a sold-ahead debt; this
-                      charge pays part or all of it off FIRST (never
-                      refused, rule 14 — same server rule), so say so before
-                      the operator spends the card. */}
-                  {!selfChargeBlocked &&
-                    (selfChargeValidityProjection?.owedApplied ?? 0) > 0 && (
-                      <p
-                        className="text-amber-400 text-xs pt-1"
-                        data-testid="self-charge-owed-payoff-notice"
-                      >
-                        {(selfChargeValidityProjection?.appliedDays ?? 0) > 0
-                          ? t("katsh.owedPayoffSplit", {
-                              owed: selfChargeValidityProjection?.owedApplied,
-                              requested:
-                                selfChargeValidityProjection?.requestedDays,
-                              applied:
-                                selfChargeValidityProjection?.appliedDays,
-                            })
-                          : t("katsh.owedPayoff", {
-                              owed: selfChargeValidityProjection?.owedApplied,
-                              requested:
-                                selfChargeValidityProjection?.requestedDays,
-                            })}
-                      </p>
-                    )}
-                  {!selfChargeBlocked &&
-                    selfChargeValidityProjection?.capped && (
-                      <p
-                        className="text-amber-400 text-xs pt-1"
-                        data-testid="self-charge-capped-warning"
-                      >
-                        {t("katsh.validityCapped", {
-                          applied: selfChargeValidityProjection.appliedDays,
-                          requested: selfChargeValidityProjection.requestedDays,
-                          max: MAX_LINE_VALIDITY_DAYS,
-                        })}
-                      </p>
-                    )}
-                  {!selfChargeBlocked &&
-                    selfChargeValidityProjection?.state === "GRACE" && (
-                      <p
-                        className="text-amber-400 text-xs pt-1"
-                        data-testid="self-charge-grace-warning"
-                      >
-                        {t("katsh.lineGrace", {
-                          n: selfChargeValidityProjection.lapseDays,
-                        })}
-                      </p>
-                    )}
-                </div>
-
-                <div className="flex gap-2 pt-2">
-                  <button
-                    type="button"
-                    data-testid="katsh-self-charge-confirm"
-                    onClick={handleConfirmSelfCharge}
-                    disabled={
-                      selfChargeSubmitting ||
-                      !selfChargeTargetLine ||
-                      selfChargeBlocked
-                    }
-                    className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded text-sm"
-                  >
-                    {selfChargeSubmitting
-                      ? t("katsh.charging")
-                      : t("katsh.confirmCharge")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={closeSelfCharge}
-                    disabled={selfChargeSubmitting}
-                    className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-sm disabled:opacity-50"
-                  >
-                    {t("common:actions.cancel")}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+        <ChargeLineModal
+          item={selfChargeItem}
+          onClose={() => setSelfChargeItem(null)}
+          onCharged={loadFinancialData}
+        />
       )}
     </div>
   );

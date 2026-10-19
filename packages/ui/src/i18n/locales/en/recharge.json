@@ -110,7 +110,7 @@
   },
   "telecom": {
     "shopLineTitle": "This is the shop's own {{carrier}} line",
-    "shopLineHint": "{{what}} can only be added by charging an iPick or Katsh catalog item to this line — use <bold>\"Charge to shop line\"</bold> on the matching item card.",
+    "shopLineHint": "{{what}} can only be added by charging an iPick, Katsh or Whish App catalog item to this line — use <bold>\"Charge to shop line\"</bold> on the matching item card.",
     "validity": "Validity",
     "giftValue": "Gift value",
     "selectPartner": "Select a partner for this recharge.",
@@ -228,5 +228,17 @@
     "lineGrace": "This line expired {{n}} days ago — the new validity starts from today, so the lapsed days are not recovered.",
     "charging": "Charging...",
     "confirmCharge": "Confirm Charge"
+  },
+  "chargeLine": {
+    "title": "Charge to a line",
+    "shopLines": "Shop lines",
+    "linesForSale": "Lines for sale",
+    "main": "(main)",
+    "daysLeft": "{{n}} days left",
+    "noExpiry": "no expiry set",
+    "price": "price {{price}}",
+    "forSaleEffect": "Its cost goes {{costFrom}} → {{costTo}} and its price {{priceFrom}} → {{priceTo}}.",
+    "doneShop": "{{line}}: +${{credits}} credit, +{{days}} days. {{cost}} LBP taken from {{provider}}.",
+    "doneSale": "{{line}} recharged: cost {{cost}}, price {{price}}."
   }
 }

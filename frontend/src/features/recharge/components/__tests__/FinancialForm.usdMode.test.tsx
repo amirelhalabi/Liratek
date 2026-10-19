@@ -29,6 +29,11 @@ const mockAddOMTTransaction = jest
 const mockApi = {
   addOMTTransaction: mockAddOMTTransaction,
   getAllSettings: jest.fn().mockResolvedValue([]),
+  // LIRA-338 — the charge-to-line window lists the lines itself.
+  getAllActiveCarrierLines: jest.fn().mockResolvedValue([
+    { id: 4, carrier: "mtc", phone_number: "03111875", label: null, is_primary: 1, is_active: 1, credits: 20, validity_expires_at: null, days_owed: 0 },
+  ]),
+  getResaleLines: jest.fn().mockResolvedValue([]),
 };
 
 jest.mock("@liratek/ui", () => ({
@@ -158,6 +163,10 @@ const PREPAID: ServiceItem = {
   catalogCostUsd: 8.64,
   catalogSellPriceUsd: 8.64,
   sortOrder: 0,
+  // LIRA-338 — a card with credit and days can be charged to a line.
+  id: 21,
+  credits: 7.58,
+  validityDays: 30,
 };
 
 const CONFIG: ProviderConfig = {
@@ -427,5 +436,23 @@ describe("FinancialForm — USD mode (LIRA-324)", () => {
       expect(lineSum(items)).toBe(11);
       expect(sheetProps.totalAmount).toBe(11);
     });
+  });
+});
+
+// LIRA-338 — "Charge to shop line" on the Whish App grid. Added 2026-10-19 on
+// the owner's "did you test every case?"; NOT proven failing-first (rule 17).
+describe("FinancialForm — Charge to shop line on Whish App (LIRA-338)", () => {
+  it("LBP: an MTC/Alfa card with credit and days has the button; it opens the line window", async () => {
+    renderForm();
+    const buttons = screen.getAllByTestId("whish-self-charge");
+    expect(buttons).toHaveLength(1); // only the Prepaid card, never Gaming items
+    fireEvent.click(buttons[0]);
+    expect(await screen.findByTestId("charge-line-modal")).toBeInTheDocument();
+    expect(await screen.findByLabelText(/03111875/)).toBeInTheDocument();
+  });
+
+  it("USD: no button (Prepaid cards are LBP-only)", () => {
+    renderForm("USD");
+    expect(screen.queryByTestId("whish-self-charge")).not.toBeInTheDocument();
   });
 });

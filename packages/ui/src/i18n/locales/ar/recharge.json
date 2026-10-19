@@ -110,7 +110,7 @@
   },
   "telecom": {
     "shopLineTitle": "هذا خط {{carrier}} الخاص بالمحل",
-    "shopLineHint": "لا يمكن إضافة {{what}} إلا بتشريج صنف من كتالوج iPick أو Katsh على هذا الخط — استخدم <bold>\"تشريج على خط المحل\"</bold> في بطاقة الصنف المطابق.",
+    "shopLineHint": "لا يمكن إضافة {{what}} إلا بتشريج صنف من كتالوج iPick أو Katsh أو Whish App على هذا الخط — استخدم <bold>\"تشريج على خط المحل\"</bold> في بطاقة الصنف المطابق.",
     "validity": "الصلاحية",
     "giftValue": "قيمة الهدية",
     "selectPartner": "اختر شريكاً لهذا التشريج.",
@@ -228,5 +228,17 @@
     "lineGrace": "انتهت صلاحية هذا الخط منذ {{n}} يوم — تبدأ الصلاحية الجديدة من اليوم، فلا تُستعاد الأيام الفائتة.",
     "charging": "جارٍ التشريج...",
     "confirmCharge": "تأكيد التشريج"
+  },
+  "chargeLine": {
+    "title": "شحن خط",
+    "shopLines": "خطوط المحل",
+    "linesForSale": "خطوط للبيع",
+    "main": "(الأساسي)",
+    "daysLeft": "باقي {{n}} يوم",
+    "noExpiry": "بلا تاريخ انتهاء",
+    "price": "السعر {{price}}",
+    "forSaleEffect": "تصبح كلفته {{costFrom}} ← {{costTo}} وسعره {{priceFrom}} ← {{priceTo}}.",
+    "doneShop": "{{line}}: +${{credits}} رصيد، +{{days}} يوم. {{cost}} ل.ل. من {{provider}}.",
+    "doneSale": "شُحن {{line}}: الكلفة {{cost}}، السعر {{price}}."
   }
 }

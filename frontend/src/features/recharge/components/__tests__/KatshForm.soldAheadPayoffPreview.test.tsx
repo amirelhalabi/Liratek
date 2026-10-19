@@ -40,6 +40,17 @@ const mockApi = {
   getAllSettings: jest.fn().mockResolvedValue([]),
   getActiveMobileServiceItems: jest.fn().mockResolvedValue([]),
   getPrimaryCarrierLine: mockGetPrimaryCarrierLine,
+  // LIRA-338 — the charge window lists the active lines itself; built from
+  // the same per-carrier main line each test sets up.
+  getAllActiveCarrierLines: jest.fn(async () => {
+    const rows = [];
+    for (const carrier of ["mtc", "alfa"]) {
+      const r = await mockGetPrimaryCarrierLine(carrier);
+      if (r?.success && r.data) rows.push({ is_active: 1, is_primary: 1, ...r.data });
+    }
+    return rows;
+  }),
+  getResaleLines: jest.fn().mockResolvedValue([]),
 };
 
 jest.mock("@liratek/ui", () => ({

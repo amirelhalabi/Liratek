@@ -33,6 +33,10 @@ import {
 } from "../utils/carrierLineValidity.js";
 import { planSmsTransfer } from "../utils/telecomCredit.js";
 import { planLineGiveBack } from "../utils/lineGiveBack.js";
+import {
+  isLineChargeProvider,
+  LINE_CHARGE_PROVIDER_ERROR,
+} from "../constants/lineChargeProviders.js";
 import { clientDay } from "../utils/requestDay.js";
 import { inventoryLogger } from "../utils/logger.js";
 import type {
@@ -263,8 +267,8 @@ export class ResaleLineService {
 
         if (input.source === "CARD") {
           const card = this.repo.getCard(input.mobile_service_item_id as number);
-          if (!card || (card.provider !== "iPick" && card.provider !== "Katsh")) {
-            return fail("Pick an MTC or Alfa card from iPick or Katsh.");
+          if (!card || !isLineChargeProvider(card.provider)) {
+            return fail(LINE_CHARGE_PROVIDER_ERROR);
           }
           if (card.category.toLowerCase() !== line.carrier) return fail(carrierMismatch);
           if (!(card.cost_lbp > 0)) return fail("Enter what this recharge cost before saving.");

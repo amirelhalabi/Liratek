@@ -55,6 +55,8 @@ beforeEach(() => {
     { id: 11, provider: "iPick", category: "alfa", subcategory: "Prepaid", label: "7.58", cost_lbp: 770000, credits: 7.58, validity_days: 30, is_active: 1 },
     { id: 12, provider: "iPick", category: "mtc", subcategory: "Prepaid", label: "4.5", cost_lbp: 466000, credits: 4.5, validity_days: 30, is_active: 1 },
     { id: 13, provider: "Katsh", category: "Gaming", subcategory: "PUBG", label: "60 UC", cost_lbp: 100000, credits: null, validity_days: null, is_active: 1 },
+    // LIRA-338 — Whish App MTC/Alfa cards are offered too.
+    { id: 14, provider: "WHISH_APP", category: "alfa", subcategory: "Prepaid", label: "15.15", cost_lbp: 1511601, credits: 15.15, validity_days: 60, is_active: 1 },
   ]);
   mockRecharge.mockResolvedValue({
     success: true,
@@ -112,5 +114,13 @@ describe("ResaleLineRechargePanel (LIRA-309)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Recharge line" }));
     expect(await screen.findByText("Shop line 03222875 has only 5 days left.")).toBeTruthy();
     expect(onDone).not.toHaveBeenCalled();
+  });
+
+  // LIRA-338 — NOT proven failing-first (written after the change).
+  it("Card: Whish App MTC/Alfa cards are listed with the iPick/Katsh ones", async () => {
+    render(<ResaleLineRechargePanel line={LINE} onDone={jest.fn()} onCancel={jest.fn()} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Card" }));
+    expect(await screen.findByRole("option", { name: /Whish App Alfa 15\.15/ })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /iPick Alfa 7\.58/ })).toBeTruthy();
   });
 });

@@ -95,6 +95,11 @@ const mockApi = {
     success: true,
     data: carrier === "mtc" ? mockPrimary.mtc : null,
   })),
+  // LIRA-338 — the charge window lists the active lines itself.
+  getAllActiveCarrierLines: jest.fn(async () =>
+    mockPrimary.mtc ? [mockPrimary.mtc] : [],
+  ),
+  getResaleLines: jest.fn().mockResolvedValue([]),
   selfChargeTelecomItem: mockSelfChargeTelecomItem,
   createMobileServiceItem: jest.fn().mockResolvedValue({ success: true }),
   getPendingCarrierLineOwedDeliveries: jest

@@ -72,6 +72,8 @@ import {
   withClient,
 } from "../utils/basketCheckout";
 import type { PricedLine } from "../types/basket";
+import { isSelfChargeEligible } from "../utils/selfChargeEligibility";
+import { ChargeLineModal } from "./ChargeLineModal";
 
 interface FinancialFormProps {
   activeConfig: ProviderConfig | undefined;
@@ -134,6 +136,7 @@ export function FinancialForm({
   onCurrencyChange,
 }: FinancialFormProps) {
   const { t } = useTranslation("rechargeFinancial");
+  const { t: tRecharge } = useTranslation("recharge");
   const api = useApi();
   const isUsd = currency === "USD";
   // The active provider's brand colours the selected card, its −/+ buttons
@@ -272,6 +275,10 @@ export function FinancialForm({
   const [clientPhone, setClientPhone] = useState("");
   const [paymentInputKey, setPaymentInputKey] = useState(0);
   const [initialPaymentMethod, setInitialPaymentMethod] = useState("CASH");
+  // LIRA-338 — the card being charged to one of the shop's own lines.
+  const [chargeLineItem, setChargeLineItem] = useState<ServiceItem | null>(
+    null,
+  );
   const [newItemForm, setNewItemForm] = useState<NewServiceItemForm | null>(
     null,
   );
@@ -1404,6 +1411,26 @@ export function FinancialForm({
                                   </span>
                                 </div>
                               </div>
+                              {/* LIRA-338 — charge this card to one of the
+                                  shop's own lines (LBP cards only). Sibling
+                                  of the click area, so it never also adds
+                                  the item to the cart. */}
+                              {!isUsd &&
+                                (item.category.toLowerCase() === "alfa" ||
+                                  item.category.toLowerCase() === "mtc") &&
+                                isSelfChargeEligible(
+                                  item,
+                                  item.category.toLowerCase() as "alfa" | "mtc",
+                                ) && (
+                                  <button
+                                    type="button"
+                                    data-testid="whish-self-charge"
+                                    onClick={() => setChargeLineItem(item)}
+                                    className="mt-2 w-full py-1 rounded text-[10px] font-medium bg-emerald-900/30 hover:bg-emerald-900/50 text-emerald-400 transition-colors"
+                                  >
+                                    {tRecharge("katsh.chargeToShopLine")}
+                                  </button>
+                                )}
                             </div>
                           </div>
                         );
@@ -1457,6 +1484,14 @@ export function FinancialForm({
               <p className="text-sm">{t("financial.omtComingSoon")}</p>
             </div>
           </div>
+        )}
+
+        {chargeLineItem && (
+          <ChargeLineModal
+            item={chargeLineItem}
+            onClose={() => setChargeLineItem(null)}
+            onCharged={loadFinancialData}
+          />
         )}
 
         <PaymentSheet

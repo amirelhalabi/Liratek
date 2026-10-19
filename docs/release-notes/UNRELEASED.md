@@ -75,6 +75,11 @@ Selling a phone line with more credit than the buyer wants? On Phone Lines → F
 Paying out and short of coins? Hand over a little more (for example $103.00 on $102.90) and the difference is recorded under Expenses as "Change rounding". Or ask the customer for a few dollars or pounds: tap "+ Customer gives change", enter what they give you, and the payment window expects the round amount ($197 owed + $3 = $200). Both drawers stay right. Up to $5 or 450,000 LBP.
 ![OMT receive: $197 owed, the customer gives $3, you pay out $200](whats-new/1.35.0/customer-gives-change.png)
 
+### Pick the line a card is charged to
+
+"Charge to shop line" on the iPick, Katsh and now Whish App card lists now asks which line gets the card. Your main line is picked for you; pick any other shop line instead, or one of your lines for sale. A shop line gets the card's credit and days. A line for sale also gets them, and the card's cost is added to its cost and selling price.
+![Charge to a line: two shop lines and a line for sale to choose from](whats-new/1.35.0/charge-line-picker.png)
+
 ### Send the receipt on WhatsApp
 
 Right after a sale, the POS shows "Sale completed" with a Send on WhatsApp button, and every past sale's details have the same button next to Print. WhatsApp opens on the customer's chat with the receipt already written, and you press Send. No number on the sale? Type one for that send only. It costs nothing per message.
@@ -105,6 +110,7 @@ Right after a sale, the POS shows "Sale completed" with a Send on WhatsApp butto
 - Paying out a little more than owed because you have no coins (for example $103.00 on $102.90) is now accepted, up to $5 or 450,000 LBP. The payment window shows "Rounded up", and the difference is recorded on the Expenses page as "Change rounding". This works on OMT/Whish receive, Binance cash-out, Whish App / OMT App receive and "From client", Exchange, Hold Money pickups in one currency, and MTC / Alfa credit buy-back. Voiding the payout removes it. Above $5 / 450,000 LBP the payment is still refused.
 - When a customer pays a little more than the total (up to $5 or 450,000 LBP), the Discount line switches to "+ Extra" and fills in the difference, so the extra is kept as an extra charge. To give the change back instead, clear the extra and the change box appears.
 - When paying out, if the customer hands you a few dollars or pounds so you can give a round amount (for example $197 owed, the customer gives $3, you give $200), tap "+ Customer gives change" (or add a line under "Customer pays") and enter it. The payment window then expects you to pay out that much more, and both drawers are recorded correctly, with nothing booked as rounding. Up to $5 or 450,000 LBP; use the Exchange page for more. This works on OMT/Whish receive, Binance cash-out, Whish App / OMT App receive and "From client", Exchange, Hold Money pickups in one currency, and MTC / Alfa credit buy-back.
+- "+ Customer gives change" now also works on OMT/Whish receive done through your partner, and when you pay the customer out by wallet (for example $200 from Whish, $3 back in cash).
 
 ## ➕ Extra charges
 
@@ -181,6 +187,8 @@ Right after a sale, the POS shows "Sale completed" with a Send on WhatsApp butto
 - Wrong number: the window now says "Loading cards..." while your MTC and Alfa cards load, instead of "No MTC or Alfa card". If they can't be loaded, you see why, with a Retry button.
 - Mobile Recharge: from now on every sale keeps what you entered on the transaction itself: the customer's name and phone, the shop line used, the Alfa Gift chosen, Days cost and price as typed in dollars, each iPick / Katsh / Whish App item picked, the discount as typed, the Whish / OMT App fee and who paid it, the Binance reference, a wrong number's right number and original sale, and how the customer paid. Items paid in one basket also keep which customer session paid for them.
 - Phone Lines → For sale: a new "Give credit back" button. Use it when a buyer wants a line for sale with less credit than it has. Type the credit the buyer keeps and pick the shop line that gets the rest. The credit price per $1 starts at your Shop Config price and can be changed. Before you save, you see what is sent, the SMS fee, and the line's new price and cost. Example: a $15 line where the buyer keeps $9 sends $5.68 plus a $0.32 SMS fee to your shop line, and its price drops by $6.70 at 100,000 LBP per $1. To undo, void it on the Transactions page; this works only before the line is sold.
+- Mobile Recharge, iPick / Katsh / Whish App: "Charge to shop line" now opens a window where you pick the line: any of your active MTC or Alfa shop lines (your main line is picked for you) or a line you hold for sale. Whish App MTC and Alfa cards have the button too, paid from your Whish App balance. Lines that are turned off are no longer offered or accepted.
+- Phone Lines → Recharge → Card: Whish App MTC and Alfa cards are in the list too.
 
 ## 📒 Accounts
 

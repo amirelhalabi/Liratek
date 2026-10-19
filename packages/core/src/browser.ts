@@ -55,6 +55,8 @@ export * from "./utils/carrierLineValidity.js";
 export * from "./utils/lineStatus.js";
 // LIRA-337 — give-back figures, shared by the Phone Lines panel and the service.
 export * from "./utils/lineGiveBack.js";
+// LIRA-338 — which providers' cards can be charged to the shop's own lines.
+export * from "./constants/lineChargeProviders.js";
 // Subscription policy constants (v173). Pure data, so it belongs in BOTH
 // entry points: the frontend hides non-entitled modules and must apply the
 // same ungateable rule the backend enforces, rather than keeping a copy.

@@ -4,6 +4,10 @@
  * Handles all financial_services table operations (OMT, WHISH, BOB, etc.).
  * Uses BaseRepository for common functionality.
  */
+import {
+  isLineChargeProvider,
+  LINE_CHARGE_PROVIDER_ERROR,
+} from "../constants/lineChargeProviders.js";
 import { BaseRepository } from "./BaseRepository.js";
 import {
   OMT_RECEIVE_NO_FEE_MESSAGE,
@@ -5903,10 +5907,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       }
       const carrier = categoryLower as CarrierKey;
 
-      if (item.provider !== "iPick" && item.provider !== "Katsh") {
-        throw new Error(
-          `Self-charge only applies to iPick/Katsh catalog items (item #${item.id} has provider "${item.provider}")`,
-        );
+      // LIRA-338 — iPick, Katsh and Whish App cards (one list, rule 14).
+      if (!isLineChargeProvider(item.provider)) {
+        throw new Error(LINE_CHARGE_PROVIDER_ERROR);
       }
       if (!(item.cost_lbp > 0)) {
         throw new Error(`Item #${item.id} has no cost_lbp configured`);
@@ -5932,6 +5935,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         throw new Error(
           `Carrier line #${targetLine.id} is ${targetLine.carrier}, not ${carrier}`,
         );
+      }
+      // LIRA-338 — a turned-off line is not one the shop uses; the picker
+      // never offers it, and the server refuses it too.
+      if (!targetLine.is_active) {
+        throw new Error(`Shop line ${targetLine.phone_number} is turned off.`);
       }
 
       const createdBy = data.userId ?? this.resolveFallbackUserId();
