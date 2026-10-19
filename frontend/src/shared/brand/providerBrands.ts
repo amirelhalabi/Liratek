@@ -138,10 +138,10 @@ export const PROVIDER_BRANDS: Readonly<
     name: "OMT",
     hex: "#ffd800",
     hoverHex: "#ffe433",
-    onHex: "#000000",
-    solid: "bg-[#ffd800] text-black",
+    onHex: "#252525",
+    solid: "bg-[#ffd800] text-[#252525]",
     button:
-      "bg-[#ffd800] hover:bg-[#ffe433] text-black shadow-lg shadow-[#ffd800]/20",
+      "bg-[#ffd800] hover:bg-[#ffe433] text-[#252525] shadow-lg shadow-[#ffd800]/20",
     text: "text-[#ffd800]",
     tint: "bg-[#ffd800]/10",
     badge: "bg-[#ffd800]/10 text-[#ffd800]",

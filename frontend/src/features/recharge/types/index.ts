@@ -190,7 +190,7 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = [
     color: PROVIDER_BRANDS.OMT.text,
     bgTint: PROVIDER_BRANDS.OMT.tint,
     activeBg: PROVIDER_BRANDS.OMT.solid,
-    activeText: "text-black",
+    activeText: "text-[#252525]",
     badgeCls: PROVIDER_BRANDS.OMT.badge,
     iconKey: "Zap",
     hasSupplier: true,

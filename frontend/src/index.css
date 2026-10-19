@@ -81,14 +81,14 @@
   /* ---- surfaces: warm neutral ramp, hue 91.4deg from Porcelain ---- */
   --s-950: #f8f7f4; /* page       <- Porcelain, anchor */
   --s-900: #f0efeb; /* section                         */
-  --s-800: #ffffff; /* card                            */
+  --s-800: #f2f0ef; /* card                            */
   --s-700: #e4e2db; /* raised / inputs / inactive      */
   --s-600: #e4e2db; /* raised                          */
   --s-950-90: rgba(248, 247, 244, 0.9);
   --s-900-95: rgba(240, 239, 235, 0.95);
-  --s-800-95: rgba(255, 255, 255, 0.95);
+  --s-800-95: rgba(242, 240, 239, 0.95);
   --s-700-60: rgba(228, 226, 219, 0.6);
-  --s-input: #ffffff;
+  --s-input: #f2f0ef;
 
   /* ---- borders ---- */
   --b-700: #e4e2db; /* default card / divider edge */

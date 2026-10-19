@@ -154,6 +154,10 @@ Right after a sale, the POS shows "Sale completed" with a Send on WhatsApp butto
 - Undoing OMT settlements goes newest first: if a later settlement also paid some of the same transfers, void that later one first.
 - OMT/Whish and Mobile Recharge (OMT App, Whish App, Binance, iPick, Katsh) History: from now on, when you correct a name or phone, the transaction in Transactions shows the new client name, phone and summary too. On OMT, Whish, OMT App and Whish App transfers, its Details also show the corrected sender, receiver or customer and note. On iPick and Katsh, correcting the note also changes the item text shown in Transactions. Before, Transactions kept showing the old name.
 
+## 🎨 Look & feel
+
+- Light mode: cards and input boxes now use a soft warm grey instead of bright white, and the dark text on OMT's yellow buttons and tabs is a softer charcoal instead of pure black.
+
 ## 🌐 Web app
 
 - The side menu's scroll bar only shows while your pointer is over the menu, and takes no space otherwise.
