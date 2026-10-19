@@ -1,0 +1,770 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-19T22:49:42.809268+00:00",
+  "title": "Design System: LiraTek",
+  "extensions": {
+    "colorMeta": {
+      "porcelain-page": {
+        "role": "neutral",
+        "displayName": "Porcelain Page",
+        "canonical": "#f8f7f4",
+        "tonalRamp": [
+          "#0c0b09",
+          "#262523",
+          "#434240",
+          "#62615f",
+          "#838280",
+          "#a6a5a2",
+          "#cac9c6",
+          "#efeeeb"
+        ]
+      },
+      "porcelain-section": {
+        "role": "neutral",
+        "displayName": "Porcelain Section",
+        "canonical": "#f0efeb",
+        "tonalRamp": [
+          "#0c0b09",
+          "#262522",
+          "#43423f",
+          "#62615e",
+          "#83827f",
+          "#a6a5a1",
+          "#cac9c5",
+          "#efeeea"
+        ]
+      },
+      "porcelain-card": {
+        "role": "neutral",
+        "displayName": "Porcelain Card",
+        "canonical": "#f2f0ef",
+        "tonalRamp": [
+          "#0c0b0a",
+          "#262524",
+          "#434241",
+          "#626160",
+          "#848281",
+          "#a6a4a4",
+          "#cac9c8",
+          "#f0eeed"
+        ]
+      },
+      "porcelain-raised": {
+        "role": "neutral",
+        "displayName": "Porcelain Raised",
+        "canonical": "#e4e2db",
+        "tonalRamp": [
+          "#0c0b07",
+          "#272520",
+          "#44423c",
+          "#63615b",
+          "#84827c",
+          "#a7a59e",
+          "#cbc9c2",
+          "#f0eee7"
+        ]
+      },
+      "porcelain-border": {
+        "role": "neutral",
+        "displayName": "Porcelain Border",
+        "canonical": "#e4e2db",
+        "tonalRamp": [
+          "#0c0b07",
+          "#272520",
+          "#44423c",
+          "#63615b",
+          "#84827c",
+          "#a7a59e",
+          "#cbc9c2",
+          "#f0eee7"
+        ]
+      },
+      "porcelain-border-strong": {
+        "role": "neutral",
+        "displayName": "Porcelain Border Strong",
+        "canonical": "#d4d1c9",
+        "tonalRamp": [
+          "#0d0b06",
+          "#27251f",
+          "#44423b",
+          "#64615a",
+          "#85827b",
+          "#a8a59d",
+          "#ccc9c1",
+          "#f1eee6"
+        ]
+      },
+      "charcoal-ink": {
+        "role": "neutral",
+        "displayName": "Charcoal Ink",
+        "canonical": "#292823",
+        "tonalRamp": [
+          "#0c0b07",
+          "#262520",
+          "#43423d",
+          "#62615c",
+          "#84827c",
+          "#a6a59f",
+          "#cac9c3",
+          "#f0efe8"
+        ]
+      },
+      "charcoal-ink-soft": {
+        "role": "neutral",
+        "displayName": "Charcoal Ink Soft",
+        "canonical": "#44423c",
+        "tonalRamp": [
+          "#0d0b07",
+          "#27251f",
+          "#44423c",
+          "#63615b",
+          "#84827b",
+          "#a7a59e",
+          "#cbc9c2",
+          "#f1eee7"
+        ]
+      },
+      "charcoal-muted": {
+        "role": "neutral",
+        "displayName": "Charcoal Muted",
+        "canonical": "#77746b",
+        "tonalRamp": [
+          "#0d0b05",
+          "#27251d",
+          "#45423a",
+          "#646158",
+          "#858279",
+          "#a8a59b",
+          "#ccc9bf",
+          "#f2eee4"
+        ]
+      },
+      "charcoal-faint": {
+        "role": "neutral",
+        "displayName": "Charcoal Faint",
+        "canonical": "#a19e95",
+        "tonalRamp": [
+          "#0d0b05",
+          "#27251e",
+          "#44423a",
+          "#646159",
+          "#858279",
+          "#a8a59c",
+          "#ccc9c0",
+          "#f2eee5"
+        ]
+      },
+      "signal-blue": {
+        "role": "primary",
+        "displayName": "Signal Blue",
+        "canonical": "#0057ff",
+        "tonalRamp": [
+          "#000729",
+          "#011d5f",
+          "#06369a",
+          "#004de4",
+          "#3b79f8",
+          "#73a3ff",
+          "#adcafe",
+          "#e6effe"
+        ]
+      },
+      "signal-blue-fill": {
+        "role": "primary",
+        "displayName": "Signal Blue Fill",
+        "canonical": "#003edd",
+        "tonalRamp": [
+          "#00052d",
+          "#011965",
+          "#0330a4",
+          "#0a4ae8",
+          "#3d78fc",
+          "#78a3fa",
+          "#b0cafc",
+          "#e6efff"
+        ]
+      },
+      "signal-blue-fill-hover": {
+        "role": "primary",
+        "displayName": "Signal Blue Fill Hover",
+        "canonical": "#0020c4",
+        "tonalRamp": [
+          "#000233",
+          "#000777",
+          "#0018bf",
+          "#1449e7",
+          "#4177fb",
+          "#7aa3fa",
+          "#b1c9fb",
+          "#e7efff"
+        ]
+      },
+      "signal-blue-hover-row": {
+        "role": "primary",
+        "displayName": "Signal Blue Hover Row",
+        "canonical": "#e8efff",
+        "tonalRamp": [
+          "#070b15",
+          "#202530",
+          "#3c424f",
+          "#5b616f",
+          "#7c8291",
+          "#9ea5b4",
+          "#c2c9d9",
+          "#e7eefe"
+        ]
+      },
+      "cosmic-page": {
+        "role": "neutral",
+        "displayName": "Cosmic Page",
+        "canonical": "#020222",
+        "tonalRamp": [
+          "#040628",
+          "#182247",
+          "#343f67",
+          "#525f8a",
+          "#7280ad",
+          "#94a3d2",
+          "#b7c8f8",
+          "#e9eefe"
+        ]
+      },
+      "cosmic-section": {
+        "role": "neutral",
+        "displayName": "Cosmic Section",
+        "canonical": "#050938",
+        "tonalRamp": [
+          "#030230",
+          "#142050",
+          "#2f3e71",
+          "#4d5e94",
+          "#6d80b8",
+          "#8ea3de",
+          "#b5c8fb",
+          "#e8eeff"
+        ]
+      },
+      "cosmic-navy-card": {
+        "role": "neutral",
+        "displayName": "Cosmic Navy Card",
+        "canonical": "#0c134f",
+        "tonalRamp": [
+          "#030034",
+          "#121c59",
+          "#2c3c7b",
+          "#495c9f",
+          "#697ec3",
+          "#8aa2e9",
+          "#b5c7fd",
+          "#e8eefe"
+        ]
+      },
+      "cosmic-raised": {
+        "role": "neutral",
+        "displayName": "Cosmic Raised",
+        "canonical": "#1a2761",
+        "tonalRamp": [
+          "#030132",
+          "#121d56",
+          "#2c3d79",
+          "#4a5d9c",
+          "#697fc1",
+          "#8ba2e7",
+          "#b4c7ff",
+          "#e8eeff"
+        ]
+      },
+      "cosmic-border": {
+        "role": "neutral",
+        "displayName": "Cosmic Border",
+        "canonical": "#25336a",
+        "tonalRamp": [
+          "#030033",
+          "#141e53",
+          "#2e3d75",
+          "#4c5d98",
+          "#6b7fbd",
+          "#8da2e3",
+          "#b6c8fc",
+          "#e8eeff"
+        ]
+      },
+      "cosmic-border-strong": {
+        "role": "neutral",
+        "displayName": "Cosmic Border Strong",
+        "canonical": "#3e4d7d",
+        "tonalRamp": [
+          "#03042d",
+          "#16214c",
+          "#313f6d",
+          "#4f5f90",
+          "#6f80b4",
+          "#90a3d9",
+          "#b5c8fb",
+          "#e8eeff"
+        ]
+      },
+      "moon-ink": {
+        "role": "neutral",
+        "displayName": "Moon Ink",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "moon-ink-soft": {
+        "role": "neutral",
+        "displayName": "Moon Ink Soft",
+        "canonical": "#d8deed",
+        "tonalRamp": [
+          "#070b14",
+          "#212530",
+          "#3d424e",
+          "#5c616e",
+          "#7d8290",
+          "#9fa5b3",
+          "#c3c9d8",
+          "#e8eefe"
+        ]
+      },
+      "moon-muted": {
+        "role": "neutral",
+        "displayName": "Moon Muted",
+        "canonical": "#99a4c2",
+        "tonalRamp": [
+          "#05091e",
+          "#1c243b",
+          "#38415b",
+          "#57607c",
+          "#77829e",
+          "#99a4c2",
+          "#bdc9e8",
+          "#e8eeff"
+        ]
+      },
+      "moon-faint": {
+        "role": "neutral",
+        "displayName": "Moon Faint",
+        "canonical": "#667398",
+        "tonalRamp": [
+          "#040724",
+          "#192342",
+          "#354062",
+          "#536084",
+          "#7481a7",
+          "#96a4cb",
+          "#b9c8f1",
+          "#e8eefe"
+        ]
+      },
+      "pastel-violet": {
+        "role": "primary",
+        "displayName": "Pastel Violet",
+        "canonical": "#d4adfc",
+        "tonalRamp": [
+          "#140023",
+          "#340c50",
+          "#522d71",
+          "#724d94",
+          "#946fb9",
+          "#b891de",
+          "#d9b9fc",
+          "#f3eafe"
+        ]
+      },
+      "pastel-violet-hover": {
+        "role": "primary",
+        "displayName": "Pastel Violet Hover",
+        "canonical": "#dfc3ff",
+        "tonalRamp": [
+          "#130123",
+          "#301646",
+          "#4d3466",
+          "#6d5488",
+          "#8f75ac",
+          "#b297d1",
+          "#d7bbf7",
+          "#f3eaff"
+        ]
+      },
+      "pastel-violet-text": {
+        "role": "primary",
+        "displayName": "Pastel Violet Text",
+        "canonical": "#dfc3ff",
+        "tonalRamp": [
+          "#130123",
+          "#301646",
+          "#4d3466",
+          "#6d5488",
+          "#8f75ac",
+          "#b297d1",
+          "#d7bbf7",
+          "#f3eaff"
+        ]
+      },
+      "violet-deep-fill": {
+        "role": "primary",
+        "displayName": "Deep Violet",
+        "canonical": "#542977",
+        "tonalRamp": [
+          "#130122",
+          "#360455",
+          "#542977",
+          "#744a9a",
+          "#966cbf",
+          "#ba8ee5",
+          "#dab8fe",
+          "#f3eafe"
+        ]
+      },
+      "money-in": {
+        "role": "semantic",
+        "displayName": "Money In (emerald-500)",
+        "canonical": "oklch(69.6% 0.17 162.48)",
+        "tonalRamp": [
+          "#000f07",
+          "#002d1c",
+          "#044f35",
+          "#0e734f",
+          "#23986c",
+          "#05c287",
+          "#36eba8",
+          "#c2ffe0"
+        ]
+      },
+      "money-in-text-dark": {
+        "role": "semantic",
+        "displayName": "Money In Text, dark (emerald-400)",
+        "canonical": "oklch(76.5% 0.177 163.223)",
+        "tonalRamp": [
+          "#010f08",
+          "#022d1d",
+          "#0a4e36",
+          "#167251",
+          "#13996c",
+          "#1ec28a",
+          "#18eca8",
+          "#c4fee1"
+        ]
+      },
+      "money-in-text-light": {
+        "role": "semantic",
+        "displayName": "Money In Text, light (emerald-700 step)",
+        "canonical": "oklch(50.8% 0.118 165.612)",
+        "tonalRamp": [
+          "#000f08",
+          "#042d1f",
+          "#034f38",
+          "#0b7353",
+          "#209871",
+          "#4fbc93",
+          "#76e2b7",
+          "#c2ffe3"
+        ]
+      },
+      "money-out": {
+        "role": "semantic",
+        "displayName": "Money Out (red-500)",
+        "canonical": "oklch(63.7% 0.237 25.331)",
+        "tonalRamp": [
+          "#1e0101",
+          "#4c0307",
+          "#7d0d14",
+          "#b21b23",
+          "#ef192c",
+          "#fe746c",
+          "#fdb3ac",
+          "#fee9e7"
+        ]
+      },
+      "money-out-text-dark": {
+        "role": "semantic",
+        "displayName": "Money Out Text, dark (red-400)",
+        "canonical": "oklch(70.4% 0.191 22.216)",
+        "tonalRamp": [
+          "#1e0002",
+          "#4d000a",
+          "#7f0519",
+          "#b5102a",
+          "#dd434b",
+          "#fa7676",
+          "#ffb2af",
+          "#fee9e7"
+        ]
+      },
+      "money-out-text-light": {
+        "role": "semantic",
+        "displayName": "Money Out Text, light (red-600)",
+        "canonical": "oklch(57.7% 0.245 27.325)",
+        "tonalRamp": [
+          "#1e0001",
+          "#4d0103",
+          "#7f080c",
+          "#b51418",
+          "#f2091b",
+          "#fa786b",
+          "#ffb3a9",
+          "#fee9e6"
+        ]
+      },
+      "warning": {
+        "role": "semantic",
+        "displayName": "Warning (amber-400)",
+        "canonical": "oklch(82.8% 0.189 84.429)",
+        "tonalRamp": [
+          "#110a00",
+          "#312200",
+          "#553e03",
+          "#7b5c0b",
+          "#a57b00",
+          "#d09c05",
+          "#f9bf2f",
+          "#feedc9"
+        ]
+      },
+      "warning-text-light": {
+        "role": "semantic",
+        "displayName": "Warning Text, light (amber-600)",
+        "canonical": "oklch(66.6% 0.179 58.318)",
+        "tonalRamp": [
+          "#160700",
+          "#3a1c02",
+          "#623508",
+          "#8e4f13",
+          "#be6a12",
+          "#ef871c",
+          "#feb881",
+          "#feeadc"
+        ]
+      },
+      "info-carrier": {
+        "role": "semantic",
+        "displayName": "Info / Carrier (sky-500)",
+        "canonical": "oklch(68.5% 0.169 237.323)",
+        "tonalRamp": [
+          "#000d17",
+          "#01283d",
+          "#064767",
+          "#116994",
+          "#088cc7",
+          "#11b1fa",
+          "#92d2fb",
+          "#def2ff"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "page-title": {
+        "displayName": "Page Title",
+        "purpose": "The single page heading from the shared page header."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Modal, panel and section headings."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Forms, table cells, most content."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field labels, chips, helper text, badges."
+      },
+      "table-head": {
+        "displayName": "Table Head",
+        "purpose": "Uppercase column headers on the section surface."
+      },
+      "amount": {
+        "displayName": "Amount",
+        "purpose": "Every money figure; coloured only by meaning."
+      }
+    },
+    "shadows": [
+      {
+        "name": "float-light",
+        "value": "0 4px 20px -4px rgba(41,40,35,0.06), 0 2px 8px -2px rgba(41,40,35,0.04)",
+        "purpose": "Replaces shadow-lg/xl/2xl in light mode; modals, menus, popovers."
+      },
+      {
+        "name": "inset-light",
+        "value": "inset 0 2px 4px 0 rgba(41,40,35,0.04)",
+        "purpose": "Recessed wells in light mode."
+      },
+      {
+        "name": "float-dark",
+        "value": "Tailwind shadow-lg/xl/2xl defaults",
+        "purpose": "Floating layers in dark mode."
+      }
+    ],
+    "motion": [
+      {
+        "name": "color-transition",
+        "value": "Tailwind transition-colors (150ms, cubic-bezier(0.4,0,0.2,1))",
+        "purpose": "Hover and focus colour changes."
+      },
+      {
+        "name": "sidebar-collapse",
+        "value": "300ms ease-in-out",
+        "purpose": "Sidebar width change."
+      },
+      {
+        "name": "theme-fade",
+        "value": "300ms ease",
+        "purpose": "Brief fade when switching theme."
+      },
+      {
+        "name": "hold-to-pin",
+        "value": "0.8s linear scaleX",
+        "purpose": "Progress bar while holding a sidebar item to pin it."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      },
+      {
+        "name": "xl",
+        "value": "1280px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary-dark",
+      "description": "Filled accent for the main action; label colour follows the mode (Cosmic Navy on violet, white on blue).",
+      "html": "<button class=\"ds-btn-primary\">Save</button>",
+      "css": ".ds-btn-primary{font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;background:var(--a-fill,#d4adfc);color:var(--a-label,#0c134f);padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;transition:background-color .15s}.ds-btn-primary:hover{background:var(--a-fill-hover,#dfc3ff)}.ds-btn-primary:focus-visible{outline:none;box-shadow:0 0 0 2px var(--a-500,#d4adfc)}.ds-btn-primary:disabled{background:var(--s-700,#1a2761);color:var(--t-600,#3e4d7d)}"
+    },
+    {
+      "name": "Confirm Payment Button",
+      "kind": "button",
+      "refersTo": "button-money-in",
+      "description": "Full-width emerald button that confirms money in; white label in both modes.",
+      "html": "<button class=\"ds-btn-money-in\">Confirm payment</button>",
+      "css": ".ds-btn-money-in{font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;width:100%;background:oklch(59.6% 0.145 163.225);color:#fff;padding:12px 24px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:background-color .15s}.ds-btn-money-in:hover{background:oklch(69.6% 0.17 162.48)}.ds-btn-money-in:focus-visible{outline:none;box-shadow:0 0 0 2px oklch(69.6% 0.17 162.48)}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": null,
+      "description": "Raised surface, muted label that brightens on hover.",
+      "html": "<button class=\"ds-btn-secondary\">Cancel</button>",
+      "css": ".ds-btn-secondary{font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;background:var(--s-700,#1a2761);color:var(--t-300,#bfc7dc);padding:10px 24px;border:1px solid var(--b-600,#3e4d7d);border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;transition:color .15s,border-color .15s}.ds-btn-secondary:hover{color:var(--t-white,#fff)}.ds-btn-secondary:focus-visible{outline:none;box-shadow:0 0 0 2px var(--a-500,#d4adfc)}"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input-dark",
+      "description": "Global input style; focus moves the border to the accent.",
+      "html": "<input class=\"ds-input\" placeholder=\"Customer name\"/>",
+      "css": ".ds-input{font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;width:260px;background:var(--s-input,#1a2761);color:var(--t-white,#fff);border:1px solid var(--b-700,#25336a);border-radius:8px;padding:10px 16px;font-size:14px;outline:none;transition:border-color .15s}.ds-input::placeholder{color:var(--t-600,#3e4d7d)}.ds-input:focus,.ds-input:focus-visible{border-color:var(--a-500,#d4adfc);box-shadow:0 0 0 1px var(--a-tint-20,rgba(212,173,252,.24))}"
+    },
+    {
+      "name": "USD / LBP Total Chips",
+      "kind": "chip",
+      "refersTo": "chip-total",
+      "description": "Paired totals shown in history headers; amounts in monospace.",
+      "html": "<div class=\"ds-chips\"><span class=\"ds-chip\">Total USD <b>$1,240.00</b></span><span class=\"ds-chip\">Total LBP <b>18,450,000</b></span></div>",
+      "css": ".ds-chips{display:flex;gap:6px}.ds-chip{font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:8px;font-size:12px;font-weight:500;white-space:nowrap;background:var(--s-800,#0c134f);color:var(--t-400,#99a4c2);border:1px solid var(--b-700,#25336a)}.ds-chip b{color:var(--t-white,#fff);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700}"
+    },
+    {
+      "name": "Split Toggle",
+      "kind": "chip",
+      "refersTo": null,
+      "description": "Pill that turns a payment into a split across methods or currencies; grey off, accent tint on.",
+      "html": "<button class=\"ds-split\">Split</button> <button class=\"ds-split ds-split--on\">Split Active</button>",
+      "css": ".ds-split{font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;padding:6px 12px;border-radius:9999px;font-size:12px;font-weight:500;cursor:pointer;background:var(--s-800,#0c134f);color:var(--t-400,#99a4c2);border:1px solid var(--b-600,#3e4d7d);transition:color .15s,border-color .15s}.ds-split:hover{color:var(--t-200,#d8deed)}.ds-split--on{background:var(--a-tint-20,rgba(212,173,252,.24));color:var(--a-text-hi,#edd0ff);border-color:var(--a-tint-50,rgba(212,173,252,.5))}.ds-split:focus-visible{outline:none;box-shadow:0 0 0 2px var(--a-500,#d4adfc)}"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card-dark",
+      "description": "Flat bordered card on the page; no resting shadow.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-t\">Drawer: General</div><div class=\"ds-card-row\"><span>USD</span><span class=\"ds-in\">+$320.00</span></div><div class=\"ds-card-row\"><span>LBP</span><span class=\"ds-out\">-1,500,000</span></div></div>",
+      "css": ".ds-card{font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;width:280px;background:var(--s-800,#0c134f);border:1px solid var(--b-700,#25336a);border-radius:12px;padding:16px;color:var(--t-white,#fff)}.ds-card-t{font-size:14px;font-weight:600;margin-bottom:8px}.ds-card-row{display:flex;justify-content:space-between;font-size:14px;color:var(--t-400,#99a4c2);padding:4px 0}.ds-in,.ds-out{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:500}.ds-in{color:oklch(76.5% 0.177 163.223)}.ds-out{color:oklch(70.4% 0.191 22.216)}"
+    },
+    {
+      "name": "Sidebar Nav Item",
+      "kind": "nav",
+      "refersTo": "nav-item-active-dark",
+      "description": "Module navigation; active item is a filled accent.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-i ds-nav-i--on\" href=\"#\">POS</a><a class=\"ds-nav-i\" href=\"#\">Debts</a><a class=\"ds-nav-i\" href=\"#\">Closing</a></nav>",
+      "css": ".ds-nav{font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;width:220px;background:var(--s-900,#050938);padding:12px;display:flex;flex-direction:column;gap:2px}.ds-nav-i{display:block;padding:10px 12px;border-radius:12px;font-size:14px;font-weight:500;color:var(--t-400,#99a4c2);text-decoration:none;transition:background-color .15s,color .15s}.ds-nav-i:hover{background:var(--a-hover-row,#1a2761);color:var(--t-white,#fff)}.ds-nav-i--on,.ds-nav-i--on:hover{background:var(--a-fill,#d4adfc);color:var(--a-label,#0c134f)}.ds-nav-i:focus-visible{outline:none;box-shadow:0 0 0 2px var(--a-500,#d4adfc)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Night Counter Ledger",
+    "overview": "LiraTek is a working ledger that sits on a shop counter. It is dark by default: deep navy surfaces, white figures and a single soft violet accent that marks where the cashier is and what they will press next. Light mode is a warm porcelain paper version of the same ledger, with Signal Blue as the accent. Both modes are painted from one source: the app is authored with bare dark-first Tailwind classes (`bg-slate-800`, `text-slate-400`, `bg-violet-600`), and `src/index.css` repaints every one of them to the brand ramps in both themes.\n\nThe screen is dense on purpose. Most text is 12–14px, cards sit 8–12px apart, and a single page shows totals, forms and a history table at once. Calm comes from restraint rather than space: one accent, flat tonal surfaces, and colour reserved for meaning. Green, red, amber and sky are money signals and keep Tailwind's own values in both themes, so profit and loss never depend on the brand palette.",
+    "keyCharacteristics": [
+      "Dark-first (default theme), with an equal, owner-specified light theme.",
+      "One brand accent per mode (Pastel Violet dark, Signal Blue light); blue, indigo and violet classes all resolve to it.",
+      "Money colours are semantic and fixed: emerald in, red/rose out, amber/orange warning, sky info/carrier.",
+      "Dense, small type; amounts in a monospaced face.",
+      "Flat tonal layers; shadows only on things that float.",
+      "Logical start/end sides everywhere, ready for right-to-left."
+    ],
+    "rules": [
+      {
+        "name": "The Money Never Wears Brand Rule",
+        "body": "Emerald, red, rose, amber, orange and sky keep Tailwind's own `oklch()` values in both themes (decision D1 in `index.css`). Never recolour them to fit the palette, and never use them for decoration.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Accent Rule",
+        "body": "Each mode has exactly one accent. `blue-*`, `indigo-*` and `violet-*` classes all resolve to it (decision D8); do not introduce a second brand hue. Known exception: the legacy orange focus and button styling noted under Inputs.",
+        "section": "colors"
+      },
+      {
+        "name": "The Paint Through The Map Rule",
+        "body": "Write bare dark-first Tailwind classes and let `index.css` repaint them. Never write raw hex or `var(--color-*)` in components; a slate/violet class that the map does not cover paints raw Tailwind until the coverage sweep is regenerated.",
+        "section": "colors"
+      },
+      {
+        "name": "The Twelve Pixel Floor Rule",
+        "body": "Prefer 12px (`text-xs`) as the smallest size for anything a cashier must read. This is a guideline, not yet an observed floor: arbitrary 9–11px sizes (`text-[10px]`, `text-[11px]`) appear in roughly 390 places, mostly badges, overlines and secondary metadata. Do not add more for primary figures or labels.",
+        "section": "typography"
+      },
+      {
+        "name": "The Float Only Rule",
+        "body": "A shadow means \"this is above the page\". Cards sitting on the page do not get one.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** author with dark-first slate and violet classes and let `index.css` repaint both themes.",
+      "**Do** check every new screen in both themes; dark is the default theme.",
+      "**Do** put every money figure in the monospace face and colour it only by meaning (emerald in, red/rose out).",
+      "**Do** show USD and LBP together wherever money is shown.",
+      "**Do** use logical sides (`ms`/`me`, `ps`/`pe`, `start`/`end`, `border-s`) so right-to-left keeps working.",
+      "**Do** take provider colours and logos from `providerBrands.ts`.",
+      "**Do** use the mode's label token on filled accent buttons: Cosmic Navy in dark mode, white in light mode."
+    ],
+    "donts": [
+      "**Don't** recolour emerald, red, rose, amber, orange or sky, or use them as decoration.",
+      "**Don't** add a second accent hue, or treat blue, indigo and violet as different colours.",
+      "**Don't** write raw hex, `var(--color-*)`, or new Tailwind colour families in components.",
+      "**Don't** put white text on a Pastel Violet fill.",
+      "**Don't** give resting cards a shadow, or add glow, blur or glass effects to working screens.",
+      "**Don't** set text a cashier must read below 12px.",
+      "**Don't** use `left`/`right` or `ml`/`mr` for layout that should flip in Arabic."
+    ]
+  }
+}
