@@ -71,10 +71,16 @@ jest.mock("@liratek/ui", () => ({
       currency: string;
       onChange: (lines: unknown[]) => void;
       hasClient?: boolean;
+      optional?: boolean;
     };
   }) => (
     <div data-testid="stub-multi-payment-input">
-      {counterFlow && (
+      {/* LIRA-336: the optional "Customer gives change" section (target 0)
+          is not the fee section this file is about — only a FEE counterFlow
+          renders the seed button. (This file used to pass partly because
+          the OMT tab's auto-selected partner leaked onto the WHISH tab and
+          hid that section — fixed 2026-10-19, Services.partnerTabSwitch.) */}
+      {counterFlow && !counterFlow.optional && (
         <>
           <span data-testid="counter-flow-has-client">
             {String(counterFlow.hasClient)}

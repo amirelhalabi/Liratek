@@ -115,6 +115,7 @@ Right after a sale, the POS shows "Sale completed" with a Send on WhatsApp butto
 
 ## 💸 OMT / Whish & suppliers
 
+- OMT/Whish page: the partner picked on the partner system's tab (for example Whish through your Whish partner) no longer carries over when you switch to the other tab. Before, an OMT send or receive done right after opening Whish could be saved as going through the Whish partner, and the "+ Customer gives change" link vanished from OMT receive.
 - OMT/Whish page: a send or receive no longer adds the sender (or receiver) to your clients when "Save as client" is unticked. If a client with that phone is already saved, the transaction is still linked to them. Paying on the customer's account still needs a client, so one is still saved in that case.
 - OMT/Whish page, OMT send with "Online Brokerage": a BINANCE fee charged to the customer is now recorded with the send. Before, any such send with a fee was refused with "the payment is more than the total".
 - OMT/Whish page: from now on each OMT or Whish send and receive keeps everything you enter on the transaction itself — service type, reference number, the customer's name and phone, OMT or Whish fee, whether the fee was included, the partner, the fee for paying by wallet, the note, and how the customer paid.

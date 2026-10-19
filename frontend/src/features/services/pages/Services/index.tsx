@@ -286,6 +286,12 @@ export default function Services() {
   const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(
     null,
   );
+  // The THROUGH partner only counts on the secondary system's own tab. The
+  // Whish tab auto-selects its only partner; without this, switching back
+  // to OMT kept it, and the OMT transaction went out THROUGH the Whish
+  // partner (owner report 2026-10-19, CornerTech).
+  const throughPartnerId =
+    provider === partnerSystem ? selectedPartnerId : null;
   const [forPartner, setForPartner] = useState(false);
   const [forPartnerId, setForPartnerId] = useState<number | null>(null);
   // Owner rule 2026-10-16: a customer session never has partner sales —
@@ -372,7 +378,7 @@ export default function Services() {
   // payout currency (`onAddedChange`); `section` is the stale guard: which
   // customer section reported it (the fee section on a Whish fee-on-top
   // receive, else the optional "Customer gives change" section).
-  const addedChangeApplies = roundUpApplies && selectedPartnerId === null;
+  const addedChangeApplies = roundUpApplies && throughPartnerId === null;
   const [addedChange, setAddedChange] = useState<{
     usd: number;
     lbp: number;
@@ -1402,7 +1408,9 @@ export default function Services() {
         note: note || `${provider} - ${serviceType}`,
         // THROUGH is hardcoded (not derived from
         // `provider === partner.system_association`) — this is safe ONLY
-        // because `selectedPartnerId` can only be set by the
+        // because the partner is read through `throughPartnerId` (only on
+        // the secondary system's own tab) and `selectedPartnerId` can only
+        // be set by the
         // `<PartnerSelector systemFilter={partnerSystem} .../>` block above
         // (~line 1428), which itself only mounts when
         // `provider === partnerSystem` (~line 1426) and hard-filters its
@@ -1424,8 +1432,8 @@ export default function Services() {
         // docs/plans/ongoing_plans/PARTNER_DISBURSEMENT_MATRIX.md and the
         // guard test Services.throughPartnerInvariant.test.tsx, which fails
         // the moment the filter is removed.
-        ...(selectedPartnerId
-          ? { partnerId: selectedPartnerId, partnerMode: "THROUGH" as const }
+        ...(throughPartnerId
+          ? { partnerId: throughPartnerId, partnerMode: "THROUGH" as const }
           : {}),
         ...(forPartner && forPartnerId
           ? { partnerId: forPartnerId, partnerMode: "FOR" as const }
@@ -1611,6 +1619,7 @@ export default function Services() {
     note,
     transactionTime,
     selectedPartnerId,
+    throughPartnerId,
     forPartner,
     forPartnerId,
     forPartnerName,
@@ -1726,6 +1735,9 @@ export default function Services() {
                           : undefined
                       }
                       onClick={() => {
+                        // A partner picked on another provider's tab never
+                        // carries over (see `throughPartnerId`).
+                        if (prov !== provider) setSelectedPartnerId(null);
                         setProvider(prov);
                         setServiceType(type);
                         setPaidByMethod(
