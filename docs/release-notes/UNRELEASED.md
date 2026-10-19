@@ -157,6 +157,7 @@ Right after a sale, the POS shows "Sale completed" with a Send on WhatsApp butto
 ## 🎨 Look & feel
 
 - Light mode: cards and input boxes now use a soft warm grey instead of bright white, and the dark text on OMT's yellow buttons and tabs is a softer charcoal instead of pure black.
+- Exchange: the form and the Rates list now fill the whole page width, with the same margins at any window size. Before, wide windows left an empty strip on the right.
 
 ## 🌐 Web app
 

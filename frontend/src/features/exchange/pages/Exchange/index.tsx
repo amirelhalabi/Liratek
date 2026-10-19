@@ -1548,10 +1548,10 @@ export default function Exchange() {
       />
 
       <div className="flex-1 min-h-0 overflow-y-auto -me-6 pe-6 pb-6">
-        <div className="w-full max-w-6xl mx-auto flex flex-col gap-6">
+        <div className="w-full flex flex-col gap-6">
           <div className="w-full flex flex-col lg:flex-row lg:items-stretch gap-6">
             {/* ── Exchange Calculator ── */}
-            <div className="w-full lg:flex-1 max-w-2xl mx-auto lg:mx-0 bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-4 flex flex-col gap-4">
+            <div className="w-full lg:flex-1 max-w-2xl lg:max-w-none mx-auto lg:mx-0 bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-4 flex flex-col gap-4">
               {/* Currency Selectors */}
               <div className="flex items-center gap-2">
                 <div className="flex-1">
