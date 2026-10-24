@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   DEFAULT_HIDDEN_TRANSACTION_TYPES,
+  PAID_VIA_ACCOUNT_OWN_TUPLES,
   PAID_VIA_DRAWER_OWN_TUPLES,
   localDayOfUtcTimestamp,
 } from "@liratek/core";
@@ -71,6 +72,10 @@ export type TransactionRow = {
   // WS8: set when the row belongs to a customer-session basket. Drives the
   // per-session colored left-border accent. Null for non-session rows.
   session_id: number | null;
+  /** Server-computed: this row (or its session basket) is linked to a
+   *  customer account in `debt_ledger` — what the Debts filter options also
+   *  show. Optional for rows from an older backend (reads as not linked). */
+  paid_via_account?: boolean;
   // note 21d: the ACTIVE REFUND row's id that reverses THIS row, or null.
   // The original row stays status=ACTIVE/reverses_id=null after a refund
   // (deliberate — see TransactionRepository), so this is the ONLY signal
@@ -223,6 +228,22 @@ function isPaidViaOptionDrawer(
 }
 
 /**
+ * Client twin of `TransactionRepository.getRecent`'s
+ * `buildPaidViaAccountCondition`: a Debts option also shows rows linked to a
+ * customer account, except the Debts group's own rows (core's
+ * `PAID_VIA_ACCOUNT_OWN_TUPLES`). The link itself is the server's
+ * `paid_via_account` flag — a CUSTOMER_ACCOUNT leg never appears in
+ * `row.payments`, so the client cannot see it any other way.
+ */
+function isPaidViaOptionAccount(
+  row: TransactionRow,
+  option: FilterOption,
+): boolean {
+  if (!option.paid_via_account || row.paid_via_account !== true) return false;
+  return !PAID_VIA_ACCOUNT_OWN_TUPLES.some((t) => matchesTypeTuple(row, t));
+}
+
+/**
  * Whether ONE row should be visible under ONE selected filter option — every
  * rule for that single option ANDed together (its type tuple, the D2
  * SUPPLIER_PAYMENT/EXPENSE auto-row hide, the Cash Only leg check). The
@@ -235,7 +256,11 @@ function isRowVisibleForOption(
   row: TransactionRow,
   option: FilterOption,
 ): boolean {
-  if (!matchesTypeTuple(row, option) && !isPaidViaOptionDrawer(row, option)) {
+  if (
+    !matchesTypeTuple(row, option) &&
+    !isPaidViaOptionDrawer(row, option) &&
+    !isPaidViaOptionAccount(row, option)
+  ) {
     return false;
   }
   if (
@@ -436,6 +461,7 @@ export function useTransactionRows({
               // LIRA-323 — the wallet's drawer: the repository also returns
               // rows paid through it (isPaidViaOptionDrawer is the twin).
               paid_via_drawer: o.paid_via_drawer,
+              paid_via_account: o.paid_via_account,
             }) as TypeFilterTuple,
         );
       if (

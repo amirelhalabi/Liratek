@@ -504,6 +504,9 @@ export interface RecentTransaction {
    * doc. Always `false` for a non-session row.
    */
   is_session_payout: boolean;
+  /** Server-computed: linked to a customer account in `debt_ledger` (the
+   *  Debts Type-filter options also show these rows). */
+  paid_via_account?: boolean;
   /**
    * Coordinator follow-up (2026-09-27), item 5 — true when THIS row belongs
    * to a session basket where EVERY member has already been refunded (item

@@ -71,6 +71,14 @@ export type FilterOption = {
    * tags and that list identical.
    */
   paid_via_drawer?: PaidViaDrawer;
+  /**
+   * Set on EVERY option of the Debts group: the option ALSO shows rows of
+   * other types linked to a customer account (a sale charged to the
+   * account, change kept as credit). Core's PAID_VIA_ACCOUNT_OWN_TUPLES is
+   * the definition of "own"; paidViaDrawerOptions.guard.test.ts keeps the
+   * tagged options and that list identical.
+   */
+  paid_via_account?: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -432,6 +440,37 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
     ],
   },
   {
+    // Everything on a customer account. Like the wallet groups, each option
+    // also shows rows of other types charged to or credited on an account
+    // (paid_via_account — see core's constants/paidViaAccount.ts).
+    group: "Debts",
+    options: [
+      {
+        label: "Debt Repayment",
+        type: "DEBT_REPAYMENT",
+        paid_via_account: true,
+      }, // i18n-exempt: filter key (option value, test id)
+      // LIRA-080: the paper (no-cash) Accounts-page "Add Credit / Debt" entry.
+      {
+        label: "Account Adjustment",
+        type: "ACCOUNT_ADJUSTMENT",
+        paid_via_account: true,
+      }, // i18n-exempt: filter key (option value, test id)
+      // The cash-moved siblings of Account Adjustment.
+      {
+        label: "Account Credit",
+        type: "CREDIT_CASH_IN",
+        paid_via_account: true,
+      }, // i18n-exempt: filter key (option value, test id)
+      { label: "Cash Advance", type: "DEBT_CASH_OUT", paid_via_account: true }, // i18n-exempt: filter key (option value, test id)
+      {
+        label: "Credit Cash Out",
+        type: "CREDIT_CASH_OUT",
+        paid_via_account: true,
+      }, // i18n-exempt: filter key (option value, test id)
+    ],
+  },
+  {
     group: "Expenses",
     options: [
       { label: "Expense", type: "EXPENSE" }, // i18n-exempt: filter key (option value, test id)
@@ -452,11 +491,6 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
       { label: "Exchange", type: "EXCHANGE" }, // i18n-exempt: filter key (option value, test id)
       { label: "Custom Service", type: "CUSTOM_SERVICE" }, // i18n-exempt: filter key (option value, test id)
       { label: "Maintenance", type: "MAINTENANCE" }, // i18n-exempt: filter key (option value, test id)
-      { label: "Debt Repayment", type: "DEBT_REPAYMENT" }, // i18n-exempt: filter key (option value, test id)
-      // LIRA-080: the paper (no-cash) Accounts-page "Add Credit / Debt" entry.
-      // Its cash-moved siblings (CREDIT_CASH_IN/DEBT_CASH_OUT) have no filter
-      // entry; the paper rows are the ones an operator most needs to find.
-      { label: "Account Adjustment", type: "ACCOUNT_ADJUSTMENT" }, // i18n-exempt: filter key (option value, test id)
       // CQ-10: one type spans all three counterparty kinds (debt/supplier/
       // partner) — amounts are always 0 (the value lives in signed
       // profit_usd/lbp), no dedicated group needed for a single filter.

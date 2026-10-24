@@ -217,6 +217,7 @@ export * from "./constants/omtAppCashout.js";
 // Transactions page "paid through this wallet" filter. Pure data, type-only
 // imports (rule 29); useTransactionRows.ts's client twin reads it.
 export * from "./constants/paidViaDrawer.js";
+export * from "./constants/paidViaAccount.js";
 
 // OMT / WHISH fee tables and commission rates (LIRA-185 display lead 11) —
 // pure data + arithmetic, no Node.js deps (rule 29: both files are leaves).

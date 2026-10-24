@@ -327,6 +327,9 @@ export const transactionTypeFilterSchema = z.object({
    *  TransactionRepository.getRecent). Must stay in this schema — Zod strips
    *  unknown keys, so dropping it silently loses those rows on REST (rule 23). */
   paid_via_drawer: z.enum(PAID_VIA_DRAWERS).optional(),
+  /** A Debts option: the tuple ALSO matches rows linked to a customer
+   *  account (see constants/paidViaAccount.ts). Same rule-23 note as above. */
+  paid_via_account: z.boolean().optional(),
 });
 
 /** Capped well above FILTER_GROUPS' real option count — a defensive bound,

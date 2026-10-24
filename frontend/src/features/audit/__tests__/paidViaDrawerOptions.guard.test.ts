@@ -8,6 +8,7 @@
  * first.
  */
 import {
+  PAID_VIA_ACCOUNT_OWN_TUPLES,
   PAID_VIA_DRAWERS,
   PAID_VIA_DRAWER_OWN_TUPLES,
   type PaidViaDrawer,
@@ -50,5 +51,16 @@ describe("paid_via_drawer options ↔ core PAID_VIA_DRAWER_OWN_TUPLES", () => {
         expect(PAID_VIA_DRAWERS).toContain(o.paid_via_drawer);
       }
     }
+  });
+});
+
+describe("paid_via_account options ↔ core PAID_VIA_ACCOUNT_OWN_TUPLES", () => {
+  it("tagged options are exactly core's own tuples (the Debts group)", () => {
+    const tagged = ALL_FILTER_OPTIONS.filter((o) => o.paid_via_account)
+      .map(key)
+      .sort();
+    const own = PAID_VIA_ACCOUNT_OWN_TUPLES.map(key).sort();
+    expect(tagged.length).toBeGreaterThan(0);
+    expect(tagged).toEqual(own);
   });
 });

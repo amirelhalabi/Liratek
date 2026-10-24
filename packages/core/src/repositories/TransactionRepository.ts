@@ -56,6 +56,7 @@ import {
   PAID_VIA_DRAWER_OWN_TUPLES,
   type PaidViaDrawer,
 } from "../constants/paidViaDrawer.js";
+import { PAID_VIA_ACCOUNT_OWN_TUPLES } from "../constants/paidViaAccount.js";
 import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
 import { getRateRepository } from "./RateRepository.js";
 import { requestNow } from "../utils/requestNow.js";
@@ -1132,6 +1133,38 @@ function buildTypeTupleConditions(
 }
 
 /**
+ * The "linked to a customer account" test behind the Debts Type-filter
+ * options (`constants/paidViaAccount.ts`): the row has a `debt_ledger` entry
+ * of its own (`transaction_id`) or its session basket does (`session_id`,
+ * via getRecent's `cst` join). ONE fragment (rule 14), used both for the
+ * row's `paid_via_account` column and the filter. Uncorrelated IN, same
+ * reason as buildPaidViaDrawerCondition below. Params pushed in SQL order.
+ */
+function accountLinkedSql(tenantId: number, params: unknown[]): string {
+  params.push(tenantId, tenantId);
+  return `(t.id IN (SELECT dl.transaction_id FROM debt_ledger dl
+                     WHERE dl.tenant_id = ? AND dl.transaction_id IS NOT NULL)
+        OR cst.session_id IN (SELECT dl.session_id FROM debt_ledger dl
+                     WHERE dl.tenant_id = ? AND dl.session_id IS NOT NULL))`;
+}
+
+/**
+ * The account half of a `paid_via_account` tuple: linked to a customer
+ * account AND not one of the Debts group's own rows (those show only
+ * through their own tuple). IFNULL for the same reason as below.
+ */
+function buildPaidViaAccountCondition(
+  tenantId: number,
+  params: unknown[],
+): string {
+  const linked = accountLinkedSql(tenantId, params);
+  const ownGroups = PAID_VIA_ACCOUNT_OWN_TUPLES.map((tuple) =>
+    buildTypeTupleConditions(tuple, params),
+  ).map((tupleConditions) => `(${tupleConditions.join(" AND ")})`);
+  return `(${linked} AND NOT IFNULL((${ownGroups.join(" OR ")}), 0))`;
+}
+
+/**
  * LIRA-323 — the "paid through this wallet" half of a `paid_via_drawer`
  * tuple: TRUE when the row (or, for a session-basket member, its basket)
  * has at least one payment leg in `drawer` that is VISIBLE in payment
@@ -1327,6 +1360,14 @@ export interface TransactionWithUser extends TransactionEntity {
    * `false` for a non-session row (`session_id` null).
    */
   is_session_payout: boolean;
+  /**
+   * True when THIS row (or its session basket) is linked to a customer
+   * account in `debt_ledger` — the account half of the Debts Type-filter
+   * options (`constants/paidViaAccount.ts`). Computed by `getRecent()` from
+   * the SAME `accountLinkedSql` fragment its filter uses (rule 14), so the
+   * client twin reads this flag instead of re-deriving it.
+   */
+  paid_via_account: boolean;
   /**
    * Coordinator follow-up (2026-09-27) — true when THIS row belongs to a
    * session basket where EVERY member has already been reversed (item by
@@ -1858,12 +1899,22 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           const own = `(${tupleConditions.join(" AND ")})`;
           // LIRA-323 — a wallet option also matches rows paid through its
           // drawer (params pushed AFTER the tuple's own, in SQL text order).
-          if (!tuple.paid_via_drawer) return own;
-          return `(${own} OR ${buildPaidViaDrawerCondition(
-            tuple.paid_via_drawer,
-            tenantId,
-            params,
-          )})`;
+          // Debts options also match rows linked to a customer account.
+          const extra: string[] = [];
+          if (tuple.paid_via_drawer) {
+            extra.push(
+              buildPaidViaDrawerCondition(
+                tuple.paid_via_drawer,
+                tenantId,
+                params,
+              ),
+            );
+          }
+          if (tuple.paid_via_account) {
+            extra.push(buildPaidViaAccountCondition(tenantId, params));
+          }
+          if (extra.length === 0) return own;
+          return `(${[own, ...extra].join(" OR ")})`;
         })
         .filter((group): group is string => group !== null);
       if (orGroups.length > 0) {
@@ -1901,6 +1952,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
     params.push(limit);
 
+    // Bound params of SELECT-list fragments — they precede the JOINs' in
+    // SQL text order, so they are passed first.
+    const selectParams: unknown[] = [];
     const rawRows = this.query<
       TransactionWithUser & {
         cst_amount_usd: number | null;
@@ -1920,6 +1974,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
               cst.session_id AS session_id,
               cst.amount_usd AS cst_amount_usd,
               cst.amount_lbp AS cst_amount_lbp,
+              ${accountLinkedSql(tenantId, selectParams)} AS paid_via_account,
               (SELECT r.id FROM transactions r
                 WHERE r.reverses_id = t.id
                   AND r.type = 'REFUND'
@@ -1936,6 +1991,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
        ${where}
        ORDER BY t.created_at DESC, t.id DESC
        LIMIT ?`,
+      ...selectParams,
       tenantId,
       tenantId,
       tenantId,
@@ -1974,6 +2030,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         row.session_id != null && isSessionPayoutMember(payoutCandidate);
       return {
         ...rest,
+        paid_via_account: Boolean(row.paid_via_account),
         is_session_payout:
           isSessionPayout &&
           this._isNettedSessionPayoutMember(payoutCandidate, row.id),
