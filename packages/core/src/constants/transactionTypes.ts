@@ -231,6 +231,25 @@ export const TRANSACTION_TYPES = {
    *  `HoldMoneyRepository.voidPickup` for the dedicated reversal. */
   HOLD_MONEY_COLLECT_VOID: "HOLD_MONEY_COLLECT_VOID",
 
+  // Vouchers (gift cards) — LIRA-339 (owner decisions 2026-10-24)
+  /** A voucher sold for money: cash in through the normal payment legs
+   *  (drawer legs → `payments`; CUSTOMER_ACCOUNT legs → a 'Voucher Debt'
+   *  `debt_ledger` charge linked to this row). `source_table='vouchers'`,
+   *  `source_id` = the voucher. Profit 0 — the voucher is money owed to the
+   *  customer; the purchase it later pays carries the profit, so this type
+   *  stays out of ProfitRepository's PROFIT_TXN_TYPES. Gated in
+   *  NON_REVERSIBLE_TRANSACTION_TYPES: its rule-20 reversal owner is
+   *  `VoucherRepository.cancelWithRefund` (the Vouchers page cancel), which
+   *  refunds leg by leg and writes VOUCHER_CANCEL. */
+  VOUCHER_SALE: "VOUCHER_SALE",
+  /** Cancelling an unredeemed voucher: the cash part of the sale is paid
+   *  back through payout legs and the 'Voucher Debt' part is reversed on the
+   *  account ('Refund Reversal'). A voucher created before LIRA-339 (no
+   *  VOUCHER_SALE) cancels with a 0-amount row. Terminal — gated in
+   *  NON_REVERSIBLE_TRANSACTION_TYPES (same reasoning as
+   *  HOLD_MONEY_COLLECT_VOID: nothing reverses a reversal). */
+  VOUCHER_CANCEL: "VOUCHER_CANCEL",
+
   // Debt & supplier
   DEBT_REPAYMENT: "DEBT_REPAYMENT",
   CREDIT_CASH_OUT: "CREDIT_CASH_OUT",
@@ -584,6 +603,13 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     // A void-of-a-pickup is itself terminal — nothing reverses a reversal
     // (same rationale as REFUND above).
     TRANSACTION_TYPES.HOLD_MONEY_COLLECT_VOID,
+    // VOUCHER_SALE / VOUCHER_CANCEL (LIRA-339): vouchers.status is not reset
+    // by the generic reversal (vouchers is not in _markSourceRefunded) — a
+    // generic void of the sale would refund the money and leave the voucher
+    // spendable, or refund a voucher already spent. Rule-20 owner:
+    // VoucherRepository.cancelWithRefund (Vouchers page). A cancel is final.
+    TRANSACTION_TYPES.VOUCHER_SALE,
+    TRANSACTION_TYPES.VOUCHER_CANCEL,
     // LOTO_MONTHLY_FEE: loto_monthly_fees.is_paid stays 1 on a voided payment
     // (table not in _markSourceRefunded) — the month would show paid with the
     // cash reversed. Rule-20 owner: the Loto monthly-fee page.
@@ -714,6 +740,13 @@ export const MODULE_DEBT_TRANSACTION_TYPES: readonly string[] = [
   // their account (ExchangeRepository "Customer pays"). Generic reversal +
   // repayment FIFO coverage own it, like every other module charge.
   "Exchange Debt",
+  // LIRA-339: a voucher bought on the customer's account. Listed here so
+  // repayment FIFO coverage and the aging/outstanding views own it like any
+  // other module charge. The generic _cancelDebt never reaches it in
+  // practice (VOUCHER_SALE is gated non-reversible); its effective reversal
+  // owner is VoucherRepository.cancelWithRefund, which writes the same
+  // 'Refund Reversal' shape through repositories/debtReversal.ts.
+  "Voucher Debt",
 ];
 
 /**

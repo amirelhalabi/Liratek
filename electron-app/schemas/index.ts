@@ -40,6 +40,7 @@ import {
   debtUseCreditSchema,
   debtWriteOffSchema,
   voucherCreateSchema,
+  voucherCancelSchema,
   supplierLedgerEntrySchema,
   supplierSettleSchema,
   // OMT open-credit account settlement (LIRA-189, CONTRACT_W2.md §2.1) — the
@@ -130,6 +131,7 @@ import {
   type MobileServiceItemUpdateInput,
   type MobileServiceItemCreateInput,
   type VoucherCreateInput,
+  type VoucherCancelInput,
   type DebtCashOutInput,
   type DebtAccountEntryInput,
   type AddRepaymentInput,
@@ -1074,6 +1076,11 @@ export const SupplierRecordDebtSchema =
 // (CLAUDE.md rule 14). Re-exported under the historical local name.
 export const VoucherCreateSchema =
   voucherCreateSchema as unknown as z.ZodSchema<VoucherCreateInput>;
+
+// LIRA-339 — `voucher:cancel(id, data?)` refund payload, shared with
+// `POST /api/vouchers/:id/cancel`.
+export const VoucherCancelSchema =
+  voucherCancelSchema as unknown as z.ZodSchema<VoucherCancelInput>;
 
 // =============================================================================
 // Customer Sessions — basket checkout

@@ -8,7 +8,9 @@ import { VouchersPage } from "../index";
 
 const mockCreate = jest.fn();
 const mockGetAll = jest.fn();
+// Rule 25 — a stable useApi() reference.
 const mockApi = {
+  getActivePaymentMethods: jest.fn().mockResolvedValue([]),
   vouchers: {
     getAll: (...a: unknown[]) => mockGetAll(...a),
     create: (...a: unknown[]) => mockCreate(...a),
@@ -19,21 +21,28 @@ const mockApi = {
 };
 
 jest.mock("@liratek/ui", () => ({
+  ...jest.requireActual("@liratek/ui"),
   useApi: () => mockApi,
   PageHeader: ({ title }: { title: string }) => <h1>{title}</h1>,
   DecimalInput: ({
     onChange,
     placeholder,
+    "data-testid": testId,
   }: {
     onChange: (n: number) => void;
     placeholder?: string;
+    "data-testid"?: string;
   }) => (
     <input
-      data-testid="amount"
+      data-testid={testId}
       placeholder={placeholder}
       onChange={(e) => onChange(Number(e.target.value))}
     />
   ),
+}));
+
+jest.mock("@/hooks/useSellRate", () => ({
+  useSellRate: () => ({ buyRate: 89000, sellRate: 89500 }),
 }));
 
 jest.mock("@/features/auth/context/AuthContext", () => ({
@@ -62,17 +71,17 @@ async function createVoucher(): Promise<unknown> {
   const option = await screen.findByText("Ali Hassan", {}, { timeout: 2000 });
   fireEvent.click(option);
   fireEvent.click(screen.getByText("LBP"));
-  fireEvent.change(screen.getByTestId("amount"), {
+  fireEvent.change(screen.getByTestId("voucher-amount"), {
     target: { value: "500000" },
   });
   fireEvent.change(container.querySelector('input[type="date"]')!, {
     target: { value: "2026-12-31" },
   });
-  const inputs = container.querySelectorAll('input[type="text"]');
-  fireEvent.change(inputs[inputs.length - 1], { target: { value: "gift" } });
-  const submit = container.querySelector(
-    "button.w-full.py-3",
-  ) as HTMLButtonElement;
+  fireEvent.change(screen.getByTestId("voucher-note"), {
+    target: { value: "gift" },
+  });
+  const submit = screen.getByTestId("voucher-create-submit");
+  await waitFor(() => expect(submit).not.toBeDisabled());
   fireEvent.click(submit);
   await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
   const payload = mockCreate.mock.calls[0][0];
@@ -93,6 +102,8 @@ it("creates the same voucher in English and Arabic", async () => {
     currency: "LBP",
     expiryDate: "2026-12-31",
     note: "gift",
+    payments: [{ method: "CASH", currency_code: "LBP", amount: 500000 }],
+    exchange_rate: 89000,
   });
 });
 

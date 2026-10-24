@@ -87,6 +87,7 @@ export {
 export type {
   CreateVoucherInput,
   VoucherResult,
+  VoucherCancelResult,
   VoucherListResult,
   VoucherRedemptionLine,
 } from "./VoucherService.js";

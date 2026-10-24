@@ -23,6 +23,10 @@ function nextTs(): string {
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
   db.exec(`
+    CREATE TABLE vouchers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, code TEXT,
+      status TEXT, redeemed_transaction_id INTEGER, redeemed_session_id INTEGER
+    );
     CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, username TEXT NOT NULL);
     CREATE TABLE clients (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, full_name TEXT, phone_number TEXT);
     CREATE TABLE transactions (

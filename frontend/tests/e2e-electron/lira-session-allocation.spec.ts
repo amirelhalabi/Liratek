@@ -89,6 +89,11 @@ type Api = {
         clientId: number;
         amount: number;
         currency?: "USD" | "LBP";
+        payments?: Array<{
+          method: string;
+          currency_code: "USD" | "LBP";
+          amount: number;
+        }>;
       }) => Promise<{
         success: boolean;
         voucher?: { code: string };
@@ -262,11 +267,13 @@ test.describe("Session basket payment allocation — no cash bleed, gift-card re
       async ({ clientId, productId, rate }) => {
         const w = window as unknown as Api;
 
-        // Mint a $40 gift card for this client.
+        // Mint a $40 gift card for this client. LIRA-339: selling a voucher
+        // now takes money — the $40 is paid in cash (the drawer gets +$40).
         const voucher = await w.api.vouchers.create({
           clientId,
           amount: 40,
           currency: "USD",
+          payments: [{ method: "CASH", currency_code: "USD", amount: 40 }],
         });
         if (!voucher.success || !voucher.voucher?.code) {
           return { error: voucher.error ?? "voucher create failed" } as const;

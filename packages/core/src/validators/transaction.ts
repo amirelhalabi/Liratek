@@ -330,6 +330,9 @@ export const transactionTypeFilterSchema = z.object({
   /** A Debts option: the tuple ALSO matches rows linked to a customer
    *  account (see constants/paidViaAccount.ts). Same rule-23 note as above. */
   paid_via_account: z.boolean().optional(),
+  /** A Vouchers option (LIRA-339): the tuple ALSO matches rows paid with a
+   *  gift card (see constants/paidViaVoucher.ts). Same rule-23 note. */
+  paid_via_voucher: z.boolean().optional(),
 });
 
 /** Capped well above FILTER_GROUPS' real option count — a defensive bound,

@@ -37,6 +37,11 @@ export const NON_REVERSIBLE_REASONS: Readonly<Record<string, string>> = {
     "Correct this from the Debts page with the opposite manual entry (Add Debt cancels Add Credit) — that corrects both the drawer and the client's balance.",
   DEBT_CASH_OUT:
     "Correct this from the Debts page with the opposite manual entry (Add Credit cancels Add Debt) — that corrects both the drawer and the client's balance.",
+  // LIRA-339
+  VOUCHER_SALE:
+    "Cancel the voucher from the Vouchers page — that refunds the customer and records the cancellation.",
+  VOUCHER_CANCEL:
+    "A voucher cancel is final — it can't be refunded or voided. Sell a new voucher from the Vouchers page if needed.",
   KEPT_CHANGE:
     "Nothing to reverse on this row by itself — the kept change stays in the drawer either way. Void or refund the sale this change belongs to instead.",
   EXTRA_CHARGE:

@@ -5,8 +5,14 @@
  * `sales:process` redeems through `VoucherRepository.redeemByCode`.
  */
 import { runWithTenant } from "../../db/tenantContext";
-import { getVoucherRepository, resetVoucherRepository } from "../VoucherRepository";
-import { installReplayDb, uninstallReplayDb } from "../../offline/testHelpers/replayHarness";
+import {
+  getVoucherRepository,
+  resetVoucherRepository,
+} from "../VoucherRepository";
+import {
+  installReplayDb,
+  uninstallReplayDb,
+} from "../../offline/testHelpers/replayHarness";
 
 describe("VoucherRepository writes take requestNow()", () => {
   it("redeemByCode inside a replay stamps redeemed_at with the event time", () => {
@@ -20,10 +26,19 @@ describe("VoucherRepository writes take requestNow()", () => {
       `);
       runWithTenant(
         1,
-        () => getVoucherRepository().redeemByCode({ code: "GIFT-AAAA-BBBB", context: "sale", transactionId: null, userId: 2, day: "2026-10-01" }),
+        () =>
+          getVoucherRepository().redeemByCode({
+            code: "GIFT-AAAA-BBBB",
+            context: "sale",
+            transactionId: null,
+            userId: 2,
+            day: "2026-10-01",
+          }),
         { clientDay: "2026-10-01", effectiveNow: "2026-10-01T20:50:00.000Z" },
       );
-      const row = db.prepare(`SELECT redeemed_at FROM vouchers WHERE id = 501`).get();
+      const row = db
+        .prepare(`SELECT redeemed_at FROM vouchers WHERE id = 501`)
+        .get();
       expect(row).toEqual({ redeemed_at: "2026-10-01 20:50:00" });
     } finally {
       uninstallReplayDb(db);

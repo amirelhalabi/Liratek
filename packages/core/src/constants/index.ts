@@ -17,3 +17,4 @@ export * from "./sessionPayoutMember.js";
 export * from "./tenderRateBand.js";
 export * from "./paidViaDrawer.js";
 export * from "./paidViaAccount.js";
+export * from "./paidViaVoucher.js";

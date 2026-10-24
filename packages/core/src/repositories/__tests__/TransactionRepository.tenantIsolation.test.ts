@@ -37,6 +37,12 @@ const D = "2026-01-15 10:00:00";
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
   db.exec(`
+    CREATE TABLE vouchers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, code TEXT,
+      status TEXT, redeemed_transaction_id INTEGER, redeemed_session_id INTEGER,
+      redeemed_at TEXT, redeemed_by INTEGER, redeemed_in_transaction INTEGER,
+      updated_at TEXT
+    );
     CREATE TABLE users (
       id        INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id INTEGER,

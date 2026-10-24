@@ -79,6 +79,13 @@ export type FilterOption = {
    * tagged options and that list identical.
    */
   paid_via_account?: boolean;
+  /**
+   * Set on EVERY option of the Vouchers group (LIRA-339): the option ALSO
+   * shows rows of other types paid with a voucher. Core's
+   * PAID_VIA_VOUCHER_OWN_TUPLES is the definition of "own";
+   * paidViaDrawerOptions.guard.test.ts keeps both identical.
+   */
+  paid_via_voucher?: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -467,6 +474,21 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
         label: "Credit Cash Out",
         type: "CREDIT_CASH_OUT",
         paid_via_account: true,
+      }, // i18n-exempt: filter key (option value, test id)
+    ],
+  },
+  {
+    // LIRA-339: gift cards sold and cancelled. Each option also shows rows of
+    // other types paid with a voucher (paid_via_voucher — see core's
+    // constants/paidViaVoucher.ts).
+    group: "Vouchers",
+    options: [
+      // Filter key; the row's own label is "Voucher sold".
+      { label: "Voucher Sold", type: "VOUCHER_SALE", paid_via_voucher: true }, // i18n-exempt: filter key (option value, test id)
+      {
+        label: "Voucher Cancelled",
+        type: "VOUCHER_CANCEL",
+        paid_via_voucher: true,
       }, // i18n-exempt: filter key (option value, test id)
     ],
   },

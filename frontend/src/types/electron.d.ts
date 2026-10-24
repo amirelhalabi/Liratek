@@ -104,6 +104,11 @@ import type {
   CompleteSetupInput,
   OpenExternalUrlInput,
 } from "@liratek/core";
+// LIRA-339 — voucher sale / cancel payloads (rule 21).
+import type {
+  VoucherCreatePayload,
+  VoucherCancelPayload,
+} from "@liratek/core";
 
 /**
  * LIRA-143 Phase 5 — one `product_units` row (per-IMEI phone unit
@@ -236,6 +241,15 @@ export interface Voucher {
   redeemed_by: number | null;
   redeemed_in_transaction: string | null;
   redeemed_transaction_id: number | null;
+  /** LIRA-339 (v224): the session the voucher was redeemed in, if any. */
+  redeemed_session_id: number | null;
+  /** LIRA-339: what the voucher's sale took in — total and on-account part
+   *  (0 for a voucher created before vouchers were sold). Filled by core
+   *  from T021; optional until then. */
+  sale_usd?: number;
+  sale_lbp?: number;
+  sale_account_usd?: number;
+  sale_account_lbp?: number;
   cancelled_at: string | null;
   cancelled_by: number | null;
   note: string | null;
@@ -507,6 +521,9 @@ export interface RecentTransaction {
   /** Server-computed: linked to a customer account in `debt_ledger` (the
    *  Debts Type-filter options also show these rows). */
   paid_via_account?: boolean;
+  /** Server-computed (LIRA-339): paid with a gift card (the Vouchers
+   *  Type-filter options also show these rows). */
+  paid_via_voucher?: boolean;
   /**
    * Coordinator follow-up (2026-09-27), item 5 — true when THIS row belongs
    * to a session basket where EVERY member has already been refunded (item
@@ -1472,13 +1489,14 @@ export interface ElectronAPI {
 
   // Vouchers (Gift Cards)
   vouchers: {
-    create: (data: {
-      clientId: number;
-      amount: number;
-      currency?: "USD" | "LBP";
-      expiryDate?: string | null;
-      note?: string | null;
-    }) => Promise<{ success: boolean; voucher?: Voucher; error?: string }>;
+    create: (
+      data: VoucherCreatePayload,
+    ) => Promise<{
+      success: boolean;
+      voucher?: Voucher;
+      transactionId?: number;
+      error?: string;
+    }>;
     /** `day` is the CLIENT's own local calendar day (`YYYY-MM-DD`, e.g. the
      *  frontend's `localDay()`), sent because the server can't be trusted to
      *  know the shop's timezone. */
@@ -1493,9 +1511,21 @@ export interface ElectronAPI {
       code: string,
       day?: string,
     ) => Promise<{ success: boolean; voucher?: Voucher; error?: string }>;
+    /** LIRA-339: `data` = payout legs for the cash part, tender rate and the
+     *  shop's own day. Omitted → cash refund. */
     cancel: (
       id: number,
-    ) => Promise<{ success: boolean; voucher?: Voucher; error?: string }>;
+      data?: VoucherCancelPayload,
+    ) => Promise<{
+      success: boolean;
+      voucher?: Voucher;
+      transactionId?: number;
+      refunded?: {
+        cash: { usd: number; lbp: number };
+        toAccount: { usd: number; lbp: number };
+      };
+      error?: string;
+    }>;
   };
 
   // Financial

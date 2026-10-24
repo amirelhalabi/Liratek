@@ -93,6 +93,14 @@ describe("MODULE_DEBT_TRANSACTION_TYPES — reversal-symmetry guard (rule 20)", 
     expect(MODULE_DEBT_TRANSACTION_TYPES).toContain("Exchange Debt");
   });
 
+  // LIRA-339 (T001): a voucher bought on the customer's account books
+  // 'Voucher Debt'. Whitelisted so repayment FIFO covers it; the effective
+  // reversal owner is VoucherRepository.cancelWithRefund (VOUCHER_SALE is
+  // gated non-reversible, so the generic _cancelDebt never reaches it).
+  it("'Voucher Debt' is whitelisted (repayment coverage; cancel reverses it)", () => {
+    expect(MODULE_DEBT_TRANSACTION_TYPES).toContain("Voucher Debt");
+  });
+
   it("no type is both whitelisted and excluded", () => {
     const both = MODULE_DEBT_TRANSACTION_TYPES.filter(
       (t) => t in EXCLUDED_DEBT_TYPES,

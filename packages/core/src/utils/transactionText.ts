@@ -101,6 +101,8 @@ export const TRANSACTION_TYPE_LABELS: Record<TransactionType, string | null> = {
   HOLD_MONEY: "Money Held",
   HOLD_MONEY_COLLECT: "Hold Returned",
   HOLD_MONEY_COLLECT_VOID: "Hold Pickup Voided",
+  VOUCHER_SALE: "Voucher sold",
+  VOUCHER_CANCEL: "Voucher cancelled",
   DEBT_REPAYMENT: null,
   CREDIT_CASH_OUT: null,
   CREDIT_CASH_IN: "Account Credit",

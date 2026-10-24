@@ -2317,6 +2317,7 @@ CREATE TABLE IF NOT EXISTS vouchers (
     redeemed_by INTEGER,
     redeemed_in_transaction TEXT,            -- 'sale' | 'custom_service' | 'recharge' | 'session'
     redeemed_transaction_id INTEGER,
+    redeemed_session_id INTEGER,             -- LIRA-339 (v224): session checkout redemption
     cancelled_at TEXT,
     cancelled_by INTEGER,
     note TEXT,
@@ -2328,6 +2329,7 @@ CREATE TABLE IF NOT EXISTS vouchers (
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
     UNIQUE (tenant_id, code)
 );
+CREATE INDEX IF NOT EXISTS idx_vouchers_redeemed_session ON vouchers(tenant_id, redeemed_session_id);
 
 CREATE INDEX IF NOT EXISTS idx_vouchers_code ON vouchers(code);
 CREATE INDEX IF NOT EXISTS idx_vouchers_client_id ON vouchers(client_id);
@@ -3227,4 +3229,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- v222 (LIRA-335) adds checkpoint_differences +
     -- checkpoint_difference_resolutions and their indexes, declared above.
     (222, 'checkpoint_differences'),
-    (223, 'resale_line_give_backs');
+    (223, 'resale_line_give_backs'),
+    -- v224 (LIRA-339) adds vouchers.redeemed_session_id + its index, declared above.
+    (224, 'vouchers_redeemed_session_id');

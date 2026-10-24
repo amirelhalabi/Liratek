@@ -13,9 +13,41 @@
 
 import { BaseRepository } from "./BaseRepository.js";
 import { getDebtRepository } from "./DebtRepository.js";
+import { getTransactionRepository } from "./TransactionRepository.js";
+import { resolveBackTimedDrawerMovement } from "./checkpointResolution.js";
+import {
+  applyDrawerDelta,
+  bookClientDebtCharge,
+  insertPaymentRow,
+  lbpEquivalent,
+  reconcileLegs,
+  resolveStampedExchangeRate,
+  sumLegsByCurrency,
+  usdEquivalent,
+  type ReconciliationLeg,
+} from "./moneyPosting.js";
+import { insertDebtRefundReversal } from "./debtReversal.js";
+import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { clientDay } from "../utils/requestDay.js";
 import { requestNow } from "../utils/requestNow.js";
+import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
+import {
+  isDrawerAffectingMethod,
+  partitionLegs,
+  paymentMethodToDrawerName,
+} from "../utils/payments.js";
+import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
+import {
+  TRANSACTION_DETAILS_VERSION,
+  type VoucherDetails,
+} from "../validators/transactionDetails.js";
+import {
+  VOUCHER_SALE_METHODS,
+  VOUCHER_REFUND_METHODS,
+  type VoucherPaymentLegInput,
+  type VoucherRefundLegInput,
+} from "../validators/voucher.js";
 
 // =============================================================================
 // Entity Types
@@ -37,12 +69,65 @@ export interface VoucherEntity {
   redeemed_by: number | null;
   redeemed_in_transaction: string | null;
   redeemed_transaction_id: number | null;
+  /** LIRA-339 (v224): the session a voucher was redeemed in at session
+   *  checkout (that redemption has no single transaction). */
+  redeemed_session_id: number | null;
   cancelled_at: string | null;
   cancelled_by: number | null;
   note: string | null;
   created_by: number;
   created_at: string;
   updated_at: string;
+  /** LIRA-339 (T021) — what the voucher's VOUCHER_SALE took in, in the
+   *  voucher's currency (0/0 = a legacy voucher: cancel refunds nothing),
+   *  and the part of it booked on the customer's account. Read-only, set
+   *  by `getAll`/`getByCode` from `SALE_TOTAL_COLUMNS`. */
+  sale_usd?: number;
+  sale_lbp?: number;
+  sale_account_usd?: number;
+  sale_account_lbp?: number;
+}
+
+/** A per-currency USD/LBP pair. */
+export interface UsdLbp {
+  usd: number;
+  lbp: number;
+}
+
+/** LIRA-339 — what a voucher's sale took in (`findSaleTotals`). */
+export interface VoucherSaleTotals {
+  /** The ACTIVE VOUCHER_SALE row, or null for a legacy voucher. */
+  saleTxnId: number | null;
+  total: UsdLbp;
+  /** SUM of the sale's 'Voucher Debt' rows. */
+  onAccount: UsdLbp;
+  /** total − onAccount, per currency: what the drawers took in. */
+  cash: UsdLbp;
+}
+
+export interface SellVoucherOptions {
+  /** The cashier's tender rate (LBP per USD). */
+  exchangeRate?: number;
+  /** Optional back-time, same rule as Hold Money. */
+  transactionTime?: string;
+}
+
+export interface SellVoucherResult {
+  voucher: VoucherEntity;
+  transactionId: number;
+}
+
+export interface CancelWithRefundOptions {
+  cancelledBy: number;
+  exchangeRate?: number;
+  /** The shop's own day (rule 27) — recorded as `expired_at_cancel`. */
+  clientDay?: string;
+}
+
+export interface CancelWithRefundResult {
+  voucher: VoucherEntity;
+  transactionId: number;
+  refunded: { cash: UsdLbp; toAccount: UsdLbp };
 }
 
 export interface CreateVoucherData {
@@ -66,6 +151,9 @@ export interface RedeemVoucherParams {
   context: string;
   transactionId: number | null;
   userId: number;
+  /** LIRA-339 — the session this redemption belongs to (session checkout
+   *  has no single transaction). Stamped as `redeemed_session_id`. */
+  sessionId?: number | null;
   /**
    * The CLIENT's own local calendar day (`YYYY-MM-DD`), compared against the
    * voucher's stored `expiry_date`. Falls back to `clientDay()` when
@@ -85,7 +173,7 @@ export interface RedeemVoucherParams {
 }
 
 const VOUCHER_COLUMNS =
-  "id, code, client_id, client_name, client_phone, amount, currency_code, expiry_date, status, redeemed_at, redeemed_by, redeemed_in_transaction, redeemed_transaction_id, cancelled_at, cancelled_by, note, created_by, created_at, updated_at";
+  "id, code, client_id, client_name, client_phone, amount, currency_code, expiry_date, status, redeemed_at, redeemed_by, redeemed_in_transaction, redeemed_transaction_id, redeemed_session_id, cancelled_at, cancelled_by, note, created_by, created_at, updated_at";
 
 // `effective_status` downgrades a still-pending voucher to 'expired' when its
 // expiry date has passed, without mutating the stored row. Takes a bound `?`
@@ -98,6 +186,99 @@ const EFFECTIVE_STATUS_EXPR = `CASE
   THEN 'expired'
   ELSE status
 END`;
+
+/**
+ * LIRA-339 — the ONE definition of "this voucher's sale" (rule 14): its
+ * VOUCHER_SALE row, matched by identity and never a reversal. Correlated on
+ * the outer `vouchers` row's columns, so it adds no bind parameter.
+ */
+const SALE_TXN_ID_SQL = `(SELECT t.id FROM transactions t
+   WHERE t.type = 'VOUCHER_SALE' AND t.source_table = 'vouchers'
+     AND t.source_id = vouchers.id AND t.tenant_id = vouchers.tenant_id
+     AND t.reverses_id IS NULL
+   ORDER BY t.id LIMIT 1)`;
+
+/** LIRA-329/339 — the `voucher` details on a sale or cancel row. Pure. */
+export function buildVoucherDetails(
+  action: VoucherDetails["action"],
+  code: string,
+  note?: string | null,
+  legacy?: boolean,
+): VoucherDetails {
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "voucher",
+    action,
+    code,
+    ...(note != null && note.trim() !== "" ? { note } : {}),
+    ...(legacy ? { legacy: true } : {}),
+  };
+}
+
+/**
+ * LIRA-339 — the ONE definition of "this sale's voucher debt rows": the
+ * 'Voucher Debt' charges (never their reversals) booked on the sale's
+ * transaction id, tenant-scoped. Used by `SALE_TOTAL_COLUMNS` (what the page
+ * shows and the refund is sized from) AND by the cancel's reversal loop, so
+ * the rows reversed are exactly the rows summed (rule 14).
+ */
+function saleVoucherDebtWhere(
+  alias: string,
+  saleTxnIdSql: string,
+  tenantIdSql: string,
+): string {
+  return `${alias}.transaction_type = 'Voucher Debt' AND ${alias}.tenant_id = ${tenantIdSql}
+       AND ${alias}.transaction_id = ${saleTxnIdSql}`;
+}
+
+/**
+ * LIRA-339 — what the sale took in and how much of it went on the customer's
+ * account. Used by the list reads (`getAll`/`getByCode`) AND by
+ * `findSaleTotals` (the cancel), so the page and the refund can never
+ * disagree. Only 'Voucher Debt' charge rows count, never their reversals.
+ */
+const SALE_TOTAL_COLUMNS = `
+  ${SALE_TXN_ID_SQL} AS sale_txn_id,
+  COALESCE((SELECT t.amount_usd FROM transactions t WHERE t.id = ${SALE_TXN_ID_SQL}), 0) AS sale_usd,
+  COALESCE((SELECT t.amount_lbp FROM transactions t WHERE t.id = ${SALE_TXN_ID_SQL}), 0) AS sale_lbp,
+  COALESCE((SELECT SUM(d.amount_usd) FROM debt_ledger d
+     WHERE ${saleVoucherDebtWhere("d", SALE_TXN_ID_SQL, "vouchers.tenant_id")}), 0) AS sale_account_usd,
+  COALESCE((SELECT SUM(d.amount_lbp) FROM debt_ledger d
+     WHERE ${saleVoucherDebtWhere("d", SALE_TXN_ID_SQL, "vouchers.tenant_id")}), 0) AS sale_account_lbp`;
+
+interface SaleTotalsRow {
+  sale_txn_id: number | null;
+  sale_usd: number;
+  sale_lbp: number;
+  sale_account_usd: number;
+  sale_account_lbp: number;
+}
+
+/** Strip the internal `sale_txn_id` helper column from a list row. */
+function toListEntity(
+  row: VoucherEntity & { sale_txn_id?: number | null },
+): VoucherEntity {
+  const { sale_txn_id: _ignored, ...rest } = row;
+  void _ignored;
+  return rest;
+}
+
+/** Money below this (USD-equivalent) is zero. */
+const VOUCHER_EPSILON_USD = 0.005;
+
+function toReconciliationLeg(leg: {
+  method: string;
+  currency_code: string;
+  amount: number;
+  direction?: "IN" | "OUT";
+}): ReconciliationLeg {
+  return {
+    method: leg.method,
+    currencyCode: leg.currency_code,
+    amount: leg.amount,
+    direction: leg.direction,
+  };
+}
 
 // =============================================================================
 // Voucher Repository Class
@@ -136,10 +317,10 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
   getByCode(code: string, day?: string): VoucherEntity | null {
     const row = this.db
       .prepare(
-        `SELECT ${VOUCHER_COLUMNS} FROM vouchers WHERE code = ? AND tenant_id = ?`,
+        `SELECT ${VOUCHER_COLUMNS}, ${SALE_TOTAL_COLUMNS} FROM vouchers WHERE code = ? AND tenant_id = ?`,
       )
       .get(code, getCurrentTenantId()) as VoucherEntity | undefined;
-    return row ? this.withEffectiveStatus(row, day) : null;
+    return row ? this.withEffectiveStatus(toListEntity(row), day) : null;
   }
 
   /**
@@ -171,17 +352,24 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
     const extraWhere = clauses.length ? ` AND ${clauses.join(" AND ")}` : "";
     const rows = this.db
       .prepare(
-        `SELECT ${VOUCHER_COLUMNS} FROM vouchers WHERE tenant_id = ?${extraWhere} ORDER BY created_at DESC, id DESC`,
+        `SELECT ${VOUCHER_COLUMNS}, ${SALE_TOTAL_COLUMNS} FROM vouchers WHERE tenant_id = ?${extraWhere} ORDER BY created_at DESC, id DESC`,
       )
       .all(...params) as VoucherEntity[];
-    return rows.map((r) => this.withEffectiveStatus(r, effectiveDay));
+    return rows.map((r) =>
+      this.withEffectiveStatus(toListEntity(r), effectiveDay),
+    );
   }
 
   // ---------------------------------------------------------------------------
   // Writes
   // ---------------------------------------------------------------------------
 
-  createVoucher(data: CreateVoucherData & { code: string }): VoucherEntity {
+  /** `createdAt` back-dates the row with its sale (`transaction_time`, the
+   *  Hold Money precedent); absent, it is the request's now. */
+  createVoucher(
+    data: CreateVoucherData & { code: string },
+    createdAt?: string,
+  ): VoucherEntity {
     const stmt = this.db.prepare(`
       INSERT INTO vouchers (
         code, client_id, client_name, client_phone, amount, currency_code,
@@ -199,7 +387,7 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
       data.note,
       data.created_by,
       getCurrentTenantId(),
-      requestNow(),
+      createdAt ?? requestNow(),
     );
     return this.findByIdOrFail(Number(result.lastInsertRowid));
   }
@@ -229,20 +417,434 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
     return `GIFT-${block()}-${stamp.toString(36).toUpperCase().slice(-4)}`;
   }
 
+  // ---------------------------------------------------------------------------
+  // LIRA-339 — sale and cancel are money flows
+  // ---------------------------------------------------------------------------
+
   /**
-   * Cancel (void) a pending voucher. Returns the updated voucher, or null if the
-   * voucher does not exist or was not pending.
+   * Sell a voucher: insert it, write its VOUCHER_SALE row (profit 0 — a
+   * voucher is a liability, not income) and post its legs, all in ONE
+   * db.transaction() (the Hold Money drop-off precedent).
+   *
+   * Legs: drawer legs → `payments` + drawer delta (OUT change negative,
+   * "Change returned"); CUSTOMER_ACCOUNT legs → summed per currency and
+   * booked once per currency as a 'Voucher Debt' on the sale's id. ONE loop
+   * posts every leg exactly once (rule 16). No legs → one CASH leg for the
+   * face value in the voucher's currency (old callers keep working).
+   *
+   * Reversal owner (rule 20): `cancelWithRefund`. VOUCHER_SALE is gated in
+   * NON_REVERSIBLE_TRANSACTION_TYPES, so the generic void never reaches it.
+   *
+   * Throws a cashier-facing Error on any refusal, before anything is written.
    */
-  cancel(id: number, cancelledBy: number): VoucherEntity | null {
-    const result = this.db
+  sellVoucher(
+    data: CreateVoucherData & { code: string },
+    legs: VoucherPaymentLegInput[],
+    opts: SellVoucherOptions = {},
+  ): SellVoucherResult {
+    const isLbp = data.currency_code === "LBP";
+    const expected: UsdLbp = isLbp
+      ? { usd: 0, lbp: data.amount }
+      : { usd: data.amount, lbp: 0 };
+    const liveLegs = legs.filter((l) => Math.abs(l.amount) > 0);
+
+    const saleMethods: readonly string[] = VOUCHER_SALE_METHODS;
+    for (const leg of liveLegs) {
+      // Defensive: a caller that skips the schema (GIFT_CARD — a voucher
+      // cannot buy a voucher — or an unknown method) is refused here.
+      const method: string = leg.method;
+      if (!saleMethods.includes(method)) {
+        throw new Error(
+          `A voucher cannot be paid with ${method === "GIFT_CARD" ? "a gift card" : method}.`,
+        );
+      }
+      if (leg.method === "CUSTOMER_ACCOUNT") {
+        if (leg.direction === "OUT") {
+          throw new Error(
+            "Change on a voucher sale cannot go to the customer's account.",
+          );
+        }
+        if (!data.client_phone?.trim()) {
+          throw new Error(
+            "The voucher's owner needs a phone number to buy on account.",
+          );
+        }
+      }
+    }
+
+    const sellRate = getUsdLbpSellRate(this.db);
+    const stampedRate = resolveStampedExchangeRate(sellRate, opts.exchangeRate);
+    if (liveLegs.length > 0) {
+      const { inLegs, outLegs } = partitionLegs(
+        liveLegs.map(toReconciliationLeg),
+      );
+      // Every IN leg counts, the account leg included (moneyPosting S2).
+      reconcileLegs({
+        inLegs,
+        outLegs,
+        expectedTotals: expected,
+        exchangeRate: sellRate,
+        tenderExchangeRate: opts.exchangeRate,
+        context: "Voucher sale",
+      });
+    }
+
+    return this.db.transaction((): SellVoucherResult => {
+      const tenantId = getCurrentTenantId();
+      const voucher = this.createVoucher(data, opts.transactionTime);
+      const noteText = `Voucher sold ${voucher.code}`;
+
+      const transactionId = getTransactionRepository().createTransaction({
+        type: TRANSACTION_TYPES.VOUCHER_SALE,
+        source_table: "vouchers",
+        source_id: voucher.id,
+        user_id: data.created_by,
+        amount_usd: expected.usd,
+        amount_lbp: expected.lbp,
+        profit_usd: 0,
+        profit_lbp: 0,
+        exchange_rate: stampedRate,
+        client_id: voucher.client_id,
+        client_name: voucher.client_name,
+        client_phone: voucher.client_phone,
+        summary: noteText,
+        metadata_json: {
+          details: buildVoucherDetails("SALE", voucher.code, voucher.note),
+          code: voucher.code,
+          currency_code: voucher.currency_code,
+          kind: "voucher_sale",
+        },
+        ...(liveLegs.length > 0
+          ? {
+              payment_snapshot: buildPaymentSnapshot({
+                flow: "IN",
+                payments: liveLegs,
+              }),
+            }
+          : {}),
+        transaction_time: opts.transactionTime,
+      });
+
+      const postLegs: VoucherPaymentLegInput[] =
+        liveLegs.length > 0
+          ? liveLegs
+          : [
+              {
+                method: "CASH",
+                currency_code: isLbp ? "LBP" : "USD",
+                amount: data.amount,
+              },
+            ];
+      const onAccount: UsdLbp = { usd: 0, lbp: 0 };
+      for (const leg of postLegs) {
+        const amt = Math.abs(leg.amount);
+        if (leg.method === "CUSTOMER_ACCOUNT") {
+          if (leg.currency_code === "LBP") onAccount.lbp += amt;
+          else onAccount.usd += amt;
+          continue;
+        }
+        const isOut = leg.direction === "OUT";
+        const signed = isOut ? -amt : amt;
+        const drawer = paymentMethodToDrawerName(leg.method);
+        insertPaymentRow(this.db, {
+          transactionId,
+          method: leg.method,
+          drawerName: drawer,
+          currencyCode: leg.currency_code,
+          amount: signed,
+          note: isOut ? "Change returned" : noteText,
+          createdBy: data.created_by,
+          tenantId,
+        });
+        applyDrawerDelta(this.db, {
+          drawerName: drawer,
+          currencyCode: leg.currency_code,
+          delta: signed,
+          tenantId,
+        });
+      }
+      if (onAccount.usd > 0) {
+        bookClientDebtCharge(this.db, {
+          clientId: voucher.client_id,
+          transactionType: "Voucher Debt",
+          amountUsd: onAccount.usd,
+          amountLbp: 0,
+          transactionId,
+          note: noteText,
+          createdBy: data.created_by,
+          tenantId,
+        });
+      }
+      if (onAccount.lbp > 0) {
+        bookClientDebtCharge(this.db, {
+          clientId: voucher.client_id,
+          transactionType: "Voucher Debt",
+          amountUsd: 0,
+          amountLbp: onAccount.lbp,
+          transactionId,
+          note: noteText,
+          createdBy: data.created_by,
+          tenantId,
+        });
+      }
+
+      resolveBackTimedDrawerMovement(this.db, {
+        transactionId,
+        userId: data.created_by,
+      });
+
+      return { voucher, transactionId };
+    })();
+  }
+
+  /**
+   * What a voucher's sale took in (`SALE_TOTAL_COLUMNS`, the same fragment
+   * the list reads use — rule 14). A legacy voucher (no VOUCHER_SALE row)
+   * reads all zeros with `saleTxnId: null`.
+   */
+  findSaleTotals(voucherId: number): VoucherSaleTotals {
+    const row = this.db
       .prepare(
-        `UPDATE vouchers
-         SET status = 'cancelled', cancelled_at = ?, cancelled_by = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ? AND status = 'pending' AND tenant_id = ?`,
+        `SELECT ${SALE_TOTAL_COLUMNS} FROM vouchers WHERE id = ? AND tenant_id = ?`,
       )
-      .run(requestNow(), cancelledBy, id, getCurrentTenantId());
-    if (result.changes === 0) return null;
-    return this.findById(id);
+      .get(voucherId, getCurrentTenantId()) as SaleTotalsRow | undefined;
+    const total: UsdLbp = { usd: row?.sale_usd ?? 0, lbp: row?.sale_lbp ?? 0 };
+    const onAccount: UsdLbp = {
+      usd: row?.sale_account_usd ?? 0,
+      lbp: row?.sale_account_lbp ?? 0,
+    };
+    return {
+      saleTxnId: row?.sale_txn_id ?? null,
+      total,
+      onAccount,
+      cash: { usd: total.usd - onAccount.usd, lbp: total.lbp - onAccount.lbp },
+    };
+  }
+
+  /**
+   * Cancel a pending voucher and refund what its sale took in, leg by leg,
+   * in ONE db.transaction(). The reversal owner of VOUCHER_SALE (rule 20).
+   *
+   *  1. Guarded flip `pending → cancelled` FIRST; any other status (or a
+   *     second cancel) throws before a leg is written. A stored-pending but
+   *     date-expired voucher is refundable.
+   *  2. Legacy voucher (no sale row): no money moves, payout legs refused, a
+   *     0-amount VOUCHER_CANCEL with `metadata.legacy = true`.
+   *  3. Otherwise: every 'Voucher Debt' row of the sale gets the shared
+   *     'Refund Reversal' (full amount, repaid or not — a repaid part becomes
+   *     account credit); the cash part is paid out through `legs` (drawer
+   *     methods only, reconciled against it), or one CASH leg in the
+   *     voucher's currency when no legs are sent. No legs are allowed when
+   *     the cash part is 0.
+   *
+   * Throws a cashier-facing Error on any refusal.
+   */
+  cancelWithRefund(
+    id: number,
+    legs: VoucherRefundLegInput[],
+    opts: CancelWithRefundOptions,
+  ): CancelWithRefundResult {
+    const refundMethods: readonly string[] = VOUCHER_REFUND_METHODS;
+    const liveLegs = legs.filter((l) => Math.abs(l.amount) > 0);
+    for (const leg of liveLegs) {
+      if (
+        !refundMethods.includes(leg.method) ||
+        !isDrawerAffectingMethod(leg.method)
+      ) {
+        throw new Error(
+          `A voucher refund cannot be paid out with ${leg.method}.`,
+        );
+      }
+    }
+    const sellRate = getUsdLbpSellRate(this.db);
+    const stampedRate = resolveStampedExchangeRate(sellRate, opts.exchangeRate);
+    const day = opts.clientDay ?? clientDay();
+
+    return this.db.transaction((): CancelWithRefundResult => {
+      const tenantId = getCurrentTenantId();
+      const flipped = this.db
+        .prepare(
+          `UPDATE vouchers
+              SET status = 'cancelled', cancelled_at = ?, cancelled_by = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND status = 'pending' AND tenant_id = ?`,
+        )
+        .run(requestNow(), opts.cancelledBy, id, tenantId);
+      if (flipped.changes !== 1) {
+        throw new Error("Voucher can no longer be cancelled");
+      }
+      const voucher = this.findByIdOrFail(id);
+      const expiredAtCancel =
+        voucher.expiry_date !== null && voucher.expiry_date < day;
+      const totals = this.findSaleTotals(id);
+      const isLbp = voucher.currency_code === "LBP";
+      const zero: UsdLbp = { usd: 0, lbp: 0 };
+      const baseMeta = {
+        code: voucher.code,
+        currency_code: voucher.currency_code,
+        kind: "voucher_cancel",
+        expired_at_cancel: expiredAtCancel,
+      };
+
+      if (totals.saleTxnId === null) {
+        if (liveLegs.length > 0) {
+          throw new Error(
+            "This voucher was not sold, so there is nothing to refund.",
+          );
+        }
+        const transactionId = getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.VOUCHER_CANCEL,
+          source_table: "vouchers",
+          source_id: voucher.id,
+          user_id: opts.cancelledBy,
+          amount_usd: 0,
+          amount_lbp: 0,
+          profit_usd: 0,
+          profit_lbp: 0,
+          exchange_rate: stampedRate,
+          client_id: voucher.client_id,
+          client_name: voucher.client_name,
+          client_phone: voucher.client_phone,
+          summary: `Voucher cancelled ${voucher.code}`,
+          metadata_json: {
+            ...baseMeta,
+            legacy: true,
+            details: buildVoucherDetails(
+              "CANCEL",
+              voucher.code,
+              voucher.note,
+              true,
+            ),
+          },
+        });
+        return {
+          voucher: this.findByIdOrFail(id),
+          transactionId,
+          refunded: { cash: zero, toAccount: zero },
+        };
+      }
+
+      // The cash part is what the drawers took in; settle it in the
+      // voucher's currency at the stamped rate (it may be negative in one
+      // currency when an account leg was in the other).
+      const cashEqInVoucherCcy = isLbp
+        ? lbpEquivalent(totals.cash.usd, totals.cash.lbp, stampedRate)
+        : usdEquivalent(totals.cash.usd, totals.cash.lbp, stampedRate);
+      const cashUsdEq = usdEquivalent(
+        totals.cash.usd,
+        totals.cash.lbp,
+        stampedRate,
+      );
+      const hasCash = cashUsdEq > VOUCHER_EPSILON_USD;
+      if (!hasCash && liveLegs.length > 0) {
+        throw new Error(
+          "This voucher was paid on the customer's account — nothing is paid out in cash.",
+        );
+      }
+      if (liveLegs.length > 0) {
+        reconcileLegs({
+          inLegs: liveLegs.map(toReconciliationLeg),
+          expectedTotals: totals.cash,
+          exchangeRate: sellRate,
+          tenderExchangeRate: opts.exchangeRate,
+          context: "Voucher refund",
+        });
+      }
+      const payout: VoucherRefundLegInput[] =
+        liveLegs.length > 0
+          ? liveLegs
+          : hasCash
+            ? [
+                {
+                  method: "CASH",
+                  currency_code: isLbp ? "LBP" : "USD",
+                  amount: cashEqInVoucherCcy,
+                },
+              ]
+            : [];
+      const refundedCash = sumLegsByCurrency(
+        payout.map(toReconciliationLeg),
+        "Voucher refund",
+      );
+
+      for (const charge of this.db
+        .prepare(
+          `SELECT d.client_id, d.amount_usd, d.amount_lbp FROM debt_ledger d
+            WHERE ${saleVoucherDebtWhere("d", "?", "?")}
+            ORDER BY d.id`,
+        )
+        .all(tenantId, totals.saleTxnId) as Array<{
+        client_id: number;
+        amount_usd: number | null;
+        amount_lbp: number | null;
+      }>) {
+        insertDebtRefundReversal(this.db, {
+          clientId: charge.client_id,
+          amountUsd: charge.amount_usd,
+          amountLbp: charge.amount_lbp,
+          transactionId: totals.saleTxnId,
+          createdBy: opts.cancelledBy,
+          tenantId,
+        });
+      }
+
+      const noteText = `Voucher cancelled ${voucher.code}`;
+      const transactionId = getTransactionRepository().createTransaction({
+        type: TRANSACTION_TYPES.VOUCHER_CANCEL,
+        source_table: "vouchers",
+        source_id: voucher.id,
+        user_id: opts.cancelledBy,
+        amount_usd: totals.total.usd,
+        amount_lbp: totals.total.lbp,
+        profit_usd: 0,
+        profit_lbp: 0,
+        exchange_rate: stampedRate,
+        client_id: voucher.client_id,
+        client_name: voucher.client_name,
+        client_phone: voucher.client_phone,
+        summary: noteText,
+        metadata_json: {
+          ...baseMeta,
+          details: buildVoucherDetails("CANCEL", voucher.code, voucher.note),
+          refunded_cash: refundedCash,
+          reversed_to_account: totals.onAccount,
+        },
+        ...(payout.length > 0
+          ? {
+              payment_snapshot: buildPaymentSnapshot({
+                flow: "PAYOUT",
+                payments: payout,
+              }),
+            }
+          : {}),
+      });
+
+      for (const leg of payout) {
+        const amt = Math.abs(leg.amount);
+        const drawer = paymentMethodToDrawerName(leg.method);
+        insertPaymentRow(this.db, {
+          transactionId,
+          method: leg.method,
+          drawerName: drawer,
+          currencyCode: leg.currency_code,
+          amount: -amt,
+          note: noteText,
+          createdBy: opts.cancelledBy,
+          tenantId,
+        });
+        applyDrawerDelta(this.db, {
+          drawerName: drawer,
+          currencyCode: leg.currency_code,
+          delta: -amt,
+          tenantId,
+        });
+      }
+
+      return {
+        voucher: this.findByIdOrFail(id),
+        transactionId,
+        refunded: { cash: refundedCash, toAccount: totals.onAccount },
+      };
+    })();
   }
 
   /**
@@ -258,7 +860,7 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
    * Throws an Error with a user-facing message when the voucher cannot be redeemed.
    */
   redeemByCode(params: RedeemVoucherParams): VoucherEntity {
-    const { code, context, transactionId, userId, day } = params;
+    const { code, context, transactionId, userId, day, sessionId } = params;
 
     const voucher = this.db
       .prepare(
@@ -295,10 +897,19 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
       .prepare(
         `UPDATE vouchers
          SET status = 'redeemed', redeemed_at = ?, redeemed_by = ?,
-             redeemed_in_transaction = ?, redeemed_transaction_id = ?, updated_at = CURRENT_TIMESTAMP
+             redeemed_in_transaction = ?, redeemed_transaction_id = ?,
+             redeemed_session_id = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ? AND tenant_id = ?`,
       )
-      .run(requestNow(), userId, context, transactionId, voucher.id, getCurrentTenantId());
+      .run(
+        requestNow(),
+        userId,
+        context,
+        transactionId,
+        sessionId ?? null,
+        voucher.id,
+        getCurrentTenantId(),
+      );
 
     return this.findByIdOrFail(voucher.id);
   }
@@ -332,7 +943,7 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
         `UPDATE vouchers
             SET status = 'pending', redeemed_at = NULL, redeemed_by = NULL,
                 redeemed_in_transaction = NULL, redeemed_transaction_id = NULL,
-                updated_at = CURRENT_TIMESTAMP
+                redeemed_session_id = NULL, updated_at = CURRENT_TIMESTAMP
           WHERE redeemed_transaction_id = ? AND status = 'redeemed' AND tenant_id = ?
             AND EXISTS (
               SELECT 1 FROM debt_ledger d

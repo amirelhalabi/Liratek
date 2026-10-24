@@ -9,7 +9,22 @@ import {
   Calendar,
   Loader2,
 } from "lucide-react";
-import { PageHeader, DecimalInput, useApi } from "@liratek/ui";
+import {
+  PageHeader,
+  DecimalInput,
+  useApi,
+  MultiPaymentInput,
+  canChargeToCustomerAccount,
+  type PaymentLine,
+} from "@liratek/ui";
+import { usePaymentMethods } from "@/hooks/usePaymentMethods";
+import { useSellRate } from "@/hooks/useSellRate";
+import { VoucherCancelSheet } from "../../components/VoucherCancelSheet";
+import {
+  legsCover,
+  toVoucherSaleLegs,
+  voucherSaleMethodOptions,
+} from "../../utils/voucherLegs";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import type { Voucher } from "@/types/electron";
 import { localDay } from "@/shared/utils/localDay";
@@ -45,6 +60,10 @@ export function VouchersPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const api = useApi();
+  // Rule 25 — effects read `api` through a ref so a churning useApi()
+  // identity never re-fires them (pattern: FeatureFlagContext.tsx).
+  const apiRef = useRef(api);
+  apiRef.current = api;
   const { t } = useTranslation(["vouchers", "common"]);
   const { formatNumber } = useFormat();
   const formatVoucherAmount = (v: Voucher) =>
@@ -72,6 +91,16 @@ export function VouchersPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [createdVoucher, setCreatedVoucher] = useState<Voucher | null>(null);
   const [copied, setCopied] = useState(false);
+  // LIRA-339 — the voucher is SOLD: the shared payment box, as Hold Money's
+  // drop-off uses it. Kept change, round-up and added change stay off.
+  const { methods } = usePaymentMethods();
+  const { buyRate } = useSellRate();
+  const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
+  const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
+  const [effectiveRate, setEffectiveRate] = useState<number | undefined>(
+    undefined,
+  );
+  const [cancelTarget, setCancelTarget] = useState<Voucher | null>(null);
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -82,14 +111,14 @@ export function VouchersPage() {
     // UTC Fly machine, the shop is Beirut UTC+3) — send the browser's own
     // calendar day so a voucher's pending/expired status is never up to 3h
     // out of step with the shop.
-    const result = await api.vouchers.getAll(undefined, localDay());
+    const result = await apiRef.current.vouchers.getAll(undefined, localDay());
     if (result.success) {
       setVouchers(result.vouchers ?? []);
     } else {
       setListError(result.error ?? t("page.loadFailed"));
     }
     setLoading(false);
-  }, [api, t]);
+  }, [t]);
 
   useEffect(() => {
     loadVouchers();
@@ -104,7 +133,7 @@ export function VouchersPage() {
     }
     searchTimer.current = setTimeout(async () => {
       try {
-        const results = await api.getClients(clientQuery);
+        const results = await apiRef.current.getClients(clientQuery);
         setClientResults(results.slice(0, 8) as ClientLite[]);
         setShowResults(true);
       } catch {
@@ -114,7 +143,7 @@ export function VouchersPage() {
     return () => {
       if (searchTimer.current) clearTimeout(searchTimer.current);
     };
-  }, [clientQuery, api]);
+  }, [clientQuery]);
 
   const selectClient = (client: ClientLite) => {
     setSelectedClient(client);
@@ -133,6 +162,8 @@ export function VouchersPage() {
 
   const resetForm = () => {
     clearClient();
+    setPaymentLines([]);
+    setReturnLegs([]);
     setCurrency("USD");
     setAmount("");
     setExpiryDate("");
@@ -177,11 +208,39 @@ export function VouchersPage() {
     };
   };
 
+  const faceValue = parseFloat(amount) || 0;
+  const canChargeAccount = selectedClient
+    ? canChargeToCustomerAccount({
+        name: selectedClient.full_name,
+        phone: selectedClient.phone_number,
+      })
+    : canChargeToCustomerAccount({ name: clientQuery, phone: clientPhone });
+  const saleMethods = voucherSaleMethodOptions(methods, canChargeAccount);
+  const saleRate = effectiveRate ?? buyRate;
+  const saleLegs = toVoucherSaleLegs(paymentLines, returnLegs);
+  const legsAllowed = [...paymentLines, ...returnLegs].every(
+    (l) => !(l.amount > 0) || saleMethods.some((m) => m.code === l.method),
+  );
+  const saleCovered =
+    faceValue > 0 &&
+    legsAllowed &&
+    legsCover(
+      saleLegs,
+      currency === "USD"
+        ? { usd: faceValue, lbp: 0 }
+        : { usd: 0, lbp: faceValue },
+      saleRate,
+    );
+
   const handleSubmit = async () => {
     setFormError(null);
     const amountVal = parseFloat(amount);
     if (!amountVal || amountVal <= 0) {
       setFormError(t("form.errAmount"));
+      return;
+    }
+    if (!saleCovered) {
+      setFormError(t("form.errNotCovered"));
       return;
     }
 
@@ -193,12 +252,15 @@ export function VouchersPage() {
         return;
       }
 
+      // ONE payload (rule 22); the legs are the same ones Save was gated on.
       const result = await api.vouchers.create({
         clientId: resolved.clientId,
         amount: amountVal,
         currency,
         expiryDate: expiryDate || null,
         note: note.trim() || null,
+        payments: saleLegs,
+        ...(saleRate > 0 ? { exchange_rate: saleRate } : {}),
       });
 
       if (result.success && result.voucher) {
@@ -210,23 +272,6 @@ export function VouchersPage() {
       }
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  const handleCancel = async (voucher: Voucher) => {
-    const amtLabel = formatVoucherAmount(voucher);
-    if (
-      !window.confirm(
-        t("list.cancelConfirm", { code: voucher.code, amount: amtLabel }),
-      )
-    ) {
-      return;
-    }
-    const result = await api.vouchers.cancel(voucher.id);
-    if (result.success) {
-      loadVouchers();
-    } else {
-      alert(result.error ?? t("list.cancelFailed"));
     }
   };
 
@@ -251,7 +296,7 @@ export function VouchersPage() {
         <PageHeader title={t("page.title")} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* ─── Create form ─── */}
         <div className="lg:col-span-1">
           <div className="bg-slate-800 rounded-xl border border-slate-700/50 p-5">
@@ -398,6 +443,7 @@ export function VouchersPage() {
                   </span>
                 )}
                 <DecimalInput
+                  data-testid="voucher-amount"
                   value={parseFloat(amount) || 0}
                   onChange={(n) => setAmount(n ? String(n) : "")}
                   className={`w-full bg-slate-900 border border-slate-600 rounded-lg ${currency === "USD" ? "ps-7" : "ps-3"} pe-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500`}
@@ -429,6 +475,7 @@ export function VouchersPage() {
               </label>
               <input
                 type="text"
+                data-testid="voucher-note"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
@@ -436,16 +483,43 @@ export function VouchersPage() {
               />
             </div>
 
+            {/* Payment — what the customer pays for the voucher */}
+            {faceValue > 0 && (
+              <div className="mb-4">
+                <MultiPaymentInput
+                  key={`${currency}-${faceValue}`}
+                  totals={[{ amount: faceValue, currency }]}
+                  side="buy"
+                  currency={currency}
+                  totalAmountCurrency={currency}
+                  onChange={setPaymentLines}
+                  onReturnChange={setReturnLegs}
+                  showDiscount={false}
+                  showPmFee={false}
+                  paymentMethods={saleMethods}
+                  currencies={[
+                    { code: "USD", symbol: "$" },
+                    { code: "LBP", symbol: "LBP" },
+                  ]}
+                  exchangeRate={buyRate}
+                  onExchangeRateChange={setEffectiveRate}
+                  label={t("form.paymentLabel")}
+                />
+              </div>
+            )}
+
             {formError && (
               <p className="text-xs text-red-400 mb-3">{formError}</p>
             )}
 
             <button
               type="button"
+              data-testid="voucher-create-submit"
               onClick={handleSubmit}
               disabled={
                 submitting ||
                 !amount ||
+                !saleCovered ||
                 (!selectedClient &&
                   (!clientQuery.trim() || !clientPhone.trim()))
               }
@@ -463,7 +537,7 @@ export function VouchersPage() {
         </div>
 
         {/* ─── Voucher list ─── */}
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-1">
           <div className="bg-slate-800/60 rounded-xl border border-slate-700/50 p-4">
             <h3 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
               <Gift size={14} className="text-amber-400" />
@@ -547,10 +621,12 @@ export function VouchersPage() {
                     >
                       {t("list.copy")}
                     </button>
-                    {isAdmin && v.status === "pending" && (
+                    {isAdmin &&
+                      (v.status === "pending" || v.status === "expired") && (
                       <button
                         type="button"
-                        onClick={() => handleCancel(v)}
+                        data-testid={`voucher-cancel-${v.id}`}
+                        onClick={() => setCancelTarget(v)}
                         className="text-[10px] px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-300 transition-colors whitespace-nowrap inline-flex items-center gap-1"
                         title={t("list.cancelTitle")}
                       >
@@ -567,6 +643,13 @@ export function VouchersPage() {
           </div>
         </div>
       </div>
+      {cancelTarget && (
+        <VoucherCancelSheet
+          voucher={cancelTarget}
+          onClose={() => setCancelTarget(null)}
+          onCancelled={loadVouchers}
+        />
+      )}
     </div>
   );
 }

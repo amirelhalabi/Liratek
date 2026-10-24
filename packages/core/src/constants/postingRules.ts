@@ -1419,6 +1419,11 @@ export const POSTING_RULE_EXCLUSIONS: Readonly<
   EXPENSE_IPICK: "todo-phase5",
   EXPENSE_WHISH_APP: "todo-phase5",
   HOLD_MONEY: "todo-phase5",
+  // LIRA-339 — voucher sale (drawer legs in + 'Voucher Debt') and cancel
+  // (payout legs out + 'Refund Reversal'); guarded by VoucherRepository
+  // sale/cancelRefund tests until a posting rule is written.
+  VOUCHER_SALE: "todo-phase5",
+  VOUCHER_CANCEL: "todo-phase5",
   DEBT_REPAYMENT: "todo-phase5",
   CREDIT_CASH_OUT: "todo-phase5",
   CREDIT_CASH_IN: "todo-phase5",

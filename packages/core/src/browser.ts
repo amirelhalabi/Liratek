@@ -133,6 +133,9 @@ export * from "./constants/drawerModules.js";
 // CHECKPOINT_ADJUSTMENT_METHOD from here to label a checkpoint leg's drawer
 // (rule 14) instead of retyping the literal ClosingRepository posts it with.
 export * from "./constants/checkpointAdjustment.js";
+// LIRA-339 — the payment-leg reconciliation tolerance, shared with screens
+// that pre-check coverage (Node-free leaf, rule 29).
+export * from "./constants/legReconciliation.js";
 
 // LIRA-335 — checkpoint open differences: the one status derivation
 // (pure leaf, no imports beyond constants), shared by core and the timeline.
@@ -218,6 +221,7 @@ export * from "./constants/omtAppCashout.js";
 // imports (rule 29); useTransactionRows.ts's client twin reads it.
 export * from "./constants/paidViaDrawer.js";
 export * from "./constants/paidViaAccount.js";
+export * from "./constants/paidViaVoucher.js";
 
 // OMT / WHISH fee tables and commission rates (LIRA-185 display lead 11) —
 // pure data + arithmetic, no Node.js deps (rule 29: both files are leaves).

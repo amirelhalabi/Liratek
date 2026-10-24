@@ -95,6 +95,8 @@ const EXACT: ReadonlyMap<string, ExactTitleKey> = new Map(
       ["Financial Service", "financialService"],
       ["Recharge", "recharge"],
       ["Recharge Topup", "rechargeTopup"],
+      ["Voucher sold", "voucherSold"],
+      ["Voucher cancelled", "voucherCancelled"],
     ] as const
   ).map(([en, key]): [string, ExactTitleKey] => [norm(en), key]),
 );

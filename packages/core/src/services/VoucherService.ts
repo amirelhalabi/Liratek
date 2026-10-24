@@ -9,9 +9,14 @@
 import {
   VoucherRepository,
   getVoucherRepository,
+  type UsdLbp,
   type VoucherEntity,
   type VoucherFilters,
 } from "../repositories/VoucherRepository.js";
+import type {
+  VoucherCancelInput,
+  VoucherPaymentLegInput,
+} from "../validators/voucher.js";
 import { getClientRepository } from "../repositories/ClientRepository.js";
 import { voucherLogger } from "../utils/logger.js";
 
@@ -25,12 +30,26 @@ export interface CreateVoucherInput {
   currency?: string;
   expiryDate?: string | null;
   note?: string | null;
+  /** LIRA-339 — the tender legs; omitted → one CASH leg for the face value. */
+  payments?: VoucherPaymentLegInput[];
+  /** The cashier's tender rate (LBP per USD). */
+  exchange_rate?: number;
+  /** Optional back-time, same rule as Hold Money. */
+  transaction_time?: string;
 }
 
 export interface VoucherResult {
   success: boolean;
   voucher?: VoucherEntity;
+  /** LIRA-339 — the VOUCHER_SALE / VOUCHER_CANCEL row written. */
+  transactionId?: number;
   error?: string;
+}
+
+export interface VoucherCancelResult extends VoucherResult {
+  /** What went back: the cash part through the payout legs, the on-account
+   *  part to the customer's account. */
+  refunded?: { cash: UsdLbp; toAccount: UsdLbp };
 }
 
 export interface VoucherListResult {
@@ -82,23 +101,35 @@ export class VoucherService {
       }
 
       const code = this.repo.generateUniqueCode();
-      const voucher = this.repo.createVoucher({
-        code,
-        client_id: client.id,
-        client_name: client.full_name,
-        client_phone: client.phone_number ?? null,
-        amount: input.amount,
-        currency_code: input.currency ?? "USD",
-        expiry_date: input.expiryDate ?? null,
-        note: input.note ?? null,
-        created_by: createdBy,
-      });
+      const { voucher, transactionId } = this.repo.sellVoucher(
+        {
+          code,
+          client_id: client.id,
+          client_name: client.full_name,
+          client_phone: client.phone_number ?? null,
+          amount: input.amount,
+          currency_code: input.currency ?? "USD",
+          expiry_date: input.expiryDate ?? null,
+          note: input.note ?? null,
+          created_by: createdBy,
+        },
+        input.payments ?? [],
+        {
+          exchangeRate: input.exchange_rate,
+          transactionTime: input.transaction_time,
+        },
+      );
 
       voucherLogger.info(
-        { voucherId: voucher.id, code: voucher.code, clientId: client.id },
-        `Voucher ${voucher.code} created ($${voucher.amount})`,
+        {
+          voucherId: voucher.id,
+          code: voucher.code,
+          clientId: client.id,
+          transactionId,
+        },
+        `Voucher ${voucher.code} sold (${voucher.amount} ${voucher.currency_code})`,
       );
-      return { success: true, voucher };
+      return { success: true, voucher, transactionId };
     } catch (error) {
       voucherLogger.error({ error, input }, "createVoucher failed");
       return { success: false, error: (error as Error).message };
@@ -160,8 +191,19 @@ export class VoucherService {
   // Cancel
   // ---------------------------------------------------------------------------
 
-  cancelVoucher(id: number, cancelledBy: number): VoucherResult {
+  /**
+   * LIRA-339 — cancel a pending voucher and refund its sale, leg by leg
+   * (`VoucherRepository.cancelWithRefund`). `input` is `{}` when the caller
+   * sent nothing: the cash part is then refunded in cash.
+   */
+  cancelVoucher(
+    id: number,
+    input: VoucherCancelInput,
+    cancelledBy: number,
+  ): VoucherCancelResult {
     try {
+      // Stored status, not the effective one: an expired-but-pending
+      // voucher is still refundable.
       const existing = this.repo.findById(id);
       if (!existing) {
         return { success: false, error: "Voucher not found" };
@@ -172,15 +214,20 @@ export class VoucherService {
           error: `Only pending vouchers can be cancelled (this one is ${existing.status})`,
         };
       }
-      const voucher = this.repo.cancel(id, cancelledBy);
-      if (!voucher) {
-        return { success: false, error: "Failed to cancel voucher" };
-      }
+      const { voucher, transactionId, refunded } = this.repo.cancelWithRefund(
+        id,
+        input.payments ?? [],
+        {
+          cancelledBy,
+          exchangeRate: input.exchange_rate,
+          clientDay: input.client_day,
+        },
+      );
       voucherLogger.info(
-        { voucherId: id, cancelledBy },
+        { voucherId: id, cancelledBy, transactionId, refunded },
         `Voucher ${voucher.code} cancelled`,
       );
-      return { success: true, voucher };
+      return { success: true, voucher, transactionId, refunded };
     } catch (error) {
       voucherLogger.error({ error, id }, "cancelVoucher failed");
       return { success: false, error: (error as Error).message };

@@ -256,6 +256,18 @@ export const TRANSACTION_PRESENTATION: Record<
     direction: TRANSACTION_CASH_DIRECTION.HOLD_MONEY_COLLECT_VOID,
   },
 
+  // ── Vouchers (LIRA-339) ───────────────────────────────────────────────
+  VOUCHER_SALE: {
+    label: TRANSACTION_TYPE_LABELS.VOUCHER_SALE,
+    color: "text-pink-400",
+    direction: TRANSACTION_CASH_DIRECTION.VOUCHER_SALE,
+  },
+  VOUCHER_CANCEL: {
+    label: TRANSACTION_TYPE_LABELS.VOUCHER_CANCEL,
+    color: "text-pink-300",
+    direction: TRANSACTION_CASH_DIRECTION.VOUCHER_CANCEL,
+  },
+
   // ── Debt & supplier & partner ─────────────────────────────────────────
   DEBT_REPAYMENT: { label: TRANSACTION_TYPE_LABELS.DEBT_REPAYMENT, color: "text-emerald-400", direction: TRANSACTION_CASH_DIRECTION.DEBT_REPAYMENT},
   CREDIT_CASH_OUT: {

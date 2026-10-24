@@ -26,6 +26,10 @@ Source of each field: `docs/plans/ongoing_plans/TRANSACTION_DETAIL_AUDIT.md` §2
 
 `action` (CREATE | COLLECT | VOID_PICKUP), `notes`.
 
+### Vouchers: `voucher` (added by LIRA-339)
+
+`action`_ (SALE | CANCEL), `code`_, `note`, `legacy` (a cancel of a voucher made before sales took money).
+
 ### MTC / Alfa: `telecom_recharge`
 
 `carrier`_ (MTC | ALFA), `type`_ (CREDIT_TRANSFER | DAYS | SHOP_LINE_USE | ALFA_GIFT), `phone`, `amount`, `days`, `carrierLineId`, `defaultPrice`, `typed {costUsd, priceUsd}` (Days), `giftTier {key, label}` (Alfa Gift), `smsExpenseTxnId`.

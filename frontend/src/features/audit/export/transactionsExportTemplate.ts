@@ -175,6 +175,7 @@ const KEY_FIELDS: Record<TransactionDetailsKind, readonly string[]> = {
   ],
   custom_service: ["description", "partner"],
   hold_money: ["action", "notes"],
+  voucher: ["action", "code", "note"],
   telecom_recharge: ["carrier", "type", "phone"],
   telecom_buyback: ["carrier", "credits", "phone"],
   catalog_sale: ["provider", "items"],

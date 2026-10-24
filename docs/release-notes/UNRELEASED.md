@@ -89,6 +89,11 @@ Paying out and short of coins? Hand over a little more (for example $103.00 on $
 
 Right after a sale, the POS shows "Sale completed" with a Send on WhatsApp button, and every past sale's details have the same button next to Print. WhatsApp opens on the customer's chat with the receipt already written, and you press Send. No number on the sale? Type one for that send only. It costs nothing per message.
 
+### Gift cards are now paid for
+
+On the Vouchers page, creating a gift card now asks how the customer pays: cash, a wallet, or the customer's account, with change handed back as usual. The money goes into the drawer. Cancelling a gift card that was not used opens a window that refunds what the customer paid. Both show on the Transactions page.
+![Vouchers page: a $25 gift card paid in cash](whats-new/1.35.0/voucher-sale.png)
+
 ## 🛒 POS
 
 - After a sale, and from any past sale's details, you can now send the receipt to the customer on WhatsApp. WhatsApp opens on their chat with the receipt already written; you press Send. Works on the desktop app and the web app.
@@ -234,6 +239,7 @@ Right after a sale, the POS shows "Sale completed" with a Send on WhatsApp butto
 
 ## 🧾 Transactions
 
+- Transactions: a new Vouchers filter group shows gift card sales, gift card cancellations, and sales paid with a gift card.
 - Transactions: the Method column now shows how the main money moved: what the customer paid with on a sale, how they were paid on a payout (for example an OMT or Whish receive). Change handed back and fees no longer count. Items paid in a customer session show the session (for example "Session #42").
 - Transactions: exports are now easy to read (before, they could come out with empty cells). The Excel file opens on a Summary sheet: the period, your filters, who exported it and when, money in, out and net for each currency, and a count per type. The Transactions sheet has one row per transaction, with In and Out columns for each currency that Excel can add up, a totals row, the status and a few key details. The header stays in view when you scroll, and every column can be filtered. Two more sheets list every payment line (paid, change returned or received, change kept, refunds) and every saved detail. The PDF is a report grouped by day with each day's totals: each transaction on a bold line with its key details under it, money in green and money out red, voided ones struck through. In and Out add up the cash and wallet payments of the exported transactions, so a $823 sale paid with $700 and Lebanese pounds shows the $700 and the pounds. Money in other currencies, such as the euros of an exchange or USDT, is listed on the Payments sheet but not in these columns. Costs are included for admins only. Other pages' exports are unchanged.
 - Transactions: the Ret. Credits, Status and Reverses columns are gone from the table. A voided or refunded row, a reversal, and credits returned on an Only Days sale now show as a small tag in the summary, and all three are listed in Details. The Excel export has the status in its own column, and the reversal and credits in the key details.
@@ -261,6 +267,10 @@ Right after a sale, the POS shows "Sale completed" with a Send on WhatsApp butto
 - A Binance send or cash-out, an OMT App or Whish App transfer, and iPick, Katsh or Whish App items added to a customer session now keep the custom time you set on them. Before, that time was ignored and they were saved at checkout time.
 - The session window under the top-bar session button now opens only when you click the button, and closes when you click it again, click anywhere else, or press Escape. Moving the pointer over the top bar no longer opens it, so it can't cover the page by accident (for example the MTC / Alfa / iPick tabs on Mobile Recharge). To start a new session or switch to another one, use the small arrow next to the session button.
 - Mobile Recharge, MTC and Alfa Credit: in a customer session, the phone number now starts filled with the session customer's phone. A number you type is never replaced.
+
+## 🎁 Vouchers
+
+- Vouchers: from now on, selling a gift card takes payment (cash, a wallet, or the customer's account) and puts the money in the drawer. Cancelling an unused gift card refunds the customer: the cash part back from the drawer and the account part taken off their account. Gift cards created before this update were not paid for, so cancelling them refunds nothing.
 
 ## 👥 Clients
 

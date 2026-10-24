@@ -59,6 +59,9 @@ export const TRANSACTION_CASH_DIRECTION: Record<
   HOLD_MONEY: null,
   HOLD_MONEY_COLLECT: null,
   HOLD_MONEY_COLLECT_VOID: "in",
+  // LIRA-339: a voucher sale takes money in; a cancel pays it back.
+  VOUCHER_SALE: "in",
+  VOUCHER_CANCEL: "out",
   DEBT_REPAYMENT: "in",
   CREDIT_CASH_OUT: "out",
   CREDIT_CASH_IN: "in",

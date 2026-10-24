@@ -31,6 +31,7 @@
     "Suppliers": "Suppliers",
     "Partners": "Partners",
     "Debts": "Debts",
+    "Vouchers": "Vouchers",
     "Expenses": "Expenses",
     "Other": "Other"
   },
@@ -115,7 +116,9 @@
       "clientDeleted": "Client Deleted",
       "financialService": "Financial Service",
       "recharge": "Recharge",
-      "rechargeTopup": "Recharge Topup"
+      "rechargeTopup": "Recharge Topup",
+      "voucherSold": "Voucher sold",
+      "voucherCancelled": "Voucher cancelled"
     },
     "provider": {
       "omtSystem": "OMT System",
@@ -223,7 +226,9 @@
     "CARRIER_LINE_ADJUSTMENT": "Correct this by editing the carrier line again from the MTC/Alfa page — a hand-edit is a standing correction, not something to reverse.",
     "CLIENT_CREATED": "This is a client-record audit entry, not a money transaction — there's nothing to refund.",
     "CLIENT_UPDATED": "This is a client-record audit entry, not a money transaction — there's nothing to refund.",
-    "CLIENT_DELETED": "This is a client-record audit entry, not a money transaction — there's nothing to refund."
+    "CLIENT_DELETED": "This is a client-record audit entry, not a money transaction — there's nothing to refund.",
+    "VOUCHER_SALE": "Cancel the voucher from the Vouchers page — that refunds the customer and records the cancellation.",
+    "VOUCHER_CANCEL": "A voucher cancel is final — it can't be refunded or voided. Sell a new voucher from the Vouchers page if needed."
   },
   "confirm": {
     "void": "Void this transaction? This cannot be undone.",

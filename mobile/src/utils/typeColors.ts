@@ -60,6 +60,9 @@ const TYPE_COLORS: Record<TransactionType, string> = {
   HOLD_MONEY: ORANGE,
   HOLD_MONEY_COLLECT: ORANGE,
   HOLD_MONEY_COLLECT_VOID: ORANGE,
+  // LIRA-339: gift-card sales and cancels share the Hold Money colour (money held for a customer).
+  VOUCHER_SALE: ORANGE,
+  VOUCHER_CANCEL: ORANGE,
   DEBT_REPAYMENT: EMERALD,
   CREDIT_CASH_OUT: SLATE,
   CREDIT_CASH_IN: EMERALD,

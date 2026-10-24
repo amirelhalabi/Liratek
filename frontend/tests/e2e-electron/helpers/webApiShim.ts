@@ -396,6 +396,10 @@ function webApiShimBody(): void {
     "exchange.addTransaction": async ([payload]) =>
       rest("POST", "/api/exchange/transactions", payload),
     "vouchers.create": async ([data]) => rest("POST", "/api/vouchers", data),
+    // LIRA-339 — the second arg (refund legs / rate / shop day) IS the body,
+    // exactly as backendApi.vouchersCancel sends it.
+    "vouchers.cancel": async ([id, data]) =>
+      rest("POST", `/api/vouchers/${id}/cancel`, data ?? {}),
     // ── LIRA-297 batch B1 — END ──
     // ── LIRA-297 batch B2 — BEGIN (edit only inside your own block) ──
     // Suppliers / settlement / OMT open-credit account. Paths are the

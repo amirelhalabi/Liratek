@@ -26,7 +26,9 @@
     "errPhone": "Enter a phone number for the new client",
     "errCreateClient": "Failed to create client",
     "errAmount": "Enter a valid amount greater than zero",
-    "errCreate": "Failed to create voucher"
+    "errCreate": "Failed to create voucher",
+    "paymentLabel": "Customer pays",
+    "errNotCovered": "The payment does not cover the voucher amount"
   },
   "list": {
     "heading": "Vouchers ({{n}})",
@@ -34,9 +36,17 @@
     "copy": "Copy",
     "copyCode": "Copy code",
     "cancelTitle": "Cancel voucher",
-    "cancelConfirm": "Cancel voucher {{code}} ({{amount}})? This cannot be undone.",
     "cancelFailed": "Failed to cancel voucher",
     "expires": "expires {{date}}",
     "noExpiry": "no expiry"
+  },
+  "cancel": {
+    "title": "Cancel voucher",
+    "noRefund": "No refund: this voucher was not sold",
+    "toAccount": "{{amount}} back to the customer's account",
+    "paidBackVia": "Pay back {{amount}} via",
+    "handBack": "Hand back",
+    "processing": "Cancelling...",
+    "confirm": "Cancel and refund"
   }
 }

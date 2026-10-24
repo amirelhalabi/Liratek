@@ -62,6 +62,10 @@ const RANGE_TO = "2999-12-31 23:59:59";
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
   db.exec(`
+    CREATE TABLE vouchers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, code TEXT,
+      status TEXT, redeemed_transaction_id INTEGER, redeemed_session_id INTEGER
+    );
     CREATE TABLE transactions (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
       type          TEXT NOT NULL,

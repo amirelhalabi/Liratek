@@ -3,6 +3,7 @@ import {
   DEFAULT_HIDDEN_TRANSACTION_TYPES,
   PAID_VIA_ACCOUNT_OWN_TUPLES,
   PAID_VIA_DRAWER_OWN_TUPLES,
+  PAID_VIA_VOUCHER_OWN_TUPLES,
   localDayOfUtcTimestamp,
 } from "@liratek/core";
 import {
@@ -76,6 +77,10 @@ export type TransactionRow = {
    *  customer account in `debt_ledger` — what the Debts filter options also
    *  show. Optional for rows from an older backend (reads as not linked). */
   paid_via_account?: boolean;
+  /** Server-computed (LIRA-339): this row (or its session basket) was paid
+   *  with a voucher — what the Vouchers filter options also show. Optional
+   *  for rows from an older backend (reads as not paid with a voucher). */
+  paid_via_voucher?: boolean;
   // note 21d: the ACTIVE REFUND row's id that reverses THIS row, or null.
   // The original row stays status=ACTIVE/reverses_id=null after a refund
   // (deliberate — see TransactionRepository), so this is the ONLY signal
@@ -244,6 +249,20 @@ function isPaidViaOptionAccount(
 }
 
 /**
+ * Client twin of `getRecent`'s paid-via-voucher route (LIRA-339): a Vouchers
+ * option also shows rows paid with a voucher, except the Vouchers group's own
+ * rows (core's `PAID_VIA_VOUCHER_OWN_TUPLES`). The link is the server's
+ * `paid_via_voucher` flag.
+ */
+function isPaidViaOptionVoucher(
+  row: TransactionRow,
+  option: FilterOption,
+): boolean {
+  if (!option.paid_via_voucher || row.paid_via_voucher !== true) return false;
+  return !PAID_VIA_VOUCHER_OWN_TUPLES.some((t) => matchesTypeTuple(row, t));
+}
+
+/**
  * Whether ONE row should be visible under ONE selected filter option — every
  * rule for that single option ANDed together (its type tuple, the D2
  * SUPPLIER_PAYMENT/EXPENSE auto-row hide, the Cash Only leg check). The
@@ -259,7 +278,8 @@ function isRowVisibleForOption(
   if (
     !matchesTypeTuple(row, option) &&
     !isPaidViaOptionDrawer(row, option) &&
-    !isPaidViaOptionAccount(row, option)
+    !isPaidViaOptionAccount(row, option) &&
+    !isPaidViaOptionVoucher(row, option)
   ) {
     return false;
   }
@@ -462,6 +482,7 @@ export function useTransactionRows({
               // rows paid through it (isPaidViaOptionDrawer is the twin).
               paid_via_drawer: o.paid_via_drawer,
               paid_via_account: o.paid_via_account,
+              paid_via_voucher: o.paid_via_voucher,
             }) as TypeFilterTuple,
         );
       if (

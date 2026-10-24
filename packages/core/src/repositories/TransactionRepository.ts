@@ -57,6 +57,8 @@ import {
   type PaidViaDrawer,
 } from "../constants/paidViaDrawer.js";
 import { PAID_VIA_ACCOUNT_OWN_TUPLES } from "../constants/paidViaAccount.js";
+import { PAID_VIA_VOUCHER_OWN_TUPLES } from "../constants/paidViaVoucher.js";
+import { insertDebtRefundReversal } from "./debtReversal.js";
 import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
 import { getRateRepository } from "./RateRepository.js";
 import { requestNow } from "../utils/requestNow.js";
@@ -1165,6 +1167,38 @@ function buildPaidViaAccountCondition(
 }
 
 /**
+ * LIRA-339 — the "paid with a gift card" test behind the Vouchers Type-filter
+ * options (`constants/paidViaVoucher.ts`): the row's id is a voucher's
+ * `redeemed_transaction_id`, or its session basket is a voucher's
+ * `redeemed_session_id` (stamped from v224 on). ONE fragment (rule 14), used
+ * both for the row's `paid_via_voucher` column and the filter — the twin of
+ * `accountLinkedSql`. Params pushed in SQL order.
+ */
+function voucherLinkedSql(tenantId: number, params: unknown[]): string {
+  params.push(tenantId, tenantId);
+  return `(t.id IN (SELECT v.redeemed_transaction_id FROM vouchers v
+                     WHERE v.tenant_id = ? AND v.redeemed_transaction_id IS NOT NULL)
+        OR cst.session_id IN (SELECT v.redeemed_session_id FROM vouchers v
+                     WHERE v.tenant_id = ? AND v.redeemed_session_id IS NOT NULL))`;
+}
+
+/**
+ * The voucher half of a `paid_via_voucher` tuple: paid with a voucher AND
+ * not one of the Vouchers group's own rows (those show only through their
+ * own tuple). IFNULL for the same reason as buildPaidViaAccountCondition.
+ */
+function buildPaidViaVoucherCondition(
+  tenantId: number,
+  params: unknown[],
+): string {
+  const linked = voucherLinkedSql(tenantId, params);
+  const ownGroups = PAID_VIA_VOUCHER_OWN_TUPLES.map((tuple) =>
+    buildTypeTupleConditions(tuple, params),
+  ).map((tupleConditions) => `(${tupleConditions.join(" AND ")})`);
+  return `(${linked} AND NOT IFNULL((${ownGroups.join(" OR ")}), 0))`;
+}
+
+/**
  * LIRA-323 — the "paid through this wallet" half of a `paid_via_drawer`
  * tuple: TRUE when the row (or, for a session-basket member, its basket)
  * has at least one payment leg in `drawer` that is VISIBLE in payment
@@ -1368,6 +1402,13 @@ export interface TransactionWithUser extends TransactionEntity {
    * client twin reads this flag instead of re-deriving it.
    */
   paid_via_account: boolean;
+  /**
+   * LIRA-339 — true when THIS row (or its session basket) was paid with a
+   * gift card — the voucher half of the Vouchers Type-filter options
+   * (`constants/paidViaVoucher.ts`). Same `voucherLinkedSql` fragment as the
+   * filter (rule 14).
+   */
+  paid_via_voucher: boolean;
   /**
    * Coordinator follow-up (2026-09-27) — true when THIS row belongs to a
    * session basket where EVERY member has already been reversed (item by
@@ -1913,6 +1954,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           if (tuple.paid_via_account) {
             extra.push(buildPaidViaAccountCondition(tenantId, params));
           }
+          // LIRA-339 — Vouchers options also match rows paid with a voucher.
+          if (tuple.paid_via_voucher) {
+            extra.push(
+              buildPaidViaVoucherCondition(tenantId, params),
+            );
+          }
           if (extra.length === 0) return own;
           return `(${[own, ...extra].join(" OR ")})`;
         })
@@ -1975,6 +2022,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
               cst.amount_usd AS cst_amount_usd,
               cst.amount_lbp AS cst_amount_lbp,
               ${accountLinkedSql(tenantId, selectParams)} AS paid_via_account,
+              ${voucherLinkedSql(tenantId, selectParams)} AS paid_via_voucher,
               (SELECT r.id FROM transactions r
                 WHERE r.reverses_id = t.id
                   AND r.type = 'REFUND'
@@ -2031,6 +2079,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       return {
         ...rest,
         paid_via_account: Boolean(row.paid_via_account),
+        paid_via_voucher: Boolean(row.paid_via_voucher),
         is_session_payout:
           isSessionPayout &&
           this._isNettedSessionPayoutMember(payoutCandidate, row.id),
@@ -9260,23 +9309,17 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       tenantId,
     );
 
-    const insertReversal = this.db.prepare(`
-      INSERT INTO debt_ledger (
-        client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, tenant_id, created_at
-      ) VALUES (?, 'Refund Reversal', ?, ?, ?, 'Debt cancelled by refund/void', ?, ?, ?)
-    `);
-
+    // LIRA-339 — the ONE 'Refund Reversal' insert, shared with the voucher
+    // cancel (rule 14). Same columns, note and requestNow() stamp as before.
     for (const d of debts) {
-      insertReversal.run(
-        d.client_id,
-        -d.amount_usd,
-        -d.amount_lbp,
-        originalTxnId,
-        userId,
+      insertDebtRefundReversal(this.db, {
+        clientId: d.client_id,
+        amountUsd: d.amount_usd,
+        amountLbp: d.amount_lbp,
+        transactionId: originalTxnId,
+        createdBy: userId,
         tenantId,
-        // LIRA-306 FR-021: the event time on an offline replay.
-        requestNow(),
-      );
+      });
     }
 
     // LIRA-258 / G37 — a gift card redeemed in this transaction: its deposit

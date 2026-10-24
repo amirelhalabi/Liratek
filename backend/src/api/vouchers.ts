@@ -4,6 +4,8 @@ import { validateRequest } from "../middleware/validation.js";
 import {
   getVoucherService,
   voucherCreateSchema,
+  voucherCancelSchema,
+  type VoucherCancelInput,
   type VoucherFilters,
 } from "@liratek/core";
 import type { AuthRequest } from "../middleware/auth.js";
@@ -95,14 +97,24 @@ router.post("/validate", writeGate, (req, res) => {
 });
 
 // POST /api/vouchers/:id/cancel — cancel a voucher (admin-only, userId injected)
-router.post("/:id/cancel", adminGate, (req, res) => {
+// LIRA-339: body = { payments?, exchange_rate?, client_day? } (core
+// voucherCancelSchema, shared with the IPC handler); empty body → cash refund.
+router.post(
+  "/:id/cancel",
+  adminGate,
+  validateRequest(voucherCancelSchema),
+  (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) {
     res.status(400).json({ success: false, error: "Invalid voucher id" });
     return;
   }
   const userId = (req as AuthRequest).user!.userId;
-  const result = getVoucherService().cancelVoucher(id, userId);
+  const result = getVoucherService().cancelVoucher(
+    id,
+    req.body as VoucherCancelInput,
+    userId,
+  );
 
   // Cancelling voids stored value, so this is the voucher event most worth
   // being able to attribute later.
@@ -118,6 +130,7 @@ router.post("/:id/cancel", adminGate, (req, res) => {
   }
 
   res.json(result);
-});
+  },
+);
 
 export default router;

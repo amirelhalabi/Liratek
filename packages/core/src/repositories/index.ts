@@ -121,6 +121,12 @@ export type {
   CreateVoucherData,
   VoucherFilters,
   RedeemVoucherParams,
+  UsdLbp,
+  VoucherSaleTotals,
+  SellVoucherOptions,
+  SellVoucherResult,
+  CancelWithRefundOptions,
+  CancelWithRefundResult,
 } from "./VoucherRepository.js";
 
 // Exchange Repository

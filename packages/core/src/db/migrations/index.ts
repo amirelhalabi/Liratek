@@ -15032,6 +15032,35 @@ CREATE INDEX IF NOT EXISTS idx_resale_line_give_backs_line ON resale_line_give_b
       db.exec(`DROP INDEX IF EXISTS idx_resale_line_give_backs_line;
 DROP TABLE IF EXISTS resale_line_give_backs;`);
     },
+  },  {
+    version: 224,
+    name: "vouchers_redeemed_session_id",
+    description:
+      "LIRA-339: vouchers.redeemed_session_id — the customer session a " +
+      "voucher was redeemed in at session checkout (that redemption has no " +
+      "single transaction, so redeemed_transaction_id stays NULL). Read by " +
+      "the Transactions page's Vouchers filter (paid_via_voucher). No " +
+      "backfill: earlier basket redemptions stay undetectable by design.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // Guarded: minimal test schemas may have no vouchers table.
+      if (!tableExists(db, "vouchers")) return;
+      if (!columnExists(db, "vouchers", "redeemed_session_id")) {
+        db.exec(`ALTER TABLE vouchers ADD COLUMN redeemed_session_id INTEGER`);
+      }
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_vouchers_redeemed_session ON vouchers(tenant_id, redeemed_session_id)`,
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP INDEX IF EXISTS idx_vouchers_redeemed_session`);
+      if (
+        tableExists(db, "vouchers") &&
+        columnExists(db, "vouchers", "redeemed_session_id")
+      ) {
+        db.exec(`ALTER TABLE vouchers DROP COLUMN redeemed_session_id`);
+      }
+    },
   },
 ];
 

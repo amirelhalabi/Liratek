@@ -21,6 +21,9 @@ import type {
   LotoCheckpointsSettleBatchPayload,
   // LIRA-262 — "shop used its own stock" expense payload (rule 21).
   CreateStockExpenseInput,
+  // LIRA-339 — voucher sale legs / cancel refund payloads (rule 21).
+  VoucherCreatePayload,
+  VoucherCancelPayload,
   // Manual expense payload — bill + cash lines + change back (rule 21).
   CreateExpenseRequest,
   // Rule 21 — session:checkout and custom-services:add payloads.
@@ -480,13 +483,8 @@ contextBridge.exposeInMainWorld("api", {
 
   // Vouchers (Gift Cards)
   vouchers: {
-    create: (data: {
-      clientId: number;
-      amount: number;
-      currency?: "USD" | "LBP";
-      expiryDate?: string | null;
-      note?: string | null;
-    }) => ipcRenderer.invoke("voucher:create", data),
+    create: (data: VoucherCreatePayload) =>
+      ipcRenderer.invoke("voucher:create", data),
     /** `day` is the CLIENT's own local calendar day (`YYYY-MM-DD`, e.g. the
      *  frontend's `localDay()`) — the server can't be trusted to know the
      *  shop's timezone (web deploys run on a UTC machine while the shop is
@@ -496,7 +494,10 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("voucher:get-all", filters, day),
     validate: (code: string, day?: string) =>
       ipcRenderer.invoke("voucher:validate", code, day),
-    cancel: (id: number) => ipcRenderer.invoke("voucher:cancel", id),
+    /** LIRA-339: `data` = payout legs for the cash part, tender rate and the
+     *  shop's own day. Omitted → cash refund (fallback leg). */
+    cancel: (id: number, data?: VoucherCancelPayload) =>
+      ipcRenderer.invoke("voucher:cancel", id, data),
   },
 
   // Financial

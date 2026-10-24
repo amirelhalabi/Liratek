@@ -27,6 +27,7 @@ function makeVoucher(overrides: Record<string, unknown> = {}) {
     redeemed_by: null,
     redeemed_in_transaction: null,
     redeemed_transaction_id: null,
+    redeemed_session_id: null,
     cancelled_at: null,
     cancelled_by: null,
     note: null,
@@ -56,11 +57,11 @@ describe("VoucherService", () => {
   beforeEach(() => {
     resetAllMocks();
     mockRepo = {
-      createVoucher: jest.fn(),
+      sellVoucher: jest.fn(),
       getByCode: jest.fn(),
       getAll: jest.fn(),
       generateUniqueCode: jest.fn(() => "GIFT-ABCD-1234"),
-      cancel: jest.fn(),
+      cancelWithRefund: jest.fn(),
       findById: jest.fn(),
       redeemByCode: jest.fn(),
     } as unknown as jest.Mocked<VoucherRepository>;
@@ -71,19 +72,35 @@ describe("VoucherService", () => {
   describe("createVoucher", () => {
     it("creates a voucher for a valid client and amount", () => {
       primeClientLookup({ id: 7, full_name: "Jane", phone_number: "111" });
-      mockRepo.createVoucher.mockReturnValue(makeVoucher() as never);
+      mockRepo.sellVoucher.mockReturnValue({
+        voucher: makeVoucher(),
+        transactionId: 41,
+      } as never);
+      const payments = [
+        { method: "CASH" as const, currency_code: "USD" as const, amount: 20 },
+      ];
 
-      const result = service.createVoucher({ clientId: 7, amount: 20 }, 1);
+      const result = service.createVoucher(
+        { clientId: 7, amount: 20, payments, exchange_rate: 89000 },
+        1,
+      );
 
       expect(result.success).toBe(true);
       expect(result.voucher?.code).toBe("GIFT-ABCD-1234");
+      // LIRA-339: the sale is a money flow — the legs and rate reach the
+      // repository, and the VOUCHER_SALE id comes back.
+      expect(result.transactionId).toBe(41);
+      expect(mockRepo.sellVoucher.mock.calls[0][1]).toEqual(payments);
+      expect(mockRepo.sellVoucher.mock.calls[0][2]).toMatchObject({
+        exchangeRate: 89000,
+      });
       expect(mockRepo.generateUniqueCode).toHaveBeenCalled();
     });
 
     it("rejects a non-positive amount", () => {
       const result = service.createVoucher({ clientId: 7, amount: 0 }, 1);
       expect(result.success).toBe(false);
-      expect(mockRepo.createVoucher).not.toHaveBeenCalled();
+      expect(mockRepo.sellVoucher).not.toHaveBeenCalled();
     });
 
     it("rejects when the client does not exist", () => {
@@ -132,15 +149,27 @@ describe("VoucherService", () => {
   });
 
   describe("cancelVoucher", () => {
-    it("cancels a pending voucher", () => {
+    it("cancels a pending voucher and refunds it ({} = cash part in cash)", () => {
+      const refunded = {
+        cash: { usd: 20, lbp: 0 },
+        toAccount: { usd: 0, lbp: 0 },
+      };
       mockRepo.findById.mockReturnValue(makeVoucher() as never);
-      mockRepo.cancel.mockReturnValue(
-        makeVoucher({ status: "cancelled" }) as never,
-      );
+      mockRepo.cancelWithRefund.mockReturnValue({
+        voucher: makeVoucher({ status: "cancelled" }),
+        transactionId: 42,
+        refunded,
+      } as never);
 
-      const result = service.cancelVoucher(1, 1);
+      const result = service.cancelVoucher(1, {}, 1);
       expect(result.success).toBe(true);
-      expect(mockRepo.cancel).toHaveBeenCalledWith(1, 1);
+      expect(result.transactionId).toBe(42);
+      expect(result.refunded).toEqual(refunded);
+      expect(mockRepo.cancelWithRefund).toHaveBeenCalledWith(1, [], {
+        cancelledBy: 1,
+        exchangeRate: undefined,
+        clientDay: undefined,
+      });
     });
 
     it("refuses to cancel a non-pending voucher", () => {
@@ -148,9 +177,9 @@ describe("VoucherService", () => {
         makeVoucher({ status: "redeemed" }) as never,
       );
 
-      const result = service.cancelVoucher(1, 1);
+      const result = service.cancelVoucher(1, {}, 1);
       expect(result.success).toBe(false);
-      expect(mockRepo.cancel).not.toHaveBeenCalled();
+      expect(mockRepo.cancelWithRefund).not.toHaveBeenCalled();
     });
   });
 });

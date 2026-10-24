@@ -26,7 +26,9 @@
     "errPhone": "أدخل رقم هاتف للزبون الجديد",
     "errCreateClient": "فشل إنشاء الزبون",
     "errAmount": "أدخل مبلغاً صحيحاً أكبر من صفر",
-    "errCreate": "فشل إنشاء القسيمة"
+    "errCreate": "فشل إنشاء القسيمة",
+    "paymentLabel": "الزبون يدفع",
+    "errNotCovered": "الدفعة لا تغطي قيمة القسيمة"
   },
   "list": {
     "heading": "القسائم ({{n}})",
@@ -34,9 +36,17 @@
     "copy": "نسخ",
     "copyCode": "نسخ الرمز",
     "cancelTitle": "إلغاء القسيمة",
-    "cancelConfirm": "إلغاء القسيمة {{code}} ({{amount}})؟ لا يمكن التراجع عن ذلك.",
     "cancelFailed": "فشل إلغاء القسيمة",
     "expires": "تنتهي في {{date}}",
     "noExpiry": "بدون تاريخ انتهاء"
+  },
+  "cancel": {
+    "title": "إلغاء القسيمة",
+    "noRefund": "لا استرداد: هذه القسيمة لم تُبع",
+    "toAccount": "{{amount}} تعود إلى حساب الزبون",
+    "paidBackVia": "إعادة {{amount}} عبر",
+    "handBack": "المبلغ المُعاد",
+    "processing": "جارٍ الإلغاء...",
+    "confirm": "إلغاء واسترداد"
   }
 }

@@ -47,6 +47,7 @@ import {
 import { isDrawerAffectingMethod } from "../utils/payments.js";
 import { requestNow } from "../utils/requestNow.js";
 import { TENDER_RATE_BAND_PCT } from "../constants/tenderRateBand.js";
+import { LEG_RECONCILIATION_EPSILON_USD } from "../constants/legReconciliation.js";
 import { isWithinShortfallMax } from "../validators/exchange.js";
 import {
   ADDED_CHANGE_ACCOUNT_MESSAGE,
@@ -145,9 +146,8 @@ export interface ReconcileLegsInput {
   context: string;
 }
 
-/** $0.05 USD-equivalent — roughly 5,000 LBP at typical (~90,000-100,000)
- *  USD/LBP sell rates. Owner-specified (S2). */
-export const LEG_RECONCILIATION_EPSILON_USD = 0.05;
+// Defined once in a browser-safe leaf so screens share it (rule 14/29).
+export { LEG_RECONCILIATION_EPSILON_USD };
 
 /**
  * Prefers the operator's tendered rate over a reference/server rate, with no

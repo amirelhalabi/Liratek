@@ -100,6 +100,7 @@ import type {
   UpdateExchangeMetadataPayload,
   UpdateRechargeMetadataPayload,
   VoucherCreatePayload,
+  VoucherCancelPayload,
   CreateFinancialServicePayload,
   AdjustLotPositionPayload,
   CarrierLineCreatePayload,
@@ -1017,7 +1018,8 @@ export class ElectronApiAdapter implements ApiAdapter {
       api.vouchersGetAll(filters, day),
     create: (data: VoucherCreatePayload) => api.vouchersCreate(data),
     validate: (code: string, day?: string) => api.vouchersValidate(code, day),
-    cancel: (id: number) => api.vouchersCancel(id),
+    cancel: (id: number, data?: VoucherCancelPayload) =>
+      api.vouchersCancel(id, data),
   };
 
   // Nested namespace mirroring window.api.drawerTopUp (dual-mode).

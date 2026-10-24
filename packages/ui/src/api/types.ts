@@ -218,6 +218,7 @@ import type {
   UpdateExchangeMetadataPayload,
   UpdateRechargeMetadataPayload,
   VoucherCreatePayload,
+  VoucherCancelPayload,
   CreateFinancialServicePayload,
   AdjustLotPositionPayload,
   CarrierLineCreatePayload,
@@ -2524,8 +2525,11 @@ export type ApiAdapter = {
       code: string,
       day?: string,
     ) => Promise<{ success: boolean; voucher?: any; error?: string }>;
+    /** LIRA-339: `data` = refund legs for the cash part, tender rate and
+     *  the shop's own day. Omitted → cash refund. */
     cancel: (
       id: number,
+      data?: VoucherCancelPayload,
     ) => Promise<{ success: boolean; voucher?: any; error?: string }>;
   };
 

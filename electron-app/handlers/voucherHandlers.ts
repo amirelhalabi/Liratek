@@ -10,7 +10,11 @@ import { ipcMain } from "electron";
 import { getVoucherService, voucherLogger } from "@liratek/core";
 import type { VoucherFilters } from "@liratek/core";
 import { requireRole } from "../session.js";
-import { VoucherCreateSchema, validatePayload } from "../schemas/index.js";
+import {
+  VoucherCreateSchema,
+  VoucherCancelSchema,
+  validatePayload,
+} from "../schemas/index.js";
 
 let service: ReturnType<typeof getVoucherService> | null = null;
 
@@ -38,6 +42,11 @@ export function registerVoucherHandlers(): void {
           currency: v.data.currency,
           expiryDate: v.data.expiryDate ?? null,
           note: v.data.note ?? null,
+          // LIRA-339: the tender legs, rate and back-time (rule 23 — every
+          // key the schema accepts reaches the service).
+          payments: v.data.payments,
+          exchange_rate: v.data.exchange_rate,
+          transaction_time: v.data.transaction_time,
         },
         auth.userId,
       );
@@ -99,13 +108,18 @@ export function registerVoucherHandlers(): void {
     },
   );
 
-  // Cancel (void) a pending voucher — admin only
-  ipcMain.handle("voucher:cancel", (event, id: number) => {
+  // Cancel (void) a pending voucher — admin only. LIRA-339: `data` carries the
+  // payout legs for the cash part, the tender rate and the shop's own day
+  // (rule 27). Omitted → `{}`: the service refunds in cash (fallback leg).
+  ipcMain.handle("voucher:cancel", (event, id: number, data?: unknown) => {
     try {
       const auth = requireRole(event.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
 
-      return getServiceInstance().cancelVoucher(id, auth.userId);
+      const v = validatePayload(VoucherCancelSchema, data ?? {});
+      if (!v.ok) return { success: false, error: v.error };
+
+      return getServiceInstance().cancelVoucher(id, v.data, auth.userId);
     } catch (error) {
       voucherLogger.error({ error }, "voucher:cancel failed");
       return {

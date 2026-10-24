@@ -256,6 +256,14 @@ const FULL_SAMPLES: Record<string, Record<string, unknown>> = {
     role: "KEPT_CHANGE",
     paidByMethod: "WHISH",
   },
+  voucher: {
+    v: 1,
+    kind: "voucher",
+    action: "CANCEL",
+    code: "GIFT-ABCD-EFGH",
+    note: "birthday",
+    legacy: true,
+  },
   reversal: {
     v: 1,
     kind: "reversal",

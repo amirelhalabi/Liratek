@@ -63,6 +63,10 @@ import { getDatabase } from "../../db/connection";
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
   db.exec(`
+    CREATE TABLE vouchers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, code TEXT,
+      status TEXT, redeemed_transaction_id INTEGER, redeemed_session_id INTEGER
+    );
     CREATE TABLE users (tenant_id INTEGER DEFAULT 1, id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, role TEXT DEFAULT 'staff');
     INSERT INTO users (id, username, role) VALUES (1, 'admin', 'admin');
 

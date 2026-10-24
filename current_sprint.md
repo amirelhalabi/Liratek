@@ -6735,6 +6735,31 @@ Owner decisions 2026-10-18:
 
 **What users will notice:** when paying out, you can tap "+ Customer gives change" and enter the few dollars or pounds the customer hands you. The payment window then expects you to pay out that much more (for example $197 owed + $3 = $200), and both drawers are recorded correctly.
 
+## LIRA-339: Vouchers in the transactions ledger — BUILT 2026-10-24 (owner decisions 2026-10-24; not committed)
+
+Spec, plan and tasks: `specs/339-voucher-transactions/`.
+
+Owner decisions 2026-10-24:
+- A voucher is sold for money. The customer pays cash, wallet or split through the normal payment form, the money goes into the drawer, and a transaction row is written.
+- Creating a voucher writes a transaction, and so does cancelling one. Cancelling an unused sold voucher refunds its money to the customer. Expiry writes nothing.
+- No profit on the sale (it is money owed to the customer). The purchase it later pays for carries the profit.
+- A new "Vouchers" group in the Transactions Type filter. Its options also show purchases paid with a gift card.
+- Works on both the desktop app and the web app.
+
+Owner answers 2026-10-24 (second round):
+- Confirmed: cancelling a voucher made before this change refunds nothing and writes a $0 cancel row.
+- Confirmed: an expired, unused, sold voucher can be cancelled for a refund (admin only).
+- Changed: the customer's account CAN pay for a voucher. Buying on credit adds a 'Voucher Debt' to the customer's account; Gift card is still refused. Cancelling refunds leg by leg: the account part comes off the account, and the cash part is paid out. An on-account sale also shows under the Debts filter.
+
+Defaults still unconfirmed:
+- The cash part of a refund is paid with cash or wallets only.
+- If the voucher debt was already repaid, cancelling still takes the full amount off the account, so the repaid part becomes credit (same as every other refund). Confirmed by owner 2026-10-24.
+- Voucher rows cannot be voided from Transactions: cancel from the Vouchers page instead.
+
+What users will notice: selling a gift card on the Vouchers page now asks for payment (cash, wallet or the customer's account) and puts the money in the drawer or on the account. Cancelling an unused gift card opens a refund window that pays the customer back (the account part comes off their account). Both show in Transactions, under a new Vouchers filter that also lists purchases paid with a gift card. Gift cards made before this update refund nothing when cancelled.
+
+Proof: web e2e `lira-web-079-voucher-transactions` green (sale/cancel deltas, on-account net 0, POS gift-card purchase under the Vouchers filter, Vouchers page sell + cancel sheet); What's new card `whats-new/1.35.0/voucher-sale.png`. Desktop e2e edited (`lira-session-allocation`) but not run on the Mac.
+
 ## LIRA-338: Pick the line "Charge to shop line" charges — BUILT 2026-10-19 (owner decisions 2026-10-19)
 
 The owner's case: on the iPick/Katsh grids, "Charge to shop line" always charged the carrier's main line, with no way to pick another shop line or a line held for sale.

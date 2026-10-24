@@ -120,6 +120,18 @@ export const holdMoneyDetailsSchema = z.object({
   notes: text.optional(),
 });
 
+export const VOUCHER_DETAIL_ACTIONS = ["SALE", "CANCEL"] as const;
+
+/** Vouchers (LIRA-339): a gift card sold, or cancelled with its refund.
+ *  `legacy` marks the cancel of a voucher made before sales took money. */
+export const voucherDetailsSchema = z.object({
+  ...common,
+  kind: z.literal("voucher"),
+  action: z.enum(VOUCHER_DETAIL_ACTIONS),
+  code: text,
+  legacy: z.boolean().optional(),
+});
+
 export const telecomRechargeDetailsSchema = z.object({
   ...common,
   kind: z.literal("telecom_recharge"),
@@ -420,6 +432,7 @@ export const transactionDetailsSchema = z.discriminatedUnion("kind", [
   omtWhishTransferDetailsSchema,
   customServiceDetailsSchema,
   holdMoneyDetailsSchema,
+  voucherDetailsSchema,
   telecomRechargeDetailsSchema,
   telecomBuybackDetailsSchema,
   catalogSaleDetailsSchema,
@@ -456,6 +469,7 @@ export type OmtWhishTransferDetails = z.infer<
 >;
 export type CustomServiceDetails = z.infer<typeof customServiceDetailsSchema>;
 export type HoldMoneyDetails = z.infer<typeof holdMoneyDetailsSchema>;
+export type VoucherDetails = z.infer<typeof voucherDetailsSchema>;
 export type ExpenseDetails = z.infer<typeof expenseDetailsSchema>;
 export type AccountEntryDetails = z.infer<typeof accountEntryDetailsSchema>;
 export type SupplierEntryDetails = z.infer<typeof supplierEntryDetailsSchema>;

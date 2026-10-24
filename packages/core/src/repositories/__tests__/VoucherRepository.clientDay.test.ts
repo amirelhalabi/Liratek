@@ -56,12 +56,25 @@ function createTestDb(): Database.Database {
       redeemed_by             INTEGER,
       redeemed_in_transaction TEXT,
       redeemed_transaction_id INTEGER,
+      redeemed_session_id INTEGER,
       cancelled_at            TEXT,
       cancelled_by            INTEGER,
       note                    TEXT,
       created_by              INTEGER NOT NULL,
       created_at              TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at              TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- LIRA-339: getAll/getByCode read each voucher's VOUCHER_SALE (sale_*).
+    CREATE TABLE transactions (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id     INTEGER DEFAULT 1,
+      type          TEXT NOT NULL,
+      source_table  TEXT,
+      source_id     INTEGER,
+      amount_usd    REAL NOT NULL DEFAULT 0,
+      amount_lbp    REAL NOT NULL DEFAULT 0,
+      reverses_id   INTEGER
     );
 
     CREATE TABLE debt_ledger (
@@ -159,12 +172,8 @@ describe("VoucherRepository — client-supplied `day`", () => {
     // The `status` filter clause must agree with the row's own displayed
     // status (the bound `?` fix) — filtering for 'expired' under the client
     // day must find the row; filtering for 'pending' must not.
-    expect(repo.getAll({ status: "expired" }, futureClientDay)).toHaveLength(
-      1,
-    );
-    expect(repo.getAll({ status: "pending" }, futureClientDay)).toHaveLength(
-      0,
-    );
+    expect(repo.getAll({ status: "expired" }, futureClientDay)).toHaveLength(1);
+    expect(repo.getAll({ status: "pending" }, futureClientDay)).toHaveLength(0);
   });
 
   // ---------------------------------------------------------------------------

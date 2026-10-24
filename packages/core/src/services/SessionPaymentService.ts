@@ -351,9 +351,7 @@ export function basketCollectNet(
 ): ReturnType<typeof basketNetCharge> {
   return basketNetCharge(
     legs.map((l) =>
-      l.direction === "OUT" && !l.kind
-        ? { ...l, kind: "PAYOUT" as const }
-        : l,
+      l.direction === "OUT" && !l.kind ? { ...l, kind: "PAYOUT" as const } : l,
     ),
     ctx,
   );
@@ -564,7 +562,10 @@ export class SessionPaymentService {
     // whole checkout).
     // LIRA-310: a Waive claim is checked by the same call (kept and waived
     // together is refused there).
-    if (hasKeptChangeClaim(input.keptChange) || hasKeptChangeClaim(input.waived)) {
+    if (
+      hasKeptChangeClaim(input.keptChange) ||
+      hasKeptChangeClaim(input.waived)
+    ) {
       const kept = resolveBasketKeptChange({
         legs,
         ctx: cashSplitCtx,
@@ -610,7 +611,10 @@ export class SessionPaymentService {
         provider: cashSplitCtx.baseSystem,
         baseSystem: cashSplitCtx.baseSystem,
       }) === pcdDrawerName;
-    const inLegSplits = new Map<number, { pcdAmount: number; generalAmount: number }>();
+    const inLegSplits = new Map<
+      number,
+      { pcdAmount: number; generalAmount: number }
+    >();
     {
       const inLegIdx: number[] = [];
       legs.forEach((l, i) => {
@@ -651,6 +655,9 @@ export class SessionPaymentService {
           code: leg.voucherCode.trim().toUpperCase(),
           context: "session",
           transactionId: null,
+          // LIRA-339: the basket has no single transaction — the session is
+          // the redemption's link (Transactions "Vouchers" filter).
+          sessionId,
           userId,
         });
         // An IN gift-card leg consumes the deposited credit as basket debt.

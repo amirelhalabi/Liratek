@@ -148,6 +148,7 @@ function createTestDb(): Database.Database {
       redeemed_by INTEGER,
       redeemed_in_transaction TEXT,
       redeemed_transaction_id INTEGER,
+      redeemed_session_id INTEGER,
       cancelled_at TEXT,
       cancelled_by INTEGER,
       note TEXT,

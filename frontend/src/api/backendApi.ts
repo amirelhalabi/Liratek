@@ -139,6 +139,7 @@ import type {
   UpdateExchangeMetadataPayload,
   UpdateRechargeMetadataPayload,
   VoucherCreatePayload,
+  VoucherCancelPayload,
   CreateFinancialServicePayload,
   AdjustLotPositionPayload,
   CarrierLineCreatePayload,
@@ -2170,13 +2171,15 @@ export async function vouchersValidate(code: string, day?: string) {
   );
 }
 
-export async function vouchersCancel(id: number) {
+// LIRA-339: `data` = refund legs / rate / shop day (core voucherCancelSchema,
+// rule 21). Omitted → the server refunds the cash part in cash.
+export async function vouchersCancel(id: number, data?: VoucherCancelPayload) {
   return ipcOrHttp(
-    async () => getElectronApi().vouchers.cancel(id),
+    async () => getElectronApi().vouchers.cancel(id, data),
     async () =>
       requestJson<{ success: boolean; voucher?: any; error?: string }>(
         `/api/vouchers/${id}/cancel`,
-        { method: "POST" },
+        { method: "POST", body: data ?? {} },
       ),
   );
 }

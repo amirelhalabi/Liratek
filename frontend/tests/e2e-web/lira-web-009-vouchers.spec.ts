@@ -36,7 +36,15 @@ test("voucher create → list → validate → cancel → page render over REST"
   const created = await (
     await page.request.post(`${BACKEND_URL}/api/vouchers`, {
       headers: auth,
-      data: { clientId, amount: 25, currency: "USD", note: "web spec" },
+      // LIRA-339: a voucher sale takes money — $25 cash into the drawer;
+      // the cancel below (no body) refunds it in cash.
+      data: {
+        clientId,
+        amount: 25,
+        currency: "USD",
+        note: "web spec",
+        payments: [{ method: "CASH", currency_code: "USD", amount: 25 }],
+      },
     })
   ).json();
   expect(created.success, JSON.stringify(created)).toBeTruthy();
