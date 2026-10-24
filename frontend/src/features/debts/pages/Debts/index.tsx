@@ -3019,10 +3019,11 @@ export default function Debts() {
               // Kept change: cash-out keeps a small payout shortfall as
               // profit (owner decision 2026-10-07) — single-currency credits
               // only, since the server owes a payout in ONE currency and
-              // refuses kept on a mixed USD + LBP credit. A repayment no
-              // longer keeps change: what is not handed back is the
-              // customer's account credit (LIRA-308 owner answer 1).
-              ...(repayMode === "cashout" && creditUsd > 0 !== creditLbp > 0
+              // refuses kept on a mixed USD + LBP credit. A repayment's
+              // unreturned change goes to the customer's account by default
+              // (LIRA-308 owner answer 1); the change box's "Keep" button
+              // keeps it as profit instead (owner 2026-10-24).
+              ...(repayMode !== "cashout" || creditUsd > 0 !== creditLbp > 0
                 ? { onKeptChange: setRepayKeptChange }
                 : {}),
             }}

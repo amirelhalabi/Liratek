@@ -36,6 +36,11 @@
 
 ## ✨ Highlights
 
+### Keep the change, or put it on the account
+
+When a customer leaves their change and a client is picked, the change box now has a **Keep** button next to **Account**. Tap Keep to keep the change as shop profit (it shows under kept change on the Profits page), or Account to put it on the customer's account as before. This works on the Accounts repayment window and on every payment window that already had the Account button.
+![Change box with Keep pressed: keeping $2.00 as profit](whats-new/1.35.0/keep-change.png)
+
 ### See everything about a transaction
 
 On the Transactions page, every row now has a Details button. It shows everything saved with that transaction in plain words: what was entered, how the customer paid, and any change handed back or kept. Voided and refunded rows carry a small tag, and the Excel export now opens on a Summary with money in and out per currency, while the PDF is a report grouped by day.

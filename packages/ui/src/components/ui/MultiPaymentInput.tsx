@@ -839,6 +839,10 @@ export default function MultiPaymentInput({
   // fields are cleared and the whole change goes to the account. Off by
   // default (owner decision 2026-10-12: "Return change" is the default).
   const [changeToAccount, setChangeToAccount] = useState(false);
+  /** Owner 2026-10-24 — on an account page that also wires `onKeptChange`,
+   *  the change box offers "Keep" beside "Account": change not handed back
+   *  is kept as profit instead of credited. */
+  const [keepUnreturned, setKeepUnreturned] = useState(false);
   // Stable id prefix for return legs (consumers don't use the id).
   const returnLegIdRef = useRef<string>(crypto.randomUUID());
   // Tracks whether the user manually edited the single-mode amount, so a
@@ -2126,10 +2130,14 @@ export default function MultiPaymentInput({
       ? "CASH"
       : returnMethod;
   /** LIRA-308 answer 1 — change not entered as returned goes to the account. */
-  const creditUnreturned =
+  const creditUnreturnedBase =
     !!unreturnedChangeTo &&
     !isPayout &&
     (unreturnedChangeTo === "ACCOUNT_BALANCE" || hasClient);
+  /** Both destinations available: the cashier picks Account or Keep. */
+  const canChooseKeep = creditUnreturnedBase && !!onKeptChange;
+  const creditUnreturned =
+    creditUnreturnedBase && !(canChooseKeep && keepUnreturned);
   /** Without an account, change left in the fields is KEPT (profit, or cost
    *  when the shop pays) — only on pages that wire `onKeptChange`. The
    *  change box's "Keep" button empties the fields for that. */
@@ -2236,14 +2244,15 @@ export default function MultiPaymentInput({
   // (a client is picked or removed), never let one silently become the
   // other: the change goes back to "hand it all back" and the cashier
   // chooses again.
-  const prevCreditUnreturnedRef = useRef(creditUnreturned);
+  const prevCreditUnreturnedRef = useRef(creditUnreturnedBase);
   useEffect(() => {
-    if (prevCreditUnreturnedRef.current === creditUnreturned) return;
-    prevCreditUnreturnedRef.current = creditUnreturned;
+    if (prevCreditUnreturnedRef.current === creditUnreturnedBase) return;
+    prevCreditUnreturnedRef.current = creditUnreturnedBase;
     setChangeToAccount(false);
+    setKeepUnreturned(false);
     if (isOverpaid) seedFullSuggestedReturn(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [creditUnreturned]);
+  }, [creditUnreturnedBase]);
 
   const prevPayerRef = useRef(payer);
   useEffect(() => {
@@ -2291,6 +2300,7 @@ export default function MultiPaymentInput({
   // fields, so the whole change goes to the account (or is kept). Typing or
   // the $ / LBP buttons hand it back again.
   const handleChangeToAccount = () => {
+    setKeepUnreturned(false);
     setChangeToAccount(true);
     setReturnAmountUSD("");
     setReturnAmountLBP("");
@@ -3778,18 +3788,18 @@ export default function MultiPaymentInput({
                   {/* LIRA-313 — nothing handed back: the whole change goes to
                       the account. Without an account, the same tap keeps it
                       (as profit, or as cost when the shop pays). */}
-                  {(creditUnreturned || canKeepUnreturned) && (
+                  {(creditUnreturnedBase || canKeepUnreturned) && (
                     <button
                       type="button"
                       data-testid={
-                        creditUnreturned
+                        creditUnreturnedBase
                           ? "change-destination-account"
                           : "change-keep-all"
                       }
                       aria-pressed={creditUnreturned && changeToAccount}
                       onClick={handleChangeToAccount}
                       title={
-                        creditUnreturned
+                        creditUnreturnedBase
                           ? t("change.putOnAccountTitle", {
                               account:
                                 accountLabel ??
@@ -3800,16 +3810,37 @@ export default function MultiPaymentInput({
                           : t("change.handNothingBack")
                       }
                       className={`px-2 py-1 rounded-md text-[11px] font-semibold border transition-colors ${
-                        creditUnreturned
+                        creditUnreturnedBase
                           ? changeToAccount
                             ? "bg-emerald-500/30 border-emerald-400 text-emerald-100"
                             : "bg-slate-900 border-emerald-700/50 text-emerald-300 hover:border-emerald-500"
                           : "bg-slate-900 border-amber-700/40 text-amber-300 hover:border-amber-500"
                       }`}
                     >
-                      {creditUnreturned
+                      {creditUnreturnedBase
                         ? t("change.account")
                         : t("change.keep")}
+                    </button>
+                  )}
+                  {canChooseKeep && (
+                    <button
+                      type="button"
+                      data-testid="change-keep-all"
+                      aria-pressed={keepUnreturned}
+                      onClick={() => {
+                        setChangeToAccount(false);
+                        setKeepUnreturned(true);
+                        setReturnAmountUSD("");
+                        setReturnAmountLBP("");
+                      }}
+                      title={t("change.handNothingBack")}
+                      className={`px-2 py-1 rounded-md text-[11px] font-semibold border transition-colors ${
+                        keepUnreturned
+                          ? "bg-amber-500/30 border-amber-400 text-amber-100"
+                          : "bg-slate-900 border-amber-700/40 text-amber-300 hover:border-amber-500"
+                      }`}
+                    >
+                      {t("change.keep")}
                     </button>
                   )}
                 </div>
