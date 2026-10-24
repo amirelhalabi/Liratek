@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:tenant": "vite --config vite.tenant.config.ts",
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "yarn workspace @liratek/core build && tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.playwright.json --noEmit && tsc -p tsconfig.test.json --noEmit",

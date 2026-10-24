@@ -93,6 +93,13 @@ non-interactive shell, so do it once in your own terminal:
 & "$env:USERPROFILE\.fly\bin\flyctl.exe" auth login
 ```
 
+**Local frontend against a live tenant.** `yarn workspace @liratek/frontend
+dev:tenant` serves your working tree at http://localhost:5176 and proxies
+`/api` to the test tenant (`TENANT_URL=https://<tenant> …` for another). Good
+for checking UI changes on real data before pushing. The data is live:
+anything you confirm writes real rows. Deploys never read this config
+(`frontend/vite.tenant.config.ts`).
+
 ---
 
 ## Why `api:deploy` verifies, and what it checks
