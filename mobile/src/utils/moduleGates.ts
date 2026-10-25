@@ -59,12 +59,24 @@ export function debtsTabVisible(gate: GateState): boolean {
   return !gate.verified || gate.isEnabled(DEBTS_MODULE);
 }
 
+/** What Home knows about the shop for its drawer lines. */
+export interface DrawerShopState {
+  /** The shop's primary system; null while unknown (then nothing is hidden on its account). */
+  baseSystem: "OMT" | "WHISH" | null;
+  /** Live balances per drawer, per currency. */
+  balances: Readonly<Record<string, Readonly<Record<string, number>>>>;
+}
+
 /**
  * Home's drawer lines: hide a drawer whose owning module is off, with core's
- * rule the web Dashboard uses (drawers no module owns always show).
+ * rule the web Dashboard uses (drawers no module owns always show). With
+ * `shop`, also hide the other system's cash drawer while it is empty (Whish
+ * cash in an OMT shop) — the shop has no such physical drawer.
  */
-export function visibleDrawers(drawers: readonly string[], gate: GateState): string[] {
-  return drawers.filter((d) => isDrawerVisible(d, gate.isEnabled));
+export function visibleDrawers(drawers: readonly string[], gate: GateState, shop?: DrawerShopState): string[] {
+  return drawers.filter((d) =>
+    isDrawerVisible(d, gate.isEnabled, shop ? { baseSystem: shop.baseSystem, balances: shop.balances[d] ?? {} } : {}),
+  );
 }
 
 /**

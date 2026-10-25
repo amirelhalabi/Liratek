@@ -118,3 +118,25 @@ describe("module gates — tab content needs a connection (LIRA-307 revision)", 
     expect(contentAccess({ hasList: true, errorCode: "HTTP_500" })).toBe("ok");
   });
 });
+
+describe("module gates — the other system's cash drawer", () => {
+  // An OMT shop has no physical Whish cash drawer (its Whish cash goes to
+  // General), so Home hides Whish_System while it is empty — the same rule
+  // as the web Dashboard (core isDrawerVisible).
+  const gate = gateFrom(new Set(["omt_whish"]));
+  const DRAWERS = ["General", "OMT_System", "Whish_System"];
+
+  it("hides an empty Whish_System in an OMT shop", () => {
+    const balances = { General: { USD: 5 }, OMT_System: { USD: 0 }, Whish_System: { USD: 0, LBP: 0 } };
+    expect(visibleDrawers(DRAWERS, gate, { baseSystem: "OMT", balances })).toEqual(["General", "OMT_System"]);
+  });
+
+  it("keeps Whish_System while it still holds money", () => {
+    const balances = { Whish_System: { LBP: 5_000_000 } };
+    expect(visibleDrawers(DRAWERS, gate, { baseSystem: "OMT", balances })).toEqual(DRAWERS);
+  });
+
+  it("hides nothing on this account while the base system is unknown", () => {
+    expect(visibleDrawers(DRAWERS, gate, { baseSystem: null, balances: {} })).toEqual(DRAWERS);
+  });
+});

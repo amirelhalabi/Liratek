@@ -14,6 +14,14 @@ export async function getDrawerBalances(): Promise<ApiResult<DrawerBalances>> {
   return { success: true, data: r.data.balances ?? {} };
 }
 
+/** GET /api/settings/shop_base_system — the shop's primary system, or null when unset or unreadable. */
+export async function getShopBaseSystem(): Promise<ApiResult<"OMT" | "WHISH" | null>> {
+  const r = await request<{ setting?: { value?: string } | null }>("GET", "/api/settings/shop_base_system");
+  if (!r.success) return r;
+  const value = r.data.setting?.value;
+  return { success: true, data: value === "OMT" || value === "WHISH" ? value : null };
+}
+
 export interface RecentTransaction {
   id: number;
   type: string;

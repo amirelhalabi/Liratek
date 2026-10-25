@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ClipboardCheck, Wallet } from "lucide-react-native";
 import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 
-import { getDrawerBalances, getSinceLastCount, type DrawerBalances } from "@/api/reads";
+import { getDrawerBalances, getShopBaseSystem, getSinceLastCount, type DrawerBalances } from "@/api/reads";
 import { RefreshNotice } from "@/components/RefreshNotice";
 import { queryKeys } from "@/data/queryKeys";
 import { usePullRefresh } from "@/data/usePullRefresh";
@@ -38,6 +38,13 @@ export default function Home() {
     queryFn: async () => unwrap(await getDrawerBalances()),
     enabled: !!slug,
   });
+  // The shop's primary system: the other one's cash drawer is hidden while empty.
+  // A failed read leaves it unknown, and then nothing is hidden on its account.
+  const shopBase = useQuery({
+    queryKey: queryKeys.shopBase(slug),
+    queryFn: async () => unwrap(await getShopBaseSystem()),
+    enabled: !!slug,
+  });
   const sinceCount = useQuery({
     queryKey: queryKeys.sinceLastCount(slug, WALLET_DRAWERS),
     queryFn: async () => unwrap(await getSinceLastCount(WALLET_DRAWERS)),
@@ -49,7 +56,12 @@ export default function Home() {
 
   useRefreshOnFocus([balances, sinceCount]);
   const pull = usePullRefresh([balances.refetch, sinceCount.refetch, gates.refetch]);
-  const drawers = balances.data ? visibleDrawers(sortedDrawers(balances.data), gates) : [];
+  const drawers = balances.data
+    ? visibleDrawers(sortedDrawers(balances.data), gates, {
+        baseSystem: shopBase.data ?? null,
+        balances: balances.data,
+      })
+    : [];
   const counted = sinceCount.data?.filter((d) => visibleDrawers([d.drawer], gates).length > 0);
 
   return (

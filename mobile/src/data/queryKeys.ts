@@ -5,6 +5,8 @@
  */
 export const queryKeys = {
   balances: (shop: string) => [shop, "balances"] as const,
+  // The shop's primary system (OMT or Whish), for hiding the other one's empty cash drawer.
+  shopBase: (shop: string) => [shop, "shopBase"] as const,
   sinceLastCountAll: (shop: string) => [shop, "sinceLastCount"] as const,
   sinceLastCount: (shop: string, drawers: readonly string[]) => [shop, "sinceLastCount", drawers.join(",")] as const,
   recentAll: (shop: string) => [shop, "recent"] as const,
