@@ -29,6 +29,8 @@ import {
   refundExchangeRateSchema,
   // Owner decision 2026-10-07 — refund kept change (POST /:id/refund).
   refundKeptChangeSchema,
+  // LIRA-342 — the customer gives money back during a refund.
+  refundAddedChangeSchema,
   // Rule 19c sweep — REST path-param variant of `sessionBasketReversalSchema`
   // (z.coerce, same pattern as `saleIdParamSchema`), used by
   // POST /session-basket/:sessionId/void|refund below.
@@ -403,12 +405,35 @@ router.post(
         };
       }
 
+      // LIRA-342 — the customer gives money back during the refund. Same
+      // "validate only when present" discipline and the SAME core schema
+      // the IPC handler's sixth positional argument uses (rule 14).
+      let addedChange:
+        | ReturnType<typeof refundAddedChangeSchema.parse>
+        | undefined;
+      if (
+        req.body?.addedChange !== undefined &&
+        req.body?.addedChange !== null
+      ) {
+        const parsed = refundAddedChangeSchema.safeParse(req.body.addedChange);
+        if (!parsed.success) {
+          const firstError = parsed.error.issues[0];
+          res.json({
+            success: false,
+            error: firstError?.message ?? "Invalid addedChange",
+          });
+          return;
+        }
+        addedChange = parsed.data;
+      }
+
       const txnService = getTransactionService();
       const refundId = txnService.refundTransaction(id, userId, {
         refundLegs,
         refundUnitExtras,
         exchangeRate,
         keptChange,
+        addedChange,
       });
       // Mirrors transactionHandlers.ts's transactions:refund audit
       // (refund/transaction) — reaching here means the refund committed
@@ -424,6 +449,7 @@ router.post(
           refundUnitExtras,
           exchangeRate,
           keptChange,
+          addedChange,
         },
       });
       res.json({ success: true, refundId });
@@ -591,6 +617,10 @@ router.post(
         // Owner decision 2026-10-07 — refund kept change (schema keys).
         kept_change_usd: req.body?.kept_change_usd,
         kept_change_lbp: req.body?.kept_change_lbp,
+        // LIRA-342 — the customer gives money back (schema keys).
+        added_change_usd: req.body?.added_change_usd,
+        added_change_lbp: req.body?.added_change_lbp,
+        customerPayments: req.body?.customerPayments,
       });
       if (!parsed.success) {
         const firstError = parsed.error.issues[0];

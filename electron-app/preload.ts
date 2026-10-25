@@ -13,6 +13,8 @@ import type {
   SessionItemRefundPreviewInput,
   // Owner decision 2026-10-07 — refund kept change (transactions.refund).
   RefundKeptChangeInput,
+  // LIRA-342 — the customer gives money back during a refund.
+  RefundAddedChangeInput,
   // LIRA-258 — loto sell/settle payloads, derived from the core schemas
   // (rule 21) so tender_exchange_rate / voucherCode / split settle legs
   // cannot drift from what the handlers validate.
@@ -309,6 +311,8 @@ contextBridge.exposeInMainWorld("api", {
       exchangeRate?: number,
       /** Owner decision 2026-10-07 — refund kept change. */
       keptChange?: RefundKeptChangeInput,
+      /** LIRA-342 — the customer gives money back during the refund. */
+      addedChange?: RefundAddedChangeInput,
     ) =>
       ipcRenderer.invoke(
         "sales:refund",
@@ -317,6 +321,7 @@ contextBridge.exposeInMainWorld("api", {
         unitExtras,
         exchangeRate,
         keptChange,
+        addedChange,
       ),
     /** LIRA-231: refundLegs is optional — same contract as `refund` above,
      *  validated against this item's PROPORTIONAL share of the sale.
@@ -1396,6 +1401,8 @@ contextBridge.exposeInMainWorld("api", {
       /** Owner decision 2026-10-07 — refund kept change: the cash handed
        *  back is short of the refund by a small leftover the shop keeps. */
       keptChange?: RefundKeptChangeInput,
+      /** LIRA-342 — the customer gives money back during the refund. */
+      addedChange?: RefundAddedChangeInput,
     ) =>
       ipcRenderer.invoke(
         "transactions:refund",
@@ -1404,6 +1411,7 @@ contextBridge.exposeInMainWorld("api", {
         refundUnitExtras,
         exchangeRate,
         keptChange,
+        addedChange,
       ),
     /** CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): void every non-voided
      *  member of a multi-unit split checkout in ONE transaction. */

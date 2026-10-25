@@ -36,6 +36,7 @@ import { useSessionItemRefund } from "@/features/audit/hooks/useSessionItemRefun
 import {
   REFUND_KEPT_CHANGE_TYPES,
   resolveWarranty,
+  type RefundAddedChangeInput,
   type RefundKeptChangeInput,
 } from "@liratek/core";
 import type { TransactionPaymentLeg } from "@/features/audit/cashFlow";
@@ -455,6 +456,9 @@ export default function SaleDetailModal({
     // offer it (`allowKeptChange` below); it rides only when present, so a
     // refund without it makes exactly the call it made before.
     keptChange?: RefundKeptChangeInput,
+    // LIRA-342 — the customer gave change back (whole-sale refund only; the
+    // popup offers it only there). Rides only when present.
+    addedChange?: RefundAddedChangeInput,
   ) => {
     if (!refundTarget) return;
     const refundLegs = refundLegsInput;
@@ -462,20 +466,29 @@ export default function SaleDetailModal({
     try {
       if (refundTarget.kind === "sale") {
         const result =
-          keptChange !== undefined
+          addedChange !== undefined
             ? await api.refundSale(
                 saleId,
                 refundLegs,
                 unitExtras,
                 exchangeRate,
                 keptChange,
+                addedChange,
               )
-            : await api.refundSale(
-                saleId,
-                refundLegs,
-                unitExtras,
-                exchangeRate,
-              );
+            : keptChange !== undefined
+              ? await api.refundSale(
+                  saleId,
+                  refundLegs,
+                  unitExtras,
+                  exchangeRate,
+                  keptChange,
+                )
+              : await api.refundSale(
+                  saleId,
+                  refundLegs,
+                  unitExtras,
+                  exchangeRate,
+                );
         if (result.success) {
           appEvents.emit(
             "notification:show",
@@ -1022,6 +1035,9 @@ export default function SaleDetailModal({
           // whole-sale and the per-item refund take it (a POS sale is always
           // a `REFUND_KEPT_CHANGE_TYPES` type). The server re-checks it.
           allowKeptChange
+          // LIRA-342 — "+ Customer gives change": the whole-sale refund's
+          // transport carries it (the per-item refund's does not).
+          allowAddedChange={refundTarget?.kind === "sale"}
           isSubmitting={refunding}
           onCancel={() => {
             setRefundTarget(null);
@@ -1072,6 +1088,8 @@ export default function SaleDetailModal({
           allowKeptChange={REFUND_KEPT_CHANGE_TYPES.includes(
             sessionRefund.preview.target.transactionType ?? "",
           )}
+          // LIRA-342 — the server refuses it where it does not apply.
+          allowAddedChange
           isSubmitting={sessionRefund.submitting}
           onCancel={() => {
             sessionRefundKindRef.current = null;

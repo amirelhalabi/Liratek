@@ -145,6 +145,8 @@ export function registerTransactionHandlers(): void {
       refundUnitExtras?: unknown,
       exchangeRate?: unknown,
       keptChange?: unknown,
+      // LIRA-342 — the customer gives money back (6th positional).
+      addedChange?: unknown,
     ) => {
       try {
         const auth = requireRole(e.sender.id, ["admin"]);
@@ -158,6 +160,7 @@ export function registerTransactionHandlers(): void {
           refundUnitExtras,
           exchangeRate,
           keptChange,
+          addedChange,
         });
         if (!v.ok) return { success: false, error: v.error };
         const legs = v.data.refundLegs ?? undefined;
@@ -176,6 +179,7 @@ export function registerTransactionHandlers(): void {
           refundUnitExtras: unitExtras,
           exchangeRate: rate,
           keptChange: kept,
+          addedChange: v.data.addedChange ?? undefined,
         });
         audit(e.sender.id, {
           action: "refund",
@@ -188,6 +192,7 @@ export function registerTransactionHandlers(): void {
             refundUnitExtras: unitExtras,
             exchangeRate: rate,
             keptChange: kept,
+            addedChange: v.data.addedChange ?? undefined,
           },
         });
         return { success: true, refundId };

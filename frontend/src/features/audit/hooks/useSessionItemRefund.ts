@@ -20,6 +20,7 @@ import type {
   SessionItemRefundInput,
   SessionItemRefundPreviewInput,
   SessionItemRefundPreview,
+  RefundAddedChangeInput,
   RefundKeptChangeInput,
 } from "@liratek/core";
 import type { BookedRateSource } from "@/api/backendApi";
@@ -240,6 +241,7 @@ export function useSessionItemRefund(onRefunded: () => void) {
       unitExtras?: RefundUnitExtraOverride[],
       exchangeRate?: number,
       keptChange?: RefundKeptChangeInput,
+      addedChange?: RefundAddedChangeInput,
     ) => {
       if (!preview) return;
       setSubmitting(true);
@@ -274,6 +276,19 @@ export function useSessionItemRefund(onRefunded: () => void) {
         if (keptChange) {
           payload.kept_change_usd = keptChange.kept_change_usd;
           payload.kept_change_lbp = keptChange.kept_change_lbp;
+        }
+        // LIRA-342 — the customer gave change back: the same flat keys
+        // (`refundAddedChangeFields`) on the SAME payload (rule 22).
+        if (addedChange) {
+          if (addedChange.added_change_usd !== undefined) {
+            payload.added_change_usd = addedChange.added_change_usd;
+          }
+          if (addedChange.added_change_lbp !== undefined) {
+            payload.added_change_lbp = addedChange.added_change_lbp;
+          }
+          if (addedChange.customerPayments) {
+            payload.customerPayments = addedChange.customerPayments;
+          }
         }
         const res = await apiRef.current.refundSessionBasketItem(payload);
         if (res.success) {

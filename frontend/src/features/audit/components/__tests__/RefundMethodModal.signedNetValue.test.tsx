@@ -55,13 +55,11 @@ describe("RefundMethodModal — LIRA-236 F1 signed-net value matching (real Mult
       />,
     );
 
-    // Two default lines pre-fill (LIRA-078's per-currency mirror, one per
-    // currency — unaffected by this ticket). Drop the LBP "change" line so
-    // the operator is left with a single USD line, reproducing the
-    // reviewer's finding directly: they want to hand back the net $90.
-    const removeButtons = screen.getAllByTitle("Remove");
-    expect(removeButtons).toHaveLength(2);
-    fireEvent.click(removeButtons[1]); // the LBP line
+    // LIRA-342 (owner decision 2026-10-25): the pre-fill is now ONE line,
+    // the net $90 in the currency paid (the LBP change folded in) — no
+    // longer the two-line per-currency mirror this test used to remove a
+    // line from. The value check below is unchanged.
+    expect(screen.getAllByTestId(/payment-amount-/)).toHaveLength(1);
 
     const amountInput = screen.getByTestId(/payment-amount-/);
     fireEvent.change(amountInput, { target: { value: "90" } });
@@ -102,13 +100,11 @@ describe("RefundMethodModal — LIRA-236 F1 signed-net value matching (real Mult
       />,
     );
 
-    // Drop the USD fee line, keep the LBP payout line, and dial it down from
-    // the payout's own 8,900,000 to the net $95 the shop actually owes back
-    // (5 - 100 = -95) — NOT the abs sum of both legs (5 + 100 = $105), which
-    // is what the pre-fix per-currency-abs rule required.
-    const removeButtons = screen.getAllByTitle("Remove");
-    expect(removeButtons).toHaveLength(2);
-    fireEvent.click(removeButtons[0]); // the USD fee line
+    // LIRA-342: the pre-fill is ONE LBP line (the USD fee folded in at the
+    // rate). Type the net $95 the shop owes back (5 - 100 = -95) — NOT the
+    // abs sum of both legs (5 + 100 = $105), which is what the pre-fix
+    // per-currency-abs rule required.
+    expect(screen.getAllByTestId(/payment-amount-/)).toHaveLength(1);
 
     const amountInput = screen.getByTestId(/payment-amount-/);
     fireEvent.change(amountInput, { target: { value: "8455000" } }); // $95 worth
@@ -141,7 +137,8 @@ describe("RefundMethodModal — LIRA-236 F1 signed-net value matching (real Mult
       />,
     );
 
-    // Drop the LBP line, leaving the USD line, then bump it from its default
+    // Net value $0 folds to nothing, so the modal keeps the two-line
+    // mirror (LIRA-342). Drop the LBP line, leaving the USD line, then bump it from its default
     // $100 up to $200 — the abs-sum ($100 + 8,900,000/89000 = $200) the OLD
     // rule accepted even though the transaction's real net value is $0.
     const removeButtons = screen.getAllByTitle("Remove");

@@ -157,6 +157,15 @@ export function netByCurrency(
 export function buildDefaultRefundLines(
   legs: TransactionPaymentLeg[] | undefined,
   selectableMethodCodes: string[],
+  /** LIRA-342 (owner decision 2026-10-25) — the refund rate. When given,
+   *  the pre-fill is the NET VALUE in the currency the customer paid:
+   *  change that went out in another currency is folded in at this rate
+   *  (CornerTech: paid Cash $55, got 250,000 LBP change at 90,000 → ONE
+   *  Cash $52.22 line, never $55 plus a 250,000 LBP hand-back line). See
+   *  `foldOppositeCurrencies` for the exact rule. Omitted → the original
+   *  per-currency mirror (one line per currency, unchanged) — the modal
+   *  still uses that form to detect "the operator touched nothing". */
+  rate?: number,
 ): RefundLegOverride[] {
   const net = netByCurrency(legs);
   const selectable = new Set(selectableMethodCodes);
@@ -178,21 +187,93 @@ export function buildDefaultRefundLines(
     }
   }
 
-  return Object.entries(net)
+  const live = Object.entries(net)
     .filter(
       ([currencyCode, amount]) => Math.abs(amount) > epsilonFor(currencyCode),
     )
     .filter((entry): entry is ["USD" | "LBP", number] =>
       isRefundCurrency(entry[0]),
-    )
-    .map(([currencyCode, amount]) => {
-      const candidate = largestLegByCurrency[currencyCode]?.method;
-      const method =
-        candidate !== undefined && selectable.has(candidate)
-          ? candidate
-          : "CASH";
-      return { method, currencyCode, amount: Math.abs(amount) };
-    });
+    );
+  const amounts =
+    rate !== undefined && rate > 0 ? foldOppositeCurrencies(live, rate) : live;
+
+  return amounts.map(([currencyCode, amount]) => {
+    const candidate = largestLegByCurrency[currencyCode]?.method;
+    const method =
+      candidate !== undefined && selectable.has(candidate) ? candidate : "CASH";
+    return { method, currencyCode, amount: Math.abs(amount) };
+  });
+}
+
+/** Whole LBP, USD cents — the same rounding MultiPaymentInput applies to
+ *  the amounts it reports (round-up, added change). */
+function roundForCurrency(amount: number, currencyCode: string): number {
+  return currencyCode === "LBP"
+    ? Math.round(amount)
+    : Math.round(amount * 100) / 100;
+}
+
+/**
+ * LIRA-342 — fold change that went out in another currency into the
+ * currency the customer paid, at `rate`.
+ *
+ * The refund's direction is the sign of the TOTAL value (`toUsd`, the same
+ * conversion `validateRefundValue` uses — rule 14). Currencies on that side
+ * are the ones the customer paid in; a currency on the OPPOSITE side is
+ * change that went the other way, and it never becomes a hand-back line —
+ * its value is converted at `rate` and taken off a paid currency instead.
+ *
+ * - One paid currency → one line: the whole net value in that currency.
+ * - Several paid currencies (e.g. $50 + 900,000 LBP paid, 100,000 LBP
+ *   change) → each keeps its own line, and the opposite-side value is taken
+ *   off the paid currency with the LARGEST value (ties: the first one, in
+ *   `net`'s order). If that line cannot absorb it, the rest is taken off the
+ *   next largest, and so on. A paid currency driven to ~0 is dropped.
+ * - Net value ~0, or every currency on one side → nothing to fold
+ *   (one-sided originals come back unchanged).
+ *
+ * Amounts are rounded to USD cents / whole LBP; the remaining rounding gap
+ * is far inside `REFUND_VALUE_TOLERANCE_USD`, so `validateRefundValue`
+ * accepts the untouched pre-fill.
+ */
+function foldOppositeCurrencies(
+  live: Array<["USD" | "LBP", number]>,
+  rate: number,
+): Array<["USD" | "LBP", number]> {
+  const totalUsd = live.reduce((sum, [c, a]) => sum + toUsd(a, c, rate), 0);
+  if (Math.abs(totalUsd) <= REFUND_VALUE_TOLERANCE_USD) return [];
+  const sign = Math.sign(totalUsd);
+  const paid = live.filter(([, a]) => Math.sign(a) === sign);
+  const opposite = live.filter(([, a]) => Math.sign(a) !== sign);
+  if (opposite.length === 0) return live;
+
+  // Value (USD, positive) that went the other way.
+  let toFold = opposite.reduce(
+    (sum, [c, a]) => sum + Math.abs(toUsd(a, c, rate)),
+    0,
+  );
+  const paidUsd = paid.map(([c, a]) => ({
+    currencyCode: c,
+    usd: Math.abs(toUsd(a, c, rate)),
+  }));
+  const order = paidUsd
+    .map((p, i) => ({ ...p, i }))
+    .sort((x, y) => y.usd - x.usd || x.i - y.i);
+  for (const p of order) {
+    if (toFold <= 0) break;
+    const take = Math.min(p.usd, toFold);
+    paidUsd[p.i].usd -= take;
+    toFold -= take;
+  }
+  return paidUsd
+    .map(({ currencyCode, usd }): ["USD" | "LBP", number] => [
+      currencyCode,
+      roundForCurrency(
+        currencyCode === "USD" ? usd : usd * rate,
+        currencyCode,
+      ) * sign,
+    ])
+    .filter(([c, a]) => Math.abs(a) > epsilonFor(c));
 }
 
 /**
@@ -329,6 +410,12 @@ export function validateRefundValue(
    *  `validateRefundLegOverrideAmounts`). Omitted/null → unchanged. Only a
    *  SHORTFALL is ever kept, so handing back too much stays blocked. */
   kept?: { usd: number; lbp: number } | null,
+  /** LIRA-342 — change the customer gives back during the refund (e.g. the
+   *  250,000 LBP change of a $55 sale), in the hand-back currency. Mirrors
+   *  the server, which validates the legs against the refund value PLUS the
+   *  added amount (`TransactionRepository._resolveRefundAddedChange`).
+   *  Omitted/null → unchanged. Never combined with `kept`. */
+  added?: { usd: number; lbp: number } | null,
 ): string | null {
   const lineTotals: Record<string, number> = {};
   for (const line of lines) {
@@ -354,7 +441,10 @@ export function validateRefundValue(
   const keptValue = kept
     ? toUsd(kept.usd, "USD", rate) + toUsd(kept.lbp, "LBP", rate)
     : 0;
-  const originalValue = Math.abs(originalNetValueUsd) - keptValue;
+  const addedValue = added
+    ? toUsd(added.usd, "USD", rate) + toUsd(added.lbp, "LBP", rate)
+    : 0;
+  const originalValue = Math.abs(originalNetValueUsd) - keptValue + addedValue;
 
   if (Math.abs(originalValue - chosenValue) > REFUND_VALUE_TOLERANCE_USD) {
     const fmt = (v: number) =>
@@ -387,6 +477,29 @@ export function refundCanKeepChange(
     ([currencyCode, amount]) => Math.abs(amount) > epsilonFor(currencyCode),
   );
   return live.length > 0 && live.every(([, amount]) => amount > 0);
+}
+
+/**
+ * LIRA-342 — may the whole-transaction refund popup offer "+ Customer gives
+ * change"? Client-side mirror of the server's precondition
+ * (`TransactionRepository._resolveRefundAddedChange`, the authority): only
+ * on a refund that hands money OUT — the original's net VALUE at `rate`
+ * (the same `toUsd` conversion as `validateRefundValue`, rule 14) is money
+ * the customer paid in. Unlike kept change this holds for a mixed-currency
+ * original (paid $55, got 250,000 LBP change), which is exactly the case
+ * the customer returns the change on. `legs` are the ORIGINAL's own legs
+ * (`row.payments`, IN positive).
+ */
+export function refundCanAddChange(
+  legs: TransactionPaymentLeg[] | undefined,
+  rate: number,
+): boolean {
+  const net = netByCurrency(legs);
+  let valueUsd = 0;
+  for (const [currencyCode, amount] of Object.entries(net)) {
+    valueUsd += toUsd(amount, currencyCode, rate);
+  }
+  return valueUsd > REFUND_VALUE_TOLERANCE_USD;
 }
 
 /**

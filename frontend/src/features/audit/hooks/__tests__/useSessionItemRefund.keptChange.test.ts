@@ -9,7 +9,12 @@
  * failing-first.
  */
 import { renderHook, act } from "@testing-library/react";
-import { refundKeptChangeSchema, sessionItemRefundSchema } from "@liratek/core";
+import {
+  refundAddedChangeSchema,
+  refundKeptChangeSchema,
+  sessionItemRefundSchema,
+  type RefundAddedChangeInput,
+} from "@liratek/core";
 import { useSessionItemRefund } from "../useSessionItemRefund";
 
 const mockGetPreview = jest.fn();
@@ -27,10 +32,13 @@ jest.mock("@liratek/ui", () => ({
 describe("useSessionItemRefund — kept change", () => {
   beforeEach(() => jest.clearAllMocks());
 
-  async function openAndConfirm(kept?: {
-    kept_change_usd: number;
-    kept_change_lbp: number;
-  }) {
+  async function openAndConfirm(
+    kept?: {
+      kept_change_usd: number;
+      kept_change_lbp: number;
+    },
+    added?: RefundAddedChangeInput,
+  ) {
     mockGetPreview.mockResolvedValue({
       success: true,
       itemAmountUsd: 20.12,
@@ -56,7 +64,7 @@ describe("useSessionItemRefund — kept change", () => {
     });
     const legs = [{ method: "CASH", currencyCode: "USD" as const, amount: 20 }];
     await act(async () => {
-      await result.current.confirm(legs, undefined, 89000, kept);
+      await result.current.confirm(legs, undefined, 89000, kept, added);
     });
     return mockRefund.mock.calls[0][0] as Record<string, unknown>;
   }
@@ -78,5 +86,23 @@ describe("useSessionItemRefund — kept change", () => {
     const payload = await openAndConfirm();
     expect(payload).not.toHaveProperty("kept_change_usd");
     expect(payload).not.toHaveProperty("kept_change_lbp");
+  });
+
+  // LIRA-342 — not proven failing-first (written with the hook change).
+  it("added change rides as the schema's FLAT keys on the same payload", async () => {
+    const added = refundAddedChangeSchema.parse({
+      added_change_usd: 2.78,
+      customerPayments: [
+        { method: "CASH", currencyCode: "LBP", amount: 250_000 },
+      ],
+    });
+    const payload = await openAndConfirm(undefined, added);
+    expect(payload).not.toHaveProperty("addedChange");
+    expect(sessionItemRefundSchema.parse(payload)).toMatchObject({
+      added_change_usd: 2.78,
+      customerPayments: [
+        { method: "CASH", currencyCode: "LBP", amount: 250_000 },
+      ],
+    });
   });
 });

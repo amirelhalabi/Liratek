@@ -83,9 +83,14 @@ import { dbLogger } from "../utils/logger.js";
 import {
   applyDrawerDelta,
   insertPaymentRow,
+  writeCustomerLegs,
   type KeptChange,
+  type MeasuredCustomerLegs,
 } from "./moneyPosting.js";
 import { resolveKeptChange } from "./keptChange.js";
+import { resolveAddedChange } from "./addedChange.js";
+import { ADDED_CHANGE_NOT_ALLOWED_MESSAGE } from "../validators/common.js";
+import type { RefundAddedChange } from "../validators/transaction.js";
 import { allocateFifo } from "../utils/fifoCoverage.js";
 import {
   isDrawerAffectingMethod,
@@ -1575,6 +1580,16 @@ export interface RefundSessionBasketItemInput {
    *  handler/route spread the parsed payload in). */
   kept_change_usd?: number;
   kept_change_lbp?: number;
+  /** LIRA-342 — the customer gives money back during the refund: the claim
+   *  in the hand-back (`refundLegs`) currency plus the customer's IN lines.
+   *  Names from `sessionItemRefundSchema` (`refundAddedChangeFields`). */
+  added_change_usd?: number;
+  added_change_lbp?: number;
+  customerPayments?: Array<{
+    method: string;
+    currencyCode: string;
+    amount: number;
+  }>;
 }
 
 /** See `SessionItemRefundPreview`'s doc for why every amount below is a
@@ -5487,12 +5502,28 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     });
     const keptUsd = keptResolved.keptUsd;
     const keptLbp = keptResolved.keptLbp;
+    // LIRA-342 — the customer gives money back on the MONEY BACK remainder.
+    // Same shared check as the whole-transaction refund; null → unchanged.
+    const addedResolved = this._resolveRefundAddedChange({
+      owedNet: { USD: remainderUsd, LBP: remainderLbp },
+      refundLegs: hasOverride ? refundLegs : undefined,
+      added: input,
+      keptClaimed: { usd: input.kept_change_usd, lbp: input.kept_change_lbp },
+      exchangeRate: this._refundKeptChangeRate(
+        effectiveRate,
+        original.exchange_rate,
+      ),
+      isForPartner: this._isForPartnerTransaction(original),
+      entityId: transactionId,
+    });
     if (hasOverride) {
       validateRefundLegOverrideAmounts(
-        keptResolved.owedNetAfterKept,
+        addedResolved
+          ? this._netPlusAdded(keptResolved.owedNetAfterKept, addedResolved)
+          : keptResolved.owedNetAfterKept,
         refundLegs!,
         transactionId,
-        effectiveRate,
+        addedResolved ? addedResolved.rate : effectiveRate,
       );
     }
 
@@ -5734,6 +5765,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           delta: leg.signed_amount,
           tenantId,
         });
+      }
+
+      // LIRA-342 — the money the customer gave back: positive payment rows
+      // of this REFUND row. `undoSessionBasketItemRefund` mirrors every
+      // payment row of the refund, so these are undone with it (rule 20).
+      if (addedResolved) {
+        this._writeRefundAddedChange(refundTxnId, addedResolved, userId);
       }
 
       return {
@@ -6452,6 +6490,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       /** Owner decision 2026-10-07 — refund kept change (POS "Refund
        *  Sale"); see `_refundTransactionInternal`. */
       keptChange?: KeptChange;
+      /** LIRA-342 — see `_resolveRefundAddedChange`. */
+      addedChange?: RefundAddedChange;
     },
   ): number {
     const txn = this.queryOne<{ id: number }>(
@@ -6477,6 +6517,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       refundUnitExtras: opts?.refundUnitExtras,
       exchangeRate: opts?.exchangeRate,
       keptChange: opts?.keptChange,
+      addedChange: opts?.addedChange,
     });
   }
 
@@ -6540,6 +6581,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       exchangeRate?: number;
       /** Owner decision 2026-10-07 — see `_refundTransactionInternal`. */
       keptChange?: KeptChange;
+      /** LIRA-342 — see `_resolveRefundAddedChange`. */
+      addedChange?: RefundAddedChange;
     },
   ): number {
     return this._refundTransactionInternal(id, userId, {
@@ -6547,6 +6590,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       refundUnitExtras: opts?.refundUnitExtras,
       exchangeRate: opts?.exchangeRate,
       keptChange: opts?.keptChange,
+      addedChange: opts?.addedChange,
     });
   }
 
@@ -6571,6 +6615,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
        *  today's per-currency exact-match behavior, unchanged. */
       exchangeRate?: number;
       keptChange?: KeptChange;
+      /** LIRA-342 — the customer gives money back during the refund. */
+      addedChange?: RefundAddedChange;
     },
   ): number {
     const original = this.findById(id);
@@ -6636,6 +6682,28 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // write (same discipline as the override validation it feeds). No claim
     // → zeros and the unchanged path below.
     let kept: { usd: number; lbp: number } | undefined;
+    // LIRA-342 — the customer gives money back during the refund. Checked
+    // BEFORE any write; no claim and no customer lines → null and every
+    // line below runs exactly as before. With a claim, the refund's legs
+    // are validated (and signed) at the refund's rate — the cashier's typed
+    // rate, else the booked rate, else the day's — against net + added.
+    const addedResolved = this._resolveRefundAddedChange({
+      owedNet: this._overridableNetByCurrency(
+        this.getPaymentsByTransactionId(id),
+      ),
+      refundLegs,
+      added: opts.addedChange,
+      keptClaimed: opts.keptChange,
+      exchangeRate: this._refundKeptChangeRate(
+        opts.exchangeRate,
+        original.exchange_rate,
+      ),
+      isForPartner: this._isForPartnerTransaction(original),
+      entityId: id,
+    });
+    const refundRate = addedResolved
+      ? addedResolved.rate
+      : opts.exchangeRate;
     if (refundLegs && refundLegs.length > 0) {
       if (isSwapTransactionType(original.type)) {
         throw new DatabaseError(
@@ -6646,8 +6714,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       kept = this._validateRefundLegOverride(
         id,
         refundLegs,
-        opts.exchangeRate,
+        refundRate,
         { original, claimed: opts.keptChange },
+        addedResolved ?? undefined,
       );
     } else if (opts.keptChange) {
       // No return lines → the default mirror refund hands back everything;
@@ -6675,10 +6744,19 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         userId,
         {
           refundUnitExtras: opts.refundUnitExtras,
-          exchangeRate: opts.exchangeRate,
+          exchangeRate: refundRate,
           kept,
         },
       );
+
+      // LIRA-342 — the money the customer gave back: positive payment rows
+      // of the REFUND row, each into its own drawer. Never touches profit
+      // or the row's amount. A REFUND row cannot be voided; if that ever
+      // changes, `_reversePayments` mirrors these rows with the rest
+      // (rule 20).
+      if (addedResolved) {
+        this._writeRefundAddedChange(refundId, addedResolved, userId);
+      }
 
       // MONEY side — reverse drawer balances (negate every payment from the
       // original). LIRA-078: when refundLegs is present, the customer-facing
@@ -6694,7 +6772,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         userId,
         "refund",
         refundLegs,
-        opts.exchangeRate,
+        refundRate,
       );
 
       return refundId;
@@ -8711,9 +8789,17 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
      *  legs are validated against the net MINUS the checked kept amount
      *  (`_resolveRefundKeptChange`); without one, exactly as before. */
     keptCtx?: { original: TransactionEntity; claimed?: KeptChange },
+    /** LIRA-342 — the customer's verified added change: the legs must
+     *  reproduce net + added (in the hand-back currency). */
+    added?: { currency: string; exact: number },
   ): { usd: number; lbp: number } | undefined {
     const originalRows = this.getPaymentsByTransactionId(transactionId);
-    const originalNet = this._overridableNetByCurrency(originalRows);
+    const originalNet = added
+      ? this._netPlusAdded(
+          this._overridableNetByCurrency(originalRows),
+          added,
+        )
+      : this._overridableNetByCurrency(originalRows);
     const resolved = keptCtx
       ? this._resolveRefundKeptChange({
           owedNet: originalNet,
@@ -8921,6 +9007,151 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       getCurrentTenantId(),
     );
     return (row?.n ?? 0) > 0;
+  }
+
+  /**
+   * LIRA-342 — the customer gives money back during a refund (owner
+   * decision 2026-10-25): a $55 sale paid with 250,000 LBP change is
+   * refunded as $52.22, unless the customer returns the 250,000 LBP — then
+   * the shop hands back the full $55. The refund side of LIRA-336
+   * "customer adds change" (`resolveAddedChange`, rule 14 — one check):
+   *   - the claim (`added_change_usd/lbp`) is in the HAND-BACK currency:
+   *     every `refundLegs` line must be in ONE currency, USD or LBP;
+   *   - the customer's lines (`customerPayments`) are cash or wallet only,
+   *     at most $5 / 450,000 LBP, and must equal the claim;
+   *   - only on a refund that hands money OUT (a money-in original), never
+   *     with kept change on the same refund, never on a FOR-partner one;
+   *   - customer lines with no claim are refused (they can only be added
+   *     change), so nothing is silently dropped.
+   * Returns null when there is neither a claim nor lines — the caller's
+   * path is then unchanged. `exact` is the measured value in the hand-back
+   * currency (the leg target uses it, not the rounded claim). Throws before
+   * any write.
+   */
+  private _resolveRefundAddedChange(args: {
+    owedNet: Record<string, number>;
+    refundLegs: RefundLegOverride[] | undefined;
+    added:
+      | {
+          added_change_usd?: number | undefined;
+          added_change_lbp?: number | undefined;
+          customerPayments?:
+            | Array<{ method: string; currencyCode: string; amount: number }>
+            | undefined;
+        }
+      | null
+      | undefined;
+    keptClaimed: KeptChange | undefined;
+    exchangeRate: number;
+    isForPartner: boolean;
+    entityId: number;
+  }): {
+    currency: string;
+    exact: number;
+    usd: number;
+    lbp: number;
+    rate: number;
+    measured: MeasuredCustomerLegs;
+  } | null {
+    const { entityId } = args;
+    const claimUsd = args.added?.added_change_usd ?? 0;
+    const claimLbp = args.added?.added_change_lbp ?? 0;
+    const lines = args.added?.customerPayments ?? [];
+    const hasClaim = claimUsd > 0 || claimLbp > 0;
+    if (!hasClaim && lines.length === 0) return null;
+    const context = "Refund";
+    const legs = args.refundLegs ?? [];
+    const legCurrencies = new Set(legs.map((l) => l.currencyCode));
+    const currency =
+      legCurrencies.size === 1 ? [...legCurrencies][0]! : undefined;
+    if (hasClaim) {
+      const keptUsd = args.keptClaimed?.usd ?? 0;
+      const keptLbp = args.keptClaimed?.lbp ?? 0;
+      if (keptUsd > 0 || keptLbp > 0) {
+        throw new DatabaseError(
+          `${ADDED_CHANGE_NOT_ALLOWED_MESSAGE} (${context}: change can't be kept and added on the same refund)`,
+          { entityId },
+        );
+      }
+      if (!currency || (currency !== "USD" && currency !== "LBP")) {
+        throw new DatabaseError(
+          `${ADDED_CHANGE_NOT_ALLOWED_MESSAGE} (${context}: the money handed back must be in one currency, USD or LBP)`,
+          { entityId },
+        );
+      }
+      let netValueUsd = 0;
+      for (const [cur, net] of Object.entries(args.owedNet)) {
+        netValueUsd += cur === "LBP" ? net / args.exchangeRate : net;
+      }
+      if (!(netValueUsd > 0)) {
+        throw new DatabaseError(
+          `${ADDED_CHANGE_NOT_ALLOWED_MESSAGE} (${context}: this refund takes money back from the customer)`,
+          { entityId },
+        );
+      }
+    }
+    const handBack = currency === "LBP" ? "LBP" : "USD";
+    const resolved = resolveAddedChange({
+      legs: lines.map((l) => ({
+        method: l.method,
+        currencyCode: l.currencyCode,
+        amount: l.amount,
+      })),
+      expected: { amount: 0, currency: handBack },
+      payoutCurrency: handBack,
+      exchangeRate: args.exchangeRate,
+      claimed: { usd: claimUsd, lbp: claimLbp },
+      notAllowed: args.isForPartner,
+      context,
+    });
+    if (!resolved.measured) return null;
+    return {
+      currency: handBack,
+      exact: resolved.measured.addedChange,
+      usd: resolved.usd,
+      lbp: resolved.lbp,
+      rate: args.exchangeRate,
+      measured: resolved.measured,
+    };
+  }
+
+  /** LIRA-342 — `owedNet` raised by the verified added change. */
+  private _netPlusAdded(
+    owedNet: Record<string, number>,
+    added: { currency: string; exact: number },
+  ): Record<string, number> {
+    return {
+      ...owedNet,
+      [added.currency]: (owedNet[added.currency] ?? 0) + added.exact,
+    };
+  }
+
+  /** LIRA-342 — write the customer's lines on the REFUND row (positive
+   *  payment rows, own drawers) and stamp the claim on its metadata. */
+  private _writeRefundAddedChange(
+    refundTxnId: number,
+    added: { usd: number; lbp: number; measured: MeasuredCustomerLegs },
+    userId: number,
+  ): void {
+    const tenantId = getCurrentTenantId();
+    writeCustomerLegs(this.db, {
+      measured: added.measured,
+      transactionId: refundTxnId,
+      drawerFor: (leg) => paymentMethodToDrawerName(leg.method),
+      tenantId,
+      createdBy: userId,
+      note: "Refund — change given back by the customer",
+    });
+    this.execute(
+      `UPDATE transactions
+          SET metadata_json = json_set(COALESCE(metadata_json, '{}'),
+                '$.refund_added_change_usd', ?, '$.refund_added_change_lbp', ?)
+        WHERE id = ? AND tenant_id = ?`,
+      added.usd,
+      added.lbp,
+      refundTxnId,
+      tenantId,
+    );
   }
 
   /** A usable rate for kept-change reconciliation: the cashier's typed

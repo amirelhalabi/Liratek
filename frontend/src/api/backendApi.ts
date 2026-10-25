@@ -228,6 +228,8 @@ import type {
   RefundUnitExtraInput,
   // Owner decision 2026-10-07 — refund kept change (rule 21).
   RefundKeptChangeInput,
+  // LIRA-342 — the customer gives change back during a refund (rule 21).
+  RefundAddedChangeInput,
   // LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §7) — session-basket
   // single-item refund payload (derived from the core schema, rule 21) +
   // result/preview shapes (derived from the repository, rule 21).
@@ -1579,33 +1581,57 @@ export async function refundSale(
   /** Owner decision 2026-10-07 — refund kept change (type derived from
    *  `saleRefundSchema`, rule 21); rides only when present. */
   keptChange?: SaleRefundPayload["keptChange"],
+  /** LIRA-342 — the customer gave change back (type derived from
+   *  `saleRefundSchema`, rule 21); rides only when present. */
+  addedChange?: SaleRefundPayload["addedChange"],
 ): Promise<{ success: boolean; refundId?: number; error?: string }> {
   return ipcOrHttp(
     async () =>
-      keptChange !== undefined
+      addedChange !== undefined
         ? getElectronApi().sales.refund(
             saleId,
             refundLegs,
             unitExtras,
             exchangeRate,
             keptChange,
+            addedChange,
           )
-        : getElectronApi().sales.refund(
-            saleId,
-            refundLegs,
-            unitExtras,
-            exchangeRate,
-          ),
+        : keptChange !== undefined
+          ? getElectronApi().sales.refund(
+              saleId,
+              refundLegs,
+              unitExtras,
+              exchangeRate,
+              keptChange,
+            )
+          : getElectronApi().sales.refund(
+              saleId,
+              refundLegs,
+              unitExtras,
+              exchangeRate,
+            ),
     async () =>
       requestJson<{ success: boolean; refundId?: number; error?: string }>(
         `/api/sales/${saleId}/refund`,
         {
           method: "POST",
           body:
-            refundLegs || unitExtras || exchangeRate || keptChange
-              ? keptChange !== undefined
-                ? { refundLegs, unitExtras, exchangeRate, keptChange }
-                : { refundLegs, unitExtras, exchangeRate }
+            refundLegs ||
+            unitExtras ||
+            exchangeRate ||
+            keptChange ||
+            addedChange
+              ? addedChange !== undefined
+                ? {
+                    refundLegs,
+                    unitExtras,
+                    exchangeRate,
+                    keptChange,
+                    addedChange,
+                  }
+                : keptChange !== undefined
+                  ? { refundLegs, unitExtras, exchangeRate, keptChange }
+                  : { refundLegs, unitExtras, exchangeRate }
               : undefined,
         },
       ),
@@ -4444,27 +4470,41 @@ export async function refundTransaction(
   unitExtras?: RefundUnitExtraOverride[],
   exchangeRate?: number,
   keptChange?: RefundKeptChangeInput,
+  /** LIRA-342 — the customer gave change back: the IPC channel's sixth
+   *  positional argument, or the REST body's `addedChange` key (one core
+   *  schema, `refundAddedChangeSchema`). Rides only when present. */
+  addedChange?: RefundAddedChangeInput,
 ) {
   if (isElectron()) {
-    return (window as any).api.transactions.refund(
-      id,
-      refundLegs,
-      unitExtras,
-      exchangeRate,
-      keptChange,
-    );
+    return addedChange !== undefined
+      ? (window as any).api.transactions.refund(
+          id,
+          refundLegs,
+          unitExtras,
+          exchangeRate,
+          keptChange,
+          addedChange,
+        )
+      : (window as any).api.transactions.refund(
+          id,
+          refundLegs,
+          unitExtras,
+          exchangeRate,
+          keptChange,
+        );
   }
   return requestJson<{ success: boolean; refundId?: number; error?: string }>(
     `/api/transactions/${id}/refund`,
     {
       method: "POST",
       body:
-        refundLegs || unitExtras || exchangeRate || keptChange
+        refundLegs || unitExtras || exchangeRate || keptChange || addedChange
           ? {
               refundLegs,
               refundUnitExtras: unitExtras,
               exchangeRate,
               keptChange,
+              ...(addedChange !== undefined ? { addedChange } : {}),
             }
           : undefined,
     },

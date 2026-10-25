@@ -25,6 +25,7 @@ import {
   getTransactionRepository,
 } from "../repositories/TransactionRepository.js";
 import type { KeptChange } from "../repositories/moneyPosting.js";
+import type { RefundAddedChange } from "../validators/transaction.js";
 import logger from "../utils/logger.js";
 
 export class TransactionService {
@@ -222,6 +223,8 @@ export class TransactionService {
       exchangeRate?: number;
       /** Owner decision 2026-10-07 — refund kept change, forwarded. */
       keptChange?: KeptChange;
+      /** LIRA-342 — the customer gives money back, forwarded verbatim. */
+      addedChange?: RefundAddedChange;
     },
   ): number {
     try {
@@ -265,6 +268,9 @@ export class TransactionService {
       /** Owner decision 2026-10-07 — refund kept change, forwarded
        *  verbatim; the repository checks it (`resolveKeptChange`). */
       keptChange?: KeptChange;
+      /** LIRA-342 — the customer gives money back during the refund,
+       *  forwarded verbatim; the repository checks it. */
+      addedChange?: RefundAddedChange;
     },
   ): number {
     try {

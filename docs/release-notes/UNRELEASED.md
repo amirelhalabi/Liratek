@@ -104,6 +104,11 @@ On the Vouchers page, creating a gift card now asks how the customer pays: cash,
 On the Partners page, open a partner and tap "Transactions" or "Payments", the same way as on the Suppliers page. Transactions lists what you did with or for the partner, with the date, mode, provider and direction filters. Payments lists settlements (a Cash + Whish one reads "via SPLIT"), write-offs and credit / debt entries, with a date filter. The count is on each button, so the partner's panel stays short.
 ![Partners: the Payments window with a settlement, a write-off and a credit/debt entry](whats-new/1.35.0/partner-ledger.png)
 
+### The customer gives the change back on a refund
+
+When a sale was paid in dollars and the change was given in Lebanese pounds (or the other way round), the refund window now offers what the customer really paid. Example: paid $55, got 250,000 LBP change at 90,000 — the refund window fills in $52.22 cash. If the customer brings the 250,000 LBP back, tap **+ Customer gives change**, enter it, and the window asks you to hand back the full $55. This works on Audit & Transactions, on the POS Refund Sale button and when refunding an item from a customer session.
+![Refund window: the customer gives back 250,000 LBP, the shop hands back $55](whats-new/1.35.0/refund-customer-gives-change.png)
+
 ## 🛒 POS
 
 - After a sale, and from any past sale's details, you can now send the receipt to the customer on WhatsApp. WhatsApp opens on their chat with the receipt already written; you press Send. Works on the desktop app and the web app.
@@ -272,6 +277,8 @@ On the Partners page, open a partner and tap "Transactions" or "Payments", the s
 - Transactions: from now on, in a transaction's Details, money the shop pays out shows as Out: Loto prizes, Hold Money pickups, expenses, supplier and partner payments, cash advances and credit cash-outs, OMT / Whish / Whish App / Binance payouts, Exchange payouts, Custom Services pay-outs, credit buy-backs and Whish App top-ups paid to a client. Change a vendor or supplier hands back shows as In. Transactions saved before keep their old labels.
 - Transactions: from now on, a top-up's Details shows the amount, the currency and the drawers it moved between. A top-up from a drawer also lists both lines: out of the drawer, into the wallet.
 - Transactions: from now on, an iPick, Katsh or Whish App item paid in a basket, picked from the Whish App list or sent to a partner shows the item's name in Details (for example "4.5"), not only its category.
+- Refunds: when a sale's change was given in another currency, the refund window now fills in the real amount the customer paid, in the currency they paid with. Example: paid $55, got 250,000 LBP change at 90,000 — the refund fills in $52.22, not $55 plus 250,000 LBP.
+- Refunds: a new "+ Customer gives change" link in the refund window. If the customer brings back the change they got (for example the 250,000 LBP), enter it there and hand back the full amount ($55).
 
 ## 🧺 Customer sessions
 

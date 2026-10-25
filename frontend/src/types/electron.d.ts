@@ -31,6 +31,8 @@ import type {
   CreateExpenseRequest,
   // Owner decision 2026-10-07 — refund kept change (core schema input).
   RefundKeptChangeInput,
+  // LIRA-342 — the customer gives change back during a refund (core schema input).
+  RefundAddedChangeInput,
   // Rule 21 — custom-services:add payload (core schema input).
   CreateCustomServicePayload,
   // Rule 21 — session:checkout payload (core schema input).
@@ -1212,6 +1214,8 @@ export interface ElectronAPI {
       exchangeRate?: number,
       /** Owner decision 2026-10-07 — refund kept change. */
       keptChange?: RefundKeptChangeInput,
+      /** LIRA-342 — the customer gave change back. */
+      addedChange?: RefundAddedChangeInput,
     ) => Promise<{
       success: boolean;
       refundId?: number;
@@ -3191,6 +3195,8 @@ export interface ElectronAPI {
       /** Owner decision 2026-10-07 — refund kept change (the server checks
        *  it against refundLegs). */
       keptChange?: RefundKeptChangeInput,
+      /** LIRA-342 — the customer gave change back (6th positional arg). */
+      addedChange?: RefundAddedChangeInput,
     ) => Promise<{
       success: boolean;
       refundId?: number;

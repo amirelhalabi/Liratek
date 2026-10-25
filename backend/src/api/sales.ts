@@ -239,6 +239,8 @@ router.post("/:id/refund", requireRole(["admin"]), (req, res) => {
     exchangeRate: req.body?.exchangeRate,
     // Owner decision 2026-10-07 — refund kept change (same schema as IPC).
     keptChange: req.body?.keptChange ?? undefined,
+    // LIRA-342 — the customer gives money back (same schema as IPC).
+    addedChange: req.body?.addedChange ?? undefined,
   });
   if (!parsed.success) {
     const firstError = parsed.error.issues[0];
@@ -261,6 +263,7 @@ router.post("/:id/refund", requireRole(["admin"]), (req, res) => {
             lbp: parsed.data.keptChange.kept_change_lbp,
           }
         : undefined,
+      addedChange: parsed.data.addedChange,
     });
     // Mirrors salesHandlers.ts's sales:refund audit (refund/sale).
     auditRest(req, {

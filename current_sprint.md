@@ -6719,6 +6719,13 @@ Owner decisions 2026-10-18:
 
 **What users will notice:** from now on, a checkpoint's Over or Short stays open until it is explained. Re-entering the missed transaction with "Set custom time" before that checkpoint marks the difference Resolved without counting the money twice, so the next checkpoint is balanced. The Checkpoints page has an "Open differences only" filter, and an admin can close an unexplained difference from the checkpoint's details (a Short appears under Expenses as "Drawer shortage"; Reopen undoes it). Checkpoints saved before the update stay as they were.
 
+## LIRA-342: Refund — net amount by default + the customer gives the change back — BUILT 2026-10-25
+
+CornerTech report: a custom service paid Cash $55 with 250,000 LBP change (@90,000, net $52.22) could not be refunded. The refund window pre-filled $55 + 250,000 LBP ($57.78), because it turned the change that went OUT into a second hand-back line, and the server requires $52.22.
+Owner decisions 2026-10-25: pre-fill the net in the currency the customer paid (Cash $52.22), plus "+ Customer gives change" in the refund window: if the customer returns the 250,000 LBP, the shop hands back $55 (USD −55, LBP +250,000). Cap $5 / 450,000 LBP. Covers the generic refund, POS Refund Sale and the session item refund. Follow-up: POS per-item refund does not take it yet.
+
+**What users will notice:** refunding a sale where change was given in another currency now offers the right amount to hand back. If the customer gives you their change back, tap "+ Customer gives change" in the refund window and hand back the full amount.
+
 ## LIRA-341: Discount the whole session basket — BUILT 2026-10-25 (owner decisions 2026-10-25)
 
 Owner report: session checkout had no discount (Extra only; Waive only up to $5), so a $294 basket paid $286 left $8 of debt.

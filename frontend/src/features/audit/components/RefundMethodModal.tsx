@@ -1,9 +1,17 @@
 import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { formatNumber } from "@liratek/ui/i18n/format";
-import { CounterpartySettleModal, type PaymentLine } from "@liratek/ui";
+import {
+  CounterpartySettleModal,
+  type LinesSectionState,
+  type PaymentLine,
+} from "@liratek/ui";
 import type { Money } from "@liratek/ui";
-import { SHORTFALL_MAX, type RefundKeptChangeInput } from "@liratek/core";
+import {
+  SHORTFALL_MAX,
+  type RefundAddedChangeInput,
+  type RefundKeptChangeInput,
+} from "@liratek/core";
 import type { TransactionPaymentLeg } from "../cashFlow";
 import {
   buildDefaultRefundLines,
@@ -101,6 +109,13 @@ export interface RefundMethodModalProps {
    *  caller whose transport carries the kept amount may pass `true`.
    *  Default false: the exact amount is required, as before. */
   allowKeptChange?: boolean;
+  /** LIRA-342 (owner decision 2026-10-25) — offer "+ Customer gives change":
+   *  the customer hands back change they got in another currency (e.g. the
+   *  250,000 LBP of a $55 sale) and the shop hands back that much more
+   *  (the full $55). Shown only when the hand-back is ONE USD/LBP currency
+   *  and no customer account is being reduced; only a caller whose
+   *  transport carries `addedChange` may pass `true`. Default false. */
+  allowAddedChange?: boolean;
   isSubmitting?: boolean;
   onCancel: () => void;
   /**
@@ -126,12 +141,18 @@ export interface RefundMethodModalProps {
    * only when the shop keeps a leftover (always alongside a real
    * `refundLegs` override and the rate). Field names are the core schema's
    * (`refundKeptChangeSchema`).
+   *
+   * `addedChange` (LIRA-342) is a FIFTH argument, passed only when the
+   * customer gave change back (always with a real `refundLegs` override and
+   * the rate; `keptChange` is then `undefined` — the two never combine).
+   * Shape is the core schema's (`refundAddedChangeSchema`).
    */
   onConfirm: (
     refundLegs: RefundLegOverride[] | undefined,
     unitExtras?: RefundUnitExtraOverride[],
     exchangeRate?: number,
     keptChange?: RefundKeptChangeInput,
+    addedChange?: RefundAddedChangeInput,
   ) => void;
 }
 
@@ -163,12 +184,14 @@ export function RefundMethodModal({
   entityLabel = "transaction",
   onRateChange,
   allowKeptChange = false,
+  allowAddedChange = false,
   isSubmitting = false,
   onCancel,
   onConfirm,
 }: RefundMethodModalProps) {
   // Labels only: nothing translated here reaches `onConfirm`'s arguments.
   const { t } = useTranslation("audit");
+  const { t: tp } = useTranslation("payment");
   // Computed once from the legs snapshot the caller passed in when opening
   // this modal — stable for the lifetime of one refund attempt.
   const originalNet = useMemo(() => netByCurrency(legs), [legs]);
@@ -176,10 +199,27 @@ export function RefundMethodModal({
     () => paymentMethods.map((m) => m.code),
     [paymentMethods],
   );
-  const defaults = useMemo(
+  // LIRA-342 — the pre-fill is the NET value in the currency the customer
+  // paid (change given in another currency folded in at the popup's opening
+  // rate). `mirrorDefaults` is the old one-line-per-currency mirror of the
+  // original legs: an untouched confirm sends NO override only when the
+  // lines still equal THAT (the server's default reversal mirrors the legs
+  // verbatim). A folded pre-fill differs from the mirror, so confirming it
+  // untouched sends it as a real override.
+  const mirrorDefaults = useMemo(
     () => buildDefaultRefundLines(legs, selectableMethodCodes),
     [legs, selectableMethodCodes],
   );
+  // A net value of ~0 (an even exchange) folds to nothing — keep showing
+  // the mirror then, so the reversal stays visible and editable.
+  const defaults = useMemo(() => {
+    const folded = buildDefaultRefundLines(
+      legs,
+      selectableMethodCodes,
+      exchangeRate,
+    );
+    return folded.length > 0 ? folded : mirrorDefaults;
+  }, [legs, selectableMethodCodes, exchangeRate, mirrorDefaults]);
   // Phase 6b: a sale refunded entirely on CUSTOMER_ACCOUNT has NO
   // drawer-affecting legs at all — `defaults` (and therefore the payment
   // section) is legitimately empty. Gate the MultiPaymentInput/"Returning"
@@ -191,6 +231,15 @@ export function RefundMethodModal({
   // mode then reports the small shortfall it keeps.
   const keptEligible = allowKeptChange && defaults.length === 1;
   const refundCurrency = defaults[0]?.currencyCode ?? "USD";
+  // LIRA-342 — "+ Customer gives change": one USD/LBP hand-back currency
+  // (the server's rule), and never while a customer account is reduced.
+  const addedEligible =
+    allowAddedChange &&
+    defaults.length === 1 &&
+    !(
+      accountReduction &&
+      (accountReduction.usd > 0 || accountReduction.lbp > 0)
+    );
   // The ONE shared cap (LIRA-310, owner decision 2026-10-11: up to AND
   // including it — `isWithinShortfallMax`, which both MultiPaymentInput's
   // payout keep and resolveKeptChange apply), in the refund's one currency —
@@ -239,9 +288,33 @@ export function RefundMethodModal({
   // What MultiPaymentInput (payout mode) reports the shop keeps — null when
   // the lines cover the refund, or the shortfall is not a small leftover.
   const [kept, setKept] = useState<{ usd: number; lbp: number } | null>(null);
+  // LIRA-342 — the customer's own lines in "Customer gives change" and what
+  // MultiPaymentInput reports they add (in the hand-back currency).
+  const [givesLines, setGivesLines] = useState<PaymentLine[]>([]);
+  // Over the $5 / 450,000 LBP cap the section shows as overpaid and the
+  // claim drops — Confirm stays disabled until it is fixed or closed.
+  const [givesOverpaid, setGivesOverpaid] = useState(false);
+  const [added, setAdded] = useState<{ usd: number; lbp: number } | null>(null);
 
   const overrideLines = toRefundLegs(currentLines);
-  const reportedKept = keptEligible ? kept : null;
+  // The customer's lines and the claim travel together or not at all: only
+  // non-zero lines (opening the section seeds a 0 line), only with a claim.
+  const givesPayments = givesLines
+    .filter((l) => l.amount > 0)
+    .map((l) => ({
+      method: l.method,
+      currencyCode: l.currencyCode,
+      amount: l.amount,
+    }));
+  const activeAdded =
+    addedEligible &&
+    added &&
+    (added.usd > 0 || added.lbp > 0) &&
+    givesPayments.length > 0
+      ? added
+      : null;
+  // Kept change and added change never combine.
+  const reportedKept = keptEligible && !activeAdded ? kept : null;
   // Payout mode reports ANY small shortfall, including a cross-currency
   // refund that is a cent or two short — which the value check has always
   // accepted (LIRA-236 tolerance). So the kept report is used only when it
@@ -260,9 +333,11 @@ export function RefundMethodModal({
     originalNet,
     currentRate,
     activeKept,
+    activeAdded,
   );
   const validationError = plainError == null ? null : (keptError ?? plainError);
-  const isDefault = linesMatchDefault(overrideLines, defaults);
+  const isDefault =
+    !activeAdded && linesMatchDefault(overrideLines, mirrorDefaults);
 
   const methodLabel = (code: string): string =>
     paymentMethods.find((m) => m.code === code)?.label ?? code;
@@ -323,7 +398,17 @@ export function RefundMethodModal({
       (activeKept.usd > 0 || activeKept.lbp > 0)
         ? { kept_change_usd: activeKept.usd, kept_change_lbp: activeKept.lbp }
         : undefined;
-    if (keptArg !== undefined) {
+    const addedArg: RefundAddedChangeInput | undefined =
+      finalLegs !== undefined && activeAdded
+        ? {
+            added_change_usd: activeAdded.usd,
+            added_change_lbp: activeAdded.lbp,
+            customerPayments: givesPayments,
+          }
+        : undefined;
+    if (addedArg !== undefined) {
+      onConfirm(finalLegs, unitExtras, rateArg, undefined, addedArg);
+    } else if (keptArg !== undefined) {
       onConfirm(finalLegs, unitExtras, rateArg, keptArg);
     } else if (rateArg !== undefined) {
       onConfirm(finalLegs, unitExtras, rateArg);
@@ -356,6 +441,7 @@ export function RefundMethodModal({
       isSubmitting={isSubmitting}
       confirmDisabled={
         validationError != null ||
+        (addedEligible && givesOverpaid) ||
         (hasLegsToOverride && overrideLines.length === 0)
       }
       multiPaymentInput={
@@ -394,8 +480,30 @@ export function RefundMethodModal({
               paidLabel: t("refundModal.handBack"),
               // Refund kept change — the shop hands money OUT, and only a
               // caller that may keep change wires the report (opt-in).
-              ...(keptEligible
-                ? { payer: "payout" as const, onKeptChange: setKeptFromMpi }
+              ...(keptEligible || addedEligible
+                ? { payer: "payout" as const }
+                : {}),
+              ...(keptEligible ? { onKeptChange: setKeptFromMpi } : {}),
+              // LIRA-342 — "+ Customer gives change" (the LIRA-336 optional
+              // section): what the customer hands back raises "Shop pays".
+              ...(addedEligible
+                ? {
+                    onAddedChange: (
+                      next: { usd: number; lbp: number } | null,
+                    ) =>
+                      setAdded(next ? { usd: next.usd, lbp: next.lbp } : null),
+                    counterFlow: {
+                      label: tp("counterFlow.customerGivesChange"),
+                      optional: true,
+                      allowAddedChange: true,
+                      totalAmount: 0,
+                      currency: refundCurrency,
+                      onChange: setGivesLines,
+                      onStateChange: (st: LinesSectionState | null) =>
+                        setGivesOverpaid(!!st?.overpaid),
+                      paymentMethods,
+                    },
+                  }
                 : {}),
             }
           : undefined

@@ -79,6 +79,7 @@ import {
   extraChargeText,
   isSwapTransactionType,
   REFUND_KEPT_CHANGE_TYPES,
+  type RefundAddedChangeInput,
   type RefundKeptChangeInput,
 } from "@liratek/core";
 import { RefundQuantityModal } from "../components/RefundQuantityModal";
@@ -89,6 +90,7 @@ import {
 } from "../components/SessionSaleLinePickerModal";
 import { useSessionItemRefund } from "../hooks/useSessionItemRefund";
 import {
+  refundCanAddChange,
   refundCanKeepChange,
   type RefundLegOverride,
   type RefundUnitExtraOverride,
@@ -415,20 +417,35 @@ export default function TransactionsViewer({
       unitExtras?: RefundUnitExtraOverride[],
       exchangeRate?: number,
       keptChange?: RefundKeptChangeInput,
+      addedChange?: RefundAddedChangeInput,
     ) => {
       try {
-        // The kept-change argument rides only when present, so a refund
-        // without it keeps the exact pre-existing call shape.
+        // The kept/added-change arguments ride only when present, so a
+        // refund without them keeps the exact pre-existing call shape.
         const res =
-          keptChange !== undefined
+          addedChange !== undefined
             ? await refundTransaction(
                 id,
                 refundLegs,
                 unitExtras,
                 exchangeRate,
                 keptChange,
+                addedChange,
               )
-            : await refundTransaction(id, refundLegs, unitExtras, exchangeRate);
+            : keptChange !== undefined
+              ? await refundTransaction(
+                  id,
+                  refundLegs,
+                  unitExtras,
+                  exchangeRate,
+                  keptChange,
+                )
+              : await refundTransaction(
+                  id,
+                  refundLegs,
+                  unitExtras,
+                  exchangeRate,
+                );
         if (res.success) load();
         else alert(describeActionFailure(res.error, "refundTransaction", t));
       } catch (err) {
@@ -578,6 +595,7 @@ export default function TransactionsViewer({
       unitExtras?: RefundUnitExtraOverride[],
       exchangeRate?: number,
       keptChange?: RefundKeptChangeInput,
+      addedChange?: RefundAddedChangeInput,
     ) => {
       if (!refundModalRow) return;
       setIsRefunding(true);
@@ -588,6 +606,7 @@ export default function TransactionsViewer({
           unitExtras,
           exchangeRate,
           keptChange,
+          addedChange,
         );
       } finally {
         setIsRefunding(false);
@@ -1086,6 +1105,12 @@ export default function TransactionsViewer({
             refundModalRow.type,
             refundModalRow.payments,
           )}
+          // LIRA-342 — "+ Customer gives change" on a refund that hands
+          // money out (the server's own precondition).
+          allowAddedChange={refundCanAddChange(
+            refundModalRow.payments,
+            refundBookedRate?.bookedRate ?? fallbackRate ?? 89000,
+          )}
           isSubmitting={isRefunding}
           onCancel={() => {
             setRefundModalRow(null);
@@ -1162,6 +1187,8 @@ export default function TransactionsViewer({
           allowKeptChange={REFUND_KEPT_CHANGE_TYPES.includes(
             sessionItemRefund.preview.target.transactionType ?? "",
           )}
+          // LIRA-342 — the server refuses it where it does not apply.
+          allowAddedChange
           isSubmitting={sessionItemRefund.submitting}
           onCancel={() => {
             setSessionItemRefundUnits([]);

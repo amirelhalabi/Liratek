@@ -150,6 +150,8 @@ import type {
   RefundUnitExtraInput,
   // Owner decision 2026-10-07 — refund kept change (rule 21).
   RefundKeptChangeInput,
+  // LIRA-342 — the customer gives change back during a refund (rule 21).
+  RefundAddedChangeInput,
   // LIRA-252 wave 2 — carrier-line manual-drawer-adjustment read shape,
   // imported directly (rule 21) instead of a hand-typed object literal.
   CarrierLineAdjustmentRecord,
@@ -1419,6 +1421,8 @@ export type ApiAdapter = {
     exchangeRate?: number,
     /** Owner decision 2026-10-07 — refund kept change. */
     keptChange?: SaleRefundPayload["keptChange"],
+    /** LIRA-342 — the customer gave change back. */
+    addedChange?: SaleRefundPayload["addedChange"],
   ) => Promise<{ success: boolean; refundId?: number; error?: string }>;
   /** Refund a specific line item off a sale, by quantity (admin only).
    *  LIRA-231: same optional `refundLegs` override, validated against THIS
@@ -2755,6 +2759,9 @@ export type ApiAdapter = {
     /** Owner decision 2026-10-07 — refund kept change (only with a
      *  `refundLegs` override; the server checks it). */
     keptChange?: RefundKeptChangeInput,
+    /** LIRA-342 — the customer gave change back (with a `refundLegs`
+     *  override in one currency; the server checks it). */
+    addedChange?: RefundAddedChangeInput,
   ) => Promise<ApiResult & { refundId?: number }>;
   /** LIRA-236 — the Transactions-page refund modal's `bookedRate`/
    *  `bookedRateSource` default (the transaction's own recorded rate, else

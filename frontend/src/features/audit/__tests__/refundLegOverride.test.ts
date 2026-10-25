@@ -506,9 +506,9 @@ describe("buildUnitExtras", () => {
   });
 
   it("includes only is_defective when the checkbox is checked", () => {
-    expect(
-      buildUnitExtras([1], { 1: { isDefective: true } }),
-    ).toStrictEqual([{ unit_id: 1, is_defective: true }]);
+    expect(buildUnitExtras([1], { 1: { isDefective: true } })).toStrictEqual([
+      { unit_id: 1, is_defective: true },
+    ]);
   });
 
   it("never sends a warranty date: a date-only flag emits nothing", () => {
@@ -536,9 +536,9 @@ describe("buildUnitExtras", () => {
   });
 
   it("ignores a unit id with no flags entry at all (never defaults it into the output)", () => {
-    expect(
-      buildUnitExtras([1, 2], { 2: { isDefective: true } }),
-    ).toStrictEqual([{ unit_id: 2, is_defective: true }]);
+    expect(buildUnitExtras([1, 2], { 2: { isDefective: true } })).toStrictEqual(
+      [{ unit_id: 2, is_defective: true }],
+    );
   });
 
   it("preserves the order of unitIds in the output", () => {
@@ -584,7 +584,7 @@ describe("toRefundLegs — the OLD ternary money bug, isolated and guarded", () 
   // EXACTLY what the old ternary did, as a bare expression, so the bug is
   // demonstrated mechanically rather than asserted from memory — then the
   // next test proves `toRefundLegs` does not reproduce it.
-  it("documents the bug: the old `currencyCode === \"LBP\" ? \"LBP\" : \"USD\"` ternary silently turned a USDT line into a USD one", () => {
+  it('documents the bug: the old `currencyCode === "LBP" ? "LBP" : "USD"` ternary silently turned a USDT line into a USD one', () => {
     const oldNarrow = (currencyCode: string): "USD" | "LBP" =>
       currencyCode === "LBP" ? "LBP" : "USD";
     expect(oldNarrow("USDT")).toBe("USD"); // the latent money bug
@@ -629,5 +629,55 @@ describe("toRefundLegs — the OLD ternary money bug, isolated and guarded", () 
 
   it("returns [] for an empty input", () => {
     expect(toRefundLegs([])).toEqual([]);
+  });
+});
+
+describe("buildDefaultRefundLines — change given in another currency folds into the net value (CornerTech 2026-10-25)", () => {
+  it("paid $55 cash, 250,000 LBP change at 90,000 → one Cash $52.22 line that validateRefundValue accepts", () => {
+    const legs = [
+      leg("in", 55, "USD", "CASH"),
+      leg("out", 250_000, "LBP", "CASH"),
+    ];
+    const defaults = buildDefaultRefundLines(legs, ["CASH"], 90_000);
+    expect(defaults).toEqual([
+      { method: "CASH", currencyCode: "USD", amount: 52.22 },
+    ]);
+    expect(
+      validateRefundValue(defaults, netByCurrency(legs), 90_000),
+    ).toBeNull();
+  });
+
+  it("mirror: paid 9,000,000 LBP, $20 change at 90,000 → one Cash 7,200,000 LBP line", () => {
+    const legs = [
+      leg("in", 9_000_000, "LBP", "CASH"),
+      leg("out", 20, "USD", "CASH"),
+    ];
+    const defaults = buildDefaultRefundLines(legs, ["CASH"], 90_000);
+    expect(defaults).toEqual([
+      { method: "CASH", currencyCode: "LBP", amount: 7_200_000 },
+    ]);
+    expect(
+      validateRefundValue(defaults, netByCurrency(legs), 90_000),
+    ).toBeNull();
+  });
+
+  it("plain single-currency refund is unchanged", () => {
+    const legs = [leg("in", 100, "USD", "OMT")];
+    expect(buildDefaultRefundLines(legs, ["CASH", "OMT"], 90_000)).toEqual([
+      { method: "OMT", currencyCode: "USD", amount: 100 },
+    ]);
+  });
+
+  it("two positive currencies (nothing to fold) stay one line each", () => {
+    const legs = [leg("in", 50, "USD"), leg("in", 900_000, "LBP")];
+    expect(buildDefaultRefundLines(legs, ["CASH"], 90_000)).toEqual([
+      { method: "CASH", currencyCode: "USD", amount: 50 },
+      { method: "CASH", currencyCode: "LBP", amount: 900_000 },
+    ]);
+  });
+
+  it("change that exceeds what was paid (net ≤ 0) → no lines", () => {
+    const legs = [leg("in", 10, "USD"), leg("out", 900_000, "LBP")];
+    expect(buildDefaultRefundLines(legs, ["CASH"], 90_000)).toEqual([]);
   });
 });

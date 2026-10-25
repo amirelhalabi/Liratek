@@ -61,7 +61,7 @@ describe("US1 schema lifts", () => {
 
   it("transactions:void / refund: the positional ids and every refund argument survive", () => {
     expect(keys(transactionVoidSchema)).toEqual(["transactionId"]);
-    expect(keys(transactionRefundSchema)).toEqual(["exchangeRate", "keptChange", "refundLegs", "refundUnitExtras", "transactionId"]);
+    expect(keys(transactionRefundSchema)).toEqual(["addedChange", "exchangeRate", "keptChange", "refundLegs", "refundUnitExtras", "transactionId"]);
     const parsed = transactionRefundSchema.parse({
       transactionId: 9,
       refundLegs: null,

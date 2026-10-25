@@ -8,7 +8,9 @@ import {
   clientDayInputSchema,
   refundExchangeRateSchema,
   refundExchangeRateQuerySchema,
+  addedChangeFields,
 } from "./common.js";
+import { customerLegSchema } from "./customerLegs.js";
 
 /**
  * Transaction-level (unified journal) validation schemas.
@@ -136,6 +138,27 @@ const refundKeptChangeFields = {
 export const refundKeptChangeSchema = z.object(refundKeptChangeFields);
 
 /**
+ * LIRA-342 — the customer gives money back during a refund (e.g. returns the
+ * 250,000 LBP change of a $55 sale, so the shop hands back the full $55).
+ * The mirror of LIRA-336 "customer adds change" on payouts, reusing its
+ * fields (rule 14): `added_change_usd` / `added_change_lbp` is the claim IN
+ * THE HAND-BACK CURRENCY (the currency of every `refundLegs` line — exactly
+ * one of USD/LBP, ≤ $5 / 450,000 LBP), and `customerPayments` are the
+ * customer's own IN lines (cash or wallet, never CUSTOMER_ACCOUNT). Flat in
+ * `sessionItemRefundSchema`, an object (`refundAddedChangeSchema`) for the
+ * positional `transactions:refund` channel — same pattern as kept change.
+ * Optional, no `.default()` (offline replay). The repository checks the
+ * claim (`resolveAddedChange`); Zod only shapes it.
+ */
+export const refundAddedChangeFields = {
+  ...addedChangeFields,
+  customerPayments: z.array(customerLegSchema).min(1).optional(),
+};
+export const refundAddedChangeSchema = z.object(refundAddedChangeFields);
+export type RefundAddedChangeInput = z.input<typeof refundAddedChangeSchema>;
+export type RefundAddedChange = z.output<typeof refundAddedChangeSchema>;
+
+/**
  * The transaction types whose refund may keep change — the ONE list the
  * repository gate (`TransactionRepository._resolveRefundKeptChange`) and
  * the refund popup both read (rule 14). Kept profit lives in the REFUND
@@ -238,6 +261,8 @@ export const sessionItemRefundSchema = z
     // keeps as profit. Zod only shapes it; the repository checks it
     // (`resolveKeptChange`, payer "payout": cap, currency, real shortfall).
     ...refundKeptChangeFields,
+    // LIRA-342 — the customer gives money back during the refund.
+    ...refundAddedChangeFields,
   })
   // Round-2 finding #10a (LOW) — `saleItemId` and `quantity` must be given
   // TOGETHER or BOTH omitted. Omitting BOTH is Q2 ("every remaining line, in
@@ -371,5 +396,7 @@ export const transactionRefundSchema = z.object({
   refundUnitExtras: refundUnitExtrasSchema.nullish(),
   exchangeRate: refundExchangeRateSchema,
   keptChange: refundKeptChangeSchema.nullish(),
+  // LIRA-342 — the customer gives money back during the refund.
+  addedChange: refundAddedChangeSchema.nullish(),
 });
 export type TransactionRefundInput = z.input<typeof transactionRefundSchema>;

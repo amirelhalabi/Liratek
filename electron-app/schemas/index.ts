@@ -81,6 +81,8 @@ import {
   // fifth positional argument), shared with the REST route (rule 14).
   refundKeptChangeSchema,
   type RefundKeptChangeInput,
+  // LIRA-342 — the customer gives money back during a refund.
+  type RefundAddedChangeInput,
   carrierLineCreateSchema,
   carrierLineUpdateSchema,
   carrierLineUpdateBalanceSchema,
@@ -1389,6 +1391,8 @@ export const TransactionRefundSchema =
       refundUnitExtras?: z.infer<typeof RefundUnitExtrasSchema> | null;
       exchangeRate?: number;
       keptChange?: z.infer<typeof RefundKeptChangeSchema> | null;
+      // LIRA-342 — the customer gives money back during the refund.
+      addedChange?: RefundAddedChangeInput | null;
     },
     z.ZodTypeDef,
     TransactionRefundInput

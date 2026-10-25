@@ -174,6 +174,8 @@ export function registerSalesHandlers(): void {
       exchangeRate?: unknown,
       // Owner decision 2026-10-07 — refund kept change (5th positional).
       keptChange?: unknown,
+      // LIRA-342 — the customer gives money back (6th positional).
+      addedChange?: unknown,
     ) => {
       const v = validatePayload(SaleRefundSchema, {
         saleId,
@@ -181,6 +183,7 @@ export function registerSalesHandlers(): void {
         unitExtras,
         exchangeRate,
         keptChange: keptChange ?? undefined,
+        addedChange: addedChange ?? undefined,
       });
       if (!v.ok) return { success: false, error: v.error };
       try {
@@ -198,6 +201,7 @@ export function registerSalesHandlers(): void {
                 lbp: v.data.keptChange.kept_change_lbp,
               }
             : undefined,
+          addedChange: v.data.addedChange,
         });
         audit(e.sender.id, {
           action: "refund",

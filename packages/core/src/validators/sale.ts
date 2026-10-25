@@ -18,6 +18,7 @@ export const POS_EXTRA_USD_ONLY_MESSAGE =
   "A POS sale's extra is in dollars — enter it in USD.";
 import { warrantyMonthsSchema } from "./productUnit.js";
 import {
+  refundAddedChangeSchema,
   refundKeptChangeSchema,
   refundLegsSchema,
   refundUnitExtrasSchema,
@@ -306,6 +307,9 @@ export const saleRefundSchema = z.object({
   // repository checks the claim (`resolveKeptChange`). The per-item
   // refund below takes the same field.
   keptChange: refundKeptChangeSchema.optional(),
+  // LIRA-342 — the customer gives money back during the refund: the SAME
+  // object `transactions:refund` takes (`refundAddedChangeSchema`).
+  addedChange: refundAddedChangeSchema.optional(),
 });
 export type SaleRefundInput = z.infer<typeof saleRefundSchema>;
 

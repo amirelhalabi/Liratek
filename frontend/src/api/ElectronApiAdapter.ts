@@ -319,10 +319,26 @@ export class ElectronApiAdapter implements ApiAdapter {
     unitExtras?: SaleRefundPayload["unitExtras"],
     exchangeRate?: number,
     keptChange?: SaleRefundPayload["keptChange"],
+    addedChange?: SaleRefundPayload["addedChange"],
   ) =>
-    keptChange !== undefined
-      ? api.refundSale(saleId, refundLegs, unitExtras, exchangeRate, keptChange)
-      : api.refundSale(saleId, refundLegs, unitExtras, exchangeRate);
+    addedChange !== undefined
+      ? api.refundSale(
+          saleId,
+          refundLegs,
+          unitExtras,
+          exchangeRate,
+          keptChange,
+          addedChange,
+        )
+      : keptChange !== undefined
+        ? api.refundSale(
+            saleId,
+            refundLegs,
+            unitExtras,
+            exchangeRate,
+            keptChange,
+          )
+        : api.refundSale(saleId, refundLegs, unitExtras, exchangeRate);
   /** Refund a specific line item off a sale, by quantity (admin only).
    *  LIRA-231: refundLegs optional. 2026-09-26: unitExtras optional too.
    *  LIRA-236: exchangeRate optional too. */
@@ -696,8 +712,24 @@ export class ElectronApiAdapter implements ApiAdapter {
     unitExtras?: api.RefundUnitExtraOverride[],
     exchangeRate?: number,
     keptChange?: Parameters<typeof api.refundTransaction>[4],
+    addedChange?: Parameters<typeof api.refundTransaction>[5],
   ) =>
-    api.refundTransaction(id, refundLegs, unitExtras, exchangeRate, keptChange);
+    addedChange !== undefined
+      ? api.refundTransaction(
+          id,
+          refundLegs,
+          unitExtras,
+          exchangeRate,
+          keptChange,
+          addedChange,
+        )
+      : api.refundTransaction(
+          id,
+          refundLegs,
+          unitExtras,
+          exchangeRate,
+          keptChange,
+        );
   voidCheckoutGroup = (groupId: string) => api.voidCheckoutGroup(groupId);
   /** LIRA-201c (OWNER_NOTES_REMAINING_BUILD.md #11-C) — whole-basket
    *  void/refund, replacing the "Basket item — see admin to reverse" dead
