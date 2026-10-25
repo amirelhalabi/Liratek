@@ -60,6 +60,7 @@ import {
   NO_EXTRA_FOR_PARTNER_MESSAGE,
 } from "../validators/common.js";
 import { POS_EXTRA_USD_ONLY_MESSAGE } from "../validators/sale.js";
+import { assertNoCashChangeLeg } from "../validators/changeLegs.js";
 import { LOW_STOCK_PREDICATE_SQL } from "./lowStockFragment.js";
 
 // =============================================================================
@@ -839,6 +840,18 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
                   ]
                 : []),
             ];
+
+        // 2026-10-25 — cash change travels only as change_given_*; the only
+        // OUT leg a sale accepts is CUSTOMER_ACCOUNT (the shared rule,
+        // validators/changeLegs.ts — the schema refuses the same at the
+        // edge, this covers repository callers). A CASH OUT leg plus
+        // change_given posted the change twice. Before any write. A
+        // session-basket item is skipped: the basket owns its change and
+        // this method never posts its legs (`partitionLegs(deferPayment ?
+        // [] : …)` below).
+        if (!sale.deferPayment) {
+          assertNoCashChangeLeg(paymentLines, "Sale");
+        }
 
         // G42 — kept change (payer = customer, docs/FEATURE_GUIDE.md §4.1).
         // The checkout sends the tender as IN legs, cash change as
@@ -1661,8 +1674,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             });
           }
 
-          // Return (OUT) legs: change handed back via a non-cash method or kept as
-          // store credit. Cash change uses the change_given_usd/lbp path below.
+          // Return (OUT) legs: change kept as store credit (CUSTOMER_ACCOUNT —
+          // the only OUT leg `assertNoCashChangeLeg` lets through, above).
+          // Cash change uses the change_given_usd/lbp path below.
           for (const r of outLegs) {
             const amt = Math.abs(r.amount);
             if (amt <= 0) continue;

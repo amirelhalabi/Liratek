@@ -26,6 +26,7 @@ import {
   maintenanceDiscountOf,
 } from "../validators/maintenance.js";
 import { EXTRA_ABOVE_TOTAL_MESSAGE } from "../validators/common.js";
+import { assertNoCashChangeLeg } from "../validators/changeLegs.js";
 import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
 import { nonBlankText } from "../utils/nonBlankText.js";
 import {
@@ -800,13 +801,8 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
         "Ignoring change-to-account legs on a session-basket maintenance checkout — the basket owns the payment",
       );
     } else if (!defer) {
-      for (const leg of rawOutLegs) {
-        if (leg.method !== "CUSTOMER_ACCOUNT") {
-          throw new Error(
-            `Change handed back must be entered as change given, not as a returned ${leg.method} line (Maintenance job #${jobId}: only CUSTOMER_ACCOUNT may be an OUT leg)`,
-          );
-        }
-      }
+      // The shared rule (validators/changeLegs.ts), same wording as before.
+      assertNoCashChangeLeg(rawOutLegs, `Maintenance job #${jobId}`);
       accountOutLegs = rawOutLegs.filter((l) => Math.abs(l.amount) > 0);
       if (accountOutLegs.length > 0 && !opts.clientId) {
         throw new Error("Client is required to return change as store credit");

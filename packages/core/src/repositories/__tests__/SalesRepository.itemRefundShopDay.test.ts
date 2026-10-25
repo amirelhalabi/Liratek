@@ -131,14 +131,12 @@ function sellLikeSale182(): {
     payments: [
       { method: "CASH", currency_code: "USD", amount: 700 },
       { method: "CASH", currency_code: "LBP", amount: 11_500_000 },
-      { method: "CASH", currency_code: "USD", amount: 6, direction: "OUT" },
-      {
-        method: "CASH",
-        currency_code: "LBP",
-        amount: 20_000,
-        direction: "OUT",
-      },
     ],
+    // 2026-10-25: cash change travels only as change_given_* (CASH OUT legs
+    // are refused — validators/changeLegs.ts). Rewritten from two CASH OUT
+    // legs ($6 + 20,000 LBP) into the shape the checkout really sends.
+    change_given_usd: 6,
+    change_given_lbp: 20_000,
   };
   const res = repo.processSale(
     saleProcessSchema.parse(payload) as SaleRequest,

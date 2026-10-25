@@ -191,10 +191,10 @@ function cornerTechSale() {
   const productId = addProduct(price, 30);
   const r = new SalesRepository().processSale(
     sale(productId, price, {
-      payments: [
-        { method: "CASH", currency_code: "USD", amount: 55 },
-        { method: "CASH", currency_code: "LBP", amount: 250000, direction: "OUT" },
-      ],
+      payments: [{ method: "CASH", currency_code: "USD", amount: 55 }],
+      // 2026-10-25: cash change is change_given_* only (a CASH OUT leg is
+      // refused — validators/changeLegs.ts); rewritten from a CASH OUT leg.
+      change_given_lbp: 250000,
     }),
     USER_ID,
   );
@@ -208,10 +208,9 @@ function lbpSale() {
   const productId = addProduct(price, 10);
   const r = new SalesRepository().processSale(
     sale(productId, price, {
-      payments: [
-        { method: "CASH", currency_code: "LBP", amount: 2000000 },
-        { method: "CASH", currency_code: "USD", amount: 2, direction: "OUT" },
-      ],
+      payments: [{ method: "CASH", currency_code: "LBP", amount: 2000000 }],
+      // 2026-10-25: change_given_* rewrite, as above.
+      change_given_usd: 2,
     }),
     USER_ID,
   );

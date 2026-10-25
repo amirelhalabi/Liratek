@@ -59,6 +59,8 @@ export * from "./wrongNumber.js";
 // LIRA-321: "Customer pays" lines on payout screens. This barrel is
 // re-exported by BOTH entry points (index.ts and browser.ts).
 export * from "./customerLegs.js";
+// 2026-10-25: the one rule for which OUT (change) legs a checkout accepts.
+export * from "./changeLegs.js";
 // Primary Cash Drawer plan §8.6: `systemFloatTopup.ts`
 // (createSystemFloatTopupSchema/systemFloatDrawerNameSchema) is retired and
 // replaced by the generic drawerTransfer.ts contract below — nothing else in

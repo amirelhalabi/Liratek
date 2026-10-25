@@ -18,6 +18,10 @@ export const POS_EXTRA_USD_ONLY_MESSAGE =
   "A POS sale's extra is in dollars — enter it in USD.";
 import { warrantyMonthsSchema } from "./productUnit.js";
 import {
+  CASH_CHANGE_LEG_MESSAGE,
+  hasOnlyAllowedChangeLegs,
+} from "./changeLegs.js";
+import {
   refundAddedChangeSchema,
   refundKeptChangeSchema,
   refundLegsSchema,
@@ -160,6 +164,13 @@ export const saleProcessSchema = z
   .refine((data) => !((data.extra_lbp ?? 0) > 0), {
     message: POS_EXTRA_USD_ONLY_MESSAGE,
     path: ["extra_lbp"],
+  })
+  // 2026-10-25 — cash change travels only as change_given_*; the only OUT
+  // leg allowed is CUSTOMER_ACCOUNT (validators/changeLegs.ts, shared with
+  // the repository guard). A CASH OUT leg plus change_given posted twice.
+  .refine((data) => hasOnlyAllowedChangeLegs(data.payments), {
+    message: CASH_CHANGE_LEG_MESSAGE,
+    path: ["payments"],
   });
 
 export type SaleProcessInput = z.infer<typeof saleProcessSchema>;

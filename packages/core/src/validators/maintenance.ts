@@ -14,6 +14,10 @@ import {
   stripPhoneFormatting,
 } from "../utils/phoneNumber.js";
 import { warrantyMonthsSchema } from "./productUnit.js";
+import {
+  CASH_CHANGE_LEG_MESSAGE,
+  hasOnlyAllowedChangeLegs,
+} from "./changeLegs.js";
 
 /**
  * Maintenance job validation schemas
@@ -173,6 +177,13 @@ export const saveMaintenanceJobSchema = z
   .refine(maintenanceExtraInJobCurrency, {
     message: MAINTENANCE_EXTRA_CURRENCY_MESSAGE,
     path: ["extra_usd"],
+  })
+  // 2026-10-25 — the edge half of MaintenanceRepository's guard: cash change
+  // is change_given_*, the only OUT leg is CUSTOMER_ACCOUNT (one rule,
+  // validators/changeLegs.ts).
+  .refine((d) => hasOnlyAllowedChangeLegs(d.payments), {
+    message: CASH_CHANGE_LEG_MESSAGE,
+    path: ["payments"],
   });
 
 export const getMaintenanceJobsSchema = z.object({

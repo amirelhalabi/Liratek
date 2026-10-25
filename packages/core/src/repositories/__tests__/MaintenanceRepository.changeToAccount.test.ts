@@ -33,6 +33,7 @@ import {
   saveMaintenanceJobSchema,
   type SaveMaintenanceJobPayload,
 } from "../../validators/maintenance.js";
+import { CASH_CHANGE_LEG_MESSAGE } from "../../validators/changeLegs.js";
 import {
   snapshotLedgers,
   ledgerDeltas,
@@ -179,10 +180,17 @@ function activeProfit(): { usd: number; lbp: number } {
   };
 }
 
-function expectRefused(payload: SaveMaintenanceJobPayload, message: RegExp) {
+function expectRefused(
+  payload: SaveMaintenanceJobPayload,
+  message: RegExp,
+  opts: { bypassSchema?: boolean } = {},
+) {
   const before = snapshotLedgers(db);
   const counts = [count("transactions"), count("maintenance"), count("payments")];
-  const res = save(payload);
+  // bypassSchema: a repository caller that never runs the Zod schema.
+  const res = opts.bypassSchema
+    ? t1(() => svc().saveJob(payload as SaveJobParams, USER_ID))
+    : save(payload);
   expect(res.success).toBe(false);
   expect(res.error).toMatch(message);
   expectPostings(before, snapshotLedgers(db), {});
@@ -224,20 +232,27 @@ describe("Maintenance checkout — change to the client's account (failing-first
   });
 
   it("(b) a CASH OUT leg in payments is refused — it must never post as IN", () => {
-    expectRefused(
-      usdCheckout({
-        payments: [
-          { method: "CASH", currency_code: "USD", amount: 30 },
-          {
-            method: "CASH",
-            currency_code: "USD",
-            amount: 16,
-            direction: "OUT",
-          },
-        ],
-      }),
-      /change|returned/i,
-    );
+    const payload = usdCheckout({
+      payments: [
+        { method: "CASH", currency_code: "USD", amount: 30 },
+        {
+          method: "CASH",
+          currency_code: "USD",
+          amount: 16,
+          direction: "OUT",
+        },
+      ],
+    });
+    // 2026-10-25: the schema now refuses it at the edge with the shared
+    // rule (validators/changeLegs.ts) — before, it parsed and only the
+    // repository refused it. Rewritten from a parse-then-save assertion.
+    const edge = saveMaintenanceJobSchema.safeParse(payload);
+    expect(edge.success).toBe(false);
+    if (!edge.success) {
+      expect(edge.error.issues[0]?.message).toBe(CASH_CHANGE_LEG_MESSAGE);
+    }
+    // The repository still refuses it for callers that skip the schema.
+    expectRefused(payload, /change|returned/i, { bypassSchema: true });
   });
 
   it("(b2) an OUT account leg the payment does not support is refused (no $1000 credit from $30)", () => {

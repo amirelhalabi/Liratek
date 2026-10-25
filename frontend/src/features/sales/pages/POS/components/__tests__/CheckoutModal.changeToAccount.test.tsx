@@ -154,7 +154,9 @@ describe("CheckoutModal — change to the client's account (owner 2026-10-13)", 
   it("client with a phone, $14 cart, $30 cash, Account → IN CASH 30 + OUT CUSTOMER_ACCOUNT 16, change_given_usd 0", async () => {
     const onComplete = await renderSale(CLIENT);
     fireEvent.click(screen.getByTestId("change-destination-account"));
-    expect(screen.queryByTestId("change-keep-all")).not.toBeInTheDocument();
+    // cc58f92d (owner): a Keep button now sits beside Account — the
+    // account choice is still the one this test makes.
+    expect(screen.getByTestId("change-keep-all")).toBeInTheDocument();
 
     const p = await completeSale(onComplete);
     expect(p.client_id).toBe(42);
