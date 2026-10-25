@@ -42,7 +42,10 @@
  * what keeps the four call sites from drifting apart again.
  */
 
-import { PRIMARY_CASH_DRAWER_NAMES } from "./systemFloatDrawers.js";
+import {
+  PRIMARY_CASH_DRAWER_NAMES,
+  primaryCashDrawerName,
+} from "./systemFloatDrawers.js";
 
 /**
  * The three provider modules the UI consolidates into one "Mobile Recharge"
@@ -113,17 +116,64 @@ export function moduleOwningDrawer(drawer: string): string | null {
 }
 
 /**
+ * What a screen knows about the shop when it decides which drawers to show.
+ * Both fields are optional: leave one out (or pass null) while it is still
+ * loading, and nothing is hidden on its account.
+ */
+export interface DrawerVisibilityContext {
+  /** The shop's primary money-transfer system (`shop_base_system`). */
+  baseSystem?: "OMT" | "WHISH" | null;
+  /** This drawer's current balance per currency. */
+  balances?: Readonly<Record<string, number>> | null;
+}
+
+/** Below this, a balance is floating-point dust, not money. */
+const EMPTY_BALANCE_EPSILON = 0.005;
+
+/**
+ * Is `drawer` the OTHER system's cash drawer, holding nothing?
+ *
+ * A shop keeps two physical drawers: General and one for its primary system.
+ * Secondary-system cash already goes to General (`resolveServiceCashDrawer`),
+ * yet every tenant is seeded with both system drawers. Showing the secondary
+ * one put an always-empty card on the dashboard and asked the cashier to
+ * count a drawer the shop does not have — on the test tenant that count typed
+ * real-looking money into it (2026-10-16).
+ *
+ * Only an EMPTY secondary drawer is idle. One holding money stays visible so
+ * the money is never hidden; moving it to General makes it idle. Unknown base
+ * system or balance → not idle (the safe direction).
+ */
+export function isIdleSecondaryCashDrawer(
+  drawer: string,
+  ctx: DrawerVisibilityContext,
+): boolean {
+  const { baseSystem, balances } = ctx;
+  if (!baseSystem || !balances) return false;
+  if (!(PRIMARY_CASH_DRAWER_NAMES as readonly string[]).includes(drawer)) {
+    return false;
+  }
+  if (drawer === primaryCashDrawerName(baseSystem)) return false;
+  return !Object.values(balances).some(
+    (amount) => Math.abs(amount) >= EMPTY_BALANCE_EPSILON,
+  );
+}
+
+/**
  * Should `drawer` be offered to the operator — as a dashboard card, or as a
  * balance to count?
  *
  * The single predicate every call site shares. `isModuleEnabled` is passed in
  * rather than imported so this stays free of React and usable from either
  * transport (rule 13's spirit: the policy lives here, the plumbing does not).
+ * Pass `ctx` to also hide the secondary system's empty cash drawer.
  */
 export function isDrawerVisible(
   drawer: string,
   isModuleEnabled: (key: string) => boolean,
+  ctx: DrawerVisibilityContext = {},
 ): boolean {
+  if (isIdleSecondaryCashDrawer(drawer, ctx)) return false;
   const owner = moduleOwningDrawer(drawer);
   return owner === null || isModuleEnabled(owner);
 }

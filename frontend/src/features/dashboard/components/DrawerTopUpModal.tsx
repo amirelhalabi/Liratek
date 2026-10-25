@@ -6,6 +6,7 @@ import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { X, PlusCircle, ArrowRightLeft, Plus, Landmark } from "lucide-react";
 import {
   PRIMARY_CASH_DRAWER_NAMES,
+  isDrawerVisible,
   isLotTrackedCurrency,
   marketRateToUsdPerUnit,
 } from "@liratek/core";
@@ -194,7 +195,7 @@ export function DrawerTopUpModal({
   // provider-side balance to fund, only cash moving between two of the
   // shop's own drawers). Bidirectional per owner decision #12; the PCD is
   // whichever of OMT_System/Whish_System is primary (shop_base_system).
-  const { baseSystem } = useShopBase();
+  const { baseSystem, loading: baseSystemLoading } = useShopBase();
   const primaryDrawerName =
     baseSystem === "WHISH" ? "Whish_System" : "OMT_System";
   const primaryDrawerLabel = t("drawer.primaryLabel", {
@@ -221,9 +222,18 @@ export function DrawerTopUpModal({
   async function loadSourceDrawers() {
     const result = await api.drawerTopUp.getSourceDrawers();
     if (result.success && result.data) {
-      setSourceDrawers(result.data);
-      if (result.data.length > 0 && !selectedDrawer) {
-        setSelectedDrawer(result.data[0].drawer_name);
+      // The other system's cash drawer is only offered while it holds money
+      // (so leftovers can be moved to General); empty, the shop has no such
+      // physical drawer.
+      const offered = result.data.filter((d) =>
+        isDrawerVisible(d.drawer_name, () => true, {
+          baseSystem: baseSystemLoading ? null : baseSystem,
+          balances: { USD: d.balance_usd, LBP: d.balance_lbp },
+        }),
+      );
+      setSourceDrawers(offered);
+      if (offered.length > 0 && !selectedDrawer) {
+        setSelectedDrawer(offered[0].drawer_name);
       }
     }
   }

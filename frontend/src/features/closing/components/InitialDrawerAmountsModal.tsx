@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { translateServerError } from "@liratek/ui/i18n/serverMessage";
 import { DecimalInput, useApi } from "@liratek/ui";
 import { useModules } from "@/contexts/ModuleContext";
+import { useShopBase } from "@/hooks/useShopBase";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
@@ -41,6 +42,7 @@ export function InitialDrawerAmountsModal({
   const drawerText = useDrawerText();
   const api = useApi();
   const { isModuleEnabled } = useModules();
+  const { baseSystem, loading: baseSystemLoading } = useShopBase();
   const { activeCurrencies, getDecimals } = useCurrencyContext();
 
   // drawer → currency → numeric input value
@@ -65,8 +67,21 @@ export function InitialDrawerAmountsModal({
   // Which drawers to offer for counting. The comment on the local copy this
   // replaces said it "mirrors Dashboard drawerModuleMap" -- it did, including
   // the bug, which is why the mapping now lives in ONE place.
-  const visibleDrawers = DRAWER_ORDER.filter((name) =>
+  const moduleDrawers = DRAWER_ORDER.filter((name) =>
     isDrawerVisible(name, isModuleEnabled),
+  );
+  // Each drawer's balance at load time. Until it arrives (null) nothing is
+  // hidden on its account; after that, the other system's cash drawer is
+  // left out while empty — the shop has no such physical drawer to count.
+  const [loadedBalances, setLoadedBalances] = useState<Record<
+    string,
+    Record<string, number>
+  > | null>(null);
+  const visibleDrawers = moduleDrawers.filter((name) =>
+    isDrawerVisible(name, isModuleEnabled, {
+      baseSystem: baseSystemLoading ? null : baseSystem,
+      balances: loadedBalances ? (loadedBalances[name] ?? {}) : null,
+    }),
   );
 
   // Load the countable currencies per drawer (base allowlist ∪ any currency
@@ -86,7 +101,7 @@ export function InitialDrawerAmountsModal({
       .then(([configured, balances]) => {
         const initialCurrencies: Record<string, string[]> = {};
         const initialAmounts: Record<string, Record<string, number>> = {};
-        for (const drawer of visibleDrawers) {
+        for (const drawer of moduleDrawers) {
           const currencies = configured[drawer] ?? [];
           initialCurrencies[drawer] = [...currencies];
           initialAmounts[drawer] = {};
@@ -98,6 +113,7 @@ export function InitialDrawerAmountsModal({
         setDrawerCurrencyState(initialCurrencies);
         setBaselineCurrencies(initialCurrencies);
         setAmounts(initialAmounts);
+        setLoadedBalances(balances ?? {});
         setLoaded(true);
       })
       .catch((err: unknown) => {

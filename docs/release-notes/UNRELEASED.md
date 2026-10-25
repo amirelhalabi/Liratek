@@ -303,6 +303,7 @@ When a sale was paid in dollars and the change was given in Lebanese pounds (or 
 
 ## 🧮 Checkpoint
 
+- An OMT shop no longer sees an empty "Whish cash drawer" on the Dashboard, and is no longer asked to count it at a checkpoint or when entering opening drawer amounts (and the same for the OMT cash drawer in a Whish shop). Whish cash in an OMT shop already goes into the General drawer. If that drawer still holds money, it stays visible until you move the money to General with "From Drawer" in the Dashboard's "Top Up General Drawer" window.
 - Checkpoint: if a drawer's currencies or expected balances can't load (for example when the connection is busy), the drawer now says so with a Retry button, and its Save stays off until everything has loaded. Before, Save stayed on and could save a wrong or empty count.
 - Initial Drawer Amounts: if the drawers can't load, you now see why, with a Retry button, instead of an empty window.
 - Checkpoint: from now on, an Over or Short stays open until it is explained. When you find the missed sale, expense or other entry and save it with "Set custom time" before that checkpoint, the difference shows as Resolved and the drawer is not counted twice, so your next checkpoint comes out balanced. Turn on "Open differences only" on the Checkpoints page to see what is still unexplained.

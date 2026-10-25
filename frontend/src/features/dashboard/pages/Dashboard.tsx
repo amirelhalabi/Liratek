@@ -360,7 +360,7 @@ export default function Dashboard() {
   // Primary Cash Drawer plan §1/§8.1 — the "Cash on Hand" strip's second
   // cell follows whichever system is primary (shop_base_system), not a
   // hardcoded OMT assumption.
-  const { baseSystem } = useShopBase();
+  const { baseSystem, loading: baseSystemLoading } = useShopBase();
   // LIRA-086 — the shop's current sell rate, for converting an LBP
   // checkpoint variance to its USD-equivalent before bucketing it.
   const { sellRate } = useSellRate();
@@ -1030,8 +1030,14 @@ export default function Dashboard() {
   // map this replaces claimed OMT/Whish belonged to `ipec_katch`, so those
   // four cards vanished for every tenant with iPick/Katsh disabled even
   // though the OMT/Whish module itself was enabled.
-  const drawerEntries = Object.entries(drawerBalances).filter(([name]) =>
-    isDrawerVisible(name, isModuleEnabled),
+  // The other system's cash drawer (Whish cash in an OMT shop) is hidden
+  // while empty — the shop has no such physical drawer.
+  const drawerEntries = Object.entries(drawerBalances).filter(
+    ([name, currencies]) =>
+      isDrawerVisible(name, isModuleEnabled, {
+        baseSystem: baseSystemLoading ? null : baseSystem,
+        balances: currencies,
+      }),
   );
   const drawerCards = drawerEntries.map(([name, currencies]) => {
     // USD/LBP always; other currencies only when non-zero (shared rule).

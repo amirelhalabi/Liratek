@@ -108,8 +108,13 @@ export default function StepDrawerAmounts() {
   // shop with iPick/Katsh off was never asked to count the banknotes in its
   // money-transfer drawer -- no opening balance, no starting checkpoint, and
   // nothing for closing to reconcile against.
+  // The other system's cash drawer is left out: the shop has no such
+  // physical drawer, and a new shop's drawers all start empty.
   const visibleDrawers = DRAWER_ORDER.filter((name) =>
-    isDrawerVisible(name, (key) => enabledModules.includes(key)),
+    isDrawerVisible(name, (key) => enabledModules.includes(key), {
+      baseSystem: payload.base_system,
+      balances: {},
+    }),
   );
 
   useEffect(() => {

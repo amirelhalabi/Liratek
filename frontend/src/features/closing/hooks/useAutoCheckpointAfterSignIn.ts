@@ -32,6 +32,11 @@ interface ModuleRow {
   is_enabled: number | boolean;
 }
 
+interface SettingRow {
+  key_name: string;
+  value: string;
+}
+
 export function useAutoCheckpointAfterSignIn(
   openCheckpoint: (drawers: DrawerForCheckpoint[]) => void,
 ): void {
@@ -77,11 +82,20 @@ export function useAutoCheckpointAfterSignIn(
     const today = localDay();
     void (async () => {
       try {
-        const [balances, lastCheckpoints, modules] = await Promise.all([
-          apiRef.current.getSystemExpectedBalancesDynamic(),
-          apiRef.current.getLastCheckpointPerDrawer(),
-          apiRef.current.getEnabledModules(),
-        ]);
+        const [balances, lastCheckpoints, modules, settings] =
+          await Promise.all([
+            apiRef.current.getSystemExpectedBalancesDynamic(),
+            apiRef.current.getLastCheckpointPerDrawer(),
+            apiRef.current.getEnabledModules(),
+            // Settings are a nicety here: if they fail, the base system is
+            // unknown and no drawer is hidden on its account.
+            apiRef.current.getAllSettings().catch(() => []),
+          ]);
+        const baseSetting = (
+          Array.isArray(settings) ? (settings as SettingRow[]) : []
+        ).find((s) => s.key_name === "shop_base_system")?.value;
+        const baseSystem =
+          baseSetting === "WHISH" ? "WHISH" : baseSetting === "OMT" ? "OMT" : null;
         const enabled = new Set(
           (Array.isArray(modules) ? (modules as ModuleRow[]) : [])
             .filter((m) => m.is_enabled)
@@ -91,7 +105,13 @@ export function useAutoCheckpointAfterSignIn(
           Object.keys(balances ?? {}),
           lastCheckpoints,
           today,
-          (name) => isDrawerVisible(name, (key) => enabled.has(key)),
+          // The other system's cash drawer is not asked for while empty —
+          // the shop has no such physical drawer.
+          (name) =>
+            isDrawerVisible(name, (key) => enabled.has(key), {
+              baseSystem,
+              balances: balances?.[name] ?? {},
+            }),
         );
         if (drawers && mounted.current) openRef.current(drawers);
       } catch (error) {
