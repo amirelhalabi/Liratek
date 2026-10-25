@@ -158,6 +158,8 @@ function makeFakeRepo(overrides: FakeOverrides = {}): ProfitRepository {
     getWrongNumberRecoveryTotals: () => zeroTopupBuyback,
     // LIRA-272 — refund kept change on a module refund (profit-only).
     getRefundKeptChangeProfit: () => zeroTopupBuyback,
+    // LIRA-341 — session basket discounts (none in these fixtures).
+    getBasketDiscountProfit: () => zeroTopupBuyback,
     getExpenseTotals: () => zeroExpense,
     getDeferredProfit: () => zeroDeferred,
     getPendingSaleProfit: (): PendingSaleProfitRow[] => [],

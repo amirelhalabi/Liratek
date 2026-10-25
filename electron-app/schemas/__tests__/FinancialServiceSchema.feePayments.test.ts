@@ -74,14 +74,16 @@ describe("FinancialServiceSchema — feePayments refines (§6bis finding 6)", ()
     });
   });
 
-  it("rejects feePayments + partnerId present in THROUGH mode", () => {
+  // LIRA-336 phase 2 (T023 d): THROUGH is no longer refused — the shop
+  // collects its own fee-on-top at the counter. (This OMT payload is still
+  // refused, by the OMT-receive no-fee rule, which is not under test here.)
+  it("does NOT refuse feePayments + partnerId in THROUGH mode as a partner transaction", () => {
     const result = FinancialServiceSchema.safeParse({
       ...basePayload,
       partnerId: 1,
       partnerMode: "THROUGH" as const,
     });
-    expect(result.success).toBe(false);
-    expect(issuesFor(result)).toContainEqual({
+    expect(issuesFor(result)).not.toContainEqual({
       path: ["feePayments"],
       message:
         "feePayments cannot be used on a partner transaction — the partner handles the fee",

@@ -768,8 +768,11 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
 
       for (const charge of this.db
         .prepare(
+          // Tenant bound first and spelled out here so the tenant-scoping
+          // check can see it; the fragment then compares the row to itself.
           `SELECT d.client_id, d.amount_usd, d.amount_lbp FROM debt_ledger d
-            WHERE ${saleVoucherDebtWhere("d", "?", "?")}
+            WHERE d.tenant_id = ?
+              AND ${saleVoucherDebtWhere("d", "?", "d.tenant_id")}
             ORDER BY d.id`,
         )
         .all(tenantId, totals.saleTxnId) as Array<{

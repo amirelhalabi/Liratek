@@ -23,15 +23,31 @@ import { SessionDebtDetailModal } from "../SessionDebtDetailModal";
 
 const mockCartGet = jest.fn();
 const mockGetTransactions = jest.fn();
+// No full transaction rows here: lines render as before, not expandable.
+const mockGetRecentTransactions = jest.fn().mockResolvedValue([]);
+
+// rule 25: one stable identity for the whole file.
+const mockApi = {
+  session: {
+    cartGet: mockCartGet,
+    getTransactions: mockGetTransactions,
+  },
+  getRecentTransactions: mockGetRecentTransactions,
+};
 
 jest.mock("@liratek/ui", () => ({
   ...jest.requireActual("@liratek/ui"),
-  useApi: () => ({
-    session: {
-      cartGet: mockCartGet,
-      getTransactions: mockGetTransactions,
-    },
-  }),
+  useApi: () => mockApi,
+}));
+
+const mockAuth = { user: { role: "admin" } };
+jest.mock("@/features/auth/context/AuthContext", () => ({
+  useAuth: () => mockAuth,
+}));
+
+const mockPaymentMethods = { methods: [] };
+jest.mock("@/hooks/usePaymentMethods", () => ({
+  usePaymentMethods: () => mockPaymentMethods,
 }));
 
 jest.mock("@/shared/hooks/useModalFocusFix", () => ({
