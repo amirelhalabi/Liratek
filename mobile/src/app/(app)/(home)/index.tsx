@@ -13,17 +13,11 @@ import { useModuleGates } from "@/data/useModuleGates";
 import { useTheme } from "@/theme/ThemeProvider";
 import { radius, spacing, TAB_BAR_CLEARANCE } from "@/theme/tokens";
 import { drawerAmounts, drawerLabel, txnTime } from "@/utils/format";
+import { homeDrawerOrder } from "@/utils/drawerOrder";
 import { visibleDrawers } from "@/utils/moduleGates";
 
-// Wallet and voucher drawers the phone sales move (LIRA-289 research R4), shown first.
+// Wallet and voucher drawers the phone sales move (LIRA-289 research R4).
 const WALLET_DRAWERS = ["Whish_App", "OMT_App", "Binance", "Katsh", "iPick"];
-
-function sortedDrawers(balances: DrawerBalances): string[] {
-  const names = Object.keys(balances);
-  const wallets = WALLET_DRAWERS.filter((d) => names.includes(d));
-  const others = names.filter((d) => !WALLET_DRAWERS.includes(d)).sort();
-  return [...wallets, ...others];
-}
 
 /**
  * Home tab (LIRA-300 FR-003): balances and "since the last count" only. The
@@ -57,7 +51,7 @@ export default function Home() {
   useRefreshOnFocus([balances, sinceCount]);
   const pull = usePullRefresh([balances.refetch, sinceCount.refetch, gates.refetch]);
   const drawers = balances.data
-    ? visibleDrawers(sortedDrawers(balances.data), gates, {
+    ? visibleDrawers(homeDrawerOrder(Object.keys(balances.data), shopBase.data ?? null), gates, {
         baseSystem: shopBase.data ?? null,
         balances: balances.data,
       })
