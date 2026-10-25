@@ -2176,6 +2176,7 @@ export default function Debts() {
                       <DataTable
                         columns={[
                           {
+                            exportHeader: t("history.date"),
                             header: (
                               <button
                                 onClick={toggleDateSort}
@@ -2217,6 +2218,13 @@ export default function Debts() {
                         data={debtEntries}
                         exportExcel
                         exportPdf
+                        exportDefaultColumns={[
+                          t("history.date"),
+                          t("history.note"),
+                          t("history.user"),
+                          "USD",
+                          "LBP",
+                        ]}
                         exportFilename="debt-purchases"
                         className="w-full"
                         theadClassName="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-start text-slate-400 border-b border-slate-700/50"
@@ -2243,7 +2251,10 @@ export default function Debts() {
                                   </div>
                                 </td>
                                 <td className="px-3 py-2.5 text-slate-400 text-sm">
-                                  <div className="flex flex-col gap-1">
+                                  <div
+                                    className="flex flex-col gap-1"
+                                    data-export-sep=" · "
+                                  >
                                     {isRefunded && (
                                       <span className="inline-flex items-center self-start rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
                                         {t("history.refunded")}
@@ -2488,6 +2499,7 @@ export default function Debts() {
                       <DataTable
                         columns={[
                           {
+                            exportHeader: t("history.date"),
                             header: (
                               <button
                                 onClick={toggleDateSort}
@@ -2529,6 +2541,13 @@ export default function Debts() {
                         data={paymentEntries}
                         exportExcel
                         exportPdf
+                        exportDefaultColumns={[
+                          t("history.date"),
+                          t("history.note"),
+                          t("history.user"),
+                          "USD",
+                          "LBP",
+                        ]}
                         exportFilename="debt-payments"
                         className="w-full"
                         theadClassName="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-start text-slate-400 border-b border-slate-700/50"
@@ -2555,7 +2574,10 @@ export default function Debts() {
                                   </div>
                                 </td>
                                 <td className="px-3 py-2.5 text-slate-400 text-sm">
-                                  <span className="flex flex-col gap-1">
+                                  <span
+                                    className="flex flex-col gap-1"
+                                    data-export-sep=" · "
+                                  >
                                     {item.transaction_type ===
                                       "CREDIT_DEPOSIT" && (
                                       <span className="inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-400/10 text-emerald-400">

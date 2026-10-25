@@ -57,6 +57,11 @@ export interface DataTableColumn {
    * `getSortValue`). When provided the column becomes sortable.
    */
   sortKey?: string;
+  /**
+   * Plain-text header for export, when `header` is a node (e.g. a sort
+   * button). Without it such a column is skipped by Excel/PDF export.
+   */
+  exportHeader?: string;
 }
 
 export interface DataTableProps<T> {
@@ -388,8 +393,20 @@ function DataTableInner<T>({
     if (typeof node === "number") return String(node);
     if (Array.isArray(node)) return node.map(extractText).join("");
     if (React.isValidElement(node)) {
-      const { children } = node.props as { children?: React.ReactNode };
-      return extractText(children);
+      const props = node.props as {
+        children?: React.ReactNode;
+        "data-export-sep"?: string;
+      };
+      // `data-export-sep` joins the element's non-empty child texts with that
+      // separator, so stacked parts (a badge above a note) stay apart.
+      const sep = props["data-export-sep"];
+      if (sep !== undefined) {
+        return React.Children.toArray(props.children)
+          .map((c) => extractText(c).trim())
+          .filter(Boolean)
+          .join(sep);
+      }
+      return extractText(props.children);
     }
     return "";
   }, []);
@@ -443,7 +460,8 @@ function DataTableInner<T>({
   >(() => {
     const out: { index: number; key: string; label: string }[] = [];
     colDefs.forEach((col, i) => {
-      const headerLabel = typeof col === "string" ? col : (col.header ?? "");
+      const headerLabel =
+        typeof col === "string" ? col : (col.exportHeader ?? col.header ?? "");
       const headerStr =
         typeof headerLabel === "string" ? headerLabel.trim().toLowerCase() : "";
       const isCheckboxCol = i === 0 && !!selectAll;

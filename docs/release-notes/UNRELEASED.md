@@ -215,6 +215,7 @@ On the Vouchers page, creating a gift card now asks how the customer pays: cash,
 - Accounts: an exported file can be imported into another shop with Import Excel. Every entry keeps its original date and the balances come out the same. Importing it back into the shop it came from is refused, because it would double every balance. Old handwritten sheets import as before.
 - Accounts: in the exported Excel file, each name on the first sheet is a link — click it to jump to that client's page, and "Back to list" at the top of each page takes you back.
 - Accounts: the exported Excel file now works like your own debt sheet, so you can keep writing in it: each client page has 20 empty rows inside the totals (a line you add is counted in the totals and the remaining balance), the same look (grey headings, yellow totals, $ and LBP amounts, borders), and the first sheet shows each client's remaining balance, which updates when you change their page.
+- Accounts: the Excel and PDF buttons on a client's purchases and payments lists now include the Date column and select all columns by default. The note's label (for example "Imported Debt") is kept apart from the note text.
 - Accounts: when you click another client, their account shows "Loading..." until it has loaded. Before, the previous client's charges and their Cash Out button stayed on screen for a moment under the new client's name.
 
 ## ⚙️ Settings
