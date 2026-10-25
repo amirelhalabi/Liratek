@@ -112,6 +112,8 @@ export const TRANSACTION_TYPE_LABELS: Record<TransactionType, string | null> = {
   WAIVED_SHORTFALL: "Waived",
   // LIRA-319: the session basket's extra charge (profit-only).
   EXTRA_CHARGE: "Extra charge",
+  // LIRA-341: the session basket discount (profit-only).
+  BASKET_DISCOUNT: "Session discount",
   WARRANTY_COST: "Warranty Cost",
   SUPPLIER_PAYMENT: null,
   SUPPLIER_SETTLEMENT: "Supplier Settlement",

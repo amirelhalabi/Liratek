@@ -411,7 +411,7 @@ export const sessionSiblingDetailsSchema = z.object({
   ...common,
   kind: z.literal("session_sibling"),
   sessionId: id,
-  role: z.enum(["EXTRA", "KEPT_CHANGE", "WAIVED"]).optional(),
+  role: z.enum(["EXTRA", "KEPT_CHANGE", "WAIVED", "DISCOUNT"]).optional(),
   paidByMethod: code.optional(),
 });
 

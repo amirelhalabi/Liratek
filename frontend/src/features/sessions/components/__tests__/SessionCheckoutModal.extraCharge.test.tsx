@@ -3,8 +3,8 @@
 /**
  * LIRA-319 T051 — the extra at the session basket checkout.
  *
- *  - The pooled MultiPaymentInput gets `onExtraChange` (extra-only line:
- *    `showDiscount` stays false — a basket takes no discount).
+ *  - The pooled MultiPaymentInput gets `onExtraChange` (LIRA-341 later
+ *    added the discount side of the same switch).
  *  - The extra the input reports is owed on top of the basket: Confirm stays
  *    blocked until the payment covers items + extra.
  *  - It is sent with the schema's own field names (rule 24), in the basket's
@@ -178,10 +178,10 @@ describe("SessionCheckoutModal — extra (LIRA-319)", () => {
     lastMpiProps = {};
   });
 
-  it("turns on the extra-only line: onExtraChange given, discount still hidden", () => {
+  it("turns on the extra side of the line: onExtraChange given (LIRA-341 adds the discount side)", () => {
     render(<SessionCheckoutModal isOpen={true} onClose={() => {}} />);
     expect(typeof lastMpiProps.onExtraChange).toBe("function");
-    expect(lastMpiProps.showDiscount).toBe(false);
+    expect(lastMpiProps.showDiscount).not.toBe(false);
   });
 
   it("$2 extra on a $20 basket: $20 no longer covers it, $22 does", async () => {

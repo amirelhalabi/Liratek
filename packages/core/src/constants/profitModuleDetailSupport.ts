@@ -40,6 +40,8 @@ export const MODULE_DETAIL_SUPPORTED_KEYS: ReadonlySet<string> = new Set([
   "WRONG_NUMBER",
   // LIRA-310 follow-up — a basket Waive's own "Waived" line.
   "WAIVED",
+  // LIRA-341 — the "Session discounts" line.
+  "SESSION_DISCOUNT",
   // LIRA-319 — the "Extra charges" line.
   "EXTRA_CHARGE",
 ]);

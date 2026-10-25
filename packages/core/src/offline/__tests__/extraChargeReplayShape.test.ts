@@ -20,6 +20,7 @@ import { createCustomServiceSchema } from "../../validators/customService";
 import { saveMaintenanceJobSchema } from "../../validators/maintenance";
 import { lotoSellSchema } from "../../validators/loto";
 import { createFinancialServiceSchema } from "../../validators/financial";
+import { sessionCheckoutSchema } from "../../validators/session";
 
 const EXTRA_KEYS = ["extra_usd", "extra_lbp"] as const;
 
@@ -91,6 +92,30 @@ describe("createCustomServiceSchema — discount_usd / discount_lbp replay shape
   it("an event recorded before LIRA-319 (no extra or discount keys) is still compatible", () => {
     const keys = { ...(server.keys ?? {}) };
     for (const k of [...EXTRA_KEYS, ...DISCOUNT_KEYS]) delete keys[k];
+    expect(isCompatible({ ...server, keys }, server)).toBe(true);
+  });
+});
+
+// LIRA-341 — the session checkout gained `discount_usd` / `discount_lbp` (the
+// basket discount). Same rule: a checkout recorded offline before LIRA-341
+// carries neither, so both must stay optional with no default. (Written
+// after the fields landed — not proven failing-first.)
+describe("sessionCheckoutSchema — discount_usd / discount_lbp replay shape", () => {
+  const DISCOUNT_KEYS = ["discount_usd", "discount_lbp"] as const;
+  const server = describeShape(sessionCheckoutSchema);
+
+  it("both discount keys are optional without a default", () => {
+    for (const k of DISCOUNT_KEYS) {
+      expect({ key: k, node: server.keys?.[k] }).toEqual({
+        key: k,
+        node: { type: "number", optional: true },
+      });
+    }
+  });
+
+  it("a checkout recorded before LIRA-341 (no discount keys) is still compatible", () => {
+    const keys = { ...(server.keys ?? {}) };
+    for (const k of DISCOUNT_KEYS) delete keys[k];
     expect(isCompatible({ ...server, keys }, server)).toBe(true);
   });
 });

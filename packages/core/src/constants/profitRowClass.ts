@@ -81,6 +81,8 @@ const PROFIT_ONLY_MODULES: ReadonlySet<string> = new Set([
   "WRONG_NUMBER",
   // LIRA-310 follow-up — a basket Waive's own "Waived" line.
   "WAIVED",
+  // LIRA-341 — a session basket discount's own "Session discounts" line.
+  "SESSION_DISCOUNT",
   // LIRA-319 — the "Extra charges" line. Its revenue equals its profit
   // (the extra is takings with no cost), so the equation would only repeat
   // the one figure; it renders as a single profit amount like the rows above.

@@ -209,6 +209,7 @@
     "KEPT_CHANGE": "Nothing to reverse on this row by itself — the kept change stays in the drawer either way. Void or refund the sale this change belongs to instead.",
     "EXTRA_CHARGE": "Nothing to reverse on this row by itself — it only records the extra charged at checkout. Void or refund the customer's basket instead; that removes it too.",
     "WAIVED_SHORTFALL": "Nothing to reverse on this row by itself — it only records the amount waived at checkout. Void or refund the customer's basket instead; that removes it too.",
+    "BASKET_DISCOUNT": "Nothing to reverse on this row by itself — it only records the discount given at checkout. Void or refund the customer's basket instead; that removes it too.",
     "WARRANTY_COST": "This is the cost of a warranty claim. To undo it, void the claim from the Warranty page — that reverses everything the claim did.",
     "PARTNER_ADJUSTMENT": "Correct this from the Partners page with an opposite Add Credit/Debt entry.",
     "ACCOUNT_ADJUSTMENT": "Correct this from the Accounts page with an opposite Add Credit/Debt entry.",

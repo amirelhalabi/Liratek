@@ -29,7 +29,19 @@ import type { BaseSystem } from "../utils/payments.js";
 import { isPrimarySystemProvider } from "../utils/payments.js";
 import { allocateBasketMemberOwed } from "../utils/sessionMemberOwed.js";
 import { closingLogger } from "../utils/logger.js";
-import { SESSION_DEBT_TYPE } from "../constants/transactionTypes.js";
+import {
+  SESSION_DEBT_TYPE,
+  TRANSACTION_TYPES,
+} from "../constants/transactionTypes.js";
+
+/** LIRA-341 — the rows a checkout writes for the WHOLE basket (not an item):
+ *  never part of the basket's item profit (the discount cap). */
+const BASKET_SIBLING_TYPES: readonly string[] = [
+  TRANSACTION_TYPES.KEPT_CHANGE,
+  TRANSACTION_TYPES.WAIVED_SHORTFALL,
+  TRANSACTION_TYPES.EXTRA_CHARGE,
+  TRANSACTION_TYPES.BASKET_DISCOUNT,
+];
 
 export interface InsertSessionLegInput {
   sessionId: number;
@@ -331,6 +343,37 @@ export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
       // was never stamped, so this is a pure no-op there, not silent data
       // loss.
     }
+  }
+
+  /**
+   * LIRA-341 — the shop's profit on the basket's items so far: Σ the profit
+   * stamps the item rows themselves wrote (`transactions.profit_usd/lbp`,
+   * reached through `customer_session_transactions.unified_transaction_id`),
+   * live rows only, the basket's own sibling rows (kept change, waive,
+   * extra, discount) left out. This is the cap of a basket discount (owner
+   * decision: discount ≤ the shop's own profit). Must run AFTER every cart
+   * item is linked (same ordering as `getSessionCashSplitContext`).
+   */
+  getSessionBasketProfit(sessionId: number): { usd: number; lbp: number } {
+    const tenantId = getCurrentTenantId();
+    const placeholders = BASKET_SIBLING_TYPES.map(() => "?").join(", ");
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(t.profit_usd), 0) AS usd,
+                COALESCE(SUM(t.profit_lbp), 0) AS lbp
+           FROM customer_session_transactions cst
+           JOIN transactions t
+             ON t.id = cst.unified_transaction_id AND t.tenant_id = ?
+          WHERE cst.session_id = ?
+            AND cst.tenant_id = ?
+            AND t.status = 'ACTIVE'
+            AND t.reverses_id IS NULL
+            AND t.type NOT IN (${placeholders})`,
+      )
+      .get(tenantId, sessionId, tenantId, ...BASKET_SIBLING_TYPES) as
+      | { usd: number; lbp: number }
+      | undefined;
+    return { usd: row?.usd ?? 0, lbp: row?.lbp ?? 0 };
   }
 
   /**

@@ -617,6 +617,15 @@ export interface ProfitSummary {
     profit_lbp: number;
     count: number;
   };
+  /** LIRA-341 — the "Session discounts" line: basket discounts given at a
+   *  session checkout (BASKET_DISCOUNT, negative), net of basket
+   *  voids/refunds. See {@link ProfitRepository.getBasketDiscountProfit}.
+   *  Profit-only, NETTED into `totals` below. */
+  session_discounts: {
+    profit_usd: number;
+    profit_lbp: number;
+    count: number;
+  };
   /** LIRA-296 (owner decision D1) — the cost of honouring warranties
    *  (usually negative), net of recoveries and voids. See
    *  {@link ProfitRepository.getWarrantyTotals}. Profit-only, NETTED into
@@ -1073,6 +1082,10 @@ export class ProfitService {
       // Change); netted into gross below so the totals are unchanged.
       const waived = this.repo.getWaivedShortfallProfit(fromDt, toDt);
 
+      // LIRA-341 — basket discounts at a session checkout, their own line,
+      // netted into gross below.
+      const sessionDiscounts = this.repo.getBasketDiscountProfit(fromDt, toDt);
+
       // LIRA-296 — the Warranty cost line (claims' costs, recoveries,
       // void negations) — profit-only, netted into gross.
       const warranty = this.repo.getWarrantyTotals(fromDt, toDt);
@@ -1189,6 +1202,7 @@ export class ProfitService {
         topupsBuybacks.profit_usd +
         holdMoney.profit_usd +
         waived.profit_usd +
+        sessionDiscounts.profit_usd +
         warranty.profit_usd +
         wrongNumberRecovery.profit_usd +
         refundKept.profit_usd +
@@ -1212,6 +1226,7 @@ export class ProfitService {
         topupsBuybacks.profit_lbp +
         holdMoney.profit_lbp +
         waived.profit_lbp +
+        sessionDiscounts.profit_lbp +
         warranty.profit_lbp +
         wrongNumberRecovery.profit_lbp +
         refundKept.profit_lbp +
@@ -1270,6 +1285,7 @@ export class ProfitService {
         topups_buybacks: topupsBuybacks,
         hold_money: holdMoney,
         waived,
+        session_discounts: sessionDiscounts,
         warranty,
         wrong_number_recovery: wrongNumberRecovery,
         extra_charges: extraCharges,
@@ -1586,6 +1602,28 @@ export class ProfitService {
         });
       }
 
+      // LIRA-341 — basket discounts: their OWN row, right after Waived.
+      const discountTotalsSession = this.repo.getBasketDiscountProfit(
+        fromDt,
+        toDt,
+      );
+      if (
+        discountTotalsSession.profit_usd !== 0 ||
+        discountTotalsSession.profit_lbp !== 0
+      ) {
+        results.push({
+          module: "SESSION_DISCOUNT",
+          label: "Session discounts",
+          revenue_usd: 0,
+          revenue_lbp: 0,
+          cost_usd: 0,
+          cost_lbp: 0,
+          profit_usd: discountTotalsSession.profit_usd,
+          profit_lbp: discountTotalsSession.profit_lbp,
+          count: discountTotalsSession.count,
+        });
+      }
+
       // LIRA-319 — the Extra charges line, placed like Kept Change. Unlike
       // the profit-only rows above (LO-V12), revenue = profit: the extra is
       // real takings the module rows' revenue never includes (research R3),
@@ -1821,6 +1859,11 @@ export class ProfitService {
     {
       match: (key) => key === "WAIVED",
       build: (_key, fromDt, toDt) => this.buildWaivedModuleDetail(fromDt, toDt),
+    },
+    {
+      match: (key) => key === "SESSION_DISCOUNT",
+      build: (_key, fromDt, toDt) =>
+        this.buildSessionDiscountModuleDetail(fromDt, toDt),
     },
     {
       match: (key) => key === "COUNTERPARTY_DISCOUNT",
@@ -2760,6 +2803,59 @@ export class ProfitService {
 
     return {
       module: "KEPT_CHANGE",
+      counted,
+      not_counted: notCounted,
+      counted_total_profit_usd: countedProfitUsd,
+      counted_total_profit_lbp: countedProfitLbp,
+    };
+  }
+
+  /**
+   * LIRA-341 — the "Session discounts" row's drill-down; the same flat
+   * profit-only shape as the Waived row, so the listed rows add up exactly
+   * to the By Module row ({@link ProfitRepository.getBasketDiscountProfit}).
+   */
+  private buildSessionDiscountModuleDetail(
+    fromDt: string,
+    toDt: string,
+  ): ProfitModuleDetail {
+    const counted: ProfitModuleDetailRow[] = [];
+    const notCounted: ProfitModuleDetailRow[] = [];
+    let countedProfitUsd = 0;
+    let countedProfitLbp = 0;
+    for (const r of this.repo.getBasketDiscountDetail(fromDt, toDt)) {
+      const isRealMoney = r.profit_usd !== 0 || r.profit_lbp !== 0;
+      const row: ProfitModuleDetailRow = {
+        id: r.id,
+        source: "session_discount",
+        date: r.created_at,
+        counterpart: r.counterpart_name || r.counterpart_phone || "Walk-in",
+        detail:
+          r.txn_type === "REFUND"
+            ? "Discount reversed (basket refunded)"
+            : "Discount at basket checkout",
+        amount_usd: 0,
+        amount_lbp: 0,
+        cost_usd: 0,
+        cost_lbp: 0,
+        profit_usd: r.profit_usd,
+        profit_lbp: r.profit_lbp,
+        counted_pct: isRealMoney ? 100 : 0,
+        counted_profit_usd: isRealMoney ? r.profit_usd : 0,
+        counted_profit_lbp: isRealMoney ? r.profit_lbp : 0,
+        reason: isRealMoney ? null : "No discount on this entry ($0).",
+        fee_note: null,
+      };
+      if (isRealMoney) {
+        counted.push(row);
+        countedProfitUsd += r.profit_usd;
+        countedProfitLbp += r.profit_lbp;
+      } else {
+        notCounted.push(row);
+      }
+    }
+    return {
+      module: "SESSION_DISCOUNT",
       counted,
       not_counted: notCounted,
       counted_total_profit_usd: countedProfitUsd,

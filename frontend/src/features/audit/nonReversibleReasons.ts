@@ -48,6 +48,9 @@ export const NON_REVERSIBLE_REASONS: Readonly<Record<string, string>> = {
     "Nothing to reverse on this row by itself — it only records the extra charged at checkout. Void or refund the customer's basket instead; that removes it too.",
   WAIVED_SHORTFALL:
     "Nothing to reverse on this row by itself — it only records the amount waived at checkout. Void or refund the customer's basket instead; that removes it too.",
+  // LIRA-341
+  BASKET_DISCOUNT:
+    "Nothing to reverse on this row by itself — it only records the discount given at checkout. Void or refund the customer's basket instead; that removes it too.",
   WARRANTY_COST:
     "This is the cost of a warranty claim. To undo it, void the claim from the Warranty page — that reverses everything the claim did.",
   PARTNER_ADJUSTMENT:

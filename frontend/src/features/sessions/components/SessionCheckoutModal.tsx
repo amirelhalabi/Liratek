@@ -305,6 +305,7 @@ export function SessionCheckoutModal({
       setKeptChange(null);
       setWaived(null);
       setExtraUsdEq(0);
+      setDiscountUsdEq(0);
       setCheckoutSuccess(null);
       setPayoutMethodOverride({});
       setChosenFirstMethod(null);
@@ -389,6 +390,17 @@ export function SessionCheckoutModal({
   const handleExtraChange = (extra: number) => {
     const value = extra > 0 ? extra : 0;
     setExtraUsdEq(value);
+    if (value > 0) setWaived(null);
+  };
+  // LIRA-341 — the ONE discount for the whole basket, as the payment input
+  // reports it (USD, its totalAmountCurrency; 0 in extra mode — the input's
+  // "- Discount | + Extra" switch keeps one of the two). Never with a Waive:
+  // typing a discount drops any waive, and the Waive is not offered while a
+  // discount is set (the server refuses both together).
+  const [discountUsdEq, setDiscountUsdEq] = useState(0);
+  const handleDiscountChange = (discount: number) => {
+    const value = discount > 0 ? discount : 0;
+    setDiscountUsdEq(value);
     if (value > 0) setWaived(null);
   };
   const handleWaiveRemaining = (
@@ -667,6 +679,7 @@ export function SessionCheckoutModal({
       setKeptChange(null);
       setWaived(null);
       setExtraUsdEq(0);
+      setDiscountUsdEq(0);
     }
   }, [hasChargeToCollect]);
 
@@ -901,9 +914,13 @@ export function SessionCheckoutModal({
   // LIRA-319: the extra is owed on top of the basket (the input adds it to
   // its own total, so the gate must too).
   const extraUSD = hasChargeToCollect ? extraUsdEq : 0;
+  // LIRA-341: the discount comes off the basket (the input takes it off its
+  // own total, so the gate must too).
+  const discountUSD = hasChargeToCollect && !(extraUSD > 0) ? discountUsdEq : 0;
   const isPaymentValid =
     combinedTotalUSD <= 0 ||
-    paidUSD + waivedUSD >= combinedTotalUSD + extraUSD - combinedTolerance;
+    paidUSD + waivedUSD + discountUSD >=
+      combinedTotalUSD + extraUSD - combinedTolerance;
   // LIRA-319 — the extra in the basket's currency (owner decision): an
   // LBP-only basket books it in LBP (back from the input's USD at the same
   // operator rate, whole LBP), every other basket in USD (cents).
@@ -915,19 +932,30 @@ export function SessionCheckoutModal({
     return { usd: Math.round(extraUSD * 100) / 100, lbp: 0 };
   })();
 
+  // LIRA-341 — the discount in the basket's currency, by the same rule as
+  // the extra: an LBP-only basket books it in LBP, every other in USD.
+  const basketDiscount = (() => {
+    if (!(discountUSD > 0)) return { usd: 0, lbp: 0 };
+    if (netChargeUsd <= 0 && netChargeLbp > 0 && exchangeRate > 0) {
+      return { usd: 0, lbp: Math.round(discountUSD * exchangeRate) };
+    }
+    return { usd: Math.round(discountUSD * 100) / 100, lbp: 0 };
+  })();
+
   // LIRA-310: a waive is only good for the gap it was taken on. When the
   // payment (or the basket) changes so the gap no longer equals the waived
   // amount, drop it — a stale claim would be refused by the server, and the
   // full total is due again.
   useEffect(() => {
     if (!waived) return;
-    const gap = combinedTotalUSD + extraUSD - paidUSD;
+    const gap = combinedTotalUSD + extraUSD - discountUSD - paidUSD;
     if (Math.abs(gap - waivedUSD) > combinedTolerance) setWaived(null);
   }, [
     waived,
     waivedUSD,
     combinedTotalUSD,
     extraUSD,
+    discountUSD,
     paidUSD,
     combinedTolerance,
   ]);
@@ -1035,6 +1063,15 @@ export function SessionCheckoutModal({
         // schema has no default — an absent key means "no extra").
         ...(basketExtra.usd > 0 ? { extra_usd: basketExtra.usd } : {}),
         ...(basketExtra.lbp > 0 ? { extra_lbp: basketExtra.lbp } : {}),
+        // LIRA-341: the basket discount, each currency only when > 0 (no
+        // schema default). Never with an extra (basketDiscount is 0 then)
+        // or a waive (typing a discount drops it).
+        ...(basketDiscount.usd > 0 && !waived
+          ? { discount_usd: basketDiscount.usd }
+          : {}),
+        ...(basketDiscount.lbp > 0 && !waived
+          ? { discount_lbp: basketDiscount.lbp }
+          : {}),
         // Bug #4: absent = booked now.
         ...(checkoutTime ? { transaction_time: checkoutTime } : {}),
         userId: user.id,
@@ -1421,9 +1458,11 @@ export function SessionCheckoutModal({
                       onChange={handlePaymentLinesChange}
                       onReturnChange={setReturnLines}
                       onKeptChange={setKeptChange}
-                      // LIRA-319: no Waive while an extra is set.
-                      {...(extraUSD > 0
-                        ? {}
+                      // LIRA-319 / LIRA-341: no Waive while an extra or a
+                      // discount is set. waiveDisabled also stops the
+                      // input's built-in waive (it would grow the discount).
+                      {...(extraUSD > 0 || discountUSD > 0
+                        ? { waiveDisabled: true }
                         : { onWaiveRemaining: handleWaiveRemaining })}
                       // The customer pays the shop: change kept = profit.
                       payer="customer"
@@ -1439,11 +1478,13 @@ export function SessionCheckoutModal({
                       currencies={currencies}
                       exchangeRate={exchangeRate}
                       onRateChange={handleRateChange}
-                      showDiscount={false}
-                      // LIRA-319 (owner decision): the basket takes ONE
-                      // extra, here at the checkout — an extra-only line
-                      // (no discount on a basket). The input adds it to
-                      // its total and reports it; capped at the basket.
+                      // LIRA-319 / LIRA-341 (owner decisions): the basket
+                      // takes ONE extra or ONE discount, here at the
+                      // checkout — the input's "- Discount | + Extra"
+                      // switch. It adjusts its own total and reports each;
+                      // the discount's cap (the basket's profit) is checked
+                      // by the server, whose message shows the limit.
+                      onDiscountChange={handleDiscountChange}
                       onExtraChange={handleExtraChange}
                       label={t("checkout.payment")}
                       initialMethod={chosenFirstMethod ?? initialMethod}

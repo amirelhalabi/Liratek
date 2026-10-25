@@ -294,6 +294,9 @@ export const TRANSACTION_PRESENTATION: Record<
   // LIRA-319 — a session basket's extra charge: profit-carrying, the
   // basket's payment legs carry its money, so no cash badge of its own.
   EXTRA_CHARGE: { label: TRANSACTION_TYPE_LABELS.EXTRA_CHARGE, color: "text-amber-300", direction: TRANSACTION_CASH_DIRECTION.EXTRA_CHARGE },
+  // LIRA-341 — a session basket's discount: the Waive mirror (profit
+  // −discount, amount 0), so no cash badge either.
+  BASKET_DISCOUNT: { label: TRANSACTION_TYPE_LABELS.BASKET_DISCOUNT, color: "text-slate-300", direction: TRANSACTION_CASH_DIRECTION.BASKET_DISCOUNT },
   // LIRA-296 — the cost of honouring a warranty (or a recovery offsetting
   // it): profit-only, no payment legs, no drawer — so no cash badge.
   WARRANTY_COST: {

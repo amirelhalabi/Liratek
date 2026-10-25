@@ -6719,6 +6719,13 @@ Owner decisions 2026-10-18:
 
 **What users will notice:** from now on, a checkpoint's Over or Short stays open until it is explained. Re-entering the missed transaction with "Set custom time" before that checkpoint marks the difference Resolved without counting the money twice, so the next checkpoint is balanced. The Checkpoints page has an "Open differences only" filter, and an admin can close an unexplained difference from the checkpoint's details (a Short appears under Expenses as "Drawer shortage"; Reopen undoes it). Checkpoints saved before the update stay as they were.
 
+## LIRA-341: Discount the whole session basket — BUILT 2026-10-25 (owner decisions 2026-10-25)
+
+Owner report: session checkout had no discount (Extra only; Waive only up to $5), so a $294 basket paid $286 left $8 of debt.
+Owner decisions: a "− Discount | + Extra" switch at session checkout; the discount is capped at the basket's booked shop profit (the same rule as the other pages; an OMT commission not yet settled does not count); a server refusal shows the limit, with no preview; one basket row `BASKET_DISCOUNT` (profit −discount) shown on Profits as "Session discounts"; refunding one item leaves the discount whole, and voiding the basket reverses it. Discount, extra and waive are mutually exclusive.
+
+**What users will notice:** at session checkout you can switch the line to "− Discount" and take money off the whole basket (up to the shop's profit on it). Profits shows these under "Session discounts".
+
 ## LIRA-336: Customer adds change on payouts — IN PROGRESS (owner decisions 2026-10-18)
 
 The owner's case: the shop owes a $197 payout, asks the customer for $3 (or 268,500 LBP) and hands out $200. Today this can't be recorded:

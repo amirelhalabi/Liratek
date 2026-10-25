@@ -71,6 +71,8 @@ export const TRANSACTION_CASH_DIRECTION: Record<
   WAIVED_SHORTFALL: null,
   // LIRA-319: profit-only basket row; the basket's legs carry the money.
   EXTRA_CHARGE: null,
+  // LIRA-341: profit-only basket discount row (the WAIVED_SHORTFALL mirror).
+  BASKET_DISCOUNT: null,
   WARRANTY_COST: null,
   SUPPLIER_PAYMENT: "dynamic",
   SUPPLIER_SETTLEMENT: "dynamic",

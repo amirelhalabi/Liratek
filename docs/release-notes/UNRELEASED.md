@@ -36,6 +36,11 @@
 
 ## ✨ Highlights
 
+### Discount the whole session basket
+
+At a customer session checkout, the line under "Total Amount" now has a **− Discount | + Extra** switch. Pick Discount and type an amount to take it off the whole basket: the payment box then expects the lower total. A basket takes a discount, an extra or a waived amount, one at a time. The discount can't be more than the shop's profit on the basket; if it is, the checkout says so and shows the limit. Discounts given this way show on the Profits page as "Session discounts".
+![Session checkout: $8 discount on a $294 basket, the customer pays $286](whats-new/1.35.0/session-basket-discount.png)
+
 ### Keep the change, or put it on the account
 
 When a customer leaves their change and a client is picked, the change box now has a **Keep** button next to **Account**. Tap Keep to keep the change as shop profit (it shows under kept change on the Profits page), or Account to put it on the customer's account as before. This works on the Accounts repayment window and on every payment window that already had the Account button.

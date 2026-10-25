@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { extraChargeFields, transactionTimeSchema } from "./common.js";
+import {
+  basketDiscountFields,
+  extraChargeFields,
+  transactionTimeSchema,
+} from "./common.js";
 
 /**
  * Session checkout contract — the ONE basket payment envelope, shared by the
@@ -69,6 +73,12 @@ export const sessionCheckoutSchema = z
     // Verified server-side against the basket's own charge and booked as an
     // EXTRA_CHARGE row linked to the session (SessionCheckoutService).
     ...extraChargeFields,
+    // LIRA-341: the ONE discount for the whole basket, in the basket's
+    // currency. Verified server-side (capped at the basket's own profit,
+    // never with an extra or a waive) and booked as a BASKET_DISCOUNT row
+    // linked to the session (SessionCheckoutService). No default (offline
+    // replay).
+    ...basketDiscountFields,
     // Bug #4 (TRANSACTION_DETAIL_AUDIT §3): the time the cashier set on the
     // session checkout window (backdating). Applied by SessionCheckoutService
     // to every row the checkout writes; an item that carries its own

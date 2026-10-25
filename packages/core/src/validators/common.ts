@@ -204,6 +204,24 @@ export const extraChargeFields = {
 export const DISCOUNT_AND_EXTRA_MESSAGE =
   "A sale can have a discount or an extra, not both.";
 
+/**
+ * LIRA-341 — the ONE discount on a whole session basket, per currency, in
+ * the basket's currency. Optional with NO `.default()` (offline replay —
+ * same rule as {@link extraChargeFields}). Absent = no discount.
+ */
+export const basketDiscountFields = {
+  discount_usd: z.number().nonnegative().optional(),
+  discount_lbp: z.number().nonnegative().optional(),
+};
+
+/** LIRA-341 — the basket discount may not exceed the basket's own profit. */
+export const BASKET_DISCOUNT_ABOVE_PROFIT_MESSAGE =
+  "The discount can't be more than the shop's profit on this basket.";
+
+/** LIRA-341 — a basket takes ONE reduction: a discount or a waive. */
+export const DISCOUNT_AND_WAIVE_MESSAGE =
+  "A basket can have a discount or a waived amount, not both.";
+
 /** LIRA-319 — refused on a for-partner sale (no customer pays an extra). */
 export const NO_EXTRA_FOR_PARTNER_MESSAGE = "No extra on a for-partner sale.";
 

@@ -270,6 +270,12 @@ export const TRANSACTION_TYPES = {
    *  like KEPT_CHANGE. No money of its own — the basket's payment legs carry
    *  the tender. Single-sale extras live on the module's own row instead. */
   EXTRA_CHARGE: "EXTRA_CHARGE",
+  /** LIRA-341 — a session basket's discount: a standalone profit-only row
+   *  (amount 0, profit −discount), session-linked (kind "basket_discount")
+   *  like WAIVED_SHORTFALL, capped at the basket's own profit. Operator-typed
+   *  (never `is_auto`); swept by the basket void/refund, left whole by a
+   *  single-item refund. */
+  BASKET_DISCOUNT: "BASKET_DISCOUNT",
   SUPPLIER_PAYMENT: "SUPPLIER_PAYMENT",
   SUPPLIER_SETTLEMENT: "SUPPLIER_SETTLEMENT",
   /** PFT-6b: a Partners-page settlement's money movement — the drawer leg
@@ -510,6 +516,9 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     // WAIVED_SHORTFALL (LIRA-310): the KEPT_CHANGE mirror (profit −waived,
     // no legs) — same reasoning; the basket void/refund owns it.
     TRANSACTION_TYPES.WAIVED_SHORTFALL,
+    // BASKET_DISCOUNT (LIRA-341): the WAIVED_SHORTFALL mirror (profit
+    // −discount, no legs) — the basket void/refund owns it.
+    TRANSACTION_TYPES.BASKET_DISCOUNT,
     // WARRANTY_COST (LIRA-296): profit-only, no legs; owned by its warranty
     // claim — `WarrantyService.voidClaim` reverses the claim as a whole
     // (stock, units, defective holding, repair job, refund, cost rows).
@@ -702,6 +711,9 @@ export const SESSION_BASKET_BYPASSABLE_NON_REVERSIBLE_TYPES: ReadonlySet<Transac
     // already refunded one by one, `refundSessionBasket` gives back only the
     // extra still unreturned (`_sessionExtraRemaining`).
     TRANSACTION_TYPES.EXTRA_CHARGE,
+    // LIRA-341: same as WAIVED_SHORTFALL — void: status; refund: the negated
+    // REFUND row is read by basketDiscountSource (ProfitRepository).
+    TRANSACTION_TYPES.BASKET_DISCOUNT,
   ]);
 
 /**

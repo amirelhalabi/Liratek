@@ -460,6 +460,15 @@ const EXCLUDED_UNITS: Record<string, string> = {
   "ProfitRepository:getWaivedShortfallDetail:(query)":
     "Row-level twin of getWaivedShortfallProfit (same rows, same WHERE) — " +
     "same reason, verbatim (rule 14).",
+  "ProfitRepository:getBasketDiscountProfit:(query)":
+    "LIRA-341 (owner decision 2026-10-25): the session basket discount " +
+    "(BASKET_DISCOUNT, amount 0, profit −discount) and its basket-refund " +
+    "REFUND row — the exact mirror of getWaivedShortfallProfit (see its " +
+    "entry above): a reduction the shop gives at checkout, so the checkout " +
+    "IS the recognition event, nothing left to defer.",
+  "ProfitRepository:getBasketDiscountDetail:(query)":
+    "Row-level twin of getBasketDiscountProfit (same rows, same WHERE) — " +
+    "same reason, verbatim (rule 14).",
   "ProfitRepository:getCounterpartyDiscountDetail:(query)":
     "Mirrors getCounterpartyDiscountTotals exactly (see that method's own " +
     "EXCLUDED_UNITS entry above): COUNTERPARTY_DISCOUNT carries a signed " +

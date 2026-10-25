@@ -371,6 +371,15 @@ interface ProfitSummary {
    *  folded into `totals` (gross revenue and gross profit) server-side —
    *  visibility only. Optional so an older cached payload doesn't crash. */
   extra_charges?: { usd: number; lbp: number };
+  /** LIRA-341/341 — the "Session discounts" line: basket discounts given at
+   *  session checkout (BASKET_DISCOUNT rows, signed profit — negative),
+   *  net of voided baskets. ALREADY inside the totals — visibility only.
+   *  Optional so an older cached payload doesn't crash. */
+  session_discounts?: {
+    profit_usd: number;
+    profit_lbp: number;
+    count: number;
+  };
   totals: {
     gross_revenue_usd: number;
     gross_revenue_lbp: number;
@@ -2525,6 +2534,64 @@ export default function Profits() {
                             className={`font-semibold ${profitClass(summary.extra_charges.lbp)}`}
                           >
                             {formatAmount(summary.extra_charges.lbp, "LBP")}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+              {/* LIRA-341 — Session discounts: the ONE discount a cashier
+                  gave on a whole session basket at checkout. Its own line;
+                  already inside the totals — visibility only. */}
+              {summary.session_discounts &&
+                (summary.session_discounts.count > 0 ||
+                  summary.session_discounts.profit_usd !== 0 ||
+                  summary.session_discounts.profit_lbp !== 0) && (
+                  <div
+                    data-testid="overview-session-discounts-card"
+                    className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-white">
+                        {t("overview.sessionDiscounts")}
+                      </span>
+                      <span className="text-xs bg-rose-500/20 text-rose-300 px-2 py-0.5 rounded-full">
+                        {t("common.txns", {
+                          n: summary.session_discounts.count,
+                        })}
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-400 space-y-1">
+                      {summary.session_discounts.profit_usd !== 0 && (
+                        <div
+                          className="flex justify-between"
+                          data-testid="session-discounts-usd"
+                        >
+                          <span className="font-semibold">USD</span>
+                          <span
+                            className={`font-semibold ${profitClass(summary.session_discounts.profit_usd)}`}
+                          >
+                            {formatAmount(
+                              summary.session_discounts.profit_usd,
+                              "USD",
+                            )}
+                          </span>
+                        </div>
+                      )}
+                      {summary.session_discounts.profit_lbp !== 0 && (
+                        <div
+                          className="flex justify-between"
+                          data-testid="session-discounts-lbp"
+                        >
+                          <span className="font-semibold">LBP</span>
+                          <span
+                            className={`font-semibold ${profitClass(summary.session_discounts.profit_lbp)}`}
+                          >
+                            {formatAmount(
+                              summary.session_discounts.profit_lbp,
+                              "LBP",
+                            )}
                           </span>
                         </div>
                       )}

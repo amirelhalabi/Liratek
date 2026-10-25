@@ -1388,6 +1388,8 @@ export const POSTING_RULE_EXCLUSIONS: Readonly<
   // LIRA-319: the session basket's extra-charge row — profit via extra_*
   // only; the basket's payment legs carry the money (same shape as KEPT_CHANGE).
   EXTRA_CHARGE: "no-money",
+  // LIRA-341: the session basket discount sibling (profit −discount only).
+  BASKET_DISCOUNT: "no-money",
 
   // ── reversals: checked as "create + reverse nets to 0 on every ledger,
   //    per currency" (rule 20) in each module's reversal tests, not as a

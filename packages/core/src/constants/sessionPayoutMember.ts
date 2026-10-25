@@ -71,5 +71,7 @@ export function isSessionPayoutMember(
   if (member.type === TRANSACTION_TYPES.KEPT_CHANGE) return false;
   // LIRA-310: the Waive sibling is amount 0 like KEPT_CHANGE — never a payout.
   if (member.type === TRANSACTION_TYPES.WAIVED_SHORTFALL) return false;
+  // LIRA-341: the basket discount sibling is amount 0 too — never a payout.
+  if (member.type === TRANSACTION_TYPES.BASKET_DISCOUNT) return false;
   return (member.amount_usd ?? 0) < 0 || (member.amount_lbp ?? 0) < 0;
 }

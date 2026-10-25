@@ -34,6 +34,7 @@ import {
   type SessionCartItem,
 } from "../repositories/CustomerSessionRepository.js";
 import { getTransactionRepository } from "../repositories/TransactionRepository.js";
+import { getSessionPaymentRepository } from "../repositories/SessionPaymentRepository.js";
 import { cashierRateStamp } from "../repositories/moneyPosting.js";
 import { getClientRepository } from "../repositories/ClientRepository.js";
 import { clientLogger } from "../utils/logger.js";
@@ -45,7 +46,9 @@ import {
   NO_SELLING_PRICE_ERROR,
 } from "../utils/customServiceSellingPrice.js";
 import {
+  BASKET_DISCOUNT_ABOVE_PROFIT_MESSAGE,
   DISCOUNT_AND_EXTRA_MESSAGE,
+  DISCOUNT_AND_WAIVE_MESSAGE,
   EXTRA_ABOVE_TOTAL_MESSAGE,
 } from "../validators/common.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
@@ -112,6 +115,12 @@ export interface CheckoutRequest {
    *  (`resolveBasketExtra`) before anything is written. */
   extra_usd?: number;
   extra_lbp?: number;
+  /** LIRA-341: the ONE discount for the whole basket, per currency → a
+   *  standalone BASKET_DISCOUNT row (amount 0, profit −discount). Verified
+   *  against the basket's own item profit (`checkBasketDiscountCap`) before
+   *  the payment; never with an extra or a waive. */
+  discount_usd?: number;
+  discount_lbp?: number;
   /** Bug #4 — the time the cashier set on the checkout window (ISO). Every
    *  row this checkout writes carries it; an item's own `transaction_time`
    *  (set when it was added) wins for that item. Absent = now. */
@@ -483,6 +492,46 @@ export function isFeeOnTopReceiveItem(
  * Returns the extra to book, or throws a plain-sentence refusal. Exported
  * for its test.
  */
+/**
+ * LIRA-341 — the basket discount cap (owner decision 2026-10-25): the
+ * discount may not exceed the shop's profit on the basket's items (Σ their
+ * profit stamps, `SessionPaymentRepository.getSessionBasketProfit`). Both
+ * sides are compared as USD-equivalent at the basket's rate; without a rate
+ * only a same-currency comparison is possible. Throws the refusal; pure, so
+ * the checkout and any preview read share ONE rule (rule 14).
+ */
+export function checkBasketDiscountCap(input: {
+  discount: { usd: number; lbp: number };
+  profit: { usd: number; lbp: number };
+  exchangeRate: number | undefined;
+}): void {
+  const { discount, profit } = input;
+  const EPS = 0.000001;
+  const rate =
+    input.exchangeRate && input.exchangeRate > 0 ? input.exchangeRate : null;
+  let over: boolean;
+  if (rate == null) {
+    const crossCurrency =
+      (discount.lbp > 0 && Math.abs(profit.usd) > EPS) ||
+      (discount.usd > 0 && Math.abs(profit.lbp) > EPS);
+    if (crossCurrency) {
+      throw new Error(
+        "The discount can't be checked without the exchange rate. (Session checkout: a discount needs the exchange rate the basket was paid at)",
+      );
+    }
+    over = discount.usd > profit.usd + EPS || discount.lbp > profit.lbp + EPS;
+  } else {
+    over =
+      discount.usd + discount.lbp / rate >
+      profit.usd + profit.lbp / rate + EPS;
+  }
+  if (over) {
+    throw new Error(
+      `${BASKET_DISCOUNT_ABOVE_PROFIT_MESSAGE} (Session checkout: discount USD ${discount.usd} / LBP ${discount.lbp}, basket profit USD ${profit.usd} / LBP ${profit.lbp})`,
+    );
+  }
+}
+
 export function resolveBasketExtra(input: {
   cartItems: CheckoutCartItem[];
   extraUsd: number;
@@ -608,6 +657,8 @@ export class SessionCheckoutService {
         waived_lbp,
         extra_usd,
         extra_lbp,
+        discount_usd,
+        discount_lbp,
         paidByMethod,
       } = request;
       // Bug #4: the checkout's backdated time (blank = none).
@@ -693,6 +744,21 @@ export class SessionCheckoutService {
         waivedLbp: waived_lbp ?? 0,
         exchangeRate,
       });
+
+      // LIRA-341: the basket discount — ONE reduction, never with an extra or
+      // a waive. Its profit cap needs the items' own stamps, so it is checked
+      // inside the transaction, once every item is booked.
+      const discount = {
+        usd: (discount_usd ?? 0) > 0 ? (discount_usd as number) : 0,
+        lbp: (discount_lbp ?? 0) > 0 ? (discount_lbp as number) : 0,
+      };
+      const hasDiscount = discount.usd > 0 || discount.lbp > 0;
+      if (hasDiscount && (extra.usd > 0 || extra.lbp > 0)) {
+        return { success: false, error: DISCOUNT_AND_EXTRA_MESSAGE };
+      }
+      if (hasDiscount && claimsWaived) {
+        return { success: false, error: DISCOUNT_AND_WAIVE_MESSAGE };
+      }
 
       const repo = getCustomerSessionRepository();
       const itemResults: CheckoutItemResult[] = [];
@@ -1028,6 +1094,73 @@ export class SessionCheckoutService {
           checkoutProfitLbp += extra.lbp;
         }
 
+        // LIRA-341: the basket discount — capped at the shop's profit on the
+        // items just booked (their own stamps), then ONE BASKET_DISCOUNT row
+        // (amount 0, profit −discount), session-linked with amount 0 like
+        // WAIVED_SHORTFALL (a negative linked amount would read as a payout).
+        // The payment below checks the tender against charge − discount.
+        // Reversal owner (rule 20): the basket's own void/refund
+        // (SESSION_BASKET_BYPASSABLE_NON_REVERSIBLE_TYPES); a single-item
+        // refund leaves it whole (owner decision 2026-10-25).
+        if (hasDiscount) {
+          checkBasketDiscountCap({
+            discount,
+            profit: getSessionPaymentRepository().getSessionBasketProfit(
+              sessionId,
+            ),
+            exchangeRate,
+          });
+          const discountTxnId = getTransactionRepository().createTransaction({
+            type: TRANSACTION_TYPES.BASKET_DISCOUNT,
+            source_table: "customer_sessions",
+            source_id: sessionId,
+            user_id: userId,
+            transaction_time: checkoutTime,
+            amount_usd: 0,
+            amount_lbp: 0,
+            profit_usd: -discount.usd,
+            profit_lbp: -discount.lbp,
+            ...cashierRateStamp(exchangeRate),
+            client_id: sessionClientId ?? null,
+            // Same reason as KEPT_CHANGE below (LIRA-230).
+            client_name: sessionCustomerName ?? null,
+            client_phone: siblingClientPhone,
+            details: buildSessionSiblingDetails({
+              sessionId,
+              role: "DISCOUNT",
+              paidByMethod,
+            }),
+            payment_snapshot: buildPaymentSnapshot({ sessionId }),
+            summary: `Discount (session checkout): ${[
+              discount.usd > 0 ? `$${discount.usd}` : null,
+              discount.lbp > 0 ? `${discount.lbp.toLocaleString()} LBP` : null,
+            ]
+              .filter(Boolean)
+              .join(" + ")}`,
+            // Operator-typed: NOT is_auto (rule 26).
+            metadata_json: {
+              session_id: sessionId,
+              discount_usd: discount.usd,
+              discount_lbp: discount.lbp,
+            },
+          });
+          repo.linkTransaction(
+            sessionId,
+            "basket_discount",
+            discountTxnId,
+            0,
+            0,
+            -discount.usd,
+            -discount.lbp,
+            discountTxnId,
+            checkoutStamp,
+          );
+          checkoutTotalUsd -= discount.usd;
+          checkoutTotalLbp -= discount.lbp;
+          checkoutProfitUsd -= discount.usd;
+          checkoutProfitLbp -= discount.lbp;
+        }
+
         // AFTER all items (deferred mode): record the ONE customer payment for
         // the whole basket — posts each leg to its drawer once, one debt row
         // for the CUSTOMER_ACCOUNT portion, redeems gift cards, back-fills SALEs.
@@ -1047,6 +1180,7 @@ export class SessionCheckoutService {
               feeOnTopReceiveFsIds,
               keptChange: claimsKept ? keptClaim : null,
               waived: claimsWaived ? waivedClaim : null,
+              discount: hasDiscount ? discount : null,
               ...(checkoutTime ? { transactionTime: checkoutTime } : {}),
             },
           );

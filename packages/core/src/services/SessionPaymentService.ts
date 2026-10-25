@@ -150,6 +150,14 @@ export interface RecordBasketPaymentInput {
    * `waivedLbp`; the caller books it (WAIVED_SHORTFALL). Omitted = none.
    */
   waived?: KeptChange | null;
+  /**
+   * LIRA-341 — the basket discount, ALREADY verified by the caller
+   * (`SessionCheckoutService`, capped at the basket's own profit). What the
+   * customer owes is the basket charge minus it, so the kept-change and
+   * nothing-to-collect checks read the reduced charge. The PCD split
+   * (`primarySystemCharge*`, "OMT first") is left as it is. Omitted = none.
+   */
+  discount?: KeptChange | null;
   // (No FOR-partner flag: owner decision 2026-10-07 — a basket holding a
   // FOR-partner item may keep change; the item's own partner posting is
   // unaffected and kept change stays drawer-funded via resolveKeptChange.)
@@ -556,6 +564,13 @@ export class SessionPaymentService {
       input.feeOnTopReceiveFsIds ?? [],
     );
     const pcdDrawerName = primaryCashDrawerName(cashSplitCtx.baseSystem);
+    // LIRA-341: the customer owes the charge minus the basket discount —
+    // ONE reduced context for every reconciliation below (rule 14).
+    const owedCtx = {
+      ...cashSplitCtx,
+      chargeTotalUsd: cashSplitCtx.chargeTotalUsd - (input.discount?.usd ?? 0),
+      chargeTotalLbp: cashSplitCtx.chargeTotalLbp - (input.discount?.lbp ?? 0),
+    };
 
     // G42: check the kept-change claim against the server-derived net charge
     // BEFORE the first leg/drawer/voucher write (a throw rolls back the
@@ -568,7 +583,7 @@ export class SessionPaymentService {
     ) {
       const kept = resolveBasketKeptChange({
         legs,
-        ctx: cashSplitCtx,
+        ctx: owedCtx,
         claimedKept: input.keptChange,
         claimedWaived: input.waived ?? null,
         exchangeRate: rate,
@@ -587,7 +602,7 @@ export class SessionPaymentService {
     // Skipped when the item lookup failed: "unknown" must never read as
     // "nothing due".
     if (!cashSplitCtx.lookupFailed) {
-      const net = basketCollectNet(legs, cashSplitCtx);
+      const net = basketCollectNet(legs, owedCtx);
       const strayIn = net.inLegs.filter((l) => Math.abs(l.amount) > 0);
       if (strayIn.length > 0 && basketHasNothingToCollect(net, rate)) {
         throw new Error(

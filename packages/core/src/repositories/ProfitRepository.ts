@@ -2104,6 +2104,27 @@ export function waivedShortfallSource(alias: string): string {
 }
 
 /**
+ * LIRA-341 — the ONE definition of "is this transactions row part of a
+ * session basket discount" (rule 14): the standalone `BASKET_DISCOUNT` row
+ * (amount 0, profit −discount) or the REFUND row a basket refund writes for
+ * it (`reverses_id` → the discount). A VOIDED discount needs no branch —
+ * `status = 'ACTIVE'` at every call site drops it. Its OWN "Session
+ * discounts" line ({@link ProfitRepository.getBasketDiscountProfit}); the
+ * views with no such line (By Date, By Cashier, By Client) fold it through
+ * {@link keptChangeOrWaivedSource}, like the waive. No bind params.
+ */
+export function basketDiscountSource(alias: string): string {
+  return `(${alias}.type = 'BASKET_DISCOUNT'
+                     OR (${alias}.type = 'REFUND'
+                         AND EXISTS (
+                           SELECT 1 FROM transactions bdorig
+                           WHERE bdorig.id = ${alias}.reverses_id
+                             AND bdorig.type = 'BASKET_DISCOUNT'
+                             AND bdorig.tenant_id = ${alias}.tenant_id
+                         )))`;
+}
+
+/**
  * LIRA-310 follow-up — the profit-only rows a Profits view folds into ONE
  * per-row / per-day / per-key sum when it has no separate Kept Change or
  * Waived line: {@link keptChangeSource} OR {@link waivedShortfallSource}.
@@ -2112,7 +2133,8 @@ export function waivedShortfallSource(alias: string): string {
  * params.
  */
 export function keptChangeOrWaivedSource(alias: string): string {
-  return `(${keptChangeSource(alias)} OR ${waivedShortfallSource(alias)})`;
+  // LIRA-341: the basket discount folds in the same way as the waive.
+  return `(${keptChangeSource(alias)} OR ${waivedShortfallSource(alias)} OR ${basketDiscountSource(alias)})`;
 }
 
 export function keptChangeSource(alias: string): string {
@@ -4465,6 +4487,38 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
   }
 
   /**
+   * LIRA-341 — the "Session discounts" line: basket discounts given at a
+   * session checkout ({@link basketDiscountSource}). Signed (negative); a
+   * basket void drops the row, a basket refund adds its negated REFUND row —
+   * both net to 0. `count` is the discounts themselves, never their REFUND
+   * rows. Profit-only, dated by `created_at` like the Waived line.
+   */
+  getBasketDiscountProfit(
+    fromDt: string,
+    toDt: string,
+  ): { profit_usd: number; profit_lbp: number; count: number } {
+    return this.db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
+          COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp,
+          COALESCE(SUM(CASE WHEN t.type = 'BASKET_DISCOUNT'
+                             AND (t.profit_usd != 0 OR t.profit_lbp != 0)
+                            THEN 1 ELSE 0 END), 0) AS count
+        FROM transactions t
+        WHERE t.status = 'ACTIVE'
+          AND ${basketDiscountSource("t")}
+          AND ${dateRange("t.created_at")}
+          AND t.tenant_id = ?`,
+      )
+      .get(fromDt, toDt, getCurrentTenantId()) as {
+      profit_usd: number;
+      profit_lbp: number;
+      count: number;
+    };
+  }
+
+  /**
    * CQ-10 (D1) — signed profit from counterparty discounts/write-offs
    * (COUNTERPARTY_DISCOUNT rows across all three ledgers: debt/supplier/
    * partner). amount_usd/amount_lbp on these rows are always 0 (no cash
@@ -6743,6 +6797,36 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         FROM transactions t
         WHERE t.status = 'ACTIVE'
           AND ${waivedShortfallSource("t")}
+          AND NOT ${isEmptyVoidReversalRow("t")}
+          AND ${dateRange("t.created_at")}
+          AND t.tenant_id = ?
+        ORDER BY t.created_at DESC, t.id DESC`,
+      )
+      .all(fromDt, toDt, tenantId) as ProfitOnlyDetailRow[];
+  }
+
+  /**
+   * LIRA-341 — per-row drill-down under the SESSION_DISCOUNT By Module row.
+   * Mirrors {@link getBasketDiscountProfit} minus the `SUM`.
+   */
+  getBasketDiscountDetail(
+    fromDt: string,
+    toDt: string,
+  ): ProfitOnlyDetailRow[] {
+    const tenantId = getCurrentTenantId();
+    return this.db
+      .prepare(
+        `SELECT
+          t.id AS id,
+          t.created_at AS created_at,
+          t.client_name AS counterpart_name,
+          t.client_phone AS counterpart_phone,
+          t.type AS txn_type,
+          t.profit_usd AS profit_usd,
+          t.profit_lbp AS profit_lbp
+        FROM transactions t
+        WHERE t.status = 'ACTIVE'
+          AND ${basketDiscountSource("t")}
           AND NOT ${isEmptyVoidReversalRow("t")}
           AND ${dateRange("t.created_at")}
           AND t.tenant_id = ?
