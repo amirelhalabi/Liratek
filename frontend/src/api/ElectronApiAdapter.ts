@@ -6,6 +6,7 @@
  * All transport branching stays in backendApi.ts (the "dual-mode facade").
  */
 
+import type { LedgerFilters } from "@liratek/core";
 import type { ApiAdapter } from "@liratek/ui";
 // LIRA-333 — open a WhatsApp link outside LiraTek (rule 21).
 import type { OpenExternalUrlInput } from "@liratek/core";
@@ -988,17 +989,8 @@ export class ElectronApiAdapter implements ApiAdapter {
     getAllBalances: (includeInactive?: boolean) =>
       api.partnersGetAllBalances(includeInactive ?? false),
     getBalance: (partnerId: number) => api.partnersGetBalance(partnerId),
-    getLedger: (
-      partnerId: number,
-      filters?: {
-        startDate?: string;
-        endDate?: string;
-        type?: string;
-        mode?: "FOR" | "THROUGH";
-        provider?: string;
-        direction?: "DEBIT" | "CREDIT";
-      },
-    ) => api.partnersGetLedger(partnerId, filters),
+    getLedger: (partnerId: number, filters?: LedgerFilters) =>
+      api.partnersGetLedger(partnerId, filters),
     create: (data: PartnerCreatePayload) => api.partnersCreate(data),
     update: (id: number, data: PartnerUpdatePayload) =>
       api.partnersUpdate(id, data),

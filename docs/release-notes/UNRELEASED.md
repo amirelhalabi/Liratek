@@ -94,6 +94,11 @@ Right after a sale, the POS shows "Sale completed" with a Send on WhatsApp butto
 On the Vouchers page, creating a gift card now asks how the customer pays: cash, a wallet, or the customer's account, with change handed back as usual. The money goes into the drawer. Cancelling a gift card that was not used opens a window that refunds what the customer paid. Both show on the Transactions page.
 ![Vouchers page: a $25 gift card paid in cash](whats-new/1.35.0/voucher-sale.png)
 
+### A partner's transactions and payments, each in its own window
+
+On the Partners page, open a partner and tap "Transactions" or "Payments", the same way as on the Suppliers page. Transactions lists what you did with or for the partner, with the date, mode, provider and direction filters. Payments lists settlements (a Cash + Whish one reads "via SPLIT"), write-offs and credit / debt entries, with a date filter. The count is on each button, so the partner's panel stays short.
+![Partners: the Payments window with a settlement, a write-off and a credit/debt entry](whats-new/1.35.0/partner-ledger.png)
+
 ## 🛒 POS
 
 - After a sale, and from any past sale's details, you can now send the receipt to the customer on WhatsApp. WhatsApp opens on their chat with the receipt already written; you press Send. Works on the desktop app and the web app.
@@ -133,6 +138,7 @@ On the Vouchers page, creating a gift card now asks how the customer pays: cash,
 
 ## 💸 OMT / Whish & suppliers
 
+- Partners page: a partner's ledger now opens in two windows, "Transactions" and "Payments", from buttons that show how many entries each has, like on the Suppliers page. Payments holds settlements, write-offs and credit / debt entries; everything else is under Transactions.
 - OMT/Whish page: the partner picked on the partner system's tab (for example Whish through your Whish partner) no longer carries over when you switch to the other tab. Before, an OMT send or receive done right after opening Whish could be saved as going through the Whish partner, and the "+ Customer gives change" link vanished from OMT receive.
 - OMT/Whish page: a send or receive no longer adds the sender (or receiver) to your clients when "Save as client" is unticked. If a client with that phone is already saved, the transaction is still linked to them. Paying on the customer's account still needs a client, so one is still saved in that case.
 - OMT/Whish page, OMT send with "Online Brokerage": a BINANCE fee charged to the customer is now recorded with the send. Before, any such send with a fee was refused with "the payment is more than the total".
@@ -264,6 +270,7 @@ On the Vouchers page, creating a gift card now asks how the customer pays: cash,
 
 ## 🧺 Customer sessions
 
+- Session checkout: you can now give one discount on the whole basket (the "− Discount" side of the line under Total Amount), up to the shop's profit on the basket. It cannot be combined with an extra or a waived amount. The Profits page shows these under a new "Session discounts" line.
 - The session checkout window now has "Set custom time". The time you pick is used for everything in that checkout: every item, the extra, the kept change or forgiven amount, the payment, and any amount put on the customer's account. An item that already had its own custom time when you added it keeps that time. Before, a session checkout was always saved at the time you checked out.
 - A Binance send or cash-out, an OMT App or Whish App transfer, and iPick, Katsh or Whish App items added to a customer session now keep the custom time you set on them. Before, that time was ignored and they were saved at checkout time.
 - The session window under the top-bar session button now opens only when you click the button, and closes when you click it again, click anywhere else, or press Escape. Moving the pointer over the top bar no longer opens it, so it can't cover the page by accident (for example the MTC / Alfa / iPick tabs on Mobile Recharge). To start a new session or switch to another one, use the small arrow next to the session button.

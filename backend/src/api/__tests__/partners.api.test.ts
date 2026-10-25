@@ -236,3 +236,39 @@ describe("Partners REST routes — CQ-11 split-leg settlement", () => {
     });
   });
 });
+
+// LIRA-340 T004 — the Partners page asks for one display group at a time.
+describe("GET /api/partners/:id/ledger — group filter", () => {
+  const partnerService = getPartnerService();
+
+  beforeEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it.each(["transactions", "payments"])(
+    "passes group=%s through to the statement read",
+    async (group) => {
+      const spy = jest
+        .spyOn(partnerService, "getPartnerStatement")
+        .mockReturnValue({ entries: [] } as never);
+      const res = await request(buildApp())
+        .get(`/api/partners/7/ledger?group=${group}&startDate=2026-10-01`)
+        .set("x-test-role", "staff");
+      expect(res.body.success).toBe(true);
+      expect(spy).toHaveBeenCalledWith(7, {
+        startDate: "2026-10-01",
+        group,
+      });
+    },
+  );
+
+  it("ignores any other group value", async () => {
+    const spy = jest
+      .spyOn(partnerService, "getPartnerStatement")
+      .mockReturnValue({ entries: [] } as never);
+    await request(buildApp())
+      .get("/api/partners/7/ledger?group=everything")
+      .set("x-test-role", "staff");
+    expect(spy).toHaveBeenCalledWith(7, undefined);
+  });
+});

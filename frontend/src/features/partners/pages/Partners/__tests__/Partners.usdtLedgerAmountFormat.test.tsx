@@ -28,6 +28,7 @@
 
 import { render, screen, fireEvent } from "@testing-library/react";
 import Partners from "../index";
+import { openPartnerTable } from "@/features/partners/testing/partnerTableModals";
 
 const mockGetAllBalances = jest.fn();
 const mockGetLedger = jest.fn();
@@ -125,6 +126,8 @@ describe("Partners page — LedgerRow amount cell formats USDT as USDT (money-di
 
     render(<Partners />);
     fireEvent.click(await screen.findByText("Acme Partner"));
+    // LIRA-340 — adjustments are listed in the Payments window.
+    await openPartnerTable("payments");
 
     const amountCell = await screen.findByText(/^45\.50 USDT$/);
     expect(amountCell).toBeInTheDocument();
@@ -167,6 +170,8 @@ describe("Partners page — LedgerRow amount cell formats USDT as USDT (money-di
 
     render(<Partners />);
     fireEvent.click(await screen.findByText("Acme Partner"));
+    // LIRA-340 — business rows are listed in the Transactions window.
+    await openPartnerTable("transactions");
 
     // Main ledger amount cell: 50 USDT.
     const mainAmount = await screen.findByText(/^50\.00 USDT$/);

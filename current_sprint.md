@@ -8025,3 +8025,11 @@ Scope:
 > What users will notice: on the web app, product warranty months are saved and a duplicate currency code shows an
 > error; on the desktop app, importing products with no barcode works; on both, the session "Checkout Complete"
 > screen stays open.
+
+## LIRA-340: Partner Transactions and Payments in their own windows — BUILT 2026-10-25 (owner decisions 2026-10-25; not committed)
+
+Spec, plan and tasks: `specs/340-partner-ledger-modals/`.
+
+Owner decisions 2026-10-25: follow the Suppliers page. Payments = settlements, write-offs/discounts and manual "Add credit / debt" entries; Transactions = everything else (incl. future entry types). The Payments window has the date filter only. Display only: no money or ledger behaviour changes.
+
+What users will notice: on the Partners page, a partner's ledger no longer sits as one long table on the panel. Two buttons, "Transactions (N)" and "Payments (N)", open each list in its own window, like on the Suppliers page. Transactions keeps the date, mode, provider and direction filters; Payments lists settlements (a Cash + Whish one reads "via SPLIT"), write-offs and credit/debt entries, with a date filter. Desktop app and web app.

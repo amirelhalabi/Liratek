@@ -152,5 +152,12 @@
   },
   "toggle": {
     "forPartner": "لشريك"
+  },
+  "tables": {
+    "transactions": "المعاملات",
+    "payments": "الدفعات",
+    "transactionsTitle": "{{name}} — المعاملات",
+    "paymentsTitle": "{{name}} — الدفعات",
+    "paymentsEmpty": "لا توجد دفعات"
   }
 }

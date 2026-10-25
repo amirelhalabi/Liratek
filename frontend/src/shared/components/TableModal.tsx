@@ -2,11 +2,13 @@ import { useEffect, useId, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-export interface SupplierTableModalProps {
+export interface TableModalProps {
   /** e.g. "Katsh — Transactions" — also the dialog's accessible name. */
   title: string;
   onClose: () => void;
   children: ReactNode;
+  /** Backdrop test id; each page passes its own (default "table-modal-backdrop"). */
+  testId?: string;
 }
 
 /**
@@ -17,12 +19,16 @@ export interface SupplierTableModalProps {
  * with an X. Only wider (the tables are) and with its body scrolling.
  * Escape, the X and a click on the backdrop all close it. The caller runs
  * `useModalFocusFix(open)`, like this page's other modals.
+ *
+ * LIRA-340 — promoted from the Suppliers page so the Partners page's
+ * Transactions / Payments windows use the same window (one component).
  */
-export function SupplierTableModal({
+export function TableModal({
   title,
   onClose,
   children,
-}: SupplierTableModalProps) {
+  testId = "table-modal-backdrop",
+}: TableModalProps) {
   const { t: tc } = useTranslation("common");
   const titleId = useId();
 
@@ -36,7 +42,7 @@ export function SupplierTableModal({
 
   return (
     <div
-      data-testid="supplier-table-modal-backdrop"
+      data-testid={testId}
       className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
       role="presentation"
       onMouseDown={(e) => {

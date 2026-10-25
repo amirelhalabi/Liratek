@@ -3,7 +3,7 @@
  * Full partner management: balances, ledger, settlements, transactions.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { formatNumber } from "@liratek/ui/i18n/format";
 import { DirIcon } from "@liratek/ui/components/ui/DirIcon";
@@ -44,6 +44,7 @@ import type {
   LedgerFilters,
   PartnerWithBalance,
 } from "@/types/electron";
+import type { PartnerLedgerGroup } from "@liratek/core";
 import {
   appEvents,
   BALANCE_BORDER_COLOR,
@@ -63,6 +64,7 @@ import {
   type ServiceProviderEntity,
 } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { TableModal } from "@/shared/components/TableModal";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { formatCurrency } from "@/utils/currency";
 import {
@@ -1458,6 +1460,90 @@ function LedgerRow({ entry }: { entry: PartnerLedgerEntry }) {
   );
 }
 
+// ─── Ledger Table (LIRA-340: shown inside each window) ────────────────────────
+
+interface LedgerGroupState {
+  entries: PartnerLedgerEntry[];
+  loading: boolean;
+  error: string | null;
+}
+
+const LEDGER_LOADING: LedgerGroupState = {
+  entries: [],
+  loading: true,
+  error: null,
+};
+
+function LedgerTable({
+  state,
+  onRetry,
+  emptyLabel,
+}: {
+  state: LedgerGroupState;
+  onRetry: () => void;
+  emptyLabel: string;
+}) {
+  const { t } = useTranslation(["partners", "common"]);
+  return (
+    <div className="overflow-auto rounded-xl border border-slate-700/50">
+      {state.loading ? (
+        <div className="flex items-center justify-center h-32 text-slate-400 text-sm gap-2">
+          <div className="w-5 h-5 border-2 border-slate-600 border-t-violet-500 rounded-full animate-spin" />
+          {t("ledger.loading")}
+        </div>
+      ) : state.error ? (
+        <div className="flex flex-col items-center justify-center h-32 text-red-400 text-sm gap-2">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4" />
+            {state.error}
+          </div>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            {t("common:actions.retry")}
+          </button>
+        </div>
+      ) : state.entries.length === 0 ? (
+        <div className="flex flex-col items-center justify-center h-32 text-slate-500 text-sm gap-2">
+          <FileText className="w-8 h-8 opacity-30" />
+          {emptyLabel}
+        </div>
+      ) : (
+        <table className="w-full text-sm">
+          <thead className="bg-slate-900 sticky top-0 z-10">
+            <tr>
+              <th className="text-start text-xs text-slate-400 px-4 py-3 font-medium">
+                {t("ledger.date")}
+              </th>
+              <th className="text-start text-xs text-slate-400 px-4 py-3 font-medium">
+                {t("ledger.type")}
+              </th>
+              <th className="text-start text-xs text-slate-400 px-4 py-3 font-medium">
+                {t("common.direction")}
+              </th>
+              <th className="text-end text-xs text-slate-400 px-4 py-3 font-medium">
+                {t("ledger.amount")}
+              </th>
+              <th className="text-start text-xs text-slate-400 px-4 py-3 font-medium">
+                {t("ledger.notes")}
+              </th>
+              <th className="w-8" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-700/60">
+            {state.entries.map((entry) => (
+              <LedgerRow key={entry.id} entry={entry} />
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 // ─── Partner Detail Panel ─────────────────────────────────────────────────────
 
 interface DetailPanelProps {
@@ -1469,6 +1555,8 @@ interface DetailPanelProps {
   onActivate: () => void;
   /** CQ-10 (D4): standalone write-off (admin-only, pure forgiveness). */
   onWriteOff: () => void;
+  /** LIRA-340 — bumped after any money action so both windows reload. */
+  reloadToken: number;
 }
 
 function DetailPanel({
@@ -1479,6 +1567,7 @@ function DetailPanel({
   onDeactivate,
   onActivate,
   onWriteOff,
+  reloadToken,
 }: DetailPanelProps) {
   const { t } = useTranslation(["partners", "common"]);
   const { user } = useAuth();
@@ -1487,7 +1576,6 @@ function DetailPanel({
   // positive balance means "they owe us" (see the USD/LBP balance cards
   // below), the same sign the write-off applies to.
   const canWriteOff = partner.usd > 0.01 || partner.lbp > 0.5;
-  const [entries, setEntries] = useState<PartnerLedgerEntry[]>([]);
   const [balance, setBalance] = useState<PartnerBalance>({
     usd: partner.usd,
     lbp: partner.lbp,
@@ -1496,8 +1584,12 @@ function DetailPanel({
   const [breakdown, setBreakdown] = useState<PartnerBalanceBreakdown | null>(
     null,
   );
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // LIRA-340 — two reads of the same ledger, one per window: Transactions
+  // (with the existing filters) and Payments (dates only). The split is the
+  // core `group` filter (PARTNER_PAYMENT_ENTRY_TYPES), never re-derived here.
+  const [txns, setTxns] = useState<LedgerGroupState>(LEDGER_LOADING);
+  const [payments, setPayments] = useState<LedgerGroupState>(LEDGER_LOADING);
+  const [openTable, setOpenTable] = useState<PartnerLedgerGroup | null>(null);
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
   const [filterMode, setFilterMode] = useState<"" | "FOR" | "THROUGH">("");
@@ -1507,29 +1599,34 @@ function DetailPanel({
   const [filterDirection, setFilterDirection] = useState<
     "" | "DEBIT" | "CREDIT"
   >("");
+  const [payFrom, setPayFrom] = useState("");
+  const [payTo, setPayTo] = useState("");
   const api = useApi();
+  // Rule 25: read `api` through a ref so the loaders' identity only changes
+  // with their filters.
+  const apiRef = useRef(api);
+  useEffect(() => {
+    apiRef.current = api;
+  }, [api]);
 
-  const loadLedger = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const loadTxns = useCallback(async () => {
+    setTxns(LEDGER_LOADING);
     try {
-      const filters: LedgerFilters = {};
+      const filters: LedgerFilters = { group: "transactions" };
       if (filterFrom) filters.startDate = filterFrom;
       if (filterTo) filters.endDate = filterTo;
       if (filterMode) filters.mode = filterMode;
       if (filterProvider) filters.provider = filterProvider;
       if (filterDirection) filters.direction = filterDirection;
-      const result = await api.partners.getLedger(
+      const result = await apiRef.current.partners.getLedger(
         partner.id,
-        Object.keys(filters).length ? filters : undefined,
+        filters,
       );
-      setEntries(result.entries);
+      setTxns({ entries: result.entries, loading: false, error: null });
       setBalance(result.balance);
       setBreakdown(result.breakdown ?? null);
     } catch {
-      setError(t("ledger.loadFailed"));
-    } finally {
-      setLoading(false);
+      setTxns({ entries: [], loading: false, error: t("ledger.loadFailed") });
     }
   }, [
     partner.id,
@@ -1538,13 +1635,38 @@ function DetailPanel({
     filterMode,
     filterProvider,
     filterDirection,
-    api,
     t,
   ]);
 
+  const loadPayments = useCallback(async () => {
+    setPayments(LEDGER_LOADING);
+    try {
+      const filters: LedgerFilters = { group: "payments" };
+      if (payFrom) filters.startDate = payFrom;
+      if (payTo) filters.endDate = payTo;
+      const result = await apiRef.current.partners.getLedger(
+        partner.id,
+        filters,
+      );
+      setPayments({ entries: result.entries, loading: false, error: null });
+    } catch {
+      setPayments({
+        entries: [],
+        loading: false,
+        error: t("ledger.loadFailed"),
+      });
+    }
+  }, [partner.id, payFrom, payTo, t]);
+
+  // `reloadToken` re-runs both reads after a money action (FR-008).
   useEffect(() => {
-    loadLedger();
-  }, [loadLedger]);
+    loadTxns();
+  }, [loadTxns, reloadToken]);
+  useEffect(() => {
+    loadPayments();
+  }, [loadPayments, reloadToken]);
+  const closeTable = useCallback(() => setOpenTable(null), []);
+  useModalFocusFix(openTable !== null);
 
   return (
     <div className="flex flex-col h-full">
@@ -1801,128 +1923,161 @@ function DetailPanel({
         </div>
       </div>
 
-      {/* Ledger Filters */}
-      <div className="flex flex-wrap items-center gap-2 mb-3">
-        <input
-          type="date"
-          value={filterFrom}
-          onChange={(e) => setFilterFrom(e.target.value)}
-          className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
-        />
-        <span className="text-slate-500 text-xs">–</span>
-        <input
-          type="date"
-          value={filterTo}
-          onChange={(e) => setFilterTo(e.target.value)}
-          className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
-        />
-        <Select
-          value={filterMode}
-          onChange={(v) => setFilterMode(v as "" | "FOR" | "THROUGH")}
-          options={[
-            { value: "", label: t("filters.allModes") },
-            { value: "FOR", label: t("detail.forOurSystem") },
-            { value: "THROUGH", label: t("detail.throughTheirSystem") },
-          ]}
-          buttonClassName="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
-        />
-        <Select
-          value={filterProvider}
-          onChange={(v) =>
-            setFilterProvider(v as "" | "OMT" | "WHISH" | "BINANCE")
-          }
-          options={[
-            { value: "", label: t("filters.allProviders") },
-            { value: "OMT", label: "OMT" },
-            { value: "WHISH", label: "Whish" },
-            { value: "BINANCE", label: "Binance" },
-          ]}
-          buttonClassName="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
-        />
-        <Select
-          value={filterDirection}
-          onChange={(v) => setFilterDirection(v as "" | "DEBIT" | "CREDIT")}
-          options={[
-            { value: "", label: t("filters.allDirections") },
-            { value: "DEBIT", label: t("filters.debit") },
-            { value: "CREDIT", label: t("filters.credit") },
-          ]}
-          buttonClassName="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
-        />
-        {(filterFrom ||
-          filterTo ||
-          filterMode ||
-          filterProvider ||
-          filterDirection) && (
-          <button
-            onClick={() => {
-              setFilterFrom("");
-              setFilterTo("");
-              setFilterMode("");
-              setFilterProvider("");
-              setFilterDirection("");
-            }}
-            className="text-xs text-slate-400 hover:text-white transition-colors"
-          >
-            {t("filters.clearAll")}
-          </button>
-        )}
+      {/* LIRA-340 — the ledger opens in two windows, like Suppliers. */}
+      <div className="flex flex-wrap items-center gap-2">
         <button
-          onClick={loadLedger}
-          className="ms-auto flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+          type="button"
+          data-testid="partner-open-transactions"
+          onClick={() => setOpenTable("transactions")}
+          className="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm"
         >
-          <RefreshCw className="w-3.5 h-3.5" />
-          {t("common:actions.refresh")}
+          {t("tables.transactions")}
+          {txns.loading ? "" : ` (${txns.entries.length})`}
+        </button>
+        <button
+          type="button"
+          data-testid="partner-open-payments"
+          onClick={() => setOpenTable("payments")}
+          className="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm"
+        >
+          {t("tables.payments")}
+          {payments.loading ? "" : ` (${payments.entries.length})`}
         </button>
       </div>
 
-      {/* Ledger Table */}
-      <div className="flex-1 overflow-auto rounded-xl border border-slate-700/50">
-        {loading ? (
-          <div className="flex items-center justify-center h-32 text-slate-400 text-sm gap-2">
-            <div className="w-5 h-5 border-2 border-slate-600 border-t-violet-500 rounded-full animate-spin" />
-            {t("ledger.loading")}
+      {openTable === "transactions" && (
+        <TableModal
+          title={t("tables.transactionsTitle", { name: partner.name })}
+          onClose={closeTable}
+          testId="partner-table-modal-backdrop"
+        >
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <input
+              type="date"
+              value={filterFrom}
+              onChange={(e) => setFilterFrom(e.target.value)}
+              className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
+            />
+            <span className="text-slate-500 text-xs">–</span>
+            <input
+              type="date"
+              value={filterTo}
+              onChange={(e) => setFilterTo(e.target.value)}
+              className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
+            />
+            <Select
+              value={filterMode}
+              onChange={(v) => setFilterMode(v as "" | "FOR" | "THROUGH")}
+              options={[
+                { value: "", label: t("filters.allModes") },
+                { value: "FOR", label: t("detail.forOurSystem") },
+                { value: "THROUGH", label: t("detail.throughTheirSystem") },
+              ]}
+              buttonClassName="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
+            />
+            <Select
+              value={filterProvider}
+              onChange={(v) =>
+                setFilterProvider(v as "" | "OMT" | "WHISH" | "BINANCE")
+              }
+              options={[
+                { value: "", label: t("filters.allProviders") },
+                { value: "OMT", label: "OMT" },
+                { value: "WHISH", label: "Whish" },
+                { value: "BINANCE", label: "Binance" },
+              ]}
+              buttonClassName="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
+            />
+            <Select
+              value={filterDirection}
+              onChange={(v) => setFilterDirection(v as "" | "DEBIT" | "CREDIT")}
+              options={[
+                { value: "", label: t("filters.allDirections") },
+                { value: "DEBIT", label: t("filters.debit") },
+                { value: "CREDIT", label: t("filters.credit") },
+              ]}
+              buttonClassName="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
+            />
+            {(filterFrom ||
+              filterTo ||
+              filterMode ||
+              filterProvider ||
+              filterDirection) && (
+              <button
+                onClick={() => {
+                  setFilterFrom("");
+                  setFilterTo("");
+                  setFilterMode("");
+                  setFilterProvider("");
+                  setFilterDirection("");
+                }}
+                className="text-xs text-slate-400 hover:text-white transition-colors"
+              >
+                {t("filters.clearAll")}
+              </button>
+            )}
+            <button
+              onClick={loadTxns}
+              className="ms-auto flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              {t("common:actions.refresh")}
+            </button>
           </div>
-        ) : error ? (
-          <div className="flex items-center justify-center h-32 text-red-400 text-sm gap-2">
-            <AlertCircle className="w-4 h-4" />
-            {error}
+          <LedgerTable
+            state={txns}
+            onRetry={loadTxns}
+            emptyLabel={t("ledger.empty")}
+          />
+        </TableModal>
+      )}
+
+      {openTable === "payments" && (
+        <TableModal
+          title={t("tables.paymentsTitle", { name: partner.name })}
+          onClose={closeTable}
+          testId="partner-table-modal-backdrop"
+        >
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <input
+              type="date"
+              value={payFrom}
+              onChange={(e) => setPayFrom(e.target.value)}
+              className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
+            />
+            <span className="text-slate-500 text-xs">–</span>
+            <input
+              type="date"
+              value={payTo}
+              onChange={(e) => setPayTo(e.target.value)}
+              className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
+            />
+            {(payFrom || payTo) && (
+              <button
+                onClick={() => {
+                  setPayFrom("");
+                  setPayTo("");
+                }}
+                className="text-xs text-slate-400 hover:text-white transition-colors"
+              >
+                {t("filters.clearAll")}
+              </button>
+            )}
+            <button
+              onClick={loadPayments}
+              className="ms-auto flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              {t("common:actions.refresh")}
+            </button>
           </div>
-        ) : entries.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-32 text-slate-500 text-sm gap-2">
-            <FileText className="w-8 h-8 opacity-30" />
-            {t("ledger.empty")}
-          </div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-slate-900 sticky top-0 z-10">
-              <tr>
-                <th className="text-start text-xs text-slate-400 px-4 py-3 font-medium">
-                  {t("ledger.date")}
-                </th>
-                <th className="text-start text-xs text-slate-400 px-4 py-3 font-medium">
-                  {t("ledger.type")}
-                </th>
-                <th className="text-start text-xs text-slate-400 px-4 py-3 font-medium">
-                  {t("common.direction")}
-                </th>
-                <th className="text-end text-xs text-slate-400 px-4 py-3 font-medium">
-                  {t("ledger.amount")}
-                </th>
-                <th className="text-start text-xs text-slate-400 px-4 py-3 font-medium">
-                  {t("ledger.notes")}
-                </th>
-                <th className="w-8" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-700/60">
-              {entries.map((entry) => (
-                <LedgerRow key={entry.id} entry={entry} />
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+          <LedgerTable
+            state={payments}
+            onRetry={loadPayments}
+            emptyLabel={t("tables.paymentsEmpty")}
+          />
+        </TableModal>
+      )}
     </div>
   );
 }
@@ -2058,6 +2213,14 @@ export function PartnersPage() {
       setLoading(false);
     }
   }, [includeInactive, api, t]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // LIRA-340 FR-008 — after a settle / write-off / add credit-debt, reload
+  // the list AND both ledger windows of the open partner.
+  const [ledgerVersion, setLedgerVersion] = useState(0);
+  const afterMoneyAction = useCallback(() => {
+    setLedgerVersion((v) => v + 1);
+    loadPartners();
+  }, [loadPartners]);
 
   useEffect(() => {
     loadPartners();
@@ -2212,6 +2375,7 @@ export function PartnersPage() {
             <DetailPanel
               key={selectedPartner.id}
               partner={selectedPartner}
+              reloadToken={ledgerVersion}
               onEdit={() => setEditingPartner(selectedPartner)}
               onSettle={() => setSettlingPartner(selectedPartner)}
               onAddCredit={() => setAddingCreditPartner(selectedPartner)}
@@ -2265,14 +2429,14 @@ export function PartnersPage() {
         <SettleModal
           partner={settlingPartner}
           onClose={() => setSettlingPartner(null)}
-          onSettled={loadPartners}
+          onSettled={afterMoneyAction}
         />
       )}
       {addingCreditPartner && (
         <RecordTxModal
           partner={addingCreditPartner}
           onClose={() => setAddingCreditPartner(null)}
-          onRecorded={loadPartners}
+          onRecorded={afterMoneyAction}
         />
       )}
       {deactivatingPartner && (
@@ -2289,7 +2453,7 @@ export function PartnersPage() {
         <WriteOffModal
           partner={writingOffPartner}
           onClose={() => setWritingOffPartner(null)}
-          onWrittenOff={loadPartners}
+          onWrittenOff={afterMoneyAction}
         />
       )}
     </div>

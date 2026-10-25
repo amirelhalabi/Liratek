@@ -789,6 +789,7 @@ export {
   PartnerRepository,
   getPartnerRepository,
   resetPartnerRepository,
+  PARTNER_PAYMENT_ENTRY_TYPES,
 } from "./PartnerRepository.js";
 export type {
   Partner,
@@ -796,6 +797,7 @@ export type {
   PartnerBalance,
   PartnerBalanceBreakdown,
   LedgerFilters,
+  PartnerLedgerGroup,
   CreatePartnerData,
   UpdatePartnerData,
   CreateLedgerEntryData,

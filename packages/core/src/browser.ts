@@ -553,3 +553,11 @@ export { validateTenantSlug } from "./utils/tenantSlug.js";
 // LIRA-306 offline desktop fallback — pure modules only (id layout, channel
 // policy, review kinds). Server-only pieces stay in index.ts (rule 29).
 export * from "./offline/index.js";
+
+// LIRA-340 — the partner ledger read filters (incl. the Transactions /
+// Payments `group`), so the adapter types `partnersGetLedger` from core
+// (rule 21). Type-only: erased, PartnerRepository is not bundled (rule 29).
+export type {
+  LedgerFilters,
+  PartnerLedgerGroup,
+} from "./repositories/PartnerRepository.js";

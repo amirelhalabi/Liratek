@@ -105,10 +105,7 @@ import type {
   OpenExternalUrlInput,
 } from "@liratek/core";
 // LIRA-339 — voucher sale / cancel payloads (rule 21).
-import type {
-  VoucherCreatePayload,
-  VoucherCancelPayload,
-} from "@liratek/core";
+import type { VoucherCreatePayload, VoucherCancelPayload } from "@liratek/core";
 
 /**
  * LIRA-143 Phase 5 — one `product_units` row (per-IMEI phone unit
@@ -779,14 +776,8 @@ export interface PartnerBalanceBreakdown {
   usdt: { for: number; through: number; other: number; total: number };
 }
 
-export interface LedgerFilters {
-  startDate?: string;
-  endDate?: string;
-  type?: string;
-  mode?: "FOR" | "THROUGH";
-  provider?: string;
-  direction?: "DEBIT" | "CREDIT";
-}
+// LIRA-340 — derived from core, not hand-copied (rule 21).
+export type LedgerFilters = import("@liratek/core").LedgerFilters;
 
 export interface PartnerWithBalance extends Partner, PartnerBalance {}
 
@@ -1489,9 +1480,7 @@ export interface ElectronAPI {
 
   // Vouchers (Gift Cards)
   vouchers: {
-    create: (
-      data: VoucherCreatePayload,
-    ) => Promise<{
+    create: (data: VoucherCreatePayload) => Promise<{
       success: boolean;
       voucher?: Voucher;
       transactionId?: number;

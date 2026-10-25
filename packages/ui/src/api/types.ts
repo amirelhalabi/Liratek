@@ -6,6 +6,7 @@
 // =============================================================================
 
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
+import type { LedgerFilters } from "@liratek/core";
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
 // LIRA-335 — checkpoint differences: timeline filters/rows and the
 // close/reopen/open-after payloads from core (rule 21).
@@ -1926,16 +1927,12 @@ export type ApiAdapter = {
   revokePairedPc: (
     id: number,
   ) => Promise<{ success: boolean; data?: { revoked: true }; error?: string }>;
-  getOfflineReviewPreview: (
-    id: number,
-  ) => Promise<{
+  getOfflineReviewPreview: (id: number) => Promise<{
     success: boolean;
     data?: OfflineReviewPreview;
     error?: string;
   }>;
-  renumberPairedPc: (
-    id: number,
-  ) => Promise<{
+  renumberPairedPc: (id: number) => Promise<{
     success: boolean;
     data?: { renumberRequested: true };
     error?: string;
@@ -2177,9 +2174,7 @@ export type ApiAdapter = {
     data: GiveBackResaleLineInput,
   ) => Promise<ResaleLineGiveBackResult>;
   /** Admin: write off a LOST line held for sale (books its cost as a loss). */
-  writeOffResaleLine: (
-    data: WriteOffResaleLineInput,
-  ) => Promise<{
+  writeOffResaleLine: (data: WriteOffResaleLineInput) => Promise<{
     success: boolean;
     data?: { expense_id: number };
     error?: string;
@@ -2467,17 +2462,7 @@ export type ApiAdapter = {
     getById: (id: number) => Promise<any>;
     getAllBalances: (includeInactive?: boolean) => Promise<any[]>;
     getBalance: (partnerId: number) => Promise<any>;
-    getLedger: (
-      partnerId: number,
-      filters?: {
-        startDate?: string;
-        endDate?: string;
-        type?: string;
-        mode?: "FOR" | "THROUGH";
-        provider?: string;
-        direction?: "DEBIT" | "CREDIT";
-      },
-    ) => Promise<any>;
+    getLedger: (partnerId: number, filters?: LedgerFilters) => Promise<any>;
     create: (
       data: PartnerCreatePayload,
     ) => Promise<{ success: boolean; data?: any; error?: string }>;

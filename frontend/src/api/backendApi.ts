@@ -1,3 +1,4 @@
+import type { LedgerFilters } from "@liratek/core";
 import {
   requestJson,
   setToken,
@@ -2004,14 +2005,7 @@ export async function partnersGetBalance(partnerId: number) {
 
 export async function partnersGetLedger(
   partnerId: number,
-  filters?: {
-    startDate?: string;
-    endDate?: string;
-    type?: string;
-    mode?: "FOR" | "THROUGH";
-    provider?: string;
-    direction?: "DEBIT" | "CREDIT";
-  },
+  filters?: LedgerFilters,
 ) {
   return ipcOrHttp(
     async () => getElectronApi().partners.getLedger(partnerId, filters),
@@ -2023,6 +2017,7 @@ export async function partnersGetLedger(
       if (filters?.mode) qs.set("mode", filters.mode);
       if (filters?.provider) qs.set("provider", filters.provider);
       if (filters?.direction) qs.set("direction", filters.direction);
+      if (filters?.group) qs.set("group", filters.group);
       const suffix = qs.toString() ? `?${qs.toString()}` : "";
       const res = await requestJson<{ success: boolean; statement?: any }>(
         `/api/partners/${partnerId}/ledger${suffix}`,
@@ -3517,9 +3512,7 @@ export async function getOfflineReviewPreview(
   );
 }
 
-export async function renumberPairedPc(
-  id: number,
-): Promise<{
+export async function renumberPairedPc(id: number): Promise<{
   success: boolean;
   data?: { renumberRequested: true };
   error?: string;

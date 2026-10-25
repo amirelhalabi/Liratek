@@ -38,6 +38,7 @@ import {
   within,
 } from "@testing-library/react";
 import Partners from "../index";
+import { openPartnerTable } from "@/features/partners/testing/partnerTableModals";
 
 const mockGetAllBalances = jest.fn();
 const mockGetLedger = jest.fn();
@@ -231,6 +232,8 @@ describe("Partners page — LedgerRow colour handles USDT (Balance Pages colour 
     render(<Partners />);
 
     fireEvent.click(await screen.findByText("Acme Partner"));
+    // LIRA-340 — adjustments are listed in the Payments window.
+    await openPartnerTable("payments");
 
     const debitBadge = await screen.findByText("DEBIT");
     const debitRow = debitBadge.closest("tr") as HTMLElement;

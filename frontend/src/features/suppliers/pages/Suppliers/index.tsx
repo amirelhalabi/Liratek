@@ -19,7 +19,7 @@ import { useSellRate } from "@/hooks/useSellRate";
 import { useShopBase } from "@/hooks/useShopBase";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
-import { SupplierTableModal } from "@/features/suppliers/components/SupplierTableModal";
+import { TableModal } from "@/shared/components/TableModal";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import {
   useSuppliersQuery,
@@ -2848,9 +2848,10 @@ export default function SuppliersPage() {
         selectedSupplier &&
         selectedSupplier.is_active !== 0 &&
         !isProductSupplier && (
-          <SupplierTableModal
+          <TableModal
             title={t("txns.title", { name: selectedSupplier.name })}
             onClose={closeTable}
+            testId="supplier-table-modal-backdrop"
           >
             <div className="space-y-3">
               {allTxnsQuery.isLoading ? (
@@ -3074,12 +3075,13 @@ export default function SuppliersPage() {
                 </div>
               )}
             </div>
-          </SupplierTableModal>
+          </TableModal>
         )}
       {openTable === "payments" && selectedSupplier && (
-        <SupplierTableModal
+        <TableModal
           title={t("payments.title", { name: selectedSupplier.name })}
           onClose={closeTable}
+          testId="supplier-table-modal-backdrop"
         >
           {/* Ledger history — LIRA-188 (D6): an account parent shows
                   the MERGED account ledger (Type column + filter) instead
@@ -3212,7 +3214,7 @@ export default function SuppliersPage() {
               </div>
             </div>
           )}
-        </SupplierTableModal>
+        </TableModal>
       )}
 
       {/* LIRA-080: "Add Credit / Debt" modal — a manual supplier_ledger

@@ -82,6 +82,9 @@ router.get("/:id/ledger", (req, res) => {
   if (typeof q.provider === "string") filters.provider = q.provider;
   if (q.direction === "DEBIT" || q.direction === "CREDIT")
     filters.direction = q.direction;
+  // LIRA-340 — Transactions / Payments window; any other value is ignored.
+  if (q.group === "transactions" || q.group === "payments")
+    filters.group = q.group;
 
   try {
     const statement = getPartnerService().getPartnerStatement(

@@ -152,5 +152,12 @@
   },
   "toggle": {
     "forPartner": "For Partner"
+  },
+  "tables": {
+    "transactions": "Transactions",
+    "payments": "Payments",
+    "transactionsTitle": "{{name}} — Transactions",
+    "paymentsTitle": "{{name}} — Payments",
+    "paymentsEmpty": "No payments found"
   }
 }

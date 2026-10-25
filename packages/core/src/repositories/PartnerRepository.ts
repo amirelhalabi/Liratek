@@ -118,7 +118,24 @@ export interface PartnerBalanceBreakdown {
   usdt: { for: number; through: number; other: number; total: number };
 }
 
+/**
+ * LIRA-340 — the partner ledger entry types shown in the Partners page
+ * "Payments" window (settlements, write-offs/discounts, manual credit/debt).
+ * Every other type, including NULL and any future one, is a "Transaction".
+ * The ONE definition of that split (rule 14): the SQL group filter below
+ * reads it.
+ */
+export const PARTNER_PAYMENT_ENTRY_TYPES = [
+  "SETTLEMENT",
+  "DISCOUNT",
+  "ADJUSTMENT",
+] as const;
+
+export type PartnerLedgerGroup = "transactions" | "payments";
+
 export interface LedgerFilters {
+  /** LIRA-340 — display group; see PARTNER_PAYMENT_ENTRY_TYPES. */
+  group?: PartnerLedgerGroup;
   startDate?: string;
   endDate?: string;
   type?: string;
@@ -974,6 +991,15 @@ export class PartnerRepository extends BaseRepository<Partner> {
       if (filters?.direction) {
         conditions.push("pl.direction = ?");
         params.push(filters.direction);
+      }
+      if (filters?.group === "payments" || filters?.group === "transactions") {
+        const marks = PARTNER_PAYMENT_ENTRY_TYPES.map(() => "?").join(", ");
+        conditions.push(
+          filters.group === "payments"
+            ? `pl.transaction_type IN (${marks})`
+            : `(pl.transaction_type IS NULL OR pl.transaction_type NOT IN (${marks}))`,
+        );
+        params.push(...PARTNER_PAYMENT_ENTRY_TYPES);
       }
 
       const sql = `

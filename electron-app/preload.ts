@@ -82,6 +82,10 @@ import type {
 import type { DesktopPairInput, DesktopUnpairInput } from "@liratek/core" with {
   "resolution-mode": "import",
 };
+// LIRA-340 — partner ledger read filters incl. the display group (rule 21).
+import type { LedgerFilters } from "@liratek/core" with {
+  "resolution-mode": "import",
+};
 // LIRA-333 — open a WhatsApp link outside LiraTek (rule 21).
 import type { OpenExternalUrlInput } from "@liratek/core" with {
   "resolution-mode": "import",
@@ -1210,17 +1214,8 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("partners:get-balance", partnerId),
     getAllBalances: (includeInactive?: boolean) =>
       ipcRenderer.invoke("partners:get-all-balances", includeInactive),
-    getLedger: (
-      partnerId: number,
-      filters?: {
-        startDate?: string;
-        endDate?: string;
-        type?: string;
-        mode?: "FOR" | "THROUGH";
-        provider?: string;
-        direction?: "DEBIT" | "CREDIT";
-      },
-    ) => ipcRenderer.invoke("partners:get-ledger", partnerId, filters),
+    getLedger: (partnerId: number, filters?: LedgerFilters) =>
+      ipcRenderer.invoke("partners:get-ledger", partnerId, filters),
     recordTransaction: (data: unknown) =>
       ipcRenderer.invoke("partners:record-transaction", data),
     settle: (data: unknown) => ipcRenderer.invoke("partners:settle", data),
