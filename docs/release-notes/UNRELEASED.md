@@ -194,6 +194,13 @@ When a sale was paid in dollars and the change was given in Lebanese pounds (or 
 - Refreshing the page no longer sends you back to the sign-in screen when several people use the same login at once. If the app can't check your sign-in right away, it tries again for a few seconds before showing the sign-in screen.
 - New shops now start with a free 14-day trial. You can see how many days are left at the top of every page and in the phone app, and contact us on WhatsApp to activate. When a trial ends you can still sign in, see and export everything; nothing is deleted.
 
+## 📲 Phone app
+
+- Home: each drawer lists only the currencies it holds, one per line, so balances are easier to read on a small screen.
+- Debts: a client who owes you shows in red and a client with credit shows in green, the same as on the computer.
+- Amounts use the same money format as the rest of LiraTek (no decimals for LBP).
+- The shop address box on the sign-in screen no longer shows an example shop name.
+
 ## 🔒 Security & sign-in
 
 - Settings → Signed-in devices: admins now see every user's signed-in devices, grouped by person with their role, and can sign any of them out. Each device shows a readable name like "Chrome on macOS", when it was last used ("Active now", "7 days ago"), and whether it is remembered or signs out after 8 hours idle. Devices not used for more than 3 days are faded. Staff still see only their own devices, and "Sign out everywhere else" still signs out only your own other devices.

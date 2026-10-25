@@ -12,7 +12,7 @@ import { unwrap } from "@/data/unwrap";
 import { useModuleGates } from "@/data/useModuleGates";
 import { useTheme } from "@/theme/ThemeProvider";
 import { radius, spacing, TAB_BAR_CLEARANCE } from "@/theme/tokens";
-import { drawerAmounts, drawerLabel, txnTime } from "@/utils/format";
+import { displayMoney, drawerCurrencies, drawerLabel, txnTime } from "@/utils/format";
 import { homeDrawerOrder } from "@/utils/drawerOrder";
 import { visibleDrawers } from "@/utils/moduleGates";
 
@@ -76,12 +76,7 @@ export default function Home() {
           ) : drawers.length === 0 ? (
             <Text style={{ color: t.textMuted }}>No drawers yet.</Text>
           ) : (
-            drawers.map((d) => (
-              <View key={d} style={[styles.line, { borderTopColor: t.border }]}>
-                <Text style={[styles.lineLabel, { color: WALLET_DRAWERS.includes(d) ? t.text : t.textSoft }]}>{drawerLabel(d)}</Text>
-                <Text style={[styles.lineValue, { color: t.text }]}>{drawerAmounts(balances.data[d] ?? {})}</Text>
-              </View>
-            ))
+            <BalanceTable drawers={drawers} balances={balances.data} />
           )}
         </View>
 
@@ -113,6 +108,37 @@ export default function Home() {
   );
 }
 
+
+/**
+ * Drawer balances, stacked: each drawer lists only the currencies it actually
+ * holds, one per line and right-aligned, so a one-currency drawer stays one
+ * line and nothing shows as a blank. A drawer holding nothing shows "$0".
+ */
+function BalanceTable({ drawers, balances }: { drawers: string[]; balances: DrawerBalances }) {
+  const t = useTheme();
+  return (
+    <>
+      {drawers.map((d) => {
+        const amounts = balances[d] ?? {};
+        const held = drawerCurrencies(amounts).filter((c) => (amounts[c] ?? 0) !== 0);
+        const lines = held.length > 0 ? held.map((c) => displayMoney(amounts[c] ?? 0, c)) : [displayMoney(0, "USD")];
+        return (
+          <View key={d} style={[styles.line, styles.stackLine, { borderTopColor: t.border }]}>
+            <Text style={[styles.lineLabel, styles.stackLabel, { color: WALLET_DRAWERS.includes(d) ? t.text : t.textSoft }]}>
+              {drawerLabel(d)}
+            </Text>
+            <View style={styles.stack}>
+              {lines.map((l) => (
+                <Text key={l} style={[styles.num, { color: t.text }]}>{l}</Text>
+              ))}
+            </View>
+          </View>
+        );
+      })}
+    </>
+  );
+}
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   body: { padding: spacing.lg, paddingBottom: TAB_BAR_CLEARANCE, gap: spacing.lg },
@@ -122,4 +148,8 @@ const styles = StyleSheet.create({
   line: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, gap: spacing.md },
   lineLabel: { fontSize: 14, fontWeight: "500" },
   lineValue: { fontSize: 14, fontWeight: "600", textAlign: "right", flexShrink: 1 },
+  stackLine: { alignItems: "flex-start", paddingBottom: 2 },
+  stackLabel: { flexShrink: 1 },
+  stack: { alignItems: "flex-end", gap: 2 },
+  num: { fontSize: 14, fontWeight: "600", fontVariant: ["tabular-nums"] },
 });

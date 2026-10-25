@@ -23,6 +23,39 @@ export function drawerAmounts(byCurrency: Record<string, number>): string {
 }
 
 
+/** Currencies shown in a drawer, main ones (USD, LBP) first, then the rest A–Z. */
+export function drawerCurrencies(byCurrency: Record<string, number>): string[] {
+  const visible = visibleDrawerCurrencies(byCurrency);
+  const order = (c: string) => {
+    const i = MAIN_DRAWER_CURRENCIES.indexOf(c);
+    return i === -1 ? MAIN_DRAWER_CURRENCIES.length : i;
+  };
+  return Object.keys(visible).sort((a, b) => order(a) - order(b) || a.localeCompare(b));
+}
+
+const DISPLAY_DECIMALS: Record<string, number> = { LBP: 0 };
+
+/**
+ * Display-only amount: LBP whole, every other currency 2 decimals, minus sign
+ * in front ("−43.33"). Not for stored summaries — those keep core's
+ * formatMoneyAmount so a row's saved text never changes shape.
+ */
+export function displayNumber(amount: number, currency: string): string {
+  const d = DISPLAY_DECIMALS[currency] ?? 2;
+  const abs = Math.abs(amount).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+  return amount < 0 && Number(abs.replace(/,/g, "")) !== 0 ? `\u2212${abs}` : abs;
+}
+
+/** Display-only amount with its currency: "$12.50", "€50.00", "110.00 USDT", "1,000,000 LBP". */
+export function displayMoney(amount: number, currency: string): string {
+  const n = displayNumber(amount, currency);
+  const sign = n.startsWith("\u2212") ? "\u2212" : "";
+  const body = sign ? n.slice(1) : n;
+  if (currency === "USD") return `${sign}$${body}`;
+  if (currency === "EUR") return `${sign}\u20ac${body}`;
+  return `${n} ${currency}`;
+}
+
 /** Stored as UTC in either `YYYY-MM-DD HH:MM:SS` or ISO `…Z` form (LIRA-289 research R2). */
 export function parseTxnDate(iso: string): Date {
   return new Date(iso.includes("T") ? iso : `${iso.replace(" ", "T")}Z`);

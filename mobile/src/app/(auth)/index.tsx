@@ -72,7 +72,6 @@ export default function SignIn() {
                 {error ? <ErrorBanner message={error} /> : null}
                 <TextField
                   label="Shop address"
-                  placeholder="e.g. cornertech"
                   value={shop}
                   onChangeText={setShopAddress}
                   autoCapitalize="none"

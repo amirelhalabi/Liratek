@@ -1,4 +1,4 @@
-import { formatMoneyAmount } from "@liratek/core/utils/formatMoney";
+import { balanceBucket } from "@liratek/ui/utils/balanceColor";
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useState } from "react";
@@ -22,10 +22,15 @@ import { useShopSlug } from "@/data/useShop";
 import { unwrap } from "@/data/unwrap";
 import { useTheme } from "@/theme/ThemeProvider";
 import { radius, spacing, TAB_BAR_CLEARANCE } from "@/theme/tokens";
+import { displayMoney } from "@/utils/format";
 
 /** Clients who owe the shop (spec Story 4 #3). Tap one to see the balance and record a repayment. */
 export default function DebtsScreen() {
   const t = useTheme();
+  const debtColor = (owedByClient: number) => {
+    const bucket = balanceBucket(-owedByClient);
+    return bucket === "COUNTERPARTY_OWES" ? t.danger : bucket === "SHOP_OWES" ? t.success : t.textMuted;
+  };
   const slug = useShopSlug();
   const [query, setQuery] = useState("");
   const debtorsQuery = useQuery({
@@ -90,14 +95,19 @@ export default function DebtsScreen() {
               </Text>
             </View>
             <View>
+              {/* Same rule as the web Accounts list: red = the client owes the
+                  shop, green = the shop owes the client (credit). The colour
+                  carries the direction, so the amount is shown without a sign.
+                  total_debt is positive when the client owes, so the shared
+                  helper gets its negation ("positive = shop owes"). */}
               {d.total_debt_usd ? (
-                <Text style={[styles.amount, { color: t.text }]}>
-                  {formatMoneyAmount(d.total_debt_usd, "USD")}
+                <Text style={[styles.amount, { color: debtColor(d.total_debt_usd) }]}>
+                  {displayMoney(Math.abs(d.total_debt_usd), "USD")}
                 </Text>
               ) : null}
               {d.total_debt_lbp ? (
-                <Text style={[styles.amount, { color: t.text }]}>
-                  {formatMoneyAmount(d.total_debt_lbp, "LBP")}
+                <Text style={[styles.amount, { color: debtColor(d.total_debt_lbp) }]}>
+                  {displayMoney(Math.abs(d.total_debt_lbp), "LBP")}
                 </Text>
               ) : null}
             </View>
