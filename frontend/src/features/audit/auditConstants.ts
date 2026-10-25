@@ -453,28 +453,28 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
     group: "Debts",
     options: [
       {
-        label: "Debt Repayment",
+        label: "Debt Repayment", // i18n-exempt: filter key (option value, test id)
         type: "DEBT_REPAYMENT",
         paid_via_account: true,
-      }, // i18n-exempt: filter key (option value, test id)
+      },
       // LIRA-080: the paper (no-cash) Accounts-page "Add Credit / Debt" entry.
       {
-        label: "Account Adjustment",
+        label: "Account Adjustment", // i18n-exempt: filter key (option value, test id)
         type: "ACCOUNT_ADJUSTMENT",
         paid_via_account: true,
-      }, // i18n-exempt: filter key (option value, test id)
+      },
       // The cash-moved siblings of Account Adjustment.
       {
-        label: "Account Credit",
+        label: "Account Credit", // i18n-exempt: filter key (option value, test id)
         type: "CREDIT_CASH_IN",
         paid_via_account: true,
-      }, // i18n-exempt: filter key (option value, test id)
+      },
       { label: "Cash Advance", type: "DEBT_CASH_OUT", paid_via_account: true }, // i18n-exempt: filter key (option value, test id)
       {
-        label: "Credit Cash Out",
+        label: "Credit Cash Out", // i18n-exempt: filter key (option value, test id)
         type: "CREDIT_CASH_OUT",
         paid_via_account: true,
-      }, // i18n-exempt: filter key (option value, test id)
+      },
     ],
   },
   {
@@ -486,10 +486,10 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
       // Filter key; the row's own label is "Voucher sold".
       { label: "Voucher Sold", type: "VOUCHER_SALE", paid_via_voucher: true }, // i18n-exempt: filter key (option value, test id)
       {
-        label: "Voucher Cancelled",
+        label: "Voucher Cancelled", // i18n-exempt: filter key (option value, test id)
         type: "VOUCHER_CANCEL",
         paid_via_voucher: true,
-      }, // i18n-exempt: filter key (option value, test id)
+      },
     ],
   },
   {
