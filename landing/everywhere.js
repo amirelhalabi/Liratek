@@ -206,11 +206,8 @@
       capOut(0, 1.7);
       capIn(1, 2.15);
       glow(1.7);
-      tl.to(
-        "#ew-mac",
-        { rotateY: -6, rotateX: 4, duration: 0.6, ease: "sine.inOut" },
-        2.9,
-      );
+      // The MacBook stays square to the viewer and pushes in a touch while you scroll.
+      tl.to("#ew-mac", { scale: 1.04, duration: 0.7, ease: "none" }, 2.9);
 
       // 3 · Zoom through the MacBook screen into the browser.
       tl.to(

@@ -238,6 +238,16 @@ input:focus-visible {
   align-items: center;
 }
 
+/* On wide screens the hero gets more room than the page column, and most of
+   it goes to the demo video. */
+@media (min-width: 1100px) {
+  .wrap.hero-grid {
+    max-width: 1360px;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.6fr);
+    gap: 48px;
+  }
+}
+
 .eyebrow {
   margin: 0 0 8px;
   color: var(--accent);
@@ -630,51 +640,19 @@ h2 {
   font-size: 15px;
 }
 
+/* A real screenshot of the phone app's Home screen, in its iPhone frame. */
 .phone-card {
   display: grid;
-  justify-items: center;
-  gap: 16px;
+  place-items: center;
   padding: 32px 20px;
-  text-align: center;
-  background:
-    radial-gradient(400px 220px at 50% 0%, var(--accent-tint), transparent),
-    var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  background: radial-gradient(closest-side, var(--accent-tint), transparent);
 }
 
 .phone-card img {
   display: block;
-  width: 120px;
+  width: min(100%, 280px);
   height: auto;
-}
-
-.phone-soon {
-  margin: 0;
-  padding: 4px 14px;
-  border: 1px solid var(--accent);
-  border-radius: 999px;
-  color: var(--accent);
-  font-weight: 600;
-  font-size: 15px;
-}
-
-.phone-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.phone-tabs li {
-  padding: 4px 12px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--muted);
-  font-size: 14px;
+  filter: drop-shadow(0 24px 30px rgba(37, 37, 37, 0.22));
 }
 
 @media (max-width: 800px) {
