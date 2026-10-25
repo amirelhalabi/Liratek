@@ -171,12 +171,22 @@ function PaymentSection({ payment }: { payment: PaymentView }) {
   );
 }
 
-export function TransactionDetailsPanel({
+export interface TransactionDetailsBodyProps {
+  row: TransactionRow;
+  isAdmin: boolean;
+  /** Payment-method code → label, as the table's Method column uses. */
+  methodLabelByCode: Map<string, string>;
+}
+
+/**
+ * Every saved fact of one transaction, without the dialog shell. Shared by
+ * this panel and the Debts page basket window (one view, never two copies).
+ */
+export function TransactionDetailsBody({
   row,
   isAdmin,
   methodLabelByCode,
-  onClose,
-}: TransactionDetailsPanelProps) {
+}: TransactionDetailsBodyProps) {
   const { t, i18n } = useTranslation("audit");
   const language = i18n.language;
   const view = useMemo(
@@ -194,19 +204,6 @@ export function TransactionDetailsPanel({
     view.details.length === 0 && view.payment === null,
   );
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  // The English title as before; in Arabic the translated title (LIRA-331).
-  const englishTitle = getTypeLabel(row);
-  const shownTitle = translateTitle(englishTitle, t, language);
-  const typeLabel =
-    shownTitle === englishTitle ? readableTitle(englishTitle) : shownTitle;
   const reverses = reversedTransactionId(row);
   const client = [row.client_name, row.client_phone]
     .filter((x): x is string => !!x)
@@ -232,6 +229,82 @@ export function TransactionDetailsPanel({
         : "",
     },
   ].filter((f) => f.value !== "");
+
+  return (
+    <div className="space-y-6">
+      <dl className="grid grid-cols-[minmax(0,11rem)_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
+        {headerFacts.map((f) => (
+          <div key={f.label} className="contents">
+            <dt className="text-slate-400">{f.label}</dt>
+            <dd className="text-white break-words">{f.value}</dd>
+          </div>
+        ))}
+      </dl>
+
+      {view.details.length > 0 && (
+        <section>
+          <SectionTitle>
+            {t("details.details")}
+            {view.kindLabel && (
+              <span className="normal-case font-medium text-[11px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                {view.kindLabel}
+              </span>
+            )}
+          </SectionTitle>
+          <FactList rows={view.details} />
+        </section>
+      )}
+
+      {view.payment && <PaymentSection payment={view.payment} />}
+
+      {view.other.length > 0 && (
+        <section>
+          <button
+            onClick={() => setOtherOpen((o) => !o)}
+            aria-expanded={otherOpen}
+            className="text-xs font-semibold uppercase text-slate-400 hover:text-slate-300 transition-colors"
+          >
+            {otherOpen ? "▾" : "▸"} {t("details.otherSavedData")}
+          </button>
+          <Collapsible open={otherOpen}>
+            <div className="pt-2">
+              <FactList rows={view.other} />
+            </div>
+          </Collapsible>
+        </section>
+      )}
+
+      {view.isEmpty && (
+        <p className="text-sm text-slate-500 italic">
+          {t("details.nothingElse")}
+        </p>
+      )}
+    </div>
+  );
+}
+
+export function TransactionDetailsPanel({
+  row,
+  isAdmin,
+  methodLabelByCode,
+  onClose,
+}: TransactionDetailsPanelProps) {
+  const { t, i18n } = useTranslation("audit");
+  const language = i18n.language;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  // The English title as before; in Arabic the translated title (LIRA-331).
+  const englishTitle = getTypeLabel(row);
+  const shownTitle = translateTitle(englishTitle, t, language);
+  const typeLabel =
+    shownTitle === englishTitle ? readableTitle(englishTitle) : shownTitle;
 
   return (
     <div
@@ -272,54 +345,12 @@ export function TransactionDetailsPanel({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          <dl className="grid grid-cols-[minmax(0,11rem)_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
-            {headerFacts.map((f) => (
-              <div key={f.label} className="contents">
-                <dt className="text-slate-400">{f.label}</dt>
-                <dd className="text-white break-words">{f.value}</dd>
-              </div>
-            ))}
-          </dl>
-
-          {view.details.length > 0 && (
-            <section>
-              <SectionTitle>
-                {t("details.details")}
-                {view.kindLabel && (
-                  <span className="normal-case font-medium text-[11px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
-                    {view.kindLabel}
-                  </span>
-                )}
-              </SectionTitle>
-              <FactList rows={view.details} />
-            </section>
-          )}
-
-          {view.payment && <PaymentSection payment={view.payment} />}
-
-          {view.other.length > 0 && (
-            <section>
-              <button
-                onClick={() => setOtherOpen((o) => !o)}
-                aria-expanded={otherOpen}
-                className="text-xs font-semibold uppercase text-slate-400 hover:text-slate-300 transition-colors"
-              >
-                {otherOpen ? "▾" : "▸"} {t("details.otherSavedData")}
-              </button>
-              <Collapsible open={otherOpen}>
-                <div className="pt-2">
-                  <FactList rows={view.other} />
-                </div>
-              </Collapsible>
-            </section>
-          )}
-
-          {view.isEmpty && (
-            <p className="text-sm text-slate-500 italic">
-              {t("details.nothingElse")}
-            </p>
-          )}
+        <div className="flex-1 overflow-y-auto p-6">
+          <TransactionDetailsBody
+            row={row}
+            isAdmin={isAdmin}
+            methodLabelByCode={methodLabelByCode}
+          />
         </div>
       </div>
     </div>

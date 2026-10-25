@@ -59,6 +59,8 @@ export interface SessionTransaction {
   transaction_id: number;
   amount_usd: number;
   amount_lbp: number;
+  /** The `transactions` row this basket line became (null on older rows). */
+  unified_transaction_id: number | null;
   created_at: string;
 }
 
@@ -75,7 +77,7 @@ export class CustomerSessionRepository {
   private readonly columns =
     "id, customer_name, customer_phone, customer_notes, user_id, started_at, closed_at, started_by, closed_by, is_active";
   private readonly transactionColumns =
-    "id, session_id, transaction_type, transaction_id, amount_usd, amount_lbp, created_at";
+    "id, session_id, transaction_type, transaction_id, amount_usd, amount_lbp, unified_transaction_id, created_at";
   private readonly cartColumns =
     "id, session_id, item_id, module, label, amount, currency, form_data, ipc_channel, user_id, created_at";
 

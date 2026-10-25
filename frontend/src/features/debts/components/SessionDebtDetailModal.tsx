@@ -7,16 +7,21 @@
  * basket-debt) — the items live in session_cart_items / customer_session_transactions,
  * joined here by session_id.
  *
- * Opened from the eye button (👁) on "Session Debt" entries.
+ * Opened from the eye button (👁) on "Session Debt" entries. Each paid line
+ * opens in place to show the same details as the Transactions page.
  */
 
-import { useEffect, useState } from "react";
-import { X, ShoppingCart } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { X, ShoppingCart, ChevronDown, ChevronRight } from "lucide-react";
 import { useApi } from "@liratek/ui";
 import { useTranslation } from "react-i18next";
 import { formatNumber } from "@liratek/ui/i18n/format";
 import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { useAuth } from "@/features/auth/context/AuthContext";
+import { usePaymentMethods } from "@/hooks/usePaymentMethods";
+import { TransactionDetailsBody } from "@/features/audit/components/TransactionDetailsPanel";
+import type { TransactionRow } from "@/features/audit/hooks/useTransactionRows";
 
 // ─── Types (mirror electron.d.ts session.cartGet / session.getTransactions) ──
 
@@ -34,8 +39,13 @@ interface SessionTransactionRow {
   transaction_type: string;
   amount_usd: number;
   amount_lbp: number;
+  /** The `transactions` row this line became; null on older rows. */
+  unified_transaction_id?: number | null;
   created_at: string;
 }
+
+/** A basket holds a few dozen lines at most; this caps the details fetch. */
+const SESSION_ROWS_LIMIT = 500;
 
 interface Props {
   sessionId: number;
@@ -68,10 +78,26 @@ export function SessionDebtDetailModal({
   onClose,
 }: Props) {
   const api = useApi();
+  // rule 25: read `api` through a ref inside the effect.
+  const apiRef = useRef(api);
+  apiRef.current = api;
   const { t } = useTranslation("debts");
   useModalFocusFix(true);
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const { methods: paymentMethods } = usePaymentMethods();
+  const methodLabelByCode = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of paymentMethods) map.set(m.code, m.label);
+    return map;
+  }, [paymentMethods]);
   const [cartItems, setCartItems] = useState<SessionCartItem[]>([]);
   const [transactions, setTransactions] = useState<SessionTransactionRow[]>([]);
+  // Full rows (as the Transactions page loads them), by transaction id.
+  const [fullRows, setFullRows] = useState<Map<number, TransactionRow>>(
+    () => new Map(),
+  );
+  const [openId, setOpenId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -79,11 +105,21 @@ export function SessionDebtDetailModal({
     async function load() {
       setLoading(true);
       try {
-        const [cartResult, txResult] = await Promise.all([
-          api.session.cartGet(sessionId),
-          api.session.getTransactions(sessionId),
+        const [cartResult, txResult, rows] = await Promise.all([
+          apiRef.current.session.cartGet(sessionId),
+          apiRef.current.session.getTransactions(sessionId),
+          apiRef.current
+            .getRecentTransactions(SESSION_ROWS_LIMIT, {
+              session_id: sessionId,
+            })
+            .catch(() => [] as TransactionRow[]),
         ]);
         if (cancelled) return;
+        setFullRows(
+          new Map(
+            ((rows ?? []) as TransactionRow[]).map((r) => [r.id, r] as const),
+          ),
+        );
         if (cartResult.success && cartResult.items) {
           setCartItems(cartResult.items as SessionCartItem[]);
         }
@@ -158,7 +194,7 @@ export function SessionDebtDetailModal({
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-md bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl animate-in zoom-in-95 duration-200"
+        className="relative w-full max-w-2xl max-h-[90vh] flex flex-col bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -177,7 +213,7 @@ export function SessionDebtDetailModal({
           </button>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="p-5 space-y-4 overflow-y-auto">
           {loading ? (
             <p className="text-xs text-slate-500 text-center py-4">
               {t("sessionModal.loading")}
@@ -216,34 +252,79 @@ export function SessionDebtDetailModal({
                         </span>
                       </div>
                     ))
-                  : displayTransactions.map((tx) => (
-                      <div
-                        key={tx.id}
-                        className="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-800/50 border border-slate-700/30"
-                      >
-                        <span className="text-sm text-slate-300 capitalize">
-                          {tx.transaction_type}
-                        </span>
-                        <span
-                          dir="ltr"
-                          className="font-mono text-sm font-semibold"
+                  : displayTransactions.map((tx) => {
+                      const full =
+                        tx.unified_transaction_id != null
+                          ? fullRows.get(tx.unified_transaction_id)
+                          : undefined;
+                      const isOpen = full !== undefined && openId === tx.id;
+                      return (
+                        <div
+                          key={tx.id}
+                          className="rounded-lg bg-slate-800/50 border border-slate-700/30"
                         >
-                          {nonZero(tx.amount_usd) && (
-                            <span className={amountColor(tx.amount_usd)}>
-                              {fmtSigned(tx.amount_usd, "USD")}
+                          <button
+                            type="button"
+                            disabled={!full}
+                            aria-expanded={full ? isOpen : undefined}
+                            data-testid={`session-line-${tx.id}`}
+                            onClick={() => setOpenId(isOpen ? null : tx.id)}
+                            className="w-full flex items-center justify-between gap-2 px-3 py-2 text-start enabled:hover:bg-slate-800 rounded-lg transition-colors"
+                          >
+                            <span className="flex items-center gap-1.5 min-w-0">
+                              {full &&
+                                (isOpen ? (
+                                  <ChevronDown
+                                    size={14}
+                                    className="text-slate-500 shrink-0"
+                                  />
+                                ) : (
+                                  <ChevronRight
+                                    size={14}
+                                    className="text-slate-500 shrink-0 rtl:rotate-180"
+                                  />
+                                ))}
+                              <span className="text-sm text-slate-300 capitalize truncate">
+                                {tx.transaction_type}
+                              </span>
+                              {full?.summary && (
+                                <span className="text-xs text-slate-500 truncate">
+                                  {full.summary}
+                                </span>
+                              )}
                             </span>
-                          )}
-                          {nonZero(tx.amount_usd) && nonZero(tx.amount_lbp) && (
-                            <span className="mx-1 text-slate-500">+</span>
-                          )}
-                          {nonZero(tx.amount_lbp) && (
-                            <span className={amountColor(tx.amount_lbp)}>
-                              {fmtSigned(tx.amount_lbp, "LBP")}
+                            <span
+                              dir="ltr"
+                              className="font-mono text-sm font-semibold"
+                            >
+                              {nonZero(tx.amount_usd) && (
+                                <span className={amountColor(tx.amount_usd)}>
+                                  {fmtSigned(tx.amount_usd, "USD")}
+                                </span>
+                              )}
+                              {nonZero(tx.amount_usd) &&
+                                nonZero(tx.amount_lbp) && (
+                                  <span className="mx-1 text-slate-500">+</span>
+                                )}
+                              {nonZero(tx.amount_lbp) && (
+                                <span className={amountColor(tx.amount_lbp)}>
+                                  {fmtSigned(tx.amount_lbp, "LBP")}
+                                </span>
+                              )}
                             </span>
+                          </button>
+                          {isOpen && full && (
+                            <div className="border-t border-slate-700/50 px-3 py-3">
+                              <TransactionDetailsBody
+                                row={full}
+                                isAdmin={isAdmin}
+                                methodLabelByCode={methodLabelByCode}
+                              />
+                            </div>
                           )}
-                        </span>
-                      </div>
-                    ))}
+                        </div>
+                      );
+                    })}
               </div>
             </div>
           )}

@@ -232,6 +232,7 @@ When a sale was paid in dollars and the change was given in Lebanese pounds (or 
 - Accounts: in the exported Excel file, each name on the first sheet is a link — click it to jump to that client's page, and "Back to list" at the top of each page takes you back.
 - Accounts: the exported Excel file now works like your own debt sheet, so you can keep writing in it: each client page has 20 empty rows inside the totals (a line you add is counted in the totals and the remaining balance), the same look (grey headings, yellow totals, $ and LBP amounts, borders), and the first sheet shows each client's remaining balance, which updates when you change their page.
 - Accounts: the Excel and PDF buttons on a client's purchases and payments lists now include the Date column and select all columns by default. The note's label (for example "Imported Debt") is kept apart from the note text.
+- Accounts: in a session basket's details window, tap a paid line (for example a Whish transfer or a sale) to open its full details, the same ones the Transactions page shows: items, client, payment, fees and more.
 - Accounts: when you click another client, their account shows "Loading..." until it has loaded. Before, the previous client's charges and their Cash Out button stayed on screen for a moment under the new client's name.
 
 ## ⚙️ Settings

@@ -1079,6 +1079,8 @@ export interface TransactionFilters {
   status?: TransactionStatus;
   user_id?: number;
   client_id?: number;
+  /** Rows of one customer-session basket (Debts page basket detail). */
+  session_id?: number;
   source_table?: string;
   from?: string;
   to?: string;
@@ -1926,6 +1928,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     if (filters?.client_id) {
       conditions.push("t.client_id = ?");
       params.push(filters.client_id);
+    }
+    if (filters?.session_id) {
+      conditions.push("cst.session_id = ?");
+      params.push(filters.session_id);
     }
     if (filters?.source_table) {
       conditions.push("t.source_table = ?");

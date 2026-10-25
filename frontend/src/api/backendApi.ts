@@ -4249,6 +4249,7 @@ export interface TransactionFiltersParam {
   status?: string;
   user_id?: number;
   client_id?: number;
+  session_id?: number;
   source_table?: string;
   from?: string;
   to?: string;

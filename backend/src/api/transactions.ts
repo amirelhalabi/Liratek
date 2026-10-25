@@ -53,6 +53,8 @@ router.get("/recent", requireAuth, async (req, res) => {
       filters.user_id = parseInt(req.query.user_id as string);
     if (req.query.client_id)
       filters.client_id = parseInt(req.query.client_id as string);
+    if (req.query.session_id)
+      filters.session_id = parseInt(req.query.session_id as string);
     if (req.query.source_table) filters.source_table = req.query.source_table;
     if (req.query.from) filters.from = req.query.from;
     if (req.query.to) filters.to = req.query.to;
