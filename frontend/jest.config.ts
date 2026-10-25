@@ -9,6 +9,10 @@ process.env.TZ = "Asia/Beirut";
 const config: Config = {
   preset: "ts-jest",
   testEnvironment: "jsdom",
+  // CI runs ~800 suites with coverage on a small runner, where heavy page
+  // tests take 10x longer than locally (0.5s → 5s+) and a different one
+  // crossed Jest's default 5s limit on each run. A real hang still fails.
+  testTimeout: 15000,
   // LIRA-331: packages/ui has no runner of its own; its tests (i18n
   // formatters, Ltr/DirIcon, …) run here.
   roots: ["<rootDir>/src", "<rootDir>/../packages/ui/src"],
