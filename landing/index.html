@@ -106,6 +106,7 @@
     </noscript>
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/sections.css" />
+<link rel="stylesheet" href="/everywhere.css" />
     <!-- Vercel Web Analytics (page views; cookie-free). Does nothing until
          Web Analytics is enabled for the project. -->
     <script>
@@ -283,6 +284,42 @@
         </div>
       </section>
 
+      <section class="ew" id="everywhere" aria-label="LiraTek on every device">
+        <div class="wrap ew-intro">
+          <h2>One shop. Every screen.</h2>
+          <p>The same drawers, debts and sales on the shop PC, your Mac, any browser and your phone. Change something at the counter and it's there everywhere.</p>
+        </div>
+        <div class="ew-pin">
+          <div class="ew-glow" aria-hidden="true"><i class="g1"></i><i class="g2"></i></div>
+          <div class="ew-rail" aria-hidden="true"><span class="on"></span><span></span><span></span><span></span><span></span></div>
+          <div class="ew-caps">
+          <div class="ew-cap"><span class="step">Windows</span><h3>Runs on the shop's PC</h3><p>The desktop app on Windows: every drawer in dollars and lira, on one screen.</p></div>
+          <div class="ew-cap"><span class="step">Mac</span><h3>And on a Mac</h3><p>The same app on macOS. Ring up a phone, a charger and a screen protector at the counter.</p></div>
+          <div class="ew-cap"><span class="step">Browser</span><h3>Open it from any browser</h3><p>Your shop has its own address. Sell MTC and Alfa credit from anywhere.</p></div>
+          <div class="ew-cap"><span class="step">iPhone</span><h3>Your shop in your pocket</h3><p>Drawer balances on your phone, even after closing.</p></div>
+          <div class="ew-cap"><span class="step">Android</span><h3>iPhone and Android</h3><p>See who owes you, and record a repayment from wherever you are.</p></div>
+          </div>
+          <div class="ew-stage" aria-hidden="true">
+            <div class="ew-dev ew-laptop" id="ew-win"><img src="/assets/everywhere/windows.webp" width="1796" height="1017" alt="" /><img class="ew-screen" src="/assets/everywhere/windows-screen.webp" width="2880" height="1620" alt="" /></div>
+            <div class="ew-dev ew-laptop" id="ew-mac"><img src="/assets/everywhere/macbook.webp" width="2400" height="1448" alt="" /></div>
+            <div class="ew-dev ew-web" id="ew-web">
+              <div class="ew-browser">
+                <div class="bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">cedarmobile.liratek.shop</span></div>
+                <img src="/assets/everywhere/recharge.webp" width="2400" height="1500" alt="" />
+              </div>
+            </div>
+            <div class="ew-dev ew-phone" id="ew-ios"><img src="/assets/everywhere/iphone.webp" width="520" height="1063" alt="" /></div>
+            <div class="ew-dev ew-phone" id="ew-and"><img src="/assets/everywhere/pixel.webp" width="520" height="1101" alt="" /></div>
+          </div>
+        </div>
+        <div class="wrap ew-stack">
+          <figure><img src="/assets/everywhere/windows.webp" width="1796" height="1017" loading="lazy" alt="LiraTek Dashboard on a Windows laptop" /><h3>Runs on the shop's PC</h3><p>Every drawer in dollars and lira, on one screen.</p></figure>
+          <figure><img src="/assets/everywhere/macbook.webp" width="2400" height="1448" loading="lazy" alt="LiraTek Point of Sale on a MacBook" /><h3>And on a Mac</h3><p>The same app on macOS, at the counter.</p></figure>
+          <figure><img src="/assets/everywhere/recharge.webp" width="2400" height="1500" loading="lazy" alt="LiraTek Mobile Recharge in a browser" /><h3>Open it from any browser</h3><p>Your shop has its own address.</p></figure>
+          <figure><div class="ew-phones"><img src="/assets/everywhere/iphone.webp" width="520" height="1063" loading="lazy" alt="LiraTek on iPhone: drawer balances" /><img src="/assets/everywhere/pixel.webp" width="520" height="1101" loading="lazy" alt="LiraTek on Android: who owes the shop" /></div><h3>Your shop in your pocket</h3><p>iPhone and Android.</p></figure>
+        </div>
+      </section>
+
       <section class="features" id="features">
         <div class="wrap">
           <h2 data-i18n="features.title">Everything a phone shop does in a day</h2>
@@ -433,13 +470,19 @@
 
     <footer class="footer">
       <div class="wrap footer-inner">
-        <span>© <span id="year">2026</span> LiraTek</span>
-        <a href="/wa" id="whatsapp-footer" target="_blank" rel="noopener" dir="ltr">+961 81 077 357</a>
-        <a href="/privacy">Privacy</a>
-        <a href="/terms">Terms</a>
+        <div class="footer-brand"><img src="/assets/liratek-logo.png" alt="LiraTek" width="194" height="28" loading="lazy" /><span>© <span id="year">2026</span> LiraTek</span></div>
+        <div class="footer-links">
+          <a href="/wa" id="whatsapp-footer" target="_blank" rel="noopener" dir="ltr">+961 81 077 357</a>
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <a href="/ar" hreflang="ar" lang="ar">العربية</a>
+        </div>
       </div>
     </footer>
 
     <script src="/main.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" defer></script>
+<script src="/everywhere.js" defer></script>
   </body>
 </html>

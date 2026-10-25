@@ -1,0 +1,350 @@
+/* ---- "One shop, every screen": the scroll story between the hero and the
+   features. Desktop pins the section and plays a GSAP timeline as you
+   scroll (everywhere.js); phones and reduce-motion get a plain stack. ---- */
+
+.ew {
+  position: relative;
+  /* Blend in from the hero's page colour instead of starting on a hard edge,
+     and carry the faint blue tint across the whole section. */
+  background:
+    radial-gradient(
+      1100px 520px at 50% 420px,
+      var(--accent-tint),
+      transparent 70%
+    ),
+    linear-gradient(var(--bg) 0, var(--bg-2) 220px);
+  border-bottom: 1px solid var(--line);
+}
+
+.ew-intro {
+  padding: 72px 0 8px;
+  text-align: center;
+}
+
+.ew-intro h2 {
+  margin: 0 0 12px;
+  font-size: clamp(30px, 4.4vw, 48px);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.ew-intro p {
+  margin: 0 auto;
+  max-width: 54ch;
+  color: var(--muted);
+  font-size: 18px;
+}
+
+/* ---- pinned story (desktop) ---- */
+.ew-pin {
+  position: relative;
+  isolation: isolate;
+  /* Pinned just below the sticky top bar (64px), so the bar never covers it. */
+  height: calc(100vh - 64px);
+  display: grid;
+  grid-template-columns: minmax(260px, 0.55fr) minmax(0, 2fr);
+  align-items: center;
+  gap: 24px;
+  padding-inline: max(20px, 4vw);
+  overflow: hidden;
+  background: transparent;
+}
+
+.ew-glow {
+  position: absolute;
+  inset: -20%;
+  z-index: -1;
+  pointer-events: none;
+  /* Fade the glows out toward the pinned area's edges so they never end on
+     a visible line. */
+  -webkit-mask-image: radial-gradient(closest-side, #000 55%, transparent);
+  mask-image: radial-gradient(closest-side, #000 55%, transparent);
+}
+
+.ew-glow i {
+  position: absolute;
+  display: block;
+  width: 42vw;
+  height: 42vw;
+  border-radius: 50%;
+  filter: blur(60px);
+}
+
+.ew-glow .g1 {
+  left: 40%;
+  top: 14%;
+  background: radial-gradient(circle, rgba(0, 87, 255, 0.1), transparent 70%);
+}
+
+.ew-glow .g2 {
+  left: 56%;
+  top: 40%;
+  background: radial-gradient(circle, rgba(0, 32, 196, 0.07), transparent 70%);
+}
+
+.ew-rail {
+  position: absolute;
+  inset-inline-end: max(16px, 2vw);
+  top: 50%;
+  translate: 0 -50%;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ew-rail span {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--line-strong);
+  transition:
+    background 0.3s,
+    transform 0.3s;
+}
+
+.ew-rail span.on {
+  background: var(--accent);
+  transform: scale(1.5);
+}
+
+.ew-caps {
+  position: relative;
+  z-index: 3;
+  height: 190px;
+}
+
+.ew-cap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  opacity: 0;
+  text-shadow:
+    0 0 18px var(--bg-2),
+    0 0 6px var(--bg-2);
+}
+
+.ew-cap .step {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+html[lang="ar"] .ew-cap .step {
+  letter-spacing: 0;
+}
+
+.ew-cap h3 {
+  margin: 0;
+  font-size: clamp(26px, 3.2vw, 44px);
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  font-weight: 800;
+  text-wrap: balance;
+}
+
+.ew-cap h3 .w {
+  display: inline-block;
+}
+
+.ew-cap p {
+  margin: 0;
+  max-width: 34ch;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1.5;
+}
+
+.ew-stage {
+  position: relative;
+  z-index: 1;
+  height: min(calc(86vh - 64px), 860px);
+  display: grid;
+  place-items: center;
+  perspective: 1800px;
+}
+
+.ew-dev {
+  grid-area: 1 / 1;
+  /* flat, not preserve-3d: the Windows frame and its sharp screen overlay are
+     two layers on the same plane, and preserve-3d made them z-fight
+     (flicker) while the laptop rotates. */
+  transform-style: flat;
+  will-change: transform, opacity;
+}
+
+.ew-dev img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.ew-dev.ew-laptop {
+  width: min(100%, 1240px);
+}
+
+.ew-dev.ew-laptop img {
+  filter: drop-shadow(0 26px 30px rgba(37, 37, 37, 0.18));
+}
+
+.ew-dev.ew-web {
+  width: min(96%, 1120px);
+}
+
+.ew-browser {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: #fff;
+  box-shadow: 0 30px 60px rgba(37, 37, 37, 0.16);
+}
+
+.ew-browser .bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  background: #ebe9e4;
+  border-bottom: 1px solid #dddad3;
+  direction: ltr;
+}
+
+.ew-browser .dots {
+  display: flex;
+  gap: 6px;
+}
+
+.ew-browser .dots i {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #cfccc5;
+}
+
+.ew-browser .url {
+  flex: 1;
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: #f8f7f4;
+  color: #44423c;
+  font-size: 12px;
+  font-family: ui-monospace, Menlo, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ew-dev.ew-phone {
+  width: clamp(180px, 18vw, 300px);
+}
+
+.ew-dev.ew-phone img {
+  filter: drop-shadow(0 24px 30px rgba(37, 37, 37, 0.22));
+}
+
+/* The Dell frame is only a 2500px preview, so its screen would blur when the
+   opening zooms in. A full-resolution copy of the screen sits exactly over the
+   frame's screen area (measured from the frame: 145,25 · 1501×843 of 1796×1017). */
+#ew-win {
+  position: relative;
+}
+
+#ew-win .ew-screen {
+  position: absolute;
+  backface-visibility: hidden;
+  left: 8.073%;
+  top: 2.458%;
+  width: 83.575%;
+  height: 82.89%;
+  filter: none;
+}
+
+/* ---- phones / reduce motion: a simple stack ---- */
+.ew-stack {
+  display: none;
+}
+
+.ew-stack figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ew-stack img {
+  width: 100%;
+  height: auto;
+}
+
+.ew-stack .ew-phones {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+}
+
+.ew-stack .ew-phones img {
+  width: 45%;
+  max-width: 230px;
+}
+
+.ew-stack h3 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+}
+
+.ew-stack p {
+  margin: 0;
+  color: var(--muted);
+}
+
+@media (max-width: 760px) {
+  .ew-pin {
+    display: none;
+  }
+
+  .ew-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 48px;
+    padding-block: 32px 64px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ew-pin {
+    display: none;
+  }
+
+  .ew-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 48px;
+    padding-block: 32px 64px;
+  }
+}
+
+/* Without JavaScript the pinned stage would stay blank, so show the stack. */
+html:not(.ew-ready) .ew-pin {
+  display: none;
+}
+
+html:not(.ew-ready) .ew-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+  padding-block: 32px 64px;
+}
+
+/* See everywhere.js: CSS smooth scrolling breaks ScrollTrigger's measuring. */
+html.ew-ready {
+  scroll-behavior: auto;
+}

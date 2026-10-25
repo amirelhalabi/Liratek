@@ -330,7 +330,6 @@ html[lang="ar"] h1 {
 .features {
   padding: 64px 0;
   background: var(--bg-2);
-  border-block: 1px solid var(--line);
 }
 
 h2 {
@@ -369,7 +368,7 @@ h2 {
 /* ---- shop login ---- */
 .login {
   padding: 64px 0;
-  background: var(--bg-2);
+  background: linear-gradient(var(--bg) 0, var(--bg-2) 140px);
 }
 
 .login-box {
@@ -444,14 +443,15 @@ h2 {
 /* ---- light bands: the phone section and the closing CTA. The page used
    to switch to Cosmic Navy here; the owner wants the whole page light. ---- */
 .phone {
-  background: var(--bg);
+  /* Each section fades from the colour above it instead of a hard line. */
+  background: linear-gradient(var(--bg-2) 0, var(--bg) 160px);
   color: var(--text);
 }
 
 .closing-cta {
   background:
-    radial-gradient(700px 260px at 50% 0%, var(--accent-tint), transparent),
-    var(--bg);
+    radial-gradient(ellipse 45% 40% at 50% 55%, var(--accent-tint), transparent),
+    linear-gradient(var(--bg-2) 0, var(--bg) 160px);
   color: var(--text);
 }
 
@@ -459,7 +459,6 @@ h2 {
 .closing-cta {
   padding: 64px 0 72px;
   text-align: center;
-  border-top: 1px solid var(--line);
 }
 
 .closing-cta h2 {
@@ -473,16 +472,40 @@ h2 {
 
 .footer {
   background: var(--bg);
-  border-top: 1px solid var(--line);
-  padding: 20px 0;
+  padding: 24px 0 28px;
   color: var(--muted);
   font-size: 14px;
 }
 
+/* Two groups instead of four items spread across the width:
+   brand and © at the start, contact and links at the end. */
 .footer-inner {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
+  gap: 12px 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.footer-brand {
+  display: flex;
+  align-items: center;
   gap: 12px;
+}
+
+.footer-brand img {
+  display: block;
+  height: 20px;
+  width: auto;
+}
+
+.footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
 }
 
 .footer a {
@@ -569,7 +592,6 @@ h2 {
 /* ---- phone app ---- */
 .phone {
   padding: 64px 0;
-  border-bottom: 1px solid var(--line);
 }
 
 .phone-grid {

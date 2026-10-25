@@ -99,6 +99,7 @@
     </noscript>
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/sections.css" />
+<link rel="stylesheet" href="/everywhere.css" />
     <!-- Vercel Web Analytics (page views; cookie-free). Does nothing until
          Web Analytics is enabled for the project. -->
     <script>
@@ -272,6 +273,42 @@
         </div>
       </section>
 
+      <section class="ew" id="everywhere" aria-label="LiraTek على كل الأجهزة">
+        <div class="wrap ew-intro">
+          <h2>محل واحد. على كل شاشة.</h2>
+          <p>نفس الصناديق والديون والمبيعات على كمبيوتر المحل، وعلى الماك، ومن أي متصفح، وعلى هاتفك. أي تغيير على الكاونتر تجده في كل مكان.</p>
+        </div>
+        <div class="ew-pin">
+          <div class="ew-glow" aria-hidden="true"><i class="g1"></i><i class="g2"></i></div>
+          <div class="ew-rail" aria-hidden="true"><span class="on"></span><span></span><span></span><span></span><span></span></div>
+          <div class="ew-caps">
+          <div class="ew-cap"><span class="step">ويندوز</span><h3>يعمل على كمبيوتر المحل</h3><p>تطبيق الكمبيوتر على ويندوز: كل الصناديق بالدولار والليرة على شاشة واحدة.</p></div>
+          <div class="ew-cap"><span class="step">ماك</span><h3>وعلى الماك أيضاً</h3><p>نفس التطبيق على macOS. بيع هاتف وشاحن وواقي شاشة على الكاونتر.</p></div>
+          <div class="ew-cap"><span class="step">المتصفح</span><h3>افتحه من أي متصفح</h3><p>لمحلك عنوانه الخاص. بيع رصيد MTC وAlfa من أي مكان.</p></div>
+          <div class="ew-cap"><span class="step">آيفون</span><h3>محلك في جيبك</h3><p>أرصدة الصناديق على هاتفك، حتى بعد الإقفال.</p></div>
+          <div class="ew-cap"><span class="step">أندرويد</span><h3>آيفون وأندرويد</h3><p>اعرف من عليه دين لك، وسجّل دفعة أينما كنت.</p></div>
+          </div>
+          <div class="ew-stage" aria-hidden="true">
+            <div class="ew-dev ew-laptop" id="ew-win"><img src="/assets/everywhere/windows.webp" width="1796" height="1017" alt="" /><img class="ew-screen" src="/assets/everywhere/windows-screen.webp" width="2880" height="1620" alt="" /></div>
+            <div class="ew-dev ew-laptop" id="ew-mac"><img src="/assets/everywhere/macbook.webp" width="2400" height="1448" alt="" /></div>
+            <div class="ew-dev ew-web" id="ew-web">
+              <div class="ew-browser">
+                <div class="bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">cedarmobile.liratek.shop</span></div>
+                <img src="/assets/everywhere/recharge.webp" width="2400" height="1500" alt="" />
+              </div>
+            </div>
+            <div class="ew-dev ew-phone" id="ew-ios"><img src="/assets/everywhere/iphone.webp" width="520" height="1063" alt="" /></div>
+            <div class="ew-dev ew-phone" id="ew-and"><img src="/assets/everywhere/pixel.webp" width="520" height="1101" alt="" /></div>
+          </div>
+        </div>
+        <div class="wrap ew-stack">
+          <figure><img src="/assets/everywhere/windows.webp" width="1796" height="1017" loading="lazy" alt="لوحة LiraTek على لابتوب ويندوز" /><h3>يعمل على كمبيوتر المحل</h3><p>كل الصناديق بالدولار والليرة على شاشة واحدة.</p></figure>
+          <figure><img src="/assets/everywhere/macbook.webp" width="2400" height="1448" loading="lazy" alt="نقطة البيع في LiraTek على ماك بوك" /><h3>وعلى الماك أيضاً</h3><p>نفس التطبيق على macOS، على الكاونتر.</p></figure>
+          <figure><img src="/assets/everywhere/recharge.webp" width="2400" height="1500" loading="lazy" alt="شحن الخطوط في LiraTek داخل المتصفح" /><h3>افتحه من أي متصفح</h3><p>لمحلك عنوانه الخاص.</p></figure>
+          <figure><div class="ew-phones"><img src="/assets/everywhere/iphone.webp" width="520" height="1063" loading="lazy" alt="LiraTek على آيفون: أرصدة الصناديق" /><img src="/assets/everywhere/pixel.webp" width="520" height="1101" loading="lazy" alt="LiraTek على أندرويد: الديون على الزبائن" /></div><h3>محلك في جيبك</h3><p>آيفون وأندرويد.</p></figure>
+        </div>
+      </section>
+
       <section class="features" id="features">
         <div class="wrap">
           <h2 data-i18n="features.title">كل ما يحتاجه محل الخليوي في يومه</h2>
@@ -423,13 +460,19 @@
 
     <footer class="footer">
       <div class="wrap footer-inner">
-        <span>© <span id="year">2026</span> LiraTek</span>
-        <a href="/wa?lang=ar" id="whatsapp-footer" target="_blank" rel="noopener" dir="ltr">+961 81 077 357</a>
-        <a href="/privacy" hreflang="en">الخصوصية</a>
-        <a href="/terms" hreflang="en">الشروط</a>
+        <div class="footer-brand"><img src="/assets/liratek-logo.png" alt="LiraTek" width="194" height="28" loading="lazy" /><span>© <span id="year">2026</span> LiraTek</span></div>
+        <div class="footer-links">
+          <a href="/wa?lang=ar" id="whatsapp-footer" target="_blank" rel="noopener" dir="ltr">+961 81 077 357</a>
+          <a href="/privacy" hreflang="en">الخصوصية</a>
+          <a href="/terms" hreflang="en">الشروط</a>
+          <a href="/" hreflang="en" lang="en">English</a>
+        </div>
       </div>
     </footer>
 
     <script src="/main.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" defer></script>
+<script src="/everywhere.js" defer></script>
   </body>
 </html>
