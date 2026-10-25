@@ -10,11 +10,15 @@ import { useCurrencies } from "../useCurrencies";
 // Mock the API adapter returned by useApi
 const mockCurrenciesList = jest.fn();
 
+// rule 25: one stable identity for the whole file.
+const mockApi = { getCurrencies: mockCurrenciesList };
+
 jest.mock("@liratek/ui", () => ({
-  useApi: () => ({
-    getCurrencies: mockCurrenciesList,
-  }),
+  useApi: () => mockApi,
 }));
+
+// CI runs ~800 suites at once; the default 1s wait timed out there once.
+const SLOW_CI = { timeout: 5000 };
 
 describe("useCurrencies", () => {
   beforeEach(() => {
@@ -43,7 +47,7 @@ describe("useCurrencies", () => {
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
-    });
+    }, SLOW_CI);
 
     expect(result.current.currencies).toEqual([
       { code: "USD", name: "US Dollar", is_active: 1 },
@@ -64,7 +68,7 @@ describe("useCurrencies", () => {
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
-    });
+    }, SLOW_CI);
 
     expect(result.current.currencies).toHaveLength(1);
     expect(result.current.currencies[0].code).toBe("USD");
@@ -78,7 +82,7 @@ describe("useCurrencies", () => {
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
-    });
+    }, SLOW_CI);
 
     expect(result.current.currencies).toEqual([]);
     expect(result.current.error).toBe("Failed to load currencies");
@@ -91,7 +95,7 @@ describe("useCurrencies", () => {
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
-    });
+    }, SLOW_CI);
 
     expect(result.current.error).toBe("Failed to load currencies");
   });
@@ -105,7 +109,7 @@ describe("useCurrencies", () => {
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
-    });
+    }, SLOW_CI);
 
     // Clear and reload
     mockCurrenciesList.mockClear();

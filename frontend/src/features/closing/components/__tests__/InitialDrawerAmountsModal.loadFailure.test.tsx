@@ -65,10 +65,13 @@ describe("InitialDrawerAmountsModal — load failure", () => {
     expect(screen.getByRole("button", { name: "Save Amounts" })).toBeDisabled();
 
     fireEvent.click(retry);
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "Save Amounts" }),
-      ).toBeEnabled(),
+    // CI runs ~800 suites at once; the default 1s wait timed out there once.
+    await waitFor(
+      () =>
+        expect(
+          screen.getByRole("button", { name: "Save Amounts" }),
+        ).toBeEnabled(),
+      { timeout: 5000 },
     );
     expect(screen.queryByRole("button", { name: /retry/i })).toBeNull();
   });
