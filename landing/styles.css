@@ -281,7 +281,7 @@ html[lang="ar"] h1 {
   border-radius: var(--radius);
   overflow: hidden;
   border: 1px solid var(--line);
-  background: var(--band-card); /* the demo video is dark */
+  background: var(--bg); /* matches the light demo video while it loads */
   aspect-ratio: 16 / 9;
   box-shadow: var(--shadow-lg);
 }
