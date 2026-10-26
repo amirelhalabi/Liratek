@@ -12,7 +12,13 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; img-src 'self' data: https://*.googleusercontent.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self' 'unsafe-inline' blob: https://challenges.cloudflare.com; frame-src 'self' https://challenges.cloudflare.com; worker-src 'self' blob:; connect-src 'self' http://localhost:3000 ws://localhost:3000 http: https: ws: wss:;"
     />
-    <link rel="icon" type="image/png" href="/favicon.png" />
+    <!-- Same edge-to-edge icons as the landing page, so every LiraTek tab shows
+         the logo at the same size. favicon.png stays: the landing page's
+         "Go to my shop" check loads it to see whether a shop exists. -->
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48.png?v=2" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png?v=2" />
+    <link rel="icon" type="image/png" sizes="256x256" href="/favicon.png?v=2" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex, nofollow" />
     <title>LiraTek</title>
