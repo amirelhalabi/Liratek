@@ -1,8 +1,7 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import { Shield, ArrowLeftRight, Banknote } from "lucide-react";
-import { PageHeader, Select, MultiSelect, DateRangeFilter } from "@liratek/ui";
+import { PageHeader, Select, MultiSelect, useDayRange } from "@liratek/ui";
 import type { EN_RESOURCES } from "@liratek/ui/i18n/resources";
 import AuditLogViewer from "./AuditLogViewer";
 import TransactionsViewer from "./TransactionsViewer";
@@ -31,11 +30,9 @@ const TYPE_FILTER_LABELS = ALL_FILTER_OPTIONS.map((o) => o.label);
 
 type GroupKey = keyof (typeof EN_RESOURCES)["audit"]["filterGroups"];
 
-/** The Rows field: digits only (Arabic digits accepted), at least 1. */
-function parseRows(raw: string): number | "" {
-  const v = normalizeDigits(raw).replace(/[^0-9]/g, "");
-  return v === "" ? "" : Math.max(1, Number(v));
-}
+/** LIRA-348 — both tables show 50 rows at a time and load the next 50 as
+ *  the operator scrolls (the old free "Rows" box is gone). */
+const PAGE_SIZE = 50;
 
 export default function AuditPage() {
   const { t, i18n } = useTranslation("audit");
@@ -58,26 +55,21 @@ export default function AuditPage() {
     [t, language],
   );
 
-  // Shared row limit across both tabs. Allowed to be "" so the field can be
-  // cleared while editing; every consumer coerces "" → 50 (see below).
-  const [rowsLimit, setRowsLimit] = useState<number | "">(50);
-
   // Transaction filters
   // Multi-select Type filter: a UNION (OR) of every selected option's tuple.
   // Empty array is the cleared "All types" state.
   const [txSelectedFilters, setTxSelectedFilters] = useState<string[]>([]);
   const [txSearchInput, setTxSearchInput] = useState("");
   const [txSearch, setTxSearch] = useState("");
-  const [txFrom, setTxFrom] = useState("");
   const [showCashReport, setShowCashReport] = useState(false);
-  const [txTo, setTxTo] = useState("");
+  // LIRA-348 — each tab opens on today; the day filter is on the table.
+  const txDays = useDayRange("today");
 
   // Audit filters
   const [auditAction, setAuditAction] = useState("");
   const [auditEntityType, setAuditEntityType] = useState("");
   const [auditSearch, setAuditSearch] = useState("");
-  const [auditFrom, setAuditFrom] = useState("");
-  const [auditTo, setAuditTo] = useState("");
+  const auditDays = useDayRange("today");
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-4 overflow-auto animate-in fade-in duration-500">
@@ -136,12 +128,6 @@ export default function AuditPage() {
                 groups={typeFilterGroups}
                 optionsClassName="min-w-[18rem] max-h-[70vh]"
               />
-              <DateRangeFilter
-                from={txFrom}
-                to={txTo}
-                onFromChange={setTxFrom}
-                onToChange={setTxTo}
-              />
               <button
                 data-testid="open-cash-report"
                 onClick={() => setShowCashReport(true)}
@@ -149,18 +135,6 @@ export default function AuditPage() {
               >
                 <Banknote size={15} /> {t("filters.cashReport")}
               </button>
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-slate-400">
-                {t("filters.rows")}
-              </label>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={rowsLimit}
-                onChange={(e) => setRowsLimit(parseRows(e.target.value))}
-                className={`${inputClass} w-16 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
-              />
             </div>
           </div>
         )}
@@ -198,34 +172,6 @@ export default function AuditPage() {
               ]}
               buttonClassName={selectClass}
             />
-            <label className="text-xs text-slate-400">
-              {t("filters.from")}
-            </label>
-            <input
-              type="date"
-              value={auditFrom}
-              onChange={(e) => setAuditFrom(e.target.value)}
-              className={inputClass}
-            />
-            <label className="text-xs text-slate-400">{t("filters.to")}</label>
-            <input
-              type="date"
-              value={auditTo}
-              onChange={(e) => setAuditTo(e.target.value)}
-              className={inputClass}
-            />
-            <div className="flex items-center gap-2 ms-auto">
-              <label className="text-sm text-slate-400">
-                {t("filters.rows")}
-              </label>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={rowsLimit}
-                onChange={(e) => setRowsLimit(parseRows(e.target.value))}
-                className={`${inputClass} w-16 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
-              />
-            </div>
           </div>
         )}
       </div>
@@ -234,11 +180,12 @@ export default function AuditPage() {
       <div className="flex-1 min-h-0 bg-slate-800 rounded-xl border border-slate-700 overflow-auto">
         {active === "transactions" && (
           <TransactionsViewer
-            limit={String(rowsLimit || 50)}
+            limit={String(PAGE_SIZE)}
             selectedFilters={txSelectedFilters}
             search={txSearch}
-            from={txFrom}
-            to={txTo}
+            from={txDays.from}
+            to={txDays.to}
+            onDayRangeChange={txDays.setRange}
           />
         )}
         {active === "audit" && (
@@ -246,9 +193,10 @@ export default function AuditPage() {
             action={auditAction}
             entityType={auditEntityType}
             search={auditSearch}
-            from={auditFrom}
-            to={auditTo}
-            limit={rowsLimit || 50}
+            from={auditDays.from}
+            to={auditDays.to}
+            limit={PAGE_SIZE}
+            onDayRangeChange={auditDays.setRange}
           />
         )}
       </div>

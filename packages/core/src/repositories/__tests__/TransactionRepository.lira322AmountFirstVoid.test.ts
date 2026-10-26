@@ -8,6 +8,10 @@
  *
  * Rule 17: run before `_assertSettlementIsNewestOnItsRows` and the coverage
  * soft-void exist.
+ *
+ * LIRA-343 (R12, owner 2026-10-26 option 3): "newest first" is gone — (b),
+ * (b2) and (f) now assert the no-exception undo / void (their LIRA-322
+ * refusal expectations were rewritten, not deleted; rule 24).
  */
 import Database from "better-sqlite3";
 import {
@@ -150,27 +154,41 @@ describe("LIRA-322 — void of an amount-first account settlement", () => {
     expect(fsState(usd[1])).toEqual({ settlement_id: null, is_settled: 0 });
   });
 
-  it("(b) $300 then $100: voiding the $300 is refused and changes nothing", () => {
-    const first = settleUsd(300);
-    const second = settleUsd(100);
-    const before = snapshot();
-    expect(() => voidTxn(first)).toThrow(
-      new RegExp(`A later settlement \\(#${second}, .*\\) paid the same transfers\\. Void it first\\.`),
-    );
-    expectSameAs(before);
-    const status = db
-      .prepare(`SELECT status FROM transactions WHERE id = ?`)
-      .get(first) as { status: string };
-    expect(status.status).toBe("ACTIVE");
-  });
-
-  it("(b2) the same refusal applies to a refund of the older settlement", () => {
-    const first = settleUsd(300);
-    settleUsd(100);
-    expect(() =>
-      getTransactionRepository().refundTransaction(first, 1),
-    ).toThrow(/A later settlement .* Void it first\./);
-  });
+  // LIRA-343 (FR-018, R12; owner 2026-10-26 option 3) — (b)/(b2) rewritten
+  // from the LIRA-322 "refused: void it first" rule: undo has no exception.
+  // $300 closes 152 + 101 and part-pays $47 of the third row; $100 finishes
+  // it ($54) and part-pays $46 of the fourth.
+  for (const how of ["void", "refund"] as const) {
+    it(`(b${how === "refund" ? "2" : ""}) $300 then $100: ${how} of the $300 is allowed; the $100 stays, its $47 on the shared row becomes owed to OMT`, () => {
+      const first = settleUsd(300);
+      const second = settleUsd(100);
+      const secondCoverage = coverageRows(db).filter((c) => c.transaction_id === second);
+      const drawers0 = drawerTotals(db).usd;
+      if (how === "void") voidTxn(first);
+      else getTransactionRepository().refundTransaction(first, 1);
+      expect(drawerTotals(db).usd - drawers0).toBeCloseTo(300, 6);
+      expect(coverageRows(db).filter((c) => c.transaction_id === second)).toEqual(
+        secondCoverage,
+      );
+      // The two rows the $300 closed alone reopen; the shared row stays
+      // closed by the $100.
+      expect(fsState(usd[0])).toEqual({ settlement_id: null, is_settled: 0 });
+      expect(fsState(usd[1])).toEqual({ settlement_id: null, is_settled: 0 });
+      expect(fsState(usd[2]).settlement_id).not.toBeNull();
+      const reversal = (
+        db.prepare(`SELECT id FROM transactions WHERE reverses_id = ?`).get(first) as {
+          id: number;
+        }
+      ).id;
+      const account = repo
+        .getAccountUnsettled(acc.omtId)
+        .filter((r) => r.kind === "LEDGER" && r.transaction_id === reversal);
+      expect(account.map((r) => [r.row_scope, r.remaining_usd])).toEqual([["ACCOUNT", 47]]);
+      // Balance == Σ open remaining, per currency.
+      expect(memberBalance(db, acc.omtId).usd).toBeCloseTo(owed().usd, 6);
+      expect(memberBalance(db, acc.omtId).lbp).toBeCloseTo(owed().lbp, 6);
+    });
+  }
 
   it("(a2) a REFUND of the $300 settlement also returns every ledger to before", () => {
     const before = snapshot();
@@ -216,10 +234,15 @@ describe("LIRA-322 — void of an amount-first account settlement", () => {
     ).toEqual([]);
   });
 
-  it("(f) a part-paid transfer cannot be voided while a settlement covers it", () => {
-    // The transfer's own unified transaction (FinancialServiceRepository
-    // books one per transfer; seeded here).
-    const transferTxn = getTransactionRepository().createTransaction({
+  // LIRA-343 (FR-019, R12) — rewritten from the LIRA-322 refusal ("partly
+  // paid … void that settlement first"): the void goes through, the
+  // settlement stays, and the $47 it paid on the transfer is OMT credit.
+  it("(f) a part-paid transfer can be voided while a settlement covers it: the $47 paid becomes OMT credit", () => {
+    // The transfer's own unified transaction and its auto sibling's hidden
+    // one (the real writers book both; the cascade reaches the sibling
+    // through `supplier_ledger.transaction_id`).
+    const txRepo = getTransactionRepository();
+    const transferTxn = txRepo.createTransaction({
       type: TRANSACTION_TYPES.FINANCIAL_SERVICE,
       source_table: "financial_services",
       source_id: usd[2],
@@ -229,9 +252,45 @@ describe("LIRA-322 — void of an amount-first account settlement", () => {
       summary: "OMT SEND $101",
       metadata_json: {},
     });
-    settleUsd(300);
-    const before = snapshot();
-    expect(() => voidTxn(transferTxn)).toThrow(/partly paid/);
-    expectSameAs(before);
+    const sibling = db
+      .prepare(
+        `SELECT id FROM supplier_ledger WHERE source_ref_table = 'financial_services' AND source_ref_id = ?`,
+      )
+      .get(usd[2]) as { id: number };
+    const siblingTxn = txRepo.createTransaction({
+      type: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
+      source_table: "supplier_ledger",
+      source_id: sibling.id,
+      user_id: 1,
+      amount_usd: 101,
+      amount_lbp: 0,
+      summary: "OMT top-up (auto)",
+      metadata_json: { is_auto: true },
+    });
+    db.prepare(`UPDATE supplier_ledger SET transaction_id = ? WHERE id = ?`).run(
+      siblingTxn,
+      sibling.id,
+    );
+    const settlement = settleUsd(300);
+    const coverage0 = coverageRows(db);
+    const drawers0 = drawerTotals(db);
+    voidTxn(transferTxn);
+    expect(coverageRows(db)).toEqual(coverage0);
+    expect(drawerTotals(db)).toEqual(drawers0);
+    const status = db
+      .prepare(`SELECT status FROM transactions WHERE id = ?`)
+      .get(settlement) as { status: string };
+    expect(status.status).toBe("ACTIVE");
+    const reversal = (
+      db.prepare(`SELECT id FROM transactions WHERE reverses_id = ?`).get(transferTxn) as {
+        id: number;
+      }
+    ).id;
+    const credit = repo
+      .getAccountUnsettled(acc.omtId)
+      .filter((r) => r.kind === "LEDGER" && r.transaction_id === reversal);
+    expect(credit.map((r) => [r.row_scope, r.remaining_usd])).toEqual([["ACCOUNT", -47]]);
+    expect(memberBalance(db, acc.omtId).usd).toBeCloseTo(owed().usd, 6);
+    expect(memberBalance(db, acc.omtId).lbp).toBeCloseTo(owed().lbp, 6);
   });
 });

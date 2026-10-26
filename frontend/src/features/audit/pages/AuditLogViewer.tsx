@@ -1,9 +1,15 @@
-import { useEffect, useState, useCallback } from "react";
+import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import type { AuditLogEntry, AuditSearchFilters } from "@/types/electron";
-import { DataTable, useApi } from "@liratek/ui";
+import {
+  DataTable,
+  useApi,
+  useCursorPages,
+  type CursorPage,
+} from "@liratek/ui";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { formatCreatedAt } from "../transactionCellText";
+import logger from "@/utils/logger";
 
 const ACTION_COLORS: Record<string, string> = {
   CREATE: "text-green-400",
@@ -32,13 +38,23 @@ function formatTime(ts: string, language: string): string {
   );
 }
 
+/** A failed page read would otherwise leave an empty table — log it. */
+function logPageError(error: unknown): void {
+  logger.error("Failed to load the audit log", { error });
+}
+
 export interface AuditLogViewerProps {
   action: string;
   entityType: string;
   search: string;
+  /** The operator's days (`YYYY-MM-DD`, "" = open end), applied by the
+   *  server (LIRA-348, rule 27). */
   from: string;
   to: string;
+  /** Rows per page (LIRA-348: 50 — the next page loads as you scroll). */
   limit: number;
+  /** LIRA-348 — when given, the table shows its own day filter. */
+  onDayRangeChange?: (from: string, to: string) => void;
 }
 
 export default function AuditLogViewer({
@@ -48,72 +64,44 @@ export default function AuditLogViewer({
   from,
   to,
   limit,
+  onDayRangeChange,
 }: AuditLogViewerProps) {
   const { t, i18n } = useTranslation("audit");
   const api = useApi();
-  const [rows, setRows] = useState<AuditLogEntry[]>([]);
-  const [total, setTotal] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [offset, setOffset] = useState(0);
 
-  const load = useCallback(
-    async (append = false) => {
-      setLoading(true);
-      try {
-        const filters: AuditSearchFilters = {
-          limit,
-          offset: append ? offset : 0,
-        };
-        if (action) filters.action = action;
-        if (entityType) filters.entityType = entityType;
-        if (search) filters.search = search;
-        if (from) filters.from = from;
-        if (to) filters.to = to;
-
-        const res = await api.audit.search(filters);
-        if (res.success && res.rows) {
-          if (append) {
-            setRows((prev) => [...prev, ...res.rows!]);
-          } else {
-            setRows(res.rows);
-            setOffset(0);
-          }
-          if (res.total != null) setTotal(res.total);
-        }
-      } finally {
-        setLoading(false);
-      }
+  /** LIRA-348 — one page of `limit` rows after `beforeId` (the last id
+   *  shown; the log is ordered `id DESC`). Keyset, never an offset. */
+  const fetchPage = useCallback(
+    async (
+      beforeId: number | undefined,
+    ): Promise<CursorPage<AuditLogEntry, number>> => {
+      const filters: AuditSearchFilters = { limit };
+      if (action) filters.action = action;
+      if (entityType) filters.entityType = entityType;
+      if (search) filters.search = search;
+      if (from) filters.dayFrom = from;
+      if (to) filters.dayTo = to;
+      if (beforeId !== undefined) filters.beforeId = beforeId;
+      const res = await api.audit.search(filters);
+      if (!res.success) throw new Error(res.error ?? "Audit search failed");
+      const rows = (res.rows ?? []) as AuditLogEntry[];
+      const last = rows[rows.length - 1];
+      return {
+        rows,
+        nextCursor: rows.length >= limit && last ? last.id : undefined,
+      };
     },
-    [action, entityType, search, from, to, limit, offset],
+    // `api` is read inside the call only; useCursorPages holds this
+    // function through a ref, so its identity never re-fires a load
+    // (rule 25) — the reset key below decides when to start over.
+    [api, action, entityType, search, from, to, limit],
   );
-
-  const handleLoadMore = useCallback(() => {
-    const newOffset = offset + limit;
-    setOffset(newOffset);
-    (async () => {
-      setLoading(true);
-      try {
-        const filters: AuditSearchFilters = { limit, offset: newOffset };
-        if (action) filters.action = action;
-        if (entityType) filters.entityType = entityType;
-        if (search) filters.search = search;
-        if (from) filters.from = from;
-        if (to) filters.to = to;
-        const res = await api.audit.search(filters);
-        if (res.success && res.rows) {
-          setRows((prev) => [...prev, ...res.rows!]);
-        }
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [offset, limit, action, entityType, search, from, to]);
-
-  useEffect(() => {
-    setOffset(0);
-    load(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [action, entityType, search, from, to, limit]);
+  const pages = useCursorPages(
+    fetchPage,
+    `${action}|${entityType}|${search}|${from}|${to}|${limit}`,
+    logPageError,
+  );
+  const rows = pages.rows;
 
   return (
     <>
@@ -150,7 +138,7 @@ export default function AuditLogViewer({
           },
         ]}
         data={rows}
-        loading={loading}
+        loading={pages.loading}
         emptyMessage={t("table.noAuditEntries")}
         defaultSortKey="created_at"
         defaultSortDirection="desc"
@@ -158,7 +146,17 @@ export default function AuditLogViewer({
         exportPdf
         exportFilename="audit-log"
         showRowCount
-        totalRowCount={total ?? rows.length}
+        totalRowCount={rows.length}
+        loadMore={{
+          hasMore: pages.hasMore,
+          isLoadingMore: pages.isLoadingMore,
+          onLoadMore: pages.loadMore,
+          // Export loads every remaining page first.
+          loadAll: pages.loadAll,
+        }}
+        {...(onDayRangeChange
+          ? { dayRange: { from, to, onChange: onDayRangeChange } }
+          : {})}
         getSortValue={(row, key) => {
           if (key === "created_at")
             return parseDbDate(row.created_at).getTime();
@@ -201,17 +199,6 @@ export default function AuditLogViewer({
           </tr>
         )}
       />
-      {total != null && rows.length < total && (
-        <div className="flex justify-center p-3">
-          <button
-            onClick={handleLoadMore}
-            disabled={loading}
-            className="px-4 py-1.5 text-sm rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors disabled:opacity-50"
-          >
-            {loading ? t("table.loading") : t("table.loadMore")}
-          </button>
-        </div>
-      )}
     </>
   );
 }

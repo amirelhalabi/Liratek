@@ -317,10 +317,20 @@ function insertTenantFixture(db: Database.Database, tenantId: number): void {
           mobile_service_item_id, card_label, card_cost_lbp, card_credit_usd, wrong_number)
        VALUES (?, ?, ?, 'iPick', 'alfa', ?, 'Alfa 7.58', 770000, 7.58, '03111111')`,
     ).run(tenantId, expenseId, txnId, mobileItemId);
+    const partnerLedgerId = Number(
+      db
+        .prepare(
+          `INSERT INTO partner_ledger (tenant_id, partner_id, transaction_type, amount, direction)
+           VALUES (?, ?, 'TEST', 1, 'DEBIT')`,
+        )
+        .run(tenantId, partnerId).lastInsertRowid,
+    );
+    // LIRA-346 v225 — what a partner settlement paid on one partner row.
     db.prepare(
-      `INSERT INTO partner_ledger (tenant_id, partner_id, transaction_type, amount, direction)
-       VALUES (?, ?, 'TEST', 1, 'DEBIT')`,
-    ).run(tenantId, partnerId);
+      `INSERT INTO partner_settlement_coverage
+         (tenant_id, settlement_ledger_id, partner_ledger_id, partner_id, currency, side, amount, source)
+       VALUES (?, ?, ?, ?, 'USD', 'DEBIT', 1, 'PAYMENT')`,
+    ).run(tenantId, partnerLedgerId, partnerLedgerId, partnerId);
     db.prepare(
       `INSERT INTO payments (tenant_id, method, drawer_name, currency_code, amount)
        VALUES (?, 'CASH', 'General', 'USD', 1)`,

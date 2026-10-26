@@ -88,12 +88,41 @@ function sessionItemRefundNetCreditSql(
     ), 0) ELSE 0 END`;
 }
 
+/**
+ * LIRA-347 D4 — how much of a module charge the generic void / refund has
+ * cancelled, in one currency column (a positive magnitude). `_cancelDebt`
+ * writes one 'Refund Reversal' row per charge on the charge's OWN
+ * `transaction_id`, negating it, and never sets the charge's
+ * `is_refunded` (that flag is stamped on the transaction's source table).
+ * Before this fragment a refunded charge still read as open, so a later
+ * repayment could cover it instead of a real debt.
+ *
+ * Only NEGATIVE reversal amounts count: a sale's item refund writes a
+ * POSITIVE 'Refund Reversal' on the same transaction to cancel change kept
+ * as store credit (`SalesRepository`), which must never re-open a charge.
+ * Joined with `=` on `transaction_id`, so a row with no transaction (a
+ * basket's original 'Session Debt', whose reversals carry NULL) gets 0.
+ * Read-side, so charges refunded before this fix are corrected too.
+ */
+export function refundReversedSql(
+  alias: string,
+  currency: CoverageCurrency,
+): string {
+  return `COALESCE((
+      SELECT -SUM(rr.amount_${currency}) FROM debt_ledger rr
+      WHERE rr.transaction_id = ${alias}.transaction_id
+        AND rr.tenant_id = ${alias}.tenant_id
+        AND rr.transaction_type = 'Refund Reversal'
+        AND rr.amount_${currency} < 0
+    ), 0)`;
+}
+
 /** Amount of the row still waiting for repayment, in one currency column. */
 export function coverageOutstandingSql(
   alias: string,
   currency: CoverageCurrency,
 ): string {
-  return `(COALESCE(${alias}.amount_${currency}, 0) - COALESCE(${alias}.covered_${currency}, 0) - ${sessionItemRefundNetCreditSql(alias, currency)})`;
+  return `(COALESCE(${alias}.amount_${currency}, 0) - COALESCE(${alias}.covered_${currency}, 0) - ${sessionItemRefundNetCreditSql(alias, currency)} - ${refundReversedSql(alias, currency)})`;
 }
 
 /**

@@ -19,6 +19,9 @@ import {
   PartnerRecordTransactionSchema,
   PartnerSettleSchema,
   PartnerWriteOffSchema,
+  PartnerSettleDaysSchema,
+  PartnerMonthRowsSchema,
+  PartnerDayDetailSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -245,6 +248,97 @@ export function registerPartnerHandlers(): void {
       }
     },
   );
+
+  // ── LIRA-346 — settle by day: calendar reads (any role, like
+  // partners:get-ledger) ──────────────────────────────────────────────────
+
+  ipcMain.handle("partners:settle-open-rows", (_event, partnerId: number) => {
+    try {
+      if (!Number.isInteger(partnerId) || partnerId <= 0) {
+        return { success: false, error: "Invalid partner id" };
+      }
+      return getServiceInstance().getSettleOpenRows(partnerId);
+    } catch (error) {
+      ipcLogger.error({ error }, "partners:settle-open-rows failed");
+      return {
+        success: false,
+        error:
+          error instanceof Error ? error.message : "Failed to load the partner's open rows",
+      };
+    }
+  });
+
+  ipcMain.handle(
+    "partners:settle-month-rows",
+    (_event, partnerId: number, month: string) => {
+      try {
+        const v = validatePayload(PartnerMonthRowsSchema, { partnerId, month });
+        if (!v.ok) return { success: false, error: v.error };
+        return getServiceInstance().getSettleMonthRows(v.data.partnerId, v.data.month);
+      } catch (error) {
+        ipcLogger.error({ error }, "partners:settle-month-rows failed");
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Failed to load the month",
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    "partners:settle-day-detail",
+    (_event, partnerId: number, day: string) => {
+      try {
+        const v = validatePayload(PartnerDayDetailSchema, { partnerId, day });
+        if (!v.ok) return { success: false, error: v.error };
+        return getServiceInstance().getSettleDayDetail(v.data.partnerId, v.data.day);
+      } catch (error) {
+        ipcLogger.error({ error }, "partners:settle-day-detail failed");
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Failed to load the day",
+        };
+      }
+    },
+  );
+
+  // LIRA-346 — settle the picked days (admin, staff — same as
+  // partners:settle). "Settle old history up to <day>" is the same request
+  // with no money.
+  ipcMain.handle("partners:settle-days", (event, data: unknown) => {
+    try {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(PartnerSettleDaysSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
+      const result = getServiceInstance().settleDays({
+        ...v.data,
+        userId: auth.userId,
+      });
+      if (result.success) {
+        audit(event.sender.id, {
+          action: "settle",
+          entity_type: "partner_ledger",
+          summary: `Settled picked days for partner #${v.data.partnerId} (${v.data.selections.length} rows)`,
+          metadata: {
+            partnerId: v.data.partnerId,
+            selections: v.data.selections.length,
+            transactionId: result.id,
+          },
+        });
+      }
+      return result;
+    } catch (error) {
+      ipcLogger.error({ error }, "partners:settle-days failed");
+      return {
+        success: false,
+        error:
+          error instanceof Error ? error.message : "Failed to settle the picked days",
+      };
+    }
+  });
 
   // Record partner transaction (admin, staff)
   ipcMain.handle("partners:record-transaction", (event, data: unknown) => {

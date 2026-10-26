@@ -26,8 +26,9 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { partnerSettleSchema } from "@liratek/core";
+import { partnerSettleDaysSchema, partnerSettleSchema } from "@liratek/core";
 import { i18n } from "@/i18n/setup";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Partners from "../index";
 import {
   endRun,
@@ -51,6 +52,10 @@ const mockApi = {
     deactivate: jest.fn(),
     activate: jest.fn(),
     getBalance: jest.fn(),
+    getSettleOpenRows: jest.fn(),
+    getSettleMonthRows: jest.fn(),
+    getSettleDayDetail: jest.fn(),
+    settleDays: jest.fn(),
   },
 };
 
@@ -58,6 +63,50 @@ jest.mock("@liratek/ui", () => {
   const actual = jest.requireActual("@liratek/ui");
   return { ...actual, useApi: () => mockApi, appEvents: { emit: jest.fn() } };
 });
+
+// LIRA-346 — Settle opens the by-day sheet (TanStack queries); the old
+// balance-based modal is reached through "Settle by amount (old way)".
+jest.mock("@/shared/utils/localDay", () => {
+  const actual = jest.requireActual("@/shared/utils/localDay");
+  return { ...actual, localDay: () => "2026-10-26" };
+});
+
+/** One open partner row: For +$100 on 20 Oct (the partner owes the shop). */
+const OPEN_FOR_ROW = {
+  kind: "LEDGER" as const,
+  id: 11,
+  partner_id: 1,
+  currency: "USD" as const,
+  transaction_type: "FOR_POS",
+  direction: "DEBIT" as const,
+  reference_table: null,
+  reference_id: null,
+  notes: null,
+  source_txn_id: null,
+  created_at: "2026-10-20 09:00:00",
+  shop_day: "2026-10-20",
+  amount_usd: 100,
+  amount_lbp: 0,
+  covered_usd: 0,
+  covered_lbp: 0,
+  remaining_usd: 100,
+  remaining_lbp: 0,
+  row_scope: "DAY" as const,
+  unit_class: "DAY" as const,
+  relief_origin: null,
+  relief_ref: null,
+};
+
+function renderPage() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <Partners />
+    </QueryClientProvider>,
+  );
+}
 
 jest.mock("@/features/auth/context/AuthContext", () => ({
   useAuth: () => ({ user: { id: 1, username: "admin", role: "admin" } }),
@@ -95,6 +144,7 @@ const PARTNER = {
 
 type Write =
   | "settle"
+  | "settleDays"
   | "recordTransaction"
   | "writeOff"
   | "create"
@@ -121,6 +171,9 @@ async function openPartner() {
 async function openSettle() {
   await openPartner();
   click(await screen.findByTestId("partner-action-settle"));
+  // LIRA-346: Settle opens the by-day sheet; the old balance-based modal
+  // is one link away ("Settle by amount (old way)").
+  click(await screen.findByTestId("partner-settle-by-amount"));
   await screen.findByTestId("counterparty-settle-modal");
 }
 
@@ -149,8 +202,12 @@ async function runIn(
     balance: { usd: 100, lbp: 500000, usdt: 0 },
     breakdown: null,
   });
+  mockApi.partners.getSettleOpenRows.mockResolvedValue([OPEN_FOR_ROW]);
+  mockApi.partners.getSettleMonthRows.mockResolvedValue([OPEN_FOR_ROW]);
+  mockApi.partners.getSettleDayDetail.mockResolvedValue([]);
   for (const w of [
     "settle",
+    "settleDays",
     "recordTransaction",
     "writeOff",
     "create",
@@ -162,7 +219,7 @@ async function runIn(
   }
   await setGuardLanguage(lang);
   try {
-    render(<Partners />);
+    renderPage();
     // Proves the switch happened: the page header renders in Arabic.
     if (lang === "ar") {
       expect(await screen.findByText("إظهار غير النشطين")).toBeInTheDocument();
@@ -182,6 +239,37 @@ const settlePayload = (calls: unknown[][]) =>
   partnerSettleSchema.parse(calls[0]![0]);
 
 const SCENARIOS: Scenario[] = [
+  {
+    name: "Settle by day (LIRA-346) — USD $80 cash, $20 forgiven with a reason, notes",
+    write: "settleDays",
+    drive: async () => {
+      await openPartner();
+      click(await screen.findByTestId("partner-action-settle"));
+      await screen.findByTestId("partner-settle-payer-usd");
+      type(firstPaymentAmount(), "80");
+      type(screen.getByTestId("partner-settle-forgive-input"), "20");
+      type(
+        await screen.findByTestId("partner-settle-forgive-reason"),
+        "Goodwill",
+      );
+      type(screen.getByTestId("partner-settle-notes"), "Week 43");
+      const submit = screen.getByTestId("partner-settle-submit");
+      await waitFor(() => expect(submit).not.toBeDisabled());
+      click(submit);
+    },
+    check: (calls) => {
+      const p = partnerSettleDaysSchema.parse(calls[0]![0]);
+      expect(p.selections).toEqual([11]);
+      expect(p.include_account_credits).toBe(true);
+      expect(p.per_currency.USD).toEqual({
+        payer: "PARTNER",
+        payments: [{ method: "CASH", currency_code: "USD", amount: 80 }],
+        forgive: { amount: 20, reason: "Goodwill" },
+      });
+      expect(p.per_currency.LBP).toBeUndefined();
+      expect(p.notes).toBe("Week 43");
+    },
+  },
   {
     name: "Settle USD — $80 cash, $20 forgiven with a reason, notes",
     write: "settle",

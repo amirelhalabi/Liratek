@@ -6,13 +6,15 @@
  * two members (the OMT counter and OMT App) goes through a random sequence
  * of amount-first settlements (one or two currency sections, either
  * direction, optional ticked scope, overpay, change in either currency) and
- * voids (mostly newest first, sometimes an older one that must be refused).
+ * voids (mostly newest first, sometimes an older one — LIRA-343 R12: that
+ * is allowed now, no refusal).
  *
  * After EVERY step:
  *   1. per member and currency, the ledger sum equals Σ remaining over that
  *      member's open queue rows;
- *   2. per active settlement and currency, Σ NETTING on debts equals
- *      Σ NETTING on credits;
+ *   2. per ACTIVE settlement and currency, Σ NETTING on debts equals
+ *      Σ NETTING on credits (LIRA-343: an undone settlement may keep the
+ *      netting a later settlement relies on, so only active ones balance);
  *   3. no queue row has two active `closes_row = 1` coverage rows;
  *   a refused step wrote nothing.
  * At the end every remaining settlement is voided newest first and the
@@ -94,10 +96,10 @@ const LEGIT_SETTLE_REFUSALS = [
   // A random commission where no commission-carrying transfer closes.
   /^Commission can only be entered when this payment fully pays at least one transfer that carries commission\./,
 ];
-const LEGIT_VOID_REFUSALS = [
-  /^A later settlement \(#\d+, [^)]+\) paid the same transfers\. Void it first\.$/,
-  /^It is partly paid by settlement #\d+ — void that settlement first\.$/,
-];
+// LIRA-343 (FR-018, owner option 3) — undo has no exception any more: the
+// LIRA-322 refusals ("A later settlement … Void it first.", "It is partly
+// paid by settlement #… — void that settlement first.") must never fire.
+const LEGIT_VOID_REFUSALS: readonly RegExp[] = [];
 const expectLegit = (e: unknown, allowed: readonly RegExp[]): void => {
   const msg = e instanceof Error ? e.message : String(e);
   if (!allowed.some((re) => re.test(msg))) {
@@ -258,7 +260,9 @@ function runSeed(seed: number): Stats {
              FROM supplier_settlement_coverage c
              LEFT JOIN supplier_ledger l
                ON c.row_kind = 'LEDGER' AND l.id = c.row_id AND l.tenant_id = c.tenant_id
-            WHERE c.tenant_id = 1 AND c.is_reversed = 0 AND c.source = 'NETTING'`,
+            WHERE c.tenant_id = 1 AND c.is_reversed = 0 AND c.source = 'NETTING'
+              AND EXISTS (SELECT 1 FROM transactions t
+                           WHERE t.id = c.transaction_id AND t.status = 'ACTIVE')`,
         )
         .all() as Array<{ txn: number; currency: Currency; amount: number; sign: number }>;
       const bySettlement = new Map<string, number>();
@@ -397,9 +401,8 @@ function runSeed(seed: number): Stats {
         txRepo.voidTransaction(id, 1);
       } catch (e) {
         if (!(e instanceof DatabaseError)) throw e;
+        // No void is refused any more (LIRA-343): this always throws.
         expectLegit(e, LEGIT_VOID_REFUSALS);
-        // Only an older settlement may be refused (newest first, R8).
-        expect(idx).toBeLessThan(active.length - 1);
         stats.refusedVoid++;
         expect(writeCounts(db)).toEqual(counts0);
         return;
@@ -433,14 +436,21 @@ function runSeed(seed: number): Stats {
     const p = profitTotals(db);
     expect(round2(p.usd - start.profit.usd)).toBe(0);
     expect(Math.round(p.lbp - start.profit.lbp) + 0).toBe(0);
-    const activeCoverage = (
+    // LIRA-343 (R12) — an older settlement undone while a later one relied
+    // on it keeps that coverage active (its amount sits on the account as
+    // an open row instead). Every settlement is undone now, so whatever
+    // coverage is still active belongs to an undone (VOIDED) settlement.
+    const activeOnLive = (
       db
         .prepare(
-          `SELECT COUNT(*) AS n FROM supplier_settlement_coverage WHERE tenant_id = 1 AND is_reversed = 0`,
+          `SELECT COUNT(*) AS n FROM supplier_settlement_coverage c
+            JOIN transactions t ON t.id = c.transaction_id
+           WHERE c.tenant_id = 1 AND c.is_reversed = 0 AND t.status <> 'VOIDED'`,
         )
         .get() as { n: number }
     ).n;
-    expect(activeCoverage).toBe(0);
+    expect(activeOnLive).toBe(0);
+    expect(stats.refusedVoid).toBe(0);
     return stats;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

@@ -147,3 +147,29 @@ export function dateRange(col: string): string {
   const mod = localtimeModifier();
   return `datetime(${col}, ${mod}) >= ? AND datetime(${col}, ${mod}) <= ?`;
 }
+
+/**
+ * LIRA-343 T033a (FR-016c) — an optional shop-day range on a timestamp
+ * column, either bound optional: `localDayExpr(col) BETWEEN ? AND ?` when
+ * both are set, `>= ?` / `<= ?` when only one is. Days are `YYYY-MM-DD` in
+ * the OPERATOR's day (rule 27 — same {@link localDayExpr} the calendar's
+ * `shop_day` uses, so a day in the filter and a day on the calendar always
+ * agree). A falsy bound (`undefined` or the cleared field's `""`) is no
+ * bound. No bound at all → `{ sql: "", params: [] }`, so a caller that
+ * splices it in leaves its query exactly as before.
+ *
+ * `sql` is a bare condition (no leading WHERE/AND); the caller joins it.
+ * The bounds are always bound as parameters, never inlined.
+ */
+export function localDayRangeFilter(
+  col: string,
+  range?: { from?: string; to?: string },
+): { sql: string; params: string[] } {
+  const from = range?.from || undefined;
+  const to = range?.to || undefined;
+  const day = localDayExpr(col);
+  if (from && to) return { sql: `${day} BETWEEN ? AND ?`, params: [from, to] };
+  if (from) return { sql: `${day} >= ?`, params: [from] };
+  if (to) return { sql: `${day} <= ?`, params: [to] };
+  return { sql: "", params: [] };
+}

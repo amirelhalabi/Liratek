@@ -86,7 +86,8 @@ jest.mock("@/hooks/useShopBase", () => ({
 const BUY_RATE = 89000;
 const TYPED_RATE = 87000;
 
-// A product supplier (is_system = 0, no provider).
+// LIRA-345 (S3) — product suppliers settle by day (no Pay / Receive), so
+// the Pay form is exercised on a company supplier that still has it.
 const SUPPLIER = {
   id: 5,
   name: "Acme Distributors",
@@ -95,8 +96,8 @@ const SUPPLIER = {
   note: null,
   is_active: 1,
   module_key: null,
-  provider: null,
-  is_system: 0,
+  provider: "WHISH_APP",
+  is_system: 1,
   created_at: "2026-08-01T00:00:00Z",
 };
 
@@ -112,7 +113,6 @@ function renderPage() {
 }
 
 async function openPayTab() {
-  fireEvent.click(screen.getByRole("button", { name: "Products" }));
   fireEvent.click((await screen.findAllByText("Acme Distributors"))[0]);
   fireEvent.click(await screen.findByText("Pay / Receive"));
   return screen.findByTestId("payment-exchange-rate");

@@ -112,6 +112,8 @@ import {
   WALLET_PROVIDERS_SQL_LIST,
 } from "../constants/walletProviders.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { localDayExpr, localDayRangeFilter } from "./reportingTimeFragments.js";
+import type { SupplierDayRangeInput } from "../validators/supplier.js";
 import { requestNow } from "../utils/requestNow.js";
 import { requestNowIso } from "../utils/requestNowIso.js";
 import { BusinessRuleError } from "../utils/errors.js";
@@ -1605,7 +1607,67 @@ export function pendingSettlementSql(
 // creation stayed visible (and settleable) in the settle tab forever.
 // `COALESCE(...)` guards rows from before v120 added the column, mirroring
 // `SupplierRepository.ts`'s own `notRefunded` helper style for supplier_ledger.
-const NOT_REFUNDED_SQL = `COALESCE(is_refunded, 0) = 0`;
+// LIRA-343 (T001) — exported so SupplierRepository's account-queue reads of
+// `financial_services` reuse it instead of re-typing it (rule 14).
+export const NOT_REFUNDED_SQL = `COALESCE(is_refunded, 0) = 0`;
+
+// LIRA-343 (research R3), rule 14 — the ONE "legacy cost-flow sale whose
+// supplier debt is its own" branch of the settle queue: a SEND written
+// through a cost/price provider before C5 (`supplier_debt_booked = 1`) that
+// owes `cost`. Shared by `getUnsettledBySupplier` (open: plus
+// `settlement_id IS NULL`) and `getAccountRowsByProvider` (both modes).
+const SALE_COST_SETTLE_BRANCH_SQL = `service_type = 'SEND'
+             AND cost > 0
+             AND supplier_debt_booked = 1`;
+
+/**
+ * LIRA-343 — one `financial_services` row of an OMT-account member, as the
+ * account row source (`SupplierRepository._accountRows`) reads it in either
+ * mode. `supplier_owed` is `SUPPLIER_OWED_EXPR` (0 for the born-settled
+ * activity branch); `is_closed` is 1 when the row's own "still open"
+ * condition no longer holds (pending branch: `is_settled`; cost-flow
+ * branch: `settlement_id`); `shop_day` is `localDayExpr(created_at)`.
+ */
+export interface FinancialServiceAccountRow {
+  id: number;
+  provider: string;
+  service_type: string;
+  currency: string;
+  omt_service_type: string | null;
+  commission_model: number | null;
+  created_at: string;
+  supplier_owed: number;
+  is_closed: number;
+  shop_day: string;
+  /** Settle table ("See transactions"): the first non-empty of the
+   *  customer / sender / receiver name, else null. */
+  party_name: string | null;
+  /** `reference_number`, `phone_number`, `note`; null when empty. */
+  reference: string | null;
+  phone: string | null;
+  note: string | null;
+}
+
+/** LIRA-343 — `null` = the open settle queue; a window = every row with
+ *  `created_at` in `[fromUtc, toUtc)`, settled or not. */
+export type FinancialServiceAccountWindow = {
+  fromUtc: string;
+  toUtc: string;
+} | null;
+
+/**
+ * LIRA-343 T033a — one row of {@link FinancialServiceRepository.getFifoPrefixByProvider}:
+ * only what the manual-payment FIFO walk in `FinancialService.getAllByProvider`
+ * reads.
+ */
+export interface FifoPrefixRow {
+  id: number;
+  service_type: string;
+  supplier_owed: number;
+  settlement_id: number | null;
+  is_refunded: number;
+  created_at: string;
+}
 
 export class FinancialServiceRepository extends BaseRepository<FinancialServiceEntity> {
   /** Memoized result of {@link _hasSettlementAllocationsTable} — the schema
@@ -6252,15 +6314,82 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
          UNION ALL
          SELECT ${this.getSaleCostSettleColumns()} FROM financial_services
            WHERE provider = ?
-             AND service_type = 'SEND'
-             AND cost > 0
+             AND ${SALE_COST_SETTLE_BRANCH_SQL}
              AND settlement_id IS NULL
-             AND supplier_debt_booked = 1
              AND ${NOT_REFUNDED_SQL}
              AND tenant_id = ?
          ORDER BY created_at ASC`,
       )
       .all(provider, tenantId, provider, tenantId) as FinancialServiceEntity[];
+  }
+
+  /**
+   * LIRA-343 (research R3) — the OMT-account row source for one member
+   * provider, in two modes built from the SAME branch predicates as
+   * {@link getUnsettledBySupplier} (rule 14):
+   *
+   *  - open (`window = null`): exactly `getUnsettledBySupplier`'s rows —
+   *    pending rows with `is_settled = 0`, legacy cost-flow sales with
+   *    `settlement_id IS NULL`.
+   *  - range: both branches WITHOUT the "still open" condition, plus a third
+   *    branch for every other row of the provider (born settled, nothing
+   *    owed: `supplier_owed` forced to 0) so its day counts as activity.
+   *    `created_at` in `[fromUtc, toUtc)`.
+   *
+   * Refunded rows are excluded in both modes. Ordered oldest first.
+   */
+  getAccountRowsByProvider(
+    provider: string,
+    window: FinancialServiceAccountWindow,
+  ): FinancialServiceAccountRow[] {
+    const tenantId = getCurrentTenantId();
+    const pendingSql = pendingSettlementSql(
+      this._suppliersHasCommissionEligibleColumn(),
+    );
+    const cols = (owed: string, closed: string): string =>
+      `id, provider, service_type, currency, omt_service_type, commission_model,
+       created_at, ${owed} AS supplier_owed, ${closed} AS is_closed,
+       ${localDayExpr("created_at")} AS shop_day,
+       COALESCE(NULLIF(TRIM(client_name), ''), NULLIF(TRIM(sender_name), ''),
+                NULLIF(TRIM(receiver_name), '')) AS party_name,
+       NULLIF(TRIM(reference_number), '') AS reference,
+       NULLIF(TRIM(phone_number), '') AS phone,
+       NULLIF(TRIM(note), '') AS note`;
+    if (window === null) {
+      return this.db
+        .prepare(
+          `SELECT ${cols(SUPPLIER_OWED_EXPR, "0")} FROM financial_services
+             WHERE provider = ? AND tenant_id = ? AND ${NOT_REFUNDED_SQL} AND is_settled = 0 AND ${pendingSql}
+           UNION ALL
+           SELECT ${cols(SUPPLIER_OWED_EXPR, "0")} FROM financial_services
+             WHERE provider = ? AND tenant_id = ? AND ${NOT_REFUNDED_SQL} AND settlement_id IS NULL AND ${SALE_COST_SETTLE_BRANCH_SQL}
+           ORDER BY created_at ASC`,
+        )
+        .all(provider, tenantId, provider, tenantId) as FinancialServiceAccountRow[];
+    }
+    const inWindow = `created_at >= ? AND created_at < ?`;
+    return this.db
+      .prepare(
+        `SELECT ${cols(SUPPLIER_OWED_EXPR, "CASE WHEN is_settled = 0 THEN 0 ELSE 1 END")}
+           FROM financial_services
+           WHERE provider = ? AND tenant_id = ? AND ${NOT_REFUNDED_SQL} AND ${inWindow} AND ${pendingSql}
+         UNION ALL
+         SELECT ${cols(SUPPLIER_OWED_EXPR, "CASE WHEN settlement_id IS NULL THEN 0 ELSE 1 END")}
+           FROM financial_services
+           WHERE provider = ? AND tenant_id = ? AND ${NOT_REFUNDED_SQL} AND ${inWindow} AND ${SALE_COST_SETTLE_BRANCH_SQL}
+         UNION ALL
+         SELECT ${cols("0", "1")}
+           FROM financial_services
+           WHERE provider = ? AND tenant_id = ? AND ${NOT_REFUNDED_SQL} AND ${inWindow}
+             AND COALESCE((${pendingSql}), 0) = 0
+             AND COALESCE((${SALE_COST_SETTLE_BRANCH_SQL}), 0) = 0
+         ORDER BY created_at ASC`,
+      )
+      .all(
+        provider, tenantId, window.fromUtc, window.toUtc,
+        provider, tenantId, window.fromUtc, window.toUtc,
+        provider, tenantId, window.fromUtc, window.toUtc,
+      ) as FinancialServiceAccountRow[];
   }
 
   /**
@@ -6295,17 +6424,18 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
   }
 
   /**
-   * Get ALL financial_services rows for a given supplier provider, ordered by
-   * created_at DESC. Returns up to `limit` rows (default 200).
+   * The provider's history row set, shared by {@link getAllByProvider} and
+   * {@link getFifoPrefixByProvider} (rule 14 — one definition of "this
+   * provider's rows" and of their projection). Two `?` pairs: (provider,
+   * tenant) for each branch.
    *
    * Row projection rules (mirrors getUnsettledBySupplier):
    *  - SEND rows with cost > 0 (cost-flow sales) → amount = cost, commission = 0
    *    via getSaleCostSettleColumns(), so the frontend's math stays consistent.
    *  - All other rows → full columns via getColumns().
    */
-  getAllByProvider(provider: string, limit = 200): FinancialServiceEntity[] {
-    const tenantId = getCurrentTenantId();
-    const union = `SELECT ${this.getColumns()} FROM financial_services
+  private _providerHistoryUnion(): string {
+    return `SELECT ${this.getColumns()} FROM financial_services
            WHERE provider = ?
              AND NOT (service_type = 'SEND' AND cost > 0)
              AND tenant_id = ?
@@ -6315,6 +6445,27 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
              AND service_type = 'SEND'
              AND cost > 0
              AND tenant_id = ?`;
+  }
+
+  /**
+   * Get ALL financial_services rows for a given supplier provider, ordered by
+   * created_at DESC. Returns up to `limit` rows (default 200).
+   *
+   * LIRA-343 T033a (FR-016c) — optional shop-day `range` (`{ from?, to? }`,
+   * `YYYY-MM-DD`): rows are filtered by `localDayExpr(created_at)` (rule 27)
+   * BEFORE the LIMIT, so a day older than the latest `limit` rows can still
+   * be shown. No range (or only empty bounds) → no filter and no extra bind:
+   * the latest `limit` rows, exactly as before.
+   */
+  getAllByProvider(
+    provider: string,
+    limit = 200,
+    range?: SupplierDayRangeInput,
+  ): FinancialServiceEntity[] {
+    const tenantId = getCurrentTenantId();
+    const union = this._providerHistoryUnion();
+    const day = localDayRangeFilter("t.created_at", range);
+    const rangeWhere = day.sql ? `\n           WHERE ${day.sql}` : "";
     // Display-only enrichment for the Suppliers page Transactions tab
     // (BILL_COMMISSION_SETTLEMENT_PLAN.md follow-up): a settled BILL row's
     // OWN `commission` column is 0 by design — the commission for a bill is
@@ -6337,7 +6488,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
            LEFT JOIN settlement_commission_allocations sca
              ON sca.financial_service_id = t.id
             AND sca.settlement_ledger_id = t.settlement_id
-            AND sca.tenant_id = ?
+            AND sca.tenant_id = ?${rangeWhere}
            ORDER BY t.created_at DESC
            LIMIT ?`,
         )
@@ -6347,13 +6498,14 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           provider,
           tenantId,
           tenantId,
+          ...day.params,
           limit,
         ) as FinancialServiceEntity[];
     }
     return this.db
       .prepare(
         `SELECT t.*, NULL AS settled_commission_usd, NULL AS settled_commission_lbp
-         FROM (${union}) t
+         FROM (${union}) t${rangeWhere}
          ORDER BY t.created_at DESC
          LIMIT ?`,
       )
@@ -6362,8 +6514,34 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         tenantId,
         provider,
         tenantId,
+        ...day.params,
         limit,
       ) as FinancialServiceEntity[];
+  }
+
+  /**
+   * LIRA-343 T033a — the FIFO "prefix" for a ranged Transactions read: every
+   * row of the provider whose shop day is BEFORE `fromDay`, oldest first,
+   * with only the fields the manual-payment FIFO walk reads. A range hides
+   * these rows from the window, but they still consume the payment pool
+   * before the rows in the window do, so `FinancialService.getAllByProvider`
+   * replays them first — otherwise "Today" would hand an older unpaid row's
+   * share of the pool to today's row and relabel it "paid". Same row set and
+   * projection as {@link getAllByProvider} ({@link _providerHistoryUnion}).
+   */
+  getFifoPrefixByProvider(
+    provider: string,
+    fromDay: string,
+  ): FifoPrefixRow[] {
+    const tenantId = getCurrentTenantId();
+    return this.db
+      .prepare(
+        `SELECT t.id, t.service_type, t.supplier_owed, t.settlement_id, t.is_refunded, t.created_at
+         FROM (${this._providerHistoryUnion()}) t
+         WHERE ${localDayExpr("t.created_at")} < ?
+         ORDER BY t.created_at ASC, t.id ASC`,
+      )
+      .all(provider, tenantId, provider, tenantId, fromDay) as FifoPrefixRow[];
   }
 
   /**

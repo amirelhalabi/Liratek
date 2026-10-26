@@ -66,6 +66,7 @@ import {
   getFinancialService,
   supplierSettleSchema,
   supplierSettleAccountSchema,
+  removeAccountCreditSchema,
   type SupplierCreatePayload,
 } from "@liratek/core";
 import suppliersRouter from "../suppliers.js";
@@ -126,7 +127,7 @@ describe("Suppliers REST routes", () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ success: true, transactions: [{ id: 7 }] });
-      expect(spy).toHaveBeenCalledWith("WHISH", 10);
+      expect(spy).toHaveBeenCalledWith("WHISH", 10, undefined);
     });
   });
 
@@ -819,6 +820,58 @@ describe("Suppliers REST routes", () => {
         .send(amountFirstBody);
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ success: false, error: "OMT's balance changed" });
+    });
+  });
+
+  // ── LIRA-344 — POST /:id/remove-account-credit ───────────────────────────
+  describe("POST /api/suppliers/:id/remove-account-credit", () => {
+    const body = {
+      ledger_row_id: 91,
+      reason: "OMT never accepts this credit",
+      expected_remaining: { usd: -40, lbp: 0 },
+      client_day: "2026-10-26",
+    };
+
+    it("rejects staff (admin-only, mirrors suppliers:remove-account-credit)", async () => {
+      const spy = jest.spyOn(supplierService, "removeAccountCredit");
+      const res = await request(app)
+        .post("/api/suppliers/28/remove-account-credit")
+        .set("x-test-role", "staff")
+        .send(body);
+      expect(res.status).toBe(403);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("refuses a too-short reason with the IPC envelope (HTTP 200, success false)", async () => {
+      const spy = jest.spyOn(supplierService, "removeAccountCredit");
+      const res = await request(app)
+        .post("/api/suppliers/28/remove-account-credit")
+        .set("x-test-role", "admin")
+        .send({ ...body, reason: "no" });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("happy path: account id from the URL, actor from the JWT, every schema key forwarded", async () => {
+      const spy = jest
+        .spyOn(supplierService, "removeAccountCredit")
+        .mockReturnValue({ success: true, id: 5, transaction_id: 77, expense_id: 9 });
+      const res = await request(app)
+        .post("/api/suppliers/28/remove-account-credit")
+        .set("x-test-role", "admin")
+        .send({ ...body, created_by: 1 });
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true, id: 5, transaction_id: 77, expense_id: 9 });
+      // Rule 24: the expected keys come from the schema itself.
+      const forwarded = spy.mock.calls[0][0] as Record<string, unknown>;
+      for (const key of Object.keys(removeAccountCreditSchema.shape)) {
+        expect(forwarded).toHaveProperty(key);
+      }
+      expect(forwarded).toEqual(
+        expect.objectContaining({ account_supplier_id: 28, created_by: 42 }),
+      );
     });
   });
 });

@@ -20,6 +20,8 @@ jest.mock("../../repositories/index.js", () => {
       getManualPaymentPools: mockGetManualPaymentPools,
       // LIRA-322 — a non-member keeps the pool estimate this file tests.
       isAccountMember: () => false,
+      // LIRA-345 — nor a day-calendar supplier (labels from coverage).
+      settlesByDay: () => false,
     }),
   };
 });

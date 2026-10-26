@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { formatNumber } from "@liratek/ui/i18n/format";
@@ -21,6 +28,7 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { TableModal } from "@/shared/components/TableModal";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { localDay, localMonth } from "@/shared/utils/localDay";
 import {
   useSuppliersQuery,
   useSupplierBalancesQuery,
@@ -28,6 +36,7 @@ import {
   useProductStockValueQuery,
   useSupplierLedgerQuery,
   useAllTransactionsQuery,
+  useSupplierAccountTransactionsQuery,
   useSupplierCashflowMutation,
   useSupplierLedgerEntryMutation,
   useUnsettledTransactionsQuery,
@@ -42,14 +51,24 @@ import {
   type AccountLedgerEntry,
   type AccountUnsettledRow,
 } from "../../hooks/useSuppliers";
-import { AccountSettleSheet } from "../../components/AccountSettleSheet";
+import {
+  AccountSettleSheet,
+  type SettleSheetAccount,
+} from "../../components/AccountSettleSheet";
 import { OmtStatementCheckPanel } from "../../components/OmtStatementCheckPanel";
 import OmtCoveredTypesPicker from "../../components/OmtCoveredTypesPicker";
 import {
   loadCoveredTypes,
   saveCoveredTypes,
 } from "../../utils/omtCoveredTypesStorage";
-import { isOmtRowCovered, type OmtCoveredType } from "@liratek/core";
+import {
+  billsStayOnTickList,
+  calendarTakesCommission,
+  isOmtRowCovered,
+  settlesByDay,
+  type OmtCoveredType,
+  type SettlesByDayInput,
+} from "@liratek/core";
 
 type Supplier = {
   id: number;
@@ -510,6 +529,110 @@ function balanceColor(amount: number): string {
  * still select OMT via `supplier-tile-${provider}` and are not touched by
  * this change. See this lane's RISKS/DECISIONS.
  */
+/** LIRA-343 (FR-016c) — the Transactions window's from–to range, as shop
+ *  days `YYYY-MM-DD` ("" = open end). Keyed by the supplier it was set for,
+ *  so a range never carries over to another supplier. */
+type TxnsRange = { supplierId: number | null; from: string; to: string };
+const NO_TXNS_RANGE: TxnsRange = { supplierId: null, from: "", to: "" };
+
+/** LIRA-343 (FR-016c) — two date fields + Today / Yesterday / This month /
+ *  Clear. Days are the browser's own local days (rule 27: never the UTC day
+ *  of `toISOString()`). */
+function TransactionsDateFilter({
+  from,
+  to,
+  onChange,
+  testId = "supplier-txns-date-filter",
+}: {
+  from: string;
+  to: string;
+  onChange: (from: string, to: string) => void;
+  /** The Payments window reuses this filter under its own test id. */
+  testId?: string;
+}) {
+  const { t } = useTranslation("suppliers");
+  const fromId = useId();
+  const toId = useId();
+  const today = () => localDay();
+  const yesterday = () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return localDay(d);
+  };
+  const input =
+    "bg-slate-900 border border-slate-600 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500 [color-scheme:dark]";
+  const preset =
+    "px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-semibold";
+  return (
+    <div
+      role="group"
+      aria-label={t("transactionsFilter.label")}
+      data-testid={testId}
+      className="flex flex-wrap items-center gap-2"
+    >
+      <label htmlFor={fromId} className="text-xs text-slate-400">
+        {t("transactionsFilter.from")}
+      </label>
+      <input
+        id={fromId}
+        type="date"
+        value={from}
+        max={to || undefined}
+        // The server refuses From after To: moving From past To moves To
+        // along with it (and the reverse below), so the pair is never upside
+        // down. Plain string order is day order for `YYYY-MM-DD`.
+        onChange={(e) => {
+          const next = e.target.value;
+          onChange(next, to && next && next > to ? next : to);
+        }}
+        className={input}
+      />
+      <label htmlFor={toId} className="text-xs text-slate-400">
+        {t("transactionsFilter.to")}
+      </label>
+      <input
+        id={toId}
+        type="date"
+        value={to}
+        min={from || undefined}
+        onChange={(e) => {
+          const next = e.target.value;
+          onChange(from && next && next < from ? next : from, next);
+        }}
+        className={input}
+      />
+      <button
+        type="button"
+        className={preset}
+        onClick={() => onChange(today(), today())}
+      >
+        {t("transactionsFilter.today")}
+      </button>
+      <button
+        type="button"
+        className={preset}
+        onClick={() => onChange(yesterday(), yesterday())}
+      >
+        {t("transactionsFilter.yesterday")}
+      </button>
+      <button
+        type="button"
+        className={preset}
+        onClick={() => onChange(`${localMonth()}-01`, today())}
+      >
+        {t("transactionsFilter.thisMonth")}
+      </button>
+      <button
+        type="button"
+        className="px-2 py-1.5 text-xs font-semibold text-slate-400 hover:text-white underline underline-offset-[3px]"
+        onClick={() => onChange("", "")}
+      >
+        {t("transactionsFilter.clear")}
+      </button>
+    </div>
+  );
+}
+
 function SupplierAccountCard({
   account,
   selectedSupplierId,
@@ -898,9 +1021,13 @@ export default function SuppliersPage() {
   // UI pass clicks it directly). Conditionally rendered (not just hidden)
   // below so its internal state resets on every open, same convention as
   // `showSettleConfirm`'s CounterpartySettleModal.
-  const [settlingAccount, setSettlingAccount] = useState<AccountBalance | null>(
-    null,
-  );
+  // LIRA-345 — also a supplier outside the OMT account settled on the day
+  // calendar (an "account of one"): `omtAccount` false, then no OMT
+  // statement types, and the commission field only where it applies.
+  const [settlingAccount, setSettlingAccount] = useState<
+    | (SettleSheetAccount & { omtAccount: boolean; takesCommission: boolean })
+    | null
+  >(null);
   useModalFocusFix(!!settlingAccount);
 
   // D5 — batch settlement (resurrected from the orphaned
@@ -1001,9 +1128,6 @@ export default function SuppliersPage() {
   const settleCoveredKey = settleCovered ? settleCovered.join(",") : "ALL";
 
   const ledgerQuery = useSupplierLedgerQuery(selectedSupplierId);
-  const allTxnsQuery = useAllTransactionsQuery(
-    isProductSupplier ? null : (selectedSupplier?.provider ?? null),
-  );
   const unsettledQuery = useUnsettledTransactionsQuery(
     isProductSupplier ? null : (selectedSupplier?.provider ?? null),
   );
@@ -1014,8 +1138,7 @@ export default function SuppliersPage() {
   const productBalances = (productBalancesQuery.data ??
     []) as SupplierBalance[];
   const ledger = (ledgerQuery.data ?? []) as LedgerEntry[];
-  const allTxns = (allTxnsQuery.data ?? []) as SupplierTxn[];
-  const unsettledTxns = (unsettledQuery.data ??
+  const unsettledTxnsAll = (unsettledQuery.data ??
     []) as UnsettledSupplierTransaction[];
   const accountBalances = (accountBalancesQuery.data ?? []) as AccountBalance[];
 
@@ -1060,9 +1183,34 @@ export default function SuppliersPage() {
     (selectedSupplierId != null &&
       accountChildSupplierIds.has(selectedSupplierId)) ||
     selectedSupplier?.account_supplier_id != null;
+  // LIRA-345 (S1/S3) — the ONE "settled on the day calendar" rule (rule 14,
+  // `settlesByDay` in core, the server gate's own): the OMT account, Katsh,
+  // active Whish and product suppliers settle through Settle Account and
+  // have no Pay / Receive tab. Katsh and Whish keep the tick list for their
+  // bills only (`billsStayOnTickList`).
+  const settleByDayInput: SettlesByDayInput | null = selectedSupplier
+    ? {
+        provider: selectedSupplier.provider,
+        is_system: selectedSupplier.is_system,
+        is_active: selectedSupplier.is_active,
+        is_account_member: isAccountMember,
+      }
+    : null;
+  const isSettleByDay =
+    settleByDayInput !== null && settlesByDay(settleByDayInput);
+  const billsOnlyTickList =
+    settleByDayInput !== null && billsStayOnTickList(settleByDayInput);
+  const unsettledTxns = useMemo(
+    () =>
+      billsOnlyTickList
+        ? unsettledTxnsAll.filter((t) => t.service_type === "BILL")
+        : unsettledTxnsAll,
+    [billsOnlyTickList, unsettledTxnsAll],
+  );
   useEffect(() => {
-    if (isAccountMember && activeTab === "manual") setActiveTab("settle");
-  }, [isAccountMember, activeTab]);
+    if (isSettleByDay && activeTab === "manual")
+      setActiveTab(isProductSupplier ? "items" : "settle");
+  }, [isSettleByDay, isProductSupplier, activeTab]);
   // Owner request (2026-10-16) — the Transactions history moved into its own
   // modal, so the "settle" tab now holds only the Commission Settlement tick
   // list, which is admin-only and hidden for account members. Show the tab
@@ -1072,9 +1220,69 @@ export default function SuppliersPage() {
   // view, as the read-only history was before.
   const showSettleTab = isAdmin && !isAccountMember;
 
+  // LIRA-343 (FR-016c) — the Transactions window's from–to filter. Held here
+  // (it survives closing the window) and keyed by supplier: a range set for
+  // another supplier reads as empty at once, and is dropped on the switch.
+  const [txnsRange, setTxnsRange] = useState<TxnsRange>(NO_TXNS_RANGE);
+  const activeTxnsRange =
+    txnsRange.supplierId === selectedSupplierId ? txnsRange : NO_TXNS_RANGE;
+  const txnsFrom = activeTxnsRange.from;
+  const txnsTo = activeTxnsRange.to;
+  useEffect(() => {
+    setTxnsRange((prev) =>
+      prev.supplierId === selectedSupplierId ? prev : NO_TXNS_RANGE,
+    );
+  }, [selectedSupplierId]);
+
+  // LIRA-343 T033a (FR-016c) — the Transactions window's history, filtered
+  // on the server by shop day (`txnsFrom` / `txnsTo`, "" = open end). An
+  // OMT account parent reads every member's rows (OMT, OMT App, iPick);
+  // any other supplier reads its own provider's rows.
+  // No range at all (both ends open) reads exactly as before the filter.
+  const txnsRangeArg =
+    txnsFrom || txnsTo ? { from: txnsFrom, to: txnsTo } : undefined;
+  const plainTxnsQuery = useAllTransactionsQuery(
+    isProductSupplier || isSelectedAccountParent
+      ? null
+      : (selectedSupplier?.provider ?? null),
+    txnsRangeArg,
+  );
+  const accountTxnsQuery = useSupplierAccountTransactionsQuery(
+    isSelectedAccountParent ? selectedSupplierId : null,
+    txnsRangeArg,
+  );
+  const allTxnsQuery = isSelectedAccountParent
+    ? accountTxnsQuery
+    : plainTxnsQuery;
+  const allTxns = (allTxnsQuery.data ?? []) as SupplierTxn[];
+
+  // LIRA-343 follow-up — the Payments window's own from–to range (never
+  // shared with Transactions: "See in Transactions ›" sets that one to a
+  // single day). Keyed by supplier like `txnsRange`. Only the OMT account
+  // parent's merged ledger takes a range on the server; a plain supplier's
+  // ledger read (`getSupplierLedger`) has none, so its window shows no filter.
+  const [paymentsRange, setPaymentsRange] =
+    useState<TxnsRange>(NO_TXNS_RANGE);
+  const activePaymentsRange =
+    paymentsRange.supplierId === selectedSupplierId
+      ? paymentsRange
+      : NO_TXNS_RANGE;
+  const paymentsFrom = activePaymentsRange.from;
+  const paymentsTo = activePaymentsRange.to;
+  useEffect(() => {
+    setPaymentsRange((prev) =>
+      prev.supplierId === selectedSupplierId ? prev : NO_TXNS_RANGE,
+    );
+  }, [selectedSupplierId]);
+  // No range at all keeps the old two-argument call.
+  const paymentsRangeArg =
+    paymentsFrom || paymentsTo
+      ? { from: paymentsFrom, to: paymentsTo }
+      : undefined;
   const accountLedgerQuery = useSupplierAccountLedgerQuery(
     isSelectedAccountParent ? selectedSupplierId : null,
     200,
+    paymentsRangeArg,
   );
   const accountLedgerRows = (accountLedgerQuery.data ??
     []) as AccountLedgerEntry[];
@@ -1103,8 +1311,13 @@ export default function SuppliersPage() {
   >(null);
   const closeTable = useCallback(() => setOpenTable(null), []);
   useModalFocusFix(openTable !== null);
+  // LIRA-343 (FR-016c) — `openTransactionsForDay` may switch the selected
+  // supplier AND open its window in one go; the reset below would close it
+  // again, so it leaves the window to open here instead.
+  const pendingOpenTableRef = useRef<"transactions" | null>(null);
   useEffect(() => {
-    setOpenTable(null);
+    setOpenTable(pendingOpenTableRef.current);
+    pendingOpenTableRef.current = null;
   }, [selectedSupplierId]);
 
   /** Shared by every left-list click target (plain tile, account card
@@ -1114,6 +1327,24 @@ export default function SuppliersPage() {
   const selectSupplierFromList = (supplierId: number) => {
     setSelectedSupplierId(supplierId);
     setActiveTab(viewCategory === "products" ? "items" : "settle");
+  };
+
+  /** LIRA-343 (FR-016c) — "See in Transactions ›" from a calendar day: open
+   *  the Transactions window filtered to that one shop day (from = to =
+   *  `day`). Defaults to the selected supplier; pass the account parent's id
+   *  when the settle sheet was opened without selecting it first. */
+  const openTransactionsForDay = (
+    day: string,
+    supplierId: number | null = selectedSupplierId,
+  ) => {
+    if (supplierId == null) return;
+    setTxnsRange({ supplierId, from: day, to: day });
+    if (supplierId === selectedSupplierId) {
+      setOpenTable("transactions");
+    } else {
+      pendingOpenTableRef.current = "transactions";
+      selectSupplierFromList(supplierId);
+    }
   };
 
   const sortedSuppliers = useMemo(
@@ -1993,14 +2224,17 @@ export default function SuppliersPage() {
   }[] = isProductSupplier
     ? [
         { id: "items", label: t("tabs.purchases") },
-        { id: "manual", label: t("tabs.payReceive") },
+        // LIRA-345 (S3) — a product supplier pays via Settle Account.
+        ...(isSettleByDay
+          ? []
+          : [{ id: "manual" as const, label: t("tabs.payReceive") }]),
       ]
     : [
         ...(showSettleTab
           ? [{ id: "settle" as const, label: t("tabs.settle") }]
           : []),
-        // LIRA-322 — account members pay via Settle Account.
-        ...(isAccountMember
+        // LIRA-322 / LIRA-345 — day-calendar suppliers pay via Settle Account.
+        ...(isSettleByDay
           ? []
           : [{ id: "manual" as const, label: t("tabs.payReceive") }]),
       ];
@@ -2083,7 +2317,14 @@ export default function SuppliersPage() {
                     selectedSupplierId={selectedSupplierId}
                     onSelect={selectSupplierFromList}
                     isAdmin={isAdmin}
-                    onSettle={setSettlingAccount}
+                    onSettle={(a) =>
+                      setSettlingAccount({
+                        account_supplier_id: a.account_supplier_id,
+                        account_name: a.account_name,
+                        omtAccount: true,
+                        takesCommission: true,
+                      })
+                    }
                   />
                 );
               }
@@ -2206,6 +2447,34 @@ export default function SuppliersPage() {
                       `onSettle`/`isAdmin` props below, not here. Both e2e
                       lanes' specs agree it must render exactly once, on the
                       card, not duplicated in this per-supplier panel. */}
+                  {/* LIRA-345 (S1/S3) — a supplier on the day calendar outside
+                      the OMT account (Katsh, active Whish, a product
+                      supplier) settles here, as an "account of one". The
+                      OMT account keeps its button on the account card.
+                      Admin-only, like the settle itself on both transports. */}
+                  {isAdmin &&
+                    selectedSupplier.is_active !== 0 &&
+                    isSettleByDay &&
+                    !isAccountMember &&
+                    settleByDayInput !== null && (
+                      <button
+                        type="button"
+                        data-testid="supplier-settle-by-day-button"
+                        onClick={() =>
+                          setSettlingAccount({
+                            account_supplier_id: selectedSupplier.id,
+                            account_name: selectedSupplier.name,
+                            omtAccount: false,
+                            takesCommission:
+                              calendarTakesCommission(settleByDayInput),
+                          })
+                        }
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold"
+                        title={t("account.settleDaysTitle")}
+                      >
+                        {t("account.settle")}
+                      </button>
+                    )}
                   {/* LIRA-080: Add Credit / Debt — a manual supplier_ledger
                       correction with a "Cash moved" toggle (default ON).
                       Admin-only: it reuses the addLedgerEntry / cashflow
@@ -2481,6 +2750,14 @@ export default function SuppliersPage() {
                     <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 px-1">
                       {t("settleTab.heading")}
                     </h3>
+                    {billsOnlyTickList && (
+                      <p
+                        data-testid="supplier-settle-bills-only"
+                        className="text-xs text-slate-400 mb-2 px-1"
+                      >
+                        {t("settleTab.billsOnly")}
+                      </p>
+                    )}
                     {isOmtSettle && (
                       <div className="mb-2">
                         <OmtCoveredTypesPicker
@@ -2721,7 +2998,7 @@ export default function SuppliersPage() {
                   inline variant (no backdrop/title — embedded in the tab). */}
               {selectedSupplier.is_active !== 0 &&
                 activeTab === "manual" &&
-                !isAccountMember && (
+                !isSettleByDay && (
                   <CounterpartySettleModal
                     variant="inline"
                     beforeContent={
@@ -2848,234 +3125,248 @@ export default function SuppliersPage() {
         selectedSupplier &&
         selectedSupplier.is_active !== 0 &&
         !isProductSupplier && (
-          <TableModal
-            title={t("txns.title", { name: selectedSupplier.name })}
-            onClose={closeTable}
-            testId="supplier-table-modal-backdrop"
-          >
-            <div className="space-y-3">
-              {allTxnsQuery.isLoading ? (
-                <div className="text-slate-400 text-sm py-6 text-center">
-                  {t("txns.loading")}
-                </div>
-              ) : allTxns.length === 0 ? (
-                <div className="text-slate-500 text-sm py-6 text-center">
-                  {t("txns.empty", { name: selectedSupplier.name })}
-                </div>
-              ) : (
-                <div className="border border-slate-700 rounded-xl overflow-hidden">
-                  <div className="grid grid-cols-12 gap-2 bg-slate-900/60 text-slate-300 text-xs font-semibold px-3 py-2">
-                    <div className={hasOmtFee ? "col-span-2" : "col-span-3"}>
-                      {t("table.type")}
-                    </div>
-                    <div
-                      className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-end`}
-                    >
-                      {t("table.amount")}
-                    </div>
-                    {hasOmtFee && (
-                      <div className="col-span-2 text-end">
-                        {t("table.omtFee")}
-                      </div>
-                    )}
-                    <div className="col-span-2 text-end">
-                      {t("table.commission")}
-                    </div>
-                    <div className="col-span-2 text-end">
-                      {t("table.status")}
-                    </div>
-                    <div className="col-span-2">{t("table.date")}</div>
+          // LIRA-343 T033 — a z-[60] stacking wrapper: opened from the settle
+          // sheet's day details ("See in Transactions ›"), the window must
+          // sit ABOVE the sheet (also z-50, rendered later) so the sheet,
+          // and its picks, stay open underneath.
+          <div className="relative z-[60]" data-testid="supplier-txns-layer">
+            <TableModal
+              title={t("txns.title", { name: selectedSupplier.name })}
+              onClose={closeTable}
+              testId="supplier-table-modal-backdrop"
+            >
+              <div className="space-y-3">
+                <TransactionsDateFilter
+                  from={txnsFrom}
+                  to={txnsTo}
+                  onChange={(from, to) =>
+                    setTxnsRange({ supplierId: selectedSupplierId, from, to })
+                  }
+                />
+                {allTxnsQuery.isLoading ? (
+                  <div className="text-slate-400 text-sm py-6 text-center">
+                    {t("txns.loading")}
                   </div>
-                  <div className="max-h-[65vh] overflow-y-auto">
-                    {sortedAllTxns.map((txn) => (
+                ) : allTxns.length === 0 ? (
+                  <div className="text-slate-500 text-sm py-6 text-center">
+                    {t("txns.empty", { name: selectedSupplier.name })}
+                  </div>
+                ) : (
+                  <div className="border border-slate-700 rounded-xl overflow-hidden">
+                    <div className="grid grid-cols-12 gap-2 bg-slate-900/60 text-slate-300 text-xs font-semibold px-3 py-2">
+                      <div className={hasOmtFee ? "col-span-2" : "col-span-3"}>
+                        {t("table.type")}
+                      </div>
                       <div
-                        key={txn.id}
-                        data-testid={`supplier-txn-row-${txn.id}`}
-                        className={`grid grid-cols-12 gap-2 px-3 py-2.5 text-sm border-t border-slate-700 items-center hover:bg-slate-700/30 ${isVoidedTxn(txn) ? "opacity-60" : ""}`}
+                        className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-end`}
                       >
-                        <div
-                          className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-xs text-slate-300`}
-                        >
-                          {txn.omt_service_type || txn.service_type}
-                        </div>
-                        {(() => {
-                          // Owner decision (2026-10-02) — same
-                          // supplier_owed-first treatment as the
-                          // settlement checkbox list above (rule 14, one
-                          // `formatOwedCell`).
-                          const cell = formatOwedCell(
-                            txn.supplier_owed,
-                            txn.amount,
-                            txn.omt_fee,
-                            txn.currency,
-                            t,
-                          );
-                          return (
-                            <div
-                              data-testid="supplier-txn-amount"
-                              className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-end font-mono text-white leading-tight`}
-                            >
-                              <div>{cell.main}</div>
-                              {cell.breakdown && (
-                                <div
-                                  data-testid="supplier-txn-breakdown"
-                                  className="text-[9px] text-slate-500 font-normal"
-                                >
-                                  {cell.breakdown}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
-                        {hasOmtFee && (
-                          <div className="col-span-2 text-end font-mono text-amber-400">
-                            {txn.omt_fee ? `$${txn.omt_fee.toFixed(2)}` : "—"}
-                          </div>
-                        )}
-                        <div className="col-span-2 text-end font-mono text-emerald-400">
-                          {txn.commission > 0 ? (
-                            txn.currency === "LBP" ? (
-                              `${formatNumber(Math.round(txn.commission))} LBP`
-                            ) : (
-                              `$${txn.commission.toFixed(4)}`
-                            )
-                          ) : (txn.settled_commission_usd ?? 0) > 0 ||
-                            (txn.settled_commission_lbp ?? 0) > 0 ? (
-                            // BILL_COMMISSION_SETTLEMENT_PLAN.md follow-up
-                            // — a settled BILL row's OWN `commission` is 0
-                            // by design (entered AT settlement, not
-                            // creation); this is the allocated share from
-                            // settlement_commission_allocations, joined in
-                            // by getAllByProvider for display only.
-                            [
-                              (txn.settled_commission_lbp ?? 0) > 0
-                                ? `${formatNumber(Math.round(txn.settled_commission_lbp!))} LBP`
-                                : null,
-                              (txn.settled_commission_usd ?? 0) > 0
-                                ? `$${txn.settled_commission_usd!.toFixed(2)}`
-                                : null,
-                            ]
-                              .filter(Boolean)
-                              .join(" + ")
-                          ) : (
-                            <span className="text-slate-600">—</span>
-                          )}
-                        </div>
-                        <div className="col-span-2 text-end">
-                          {isVoidedTxn(txn) ? (
-                            // G40 — same grey "voided" treatment the
-                            // ledger rows above already use.
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-600/50 text-slate-300">
-                              {t("status.voided")}
-                            </span>
-                          ) : txn.supplier_owed === 0 &&
-                            txn.settlement_id == null ? (
-                            // Wallet-provider transfer (prepaid balance):
-                            // nothing is owed to the supplier, so a
-                            // paid/unpaid status is meaningless here.
-                            <span className="text-slate-600">—</span>
-                          ) : txn.settlement_id != null ? (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-900/50 text-blue-300">
-                              {t("status.settled")}
-                            </span>
-                          ) : txn.fifo_status === "paid" ? (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-900/50 text-green-300">
-                              {t("status.paid")}
-                            </span>
-                          ) : txn.fifo_status === "partial" ? (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-900/50 text-amber-300">
-                              {partialLabel(txn, t)}
-                            </span>
-                          ) : (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-900/50 text-red-400">
-                              {t("status.unpaid")}
-                            </span>
-                          )}
-                        </div>
-                        <div className="col-span-2 text-xs text-slate-400">
-                          {formatDateTime(
-                            parseDbDate(txn.created_at),
-                            FULL_DATE_TIME,
-                          )}
-                        </div>
+                        {t("table.amount")}
                       </div>
-                    ))}
-                  </div>
-                  <div className="flex justify-between px-4 py-2.5 bg-slate-900/40 border-t border-slate-700 text-xs text-slate-400">
-                    <span>
-                      {/* Rows that owe nothing (wallet-provider transfers)
+                      {hasOmtFee && (
+                        <div className="col-span-2 text-end">
+                          {t("table.omtFee")}
+                        </div>
+                      )}
+                      <div className="col-span-2 text-end">
+                        {t("table.commission")}
+                      </div>
+                      <div className="col-span-2 text-end">
+                        {t("table.status")}
+                      </div>
+                      <div className="col-span-2">{t("table.date")}</div>
+                    </div>
+                    <div className="max-h-[65vh] overflow-y-auto">
+                      {sortedAllTxns.map((txn) => (
+                        <div
+                          key={txn.id}
+                          data-testid={`supplier-txn-row-${txn.id}`}
+                          className={`grid grid-cols-12 gap-2 px-3 py-2.5 text-sm border-t border-slate-700 items-center hover:bg-slate-700/30 ${isVoidedTxn(txn) ? "opacity-60" : ""}`}
+                        >
+                          <div
+                            className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-xs text-slate-300`}
+                          >
+                            {txn.omt_service_type || txn.service_type}
+                          </div>
+                          {(() => {
+                            // Owner decision (2026-10-02) — same
+                            // supplier_owed-first treatment as the
+                            // settlement checkbox list above (rule 14, one
+                            // `formatOwedCell`).
+                            const cell = formatOwedCell(
+                              txn.supplier_owed,
+                              txn.amount,
+                              txn.omt_fee,
+                              txn.currency,
+                              t,
+                            );
+                            return (
+                              <div
+                                data-testid="supplier-txn-amount"
+                                className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-end font-mono text-white leading-tight`}
+                              >
+                                <div>{cell.main}</div>
+                                {cell.breakdown && (
+                                  <div
+                                    data-testid="supplier-txn-breakdown"
+                                    className="text-[9px] text-slate-500 font-normal"
+                                  >
+                                    {cell.breakdown}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                          {hasOmtFee && (
+                            <div className="col-span-2 text-end font-mono text-amber-400">
+                              {txn.omt_fee ? `$${txn.omt_fee.toFixed(2)}` : "—"}
+                            </div>
+                          )}
+                          <div className="col-span-2 text-end font-mono text-emerald-400">
+                            {txn.commission > 0 ? (
+                              txn.currency === "LBP" ? (
+                                `${formatNumber(Math.round(txn.commission))} LBP`
+                              ) : (
+                                `$${txn.commission.toFixed(4)}`
+                              )
+                            ) : (txn.settled_commission_usd ?? 0) > 0 ||
+                              (txn.settled_commission_lbp ?? 0) > 0 ? (
+                              // BILL_COMMISSION_SETTLEMENT_PLAN.md follow-up
+                              // — a settled BILL row's OWN `commission` is 0
+                              // by design (entered AT settlement, not
+                              // creation); this is the allocated share from
+                              // settlement_commission_allocations, joined in
+                              // by getAllByProvider for display only.
+                              [
+                                (txn.settled_commission_lbp ?? 0) > 0
+                                  ? `${formatNumber(Math.round(txn.settled_commission_lbp!))} LBP`
+                                  : null,
+                                (txn.settled_commission_usd ?? 0) > 0
+                                  ? `$${txn.settled_commission_usd!.toFixed(2)}`
+                                  : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" + ")
+                            ) : (
+                              <span className="text-slate-600">—</span>
+                            )}
+                          </div>
+                          <div className="col-span-2 text-end">
+                            {isVoidedTxn(txn) ? (
+                              // G40 — same grey "voided" treatment the
+                              // ledger rows above already use.
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-600/50 text-slate-300">
+                                {t("status.voided")}
+                              </span>
+                            ) : txn.supplier_owed === 0 &&
+                              txn.settlement_id == null ? (
+                              // Wallet-provider transfer (prepaid balance):
+                              // nothing is owed to the supplier, so a
+                              // paid/unpaid status is meaningless here.
+                              <span className="text-slate-600">—</span>
+                            ) : txn.settlement_id != null ? (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-900/50 text-blue-300">
+                                {t("status.settled")}
+                              </span>
+                            ) : txn.fifo_status === "paid" ? (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-900/50 text-green-300">
+                                {t("status.paid")}
+                              </span>
+                            ) : txn.fifo_status === "partial" ? (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-900/50 text-amber-300">
+                                {partialLabel(txn, t)}
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-900/50 text-red-400">
+                                {t("status.unpaid")}
+                              </span>
+                            )}
+                          </div>
+                          <div className="col-span-2 text-xs text-slate-400">
+                            {formatDateTime(
+                              parseDbDate(txn.created_at),
+                              FULL_DATE_TIME,
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex justify-between px-4 py-2.5 bg-slate-900/40 border-t border-slate-700 text-xs text-slate-400">
+                      <span>
+                        {/* Rows that owe nothing (wallet-provider transfers)
                               carry no payment status — exclude them from the
                               counts, matching the "—" status cell above. */}
-                      {t("txns.counts", {
-                        paid: liveTxns.filter(
-                          (row) =>
-                            row.supplier_owed > 0 && row.fifo_status === "paid",
-                        ).length,
-                        partial: liveTxns.filter(
-                          (row) =>
-                            row.supplier_owed > 0 &&
-                            row.fifo_status === "partial",
-                        ).length,
-                        unpaid: liveTxns.filter(
-                          (row) =>
-                            row.supplier_owed > 0 &&
-                            row.fifo_status === "unpaid",
-                        ).length,
-                      })}
-                    </span>
-                    <span className="font-mono font-bold text-white">
-                      {(() => {
-                        // supplier_owed is the repository's single
-                        // owed-per-row definition — wallet-provider
-                        // transfers contribute 0 (nothing is owed for
-                        // consuming the shop's own prepaid balance).
-                        const outstandingUsd = liveTxns
-                          .filter((t) => t.currency !== "LBP")
-                          .reduce(
-                            (s, t) =>
-                              s +
-                              Math.max(0, t.supplier_owed - t.fifo_paid_usd),
-                            0,
-                          );
-                        // LIRA-322 (FR-017) — LBP rows count only where
-                        // the server gives a per-row LBP paid figure
-                        // (OMT account members, from coverage).
-                        // Elsewhere LBP rows stay out, as before.
-                        const outstandingLbp = liveTxns
-                          .filter(
-                            (t) =>
-                              t.currency === "LBP" &&
-                              t.fifo_paid_lbp !== undefined,
-                          )
-                          .reduce(
-                            (s, t) =>
-                              s +
-                              Math.max(
-                                0,
-                                t.supplier_owed - (t.fifo_paid_lbp ?? 0),
-                              ),
-                            0,
-                          );
-                        const parts = [
-                          outstandingUsd > 0
-                            ? `$${outstandingUsd.toFixed(2)}`
-                            : null,
-                          outstandingLbp >= 0.5
-                            ? `${formatNumber(Math.round(outstandingLbp))} LBP`
-                            : null,
-                        ].filter(Boolean);
-                        return parts.length > 0
-                          ? t("txns.outstanding", {
-                              amounts: parts.join(" · "),
-                            })
-                          : t("txns.fullyCovered");
-                      })()}
-                    </span>
+                        {t("txns.counts", {
+                          paid: liveTxns.filter(
+                            (row) =>
+                              row.supplier_owed > 0 &&
+                              row.fifo_status === "paid",
+                          ).length,
+                          partial: liveTxns.filter(
+                            (row) =>
+                              row.supplier_owed > 0 &&
+                              row.fifo_status === "partial",
+                          ).length,
+                          unpaid: liveTxns.filter(
+                            (row) =>
+                              row.supplier_owed > 0 &&
+                              row.fifo_status === "unpaid",
+                          ).length,
+                        })}
+                      </span>
+                      <span className="font-mono font-bold text-white">
+                        {(() => {
+                          // supplier_owed is the repository's single
+                          // owed-per-row definition — wallet-provider
+                          // transfers contribute 0 (nothing is owed for
+                          // consuming the shop's own prepaid balance).
+                          const outstandingUsd = liveTxns
+                            .filter((t) => t.currency !== "LBP")
+                            .reduce(
+                              (s, t) =>
+                                s +
+                                Math.max(0, t.supplier_owed - t.fifo_paid_usd),
+                              0,
+                            );
+                          // LIRA-322 (FR-017) — LBP rows count only where
+                          // the server gives a per-row LBP paid figure
+                          // (OMT account members, from coverage).
+                          // Elsewhere LBP rows stay out, as before.
+                          const outstandingLbp = liveTxns
+                            .filter(
+                              (t) =>
+                                t.currency === "LBP" &&
+                                t.fifo_paid_lbp !== undefined,
+                            )
+                            .reduce(
+                              (s, t) =>
+                                s +
+                                Math.max(
+                                  0,
+                                  t.supplier_owed - (t.fifo_paid_lbp ?? 0),
+                                ),
+                              0,
+                            );
+                          const parts = [
+                            outstandingUsd > 0
+                              ? `$${outstandingUsd.toFixed(2)}`
+                              : null,
+                            outstandingLbp >= 0.5
+                              ? `${formatNumber(Math.round(outstandingLbp))} LBP`
+                              : null,
+                          ].filter(Boolean);
+                          return parts.length > 0
+                            ? t("txns.outstanding", {
+                                amounts: parts.join(" · "),
+                              })
+                            : t("txns.fullyCovered");
+                        })()}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          </TableModal>
+                )}
+              </div>
+            </TableModal>
+          </div>
         )}
       {openTable === "payments" && selectedSupplier && (
         <TableModal
@@ -3088,12 +3379,28 @@ export default function SuppliersPage() {
                   of its own single-provider one. Everything else about the
                   selected supplier's panel is unaffected. */}
           {isSelectedAccountParent ? (
-            <AccountLedgerTable
-              rows={accountLedgerRows}
-              typeFilter={ledgerTypeFilter}
-              onTypeFilterChange={setLedgerTypeFilter}
-              typeOptions={ledgerTypeOptions}
-            />
+            <div className="space-y-3">
+              <TransactionsDateFilter
+                from={paymentsFrom}
+                to={paymentsTo}
+                onChange={(from, to) =>
+                  setPaymentsRange({ supplierId: selectedSupplierId, from, to })
+                }
+                testId="supplier-payments-date-filter"
+              />
+              {accountLedgerQuery.isLoading ? (
+                <div className="text-slate-400 text-sm py-6 text-center">
+                  {t("payments.loading")}
+                </div>
+              ) : (
+                <AccountLedgerTable
+                  rows={accountLedgerRows}
+                  typeFilter={ledgerTypeFilter}
+                  onTypeFilterChange={setLedgerTypeFilter}
+                  typeOptions={ledgerTypeOptions}
+                />
+              )}
+            </div>
           ) : (
             <div>
               <div className="border border-slate-700 rounded-xl overflow-hidden">
@@ -3871,8 +4178,29 @@ export default function SuppliersPage() {
       {settlingAccount && (
         <AccountSettleSheet
           account={settlingAccount}
+          showStatementTypes={settlingAccount.omtAccount}
+          showCommission={settlingAccount.takesCommission}
           onClose={() => setSettlingAccount(null)}
           onSettled={() => setSettlingAccount(null)}
+          // LIRA-343 T033 (FR-016c) — "See in Transactions ›" from a day's
+          // details: the window opens ABOVE the sheet (z-[60] wrapper on
+          // the Transactions modal), so the sheet's picks are kept.
+          // LIRA-345 — OMT account only: a Katsh calendar day is a top-up
+          // (in Payments, which has no day filter outside OMT) and a product
+          // supplier has no Transactions window.
+          onSeeInTransactions={
+            settlingAccount.omtAccount
+              ? (day) =>
+                  openTransactionsForDay(
+                    day,
+                    settlingAccount.account_supplier_id,
+                  )
+              : undefined
+          }
+          canSettleOldHistory={isAdmin}
+          // LIRA-344 books a removed credit as "OMT credit not accepted":
+          // OMT account only (LIRA-345 leaves other suppliers out).
+          canRemoveCredit={isAdmin && settlingAccount.omtAccount}
         />
       )}
     </div>

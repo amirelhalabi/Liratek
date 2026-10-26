@@ -78,6 +78,9 @@ export function seedOmtSend(
     commission?: number;
     type?: string;
     created_at?: string;
+    /** LIRA-345 — another transfer provider (e.g. 'WHISH'); default 'OMT'.
+     *  The ledger sibling goes on `omtId`, so pass that provider's supplier. */
+    provider?: string;
   },
 ): number {
   const fee = data.fee ?? 0;
@@ -91,9 +94,10 @@ export function seedOmtSend(
         `INSERT INTO financial_services
            (tenant_id, provider, service_type, amount, currency, commission, omt_fee,
             omt_service_type, commission_model, is_settled, created_by, created_at)
-         VALUES (1, 'OMT', 'SEND', ?, ?, ?, ?, ?, ?, 0, 1, ?)`,
+         VALUES (1, ?, 'SEND', ?, ?, ?, ?, ?, ?, 0, 1, ?)`,
       )
       .run(
+        data.provider ?? "OMT",
         data.amount,
         currency,
         commission,

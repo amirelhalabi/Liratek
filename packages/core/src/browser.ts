@@ -133,6 +133,7 @@ export * from "./constants/drawerModules.js";
 // CHECKPOINT_ADJUSTMENT_METHOD from here to label a checkpoint leg's drawer
 // (rule 14) instead of retyping the literal ClosingRepository posts it with.
 export * from "./constants/checkpointAdjustment.js";
+export * from "./constants/accountCreditWriteOff.js";
 // LIRA-339 — the payment-leg reconciliation tolerance, shared with screens
 // that pre-check coverage (Node-free leaf, rule 29).
 export * from "./constants/legReconciliation.js";
@@ -285,6 +286,14 @@ export * from "./utils/sessionNothingToCollect.js";
 export * from "./utils/debtRepaymentAllocation.js";
 // LIRA-322 — the ONE amount-first OMT account allocator (preview + write).
 export * from "./utils/accountSettleAllocation.js";
+// LIRA-343 — OMT settle by day: day vs account rows (R4), calendar days and
+// the ONE picked-days payload builder (rule 22). Pure leaves (rule 29).
+export * from "./utils/accountRowScope.js";
+export * from "./utils/settleDays.js";
+export * from "./utils/settleDaySelections.js";
+export * from "./utils/debtSettleDays.js";
+// LIRA-345 — which suppliers settle on the day calendar (pure leaf, rule 29).
+export * from "./utils/settlesByDay.js";
 // LIRA-304 — basket checkout cash split, OMT first: shared by the session
 // checkout "Goes to" preview and SessionPaymentService (pure leaf, rule 29).
 export * from "./utils/sessionCashSplit.js";
@@ -561,3 +570,10 @@ export type {
   LedgerFilters,
   PartnerLedgerGroup,
 } from "./repositories/PartnerRepository.js";
+// LIRA-346 — the partner settle-by-day rows the calendar reads (type-only,
+// erased: PartnerSettlementRepository is not bundled, rule 29).
+export type {
+  PartnerSettleRow,
+  PartnerDayDetailRow,
+  PartnerDaySettlement,
+} from "./repositories/PartnerSettlementRepository.js";

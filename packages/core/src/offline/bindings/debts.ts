@@ -15,8 +15,12 @@
 import { getDebtService } from "../../services/DebtService.js";
 import type { BindingResult, OfflineBinding } from "./types.js";
 
-/** DebtRepository._assertTargetsOpen's message (no error code exists). */
-export const TICKED_ITEM_NOT_OPEN = /ticked items is no longer open/i;
+/** DebtRepository._assertTargetsOpen's message (no error code exists).
+ *  LIRA-347: also the picked-days stale check (`DEBT_DAYS_CHANGED`) — on a
+ *  replay the days were picked long ago, so the same rule applies: book it
+ *  again without its ticks (and without the stale figure). */
+export const TICKED_ITEM_NOT_OPEN =
+  /ticked items is no longer open|changed since you picked the days/i;
 
 const debtAddRepayment: OfflineBinding = {
   channel: "debt:add-repayment",
@@ -25,7 +29,7 @@ const debtAddRepayment: OfflineBinding = {
     const first = getDebtService().addRepayment(data as never) as unknown as BindingResult;
     const targets = Array.isArray(data.targets) ? (data.targets as unknown[]) : [];
     if (first.success || targets.length === 0 || !TICKED_ITEM_NOT_OPEN.test(String(first.error ?? ""))) return first;
-    const retry = getDebtService().addRepayment({ ...data, targets: undefined } as never) as unknown as BindingResult;
+    const retry = getDebtService().addRepayment({ ...data, targets: undefined, expectedOwed: undefined } as never) as unknown as BindingResult;
     if (!retry.success) return retry;
     return {
       ...retry,

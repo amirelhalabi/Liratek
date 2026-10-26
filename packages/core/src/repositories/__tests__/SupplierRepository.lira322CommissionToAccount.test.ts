@@ -311,25 +311,33 @@ describe("LIRA-322 — the settlement commission goes on the account as an open 
     expectBalanceInvariant();
   });
 
-  it("void order: once a later settlement netted the credit, the commission settlement's void is refused; newest first returns to the start", () => {
+  // LIRA-343 (FR-018, R12; owner 2026-10-26 option 3) — rewritten from the
+  // LIRA-322 "refused, void newest first" rule: undo has no exception now.
+  it("void order: undoing the commission settlement after a later one netted its credit is allowed; the later one stays, the account owes OMT $0.70; undoing both returns to the start", () => {
     const before = snapshot();
     const first = settleUsd(497, { commission: 0.7 });
     expect(overpayRows()).toBe(0);
     seedOmtSend(db, acc.omtId, { amount: 50, created_at: "2026-10-02 01:00:00" });
-    const afterSeed = snapshot();
     const second = settleUsd(49.3);
+    const secondCoverage = coverageRows(db).filter((c) => c.transaction_id === second);
 
     const mid = snapshot();
-    const counts = writeCounts(db);
-    expect(() => voidTxn(first)).toThrow(
-      new RegExp(`settlement #${second}.*void that settlement first`, "i"),
+    voidTxn(first);
+    // #first's money is back; #second is untouched.
+    expect(drawerTotals(db).usd - mid.drawers.usd).toBeCloseTo(497, 6);
+    expect(coverageRows(db).filter((c) => c.transaction_id === second)).toEqual(
+      secondCoverage,
     );
-    expectSameAs(mid);
-    expect(writeCounts(db)).toEqual(counts);
+    const undoId = (
+      db.prepare(`SELECT id FROM transactions WHERE reverses_id = ?`).get(first) as {
+        id: number;
+      }
+    ).id;
+    const owedRow = openLedgerRows().filter((r) => r.transaction_id === undoId);
+    expect(owedRow.map((r) => [r.row_scope, r.remaining_usd])).toEqual([["ACCOUNT", 0.7]]);
+    expectBalanceInvariant();
 
     voidTxn(second);
-    expectSameAs(afterSeed);
-    voidTxn(first);
     // Back to the start, plus the $50 send still owed.
     const now = snapshot();
     expect(now.owed.usd - before.owed.usd).toBeCloseTo(50, 6);

@@ -34,10 +34,9 @@ const hasIndex = (db: Database.Database): boolean =>
     .get();
 
 describe("v224 vouchers.redeemed_session_id", () => {
-  it("is the latest migration", () => {
-    expect(MIGRATIONS[MIGRATIONS.length - 1]?.name).toBe(
-      "vouchers_redeemed_session_id",
-    );
+  // v225 (LIRA-346) came after it; pinned by version instead.
+  it("is version 224", () => {
+    expect(mig().version).toBe(224);
   });
 
   it("create_db.sql declares the column and the index", () => {

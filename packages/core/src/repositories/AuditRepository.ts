@@ -1,5 +1,6 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId, isTenantBypass } from "../db/tenantContext.js";
+import { localDayRangeFilter } from "./reportingTimeFragments.js";
 
 // =============================================================================
 // Types
@@ -50,6 +51,14 @@ export interface AuditFilters {
   search?: string;
   limit?: number;
   offset?: number;
+  /** LIRA-348 — the OPERATOR's days (`YYYY-MM-DD`), inclusive, either end
+   *  optional (rule 27). `from`/`to` above compare the raw stored string, so
+   *  `to: "2026-10-26"` drops the whole of the 26th; these do not. */
+  dayFrom?: string;
+  dayTo?: string;
+  /** LIRA-348 — keyset paging: only rows with `id < beforeId` (the log's
+   *  own `id DESC` order). `total` ignores it. Never OFFSET. */
+  beforeId?: number;
 }
 
 // =============================================================================
@@ -199,6 +208,21 @@ export class AuditRepository extends BaseRepository<AuditLogEntity> {
       rowsQuery += " AND summary LIKE ?";
       params.push(`%${filters.search}%`);
     }
+    const dayRange = localDayRangeFilter("created_at", {
+      from: filters.dayFrom,
+      to: filters.dayTo,
+    });
+    if (dayRange.sql) {
+      countQuery += ` AND ${dayRange.sql}`;
+      rowsQuery += ` AND ${dayRange.sql}`;
+      params.push(...dayRange.params);
+    }
+    // The cursor narrows the page only, never the count.
+    const rowParams: unknown[] = [...params];
+    if (filters.beforeId != null) {
+      rowsQuery += " AND id < ?";
+      rowParams.push(filters.beforeId);
+    }
     rowsQuery += " ORDER BY id DESC LIMIT ? OFFSET ?";
 
     const limit = Math.min(Math.max(Number(filters.limit ?? 200), 1), 1000);
@@ -210,7 +234,7 @@ export class AuditRepository extends BaseRepository<AuditLogEntity> {
 
     const rows = this.db
       .prepare(rowsQuery)
-      .all(...params, limit, offset) as AuditLogEntity[];
+      .all(...rowParams, limit, offset) as AuditLogEntity[];
 
     return { rows, total };
   }

@@ -11,6 +11,7 @@
  */
 
 import type { OpenDebtItem } from "../utils/debtRepaymentAllocation.js";
+import type { DebtMonthRows } from "../utils/debtSettleDays.js";
 import {
   DebtRepository,
   getDebtRepository,
@@ -60,6 +61,13 @@ export interface RepaymentData {
     id: number;
     auto?: boolean;
   }>;
+  /** LIRA-347 D1 — stale check (see DebtRepository.CreateRepaymentData
+   *  `expected_owed`). */
+  expectedOwed?: { usd: number; lbp: number };
+  /** LIRA-347 D2 — "Use credit" (see DebtRepository.CreateRepaymentData
+   *  `credit_use_usd`). */
+  creditUseUSD?: number;
+  creditUseLBP?: number;
 }
 
 /** Input for DebtService.addCredit / addCreditOrThrow. */
@@ -207,6 +215,15 @@ export class DebtService {
   }
 
   /**
+   * LIRA-347 — one month of a client's debt items for the settle calendar
+   * (rows by shop day + the account lines). Read-only; returns the raw
+   * shape.
+   */
+  getClientDebtMonthRows(clientId: number, month: string): DebtMonthRows {
+    return this.debtRepo.getClientDebtMonthRows(clientId, month);
+  }
+
+  /**
    * Process a debt repayment
    */
   addRepayment(data: RepaymentData): RepaymentResult {
@@ -224,6 +241,9 @@ export class DebtService {
       discount,
       tender_exchange_rate,
       targets,
+      expectedOwed,
+      creditUseUSD,
+      creditUseLBP,
     } = data;
 
     // Validate
@@ -246,7 +266,10 @@ export class DebtService {
     // When multi-payment legs are provided, validate their total > 0
     const hasLegs =
       payments && payments.length > 0 && payments.some((p) => p.amount > 0);
-    if (!hasLegs && amountUSD <= 0 && amountLBP <= 0) {
+    // LIRA-347 D2 — a repayment paid wholly from the client's credit moves
+    // no money: allowed when "Use credit" is set.
+    const usesCredit = (creditUseUSD ?? 0) > 0 || (creditUseLBP ?? 0) > 0;
+    if (!hasLegs && amountUSD <= 0 && amountLBP <= 0 && !usesCredit) {
       return {
         success: false,
         error: "Repayment amount must be greater than zero",
@@ -263,7 +286,7 @@ export class DebtService {
     const callerProvidedAmounts = amountUSD > 0 || amountLBP > 0;
     let resolvedAmountUSD = amountUSD;
     let resolvedAmountLBP = amountLBP;
-    if (!callerProvidedAmounts) {
+    if (!callerProvidedAmounts && hasLegs) {
       const derived = legsOnlyReduction({
         payments,
         keptChangeUSD,
@@ -292,6 +315,9 @@ export class DebtService {
         discount,
         tender_exchange_rate,
         targets,
+        ...(expectedOwed ? { expected_owed: expectedOwed } : {}),
+        ...(creditUseUSD ? { credit_use_usd: creditUseUSD } : {}),
+        ...(creditUseLBP ? { credit_use_lbp: creditUseLBP } : {}),
       });
 
       debtLogger.info(

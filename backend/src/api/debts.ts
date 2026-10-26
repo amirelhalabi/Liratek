@@ -5,6 +5,7 @@ import {
   getDebtService,
   addRepaymentSchema,
   addCreditSchema,
+  debtMonthRowsSchema,
   debtCashOutSchema,
   debtAccountEntrySchema,
   debtUseCreditSchema,
@@ -71,6 +72,37 @@ router.get("/clients/:clientId/open-items", (req, res) => {
   try {
     const items = getDebtService().getOpenDebtItems(clientId);
     res.json({ success: true, items });
+  } catch (error) {
+    res.json({
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// GET /api/debts/clients/:clientId/month-rows?month=YYYY-MM — LIRA-347:
+// one month of the client's debt items for the settle calendar (rows by shop
+// day + the account lines). Mirrors IPC `debt:get-month-rows` (same core
+// schema, rule 14; same access as open-items). Each row's shop day is worked
+// out from the request's own zone (X-Client-Tz-Offset, rule 27).
+router.get("/clients/:clientId/month-rows", (req, res) => {
+  const parsed = debtMonthRowsSchema.safeParse({
+    clientId: Number(req.params.clientId),
+    month: typeof req.query.month === "string" ? req.query.month : undefined,
+  });
+  if (!parsed.success) {
+    res.json({
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Invalid request",
+    });
+    return;
+  }
+  try {
+    const data = getDebtService().getClientDebtMonthRows(
+      parsed.data.clientId,
+      parsed.data.month,
+    );
+    res.json({ success: true, data });
   } catch (error) {
     res.json({
       success: false,

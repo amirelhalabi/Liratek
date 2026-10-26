@@ -272,3 +272,122 @@ describe("GET /api/partners/:id/ledger — group filter", () => {
     expect(spy).toHaveBeenCalledWith(7, undefined);
   });
 });
+
+/**
+ * LIRA-346 — settle partners by day over REST: the three reads and the
+ * settle-picked-days write. Same gates as the partner reads / `settle`, the
+ * actor from the JWT (never the body), the IPC-identical envelope, and the
+ * shared core schema (an invalid month / day / payload is refused).
+ * Rule 17: written and run before the routes existed (failing first).
+ */
+describe("Partners REST routes — LIRA-346 settle by day", () => {
+  const partnerService = getPartnerService();
+
+  beforeEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it("GET /:id/settle-open-rows returns the queue rows", async () => {
+    const spy = jest
+      .spyOn(partnerService, "getSettleOpenRows")
+      .mockReturnValue([{ id: 3 }] as never);
+    const res = await request(buildApp())
+      .get("/api/partners/7/settle-open-rows")
+      .set("x-test-role", "staff");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true, rows: [{ id: 3 }] });
+    expect(spy).toHaveBeenCalledWith(7);
+  });
+
+  it("GET /:id/settle-month-rows validates the month and passes it through", async () => {
+    const spy = jest
+      .spyOn(partnerService, "getSettleMonthRows")
+      .mockReturnValue([] as never);
+    const ok = await request(buildApp())
+      .get("/api/partners/7/settle-month-rows?month=2026-10")
+      .set("x-test-role", "staff");
+    expect(ok.body).toEqual({ success: true, rows: [] });
+    expect(spy).toHaveBeenCalledWith(7, "2026-10");
+    const bad = await request(buildApp())
+      .get("/api/partners/7/settle-month-rows?month=2026-13")
+      .set("x-test-role", "staff");
+    expect(bad.body.success).toBe(false);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("GET /:id/settle-day-detail validates the day and passes it through", async () => {
+    const spy = jest
+      .spyOn(partnerService, "getSettleDayDetail")
+      .mockReturnValue([] as never);
+    const ok = await request(buildApp())
+      .get("/api/partners/7/settle-day-detail?day=2026-10-21")
+      .set("x-test-role", "staff");
+    expect(ok.body).toEqual({ success: true, rows: [] });
+    expect(spy).toHaveBeenCalledWith(7, "2026-10-21");
+    const bad = await request(buildApp())
+      .get("/api/partners/7/settle-day-detail?day=21-10-2026")
+      .set("x-test-role", "staff");
+    expect(bad.body.success).toBe(false);
+  });
+
+  const body = {
+    partnerId: 7,
+    selections: [11, 12],
+    include_account_credits: true,
+    credit_used: { usd: 5 },
+    expected_owed: { usd: 95, lbp: 0 },
+    per_currency: {
+      USD: {
+        payer: "PARTNER",
+        payments: [{ method: "CASH", currency_code: "USD", amount: 90 }],
+      },
+    },
+  };
+
+  it("POST /settle-days injects the actor from the JWT and returns the envelope", async () => {
+    const spy = jest
+      .spyOn(partnerService, "settleDays")
+      .mockReturnValue({ success: true, id: 501 });
+    const res = await request(buildApp())
+      .post("/api/partners/settle-days")
+      .set("x-test-role", "staff")
+      .send({ ...body, userId: 999 });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true, id: 501 });
+    const arg = spy.mock.calls[0][0] as Record<string, unknown>;
+    expect(arg.userId).toBe(42);
+    expect(arg.selections).toEqual([11, 12]);
+    expect(arg.credit_used).toEqual({ usd: 5 });
+    expect((arg.per_currency as { USD: { payer: string } }).USD.payer).toBe("PARTNER");
+  });
+
+  it("POST /settle-days refuses a leg in the other currency (shared schema)", async () => {
+    const spy = jest.spyOn(partnerService, "settleDays");
+    const res = await request(buildApp())
+      .post("/api/partners/settle-days")
+      .set("x-test-role", "admin")
+      .send({
+        ...body,
+        per_currency: {
+          USD: {
+            payer: "PARTNER",
+            payments: [{ method: "CASH", currency_code: "LBP", amount: 90 }],
+          },
+        },
+      });
+    expect(res.body.success).toBe(false);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("POST /settle-days passes a service failure through as HTTP 200", async () => {
+    jest
+      .spyOn(partnerService, "settleDays")
+      .mockReturnValue({ success: false, error: "balance changed" });
+    const res = await request(buildApp())
+      .post("/api/partners/settle-days")
+      .set("x-test-role", "staff")
+      .send(body);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: false, error: "balance changed" });
+  });
+});

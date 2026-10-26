@@ -13,6 +13,7 @@ import {
   DebtRepaymentSchema,
   DebtCashOutSchema,
   DebtAccountEntrySchema,
+  DebtMonthRowsSchema,
   DebtAddCreditSchema,
   DebtUpdateMetadataSchema,
   DebtUseCreditSchema,
@@ -52,6 +53,12 @@ interface RepaymentData {
     id: number;
     auto?: boolean;
   }>;
+  // LIRA-347 — stale check for picked days, and "Use credit"
+  // (addRepaymentSchema `expectedOwed` / `creditUseUSD` / `creditUseLBP`),
+  // forwarded as-is; DebtRepository.addRepayment consumes them.
+  expectedOwed?: { usd: number; lbp: number };
+  creditUseUSD?: number;
+  creditUseLBP?: number;
 }
 
 export function registerDebtHandlers(): void {
@@ -82,6 +89,19 @@ export function registerDebtHandlers(): void {
   ipcMain.handle("debt:get-open-items", (_event, clientId: number) => {
     return debtService.getOpenDebtItems(clientId);
   });
+
+  // LIRA-347 — one month of the client's debt items for the settle
+  // calendar (rows by shop day + the account lines). Same access as
+  // debt:get-open-items. An invalid payload THROWS (reads return the raw
+  // shape, like suppliers:account-month-rows).
+  ipcMain.handle(
+    "debt:get-month-rows",
+    (_event, data: { clientId: number; month: string }) => {
+      const v = validatePayload(DebtMonthRowsSchema, data);
+      if (!v.ok) throw new Error(v.error);
+      return debtService.getClientDebtMonthRows(v.data.clientId, v.data.month);
+    },
+  );
 
   // Add a repayment
   ipcMain.handle("debt:add-repayment", (event, data: RepaymentData) => {

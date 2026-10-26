@@ -36,6 +36,10 @@ const mockGetSupplierAccountUnsettled = jest.fn();
 const mockApi = {
   settleSupplierAccount: mockSettleSupplierAccount,
   getSupplierAccountUnsettled: mockGetSupplierAccountUnsettled,
+  // LIRA-343 — the calendar's month read. Empty here: these cases test the
+  // money, and the open queue (not this read) decides the picked days.
+  getSupplierAccountMonthRows: jest.fn(async () => []),
+  getSupplierAccountDayDetail: jest.fn(async () => []),
 };
 
 jest.mock("@liratek/ui", () => {
@@ -169,7 +173,9 @@ describe("AccountSettleSheet — commission per currency (LIRA-322 F4)", () => {
         .textContent,
     ).toBe("$0.70");
     expect(
-      within(usd).queryByTestId("supplier-account-settle-commission-warning-usd"),
+      within(usd).queryByTestId(
+        "supplier-account-settle-commission-warning-usd",
+      ),
     ).toBeNull();
   });
 

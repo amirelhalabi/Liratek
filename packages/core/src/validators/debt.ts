@@ -77,6 +77,21 @@ export const addRepaymentSchema = z
         { message: "An item was ticked twice" },
       )
       .optional(),
+    // LIRA-347 D1 (settle by day) — what the cashier's own ticks owed when
+    // the days were picked. Consumed by DebtRepository.addRepayment's stale
+    // check (refused, nothing written, when they no longer owe it).
+    expectedOwed: z
+      .object({
+        usd: z.number().nonnegative(),
+        lbp: z.number().nonnegative(),
+      })
+      .optional(),
+    // LIRA-347 D2 — "Use credit": the client's unapplied credit used to pay
+    // the ticked items, per currency. Consumed by
+    // DebtRepository.addRepayment (coverage only; refused above the
+    // available credit).
+    creditUseUSD: z.number().nonnegative().optional(),
+    creditUseLBP: z.number().nonnegative().optional(),
   })
   .refine(
     (data) =>
@@ -84,11 +99,23 @@ export const addRepaymentSchema = z
       data.amountLBP > 0 ||
       (data.payments &&
         data.payments.length > 0 &&
-        data.payments.some((p) => p.amount > 0)),
+        data.payments.some((p) => p.amount > 0)) ||
+      // LIRA-347 D2 — paid wholly from the client's credit.
+      (data.creditUseUSD ?? 0) > 0 ||
+      (data.creditUseLBP ?? 0) > 0,
     {
       message: "At least one amount (USD or LBP) must be greater than 0",
     },
   );
+
+// LIRA-347 — one month of a client's debt items for the settle calendar.
+// Shared by the IPC handler (debt:get-month-rows) and the REST route
+// (GET /api/debts/clients/:clientId/month-rows) — rule 14.
+export const debtMonthRowsSchema = z.object({
+  clientId: idSchema,
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Month must be YYYY-MM"),
+});
+export type DebtMonthRowsInput = z.input<typeof debtMonthRowsSchema>;
 
 // Add credit (shop owes customer)
 export const addCreditSchema = z

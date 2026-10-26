@@ -227,6 +227,8 @@ describe("Suppliers page — no Waive on the batch settle (owner 2026-10-12)", (
 });
 
 describe("Suppliers page — Pay / Receive tab: Discount field, no Waive (owner 2026-10-12)", () => {
+  // LIRA-345 (S3) — product suppliers settle by day (no Pay / Receive),
+  // so the Pay form is exercised on a company supplier that still has it.
   const PRODUCT_SUPPLIER = {
     id: 5,
     name: "Acme Distributors",
@@ -235,8 +237,8 @@ describe("Suppliers page — Pay / Receive tab: Discount field, no Waive (owner 
     note: null,
     is_active: 1,
     module_key: null,
-    provider: null,
-    is_system: 0,
+    provider: "WHISH_APP",
+    is_system: 1,
     created_at: "2026-08-01T00:00:00Z",
   };
 
@@ -244,7 +246,7 @@ describe("Suppliers page — Pay / Receive tab: Discount field, no Waive (owner 
     jest.clearAllMocks();
     mockGetSuppliers.mockResolvedValue([PRODUCT_SUPPLIER]);
     mockGetUnsettledTransactions.mockResolvedValue([]);
-    mockApi.getSupplierProductBalances.mockResolvedValue([
+    mockApi.getSupplierBalances.mockResolvedValue([
       { supplier_id: 5, total_usd: 100, total_lbp: 0 },
     ]);
     mockRecordSupplierCashflow.mockResolvedValue({ success: true, id: 1 });
@@ -252,7 +254,6 @@ describe("Suppliers page — Pay / Receive tab: Discount field, no Waive (owner 
 
   async function openPayTab() {
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "Products" }));
     fireEvent.click((await screen.findAllByText("Acme Distributors"))[0]);
     fireEvent.click(await screen.findByText("Pay / Receive"));
     const amount = (await screen.findAllByTestId(/^payment-amount-/)).find(

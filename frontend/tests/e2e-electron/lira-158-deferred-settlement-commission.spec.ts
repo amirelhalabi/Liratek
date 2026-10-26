@@ -149,6 +149,12 @@ type ProfitSummaryShape = {
     client_debt_profit_lbp: number;
   };
 };
+/** LIRA-343 — the account queue fields the day pick needs. */
+type AccountQueueRow = {
+  kind: "FINANCIAL_SERVICE" | "LEDGER";
+  id: number;
+  shop_day: string;
+};
 type Api = {
   api: {
     suppliers: {
@@ -157,6 +163,12 @@ type Api = {
         includeInactive?: boolean,
       ) => Promise<SupplierRow[]>;
       getUnsettledTransactions: (provider: string) => Promise<SupplierTxnRow[]>;
+      getAccountBalances: () => Promise<
+        Array<{ account_supplier_id: number; account_name: string }>
+      >;
+      getAccountUnsettled: (
+        accountSupplierId: number,
+      ) => Promise<AccountQueueRow[]>;
     };
     debt: { getDebtors: () => Promise<DebtorRow[]> };
     profits: {
@@ -273,12 +285,107 @@ async function pickOmt(page: Page, direction: "SEND" | "RECEIVE") {
   await tile.click();
 }
 
+// ── LIRA-343 calendar helpers ───────────────────────────────────────────────
+
+/** The browser's own calendar day — what the sheet calls "today" (rule 27). */
+async function browserToday(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const d = new Date();
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  });
+}
+
+function shiftDay(day: string, delta: number): string {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().slice(0, 10);
+}
+
+const monthNumber = (day: string) =>
+  Number(day.slice(0, 4)) * 12 + Number(day.slice(5, 7));
+
+async function omtAccountQueue(page: Page): Promise<AccountQueueRow[]> {
+  return page.evaluate(async () => {
+    const w = window as unknown as Api;
+    const account = (await w.api.suppliers.getAccountBalances()).find(
+      (a) => a.account_name === "OMT",
+    );
+    if (!account) throw new Error("OMT account not found");
+    return w.api.suppliers.getAccountUnsettled(account.account_supplier_id);
+  });
+}
+
+/** The most recent past day with NO open row on the OMT account, so picking
+ *  it in the calendar picks only what this spec records there (rule 15). */
+async function freePastDay(page: Page, today: string): Promise<string> {
+  const open = new Set((await omtAccountQueue(page)).map((r) => r.shop_day));
+  for (let k = 1; k <= 180; k++) {
+    const day = shiftDay(today, -k);
+    if (!open.has(day)) return day;
+  }
+  throw new Error("no past day without open OMT rows in the last 180 days");
+}
+
+/** Clears the default pick (every open day before today), then picks
+ *  exactly `day`, walking back from today's month to the day's month. */
+async function pickOnlyDay(sheet: Locator, today: string, day: string) {
+  const bar = sheet.getByTestId("settle-selection-bar");
+  await expect(bar).toBeVisible({ timeout: 15_000 });
+  // No test id on Clear (reported): the bar's only button while days are
+  // picked; "Pick all open" while none are.
+  const clear = bar.getByRole("button", { name: "Clear", exact: true });
+  if (await clear.count()) await clear.click();
+  await expect(clear).toHaveCount(0);
+  for (let i = monthNumber(today) - monthNumber(day); i > 0; i--) {
+    await sheet
+      .getByRole("button", { name: "Previous month", exact: true })
+      .click();
+  }
+  const button = sheet.locator(`[data-day="${day}"] button`);
+  await expect(button).toBeEnabled({ timeout: 15_000 });
+  await button.click();
+  await expect(button).toHaveAttribute("aria-pressed", "true");
+  await expect(bar).toContainText("1 day picked");
+  await closeDayDetails(sheet);
+}
+
+/** LIRA-343 — tapping a day also opens its details panel (inline, under the
+ *  calendar; it grows once its rows load). Close it — by ITS Close button,
+ *  not the sheet's own "Close" — so the payment box below stays put. */
+async function closeDayDetails(sheet: Locator) {
+  const details = sheet.getByTestId("settle-day-details");
+  await expect(details).toBeVisible();
+  await details.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(details).toHaveCount(0);
+}
+
+/** The OMT credit line pre-fills min(owed, credit); earlier settlements
+ *  leave commission credit on the account, so set it to 0 to keep the
+ *  amounts this spec's. */
+async function setCreditToZero(sheet: Locator) {
+  for (const c of ["usd", "lbp"]) {
+    const input = sheet.getByTestId(`supplier-account-settle-credit-${c}`);
+    if (await input.count()) {
+      await input.fill("0");
+      await expect(input).toHaveValue("0");
+    }
+  }
+}
+
 /** Drive the REAL OMT/Whish form: a fee-on-top system SEND charged entirely
  *  to the customer's account. Returns the total the customer now owes
- *  (x + f). Verbatim of lira-148's own helper. */
+ *  (x + f). Verbatim of lira-148's own helper, plus (LIRA-343) the form's
+ *  own "set time" control: the SEND is backdated to noon (local) on `day`
+ *  so the settle calendar can pick its day alone. */
 async function recordOmtSystemSendOnAccount(
   page: Page,
-  opts: { client: string; phone: string; amount: number; fee: number },
+  opts: {
+    client: string;
+    phone: string;
+    amount: number;
+    fee: number;
+    day: string;
+  },
 ): Promise<number> {
   await navigateTo(page, "/omt-whish");
   await pickOmt(page, "SEND");
@@ -300,6 +407,13 @@ async function recordOmtSystemSendOnAccount(
     .locator('[data-testid^="payment-method-"]')
     .first()
     .selectOption("CUSTOMER_ACCOUNT");
+
+  // LIRA-343 — backdate through the form's own transaction-time control.
+  await page.getByTestId("txn-time-toggle").click();
+  const time = page.getByTestId("txn-time-input");
+  await time.fill(`${opts.day}T12:00`);
+  await time.blur();
+  await expect(time).toHaveValue(`${opts.day}T12:00`);
 
   await page.getByRole("button", { name: /Record Send/i }).click();
   await expect(amountInput).toHaveValue("", { timeout: 15_000 });
@@ -330,15 +444,18 @@ async function settleFullDebtInCash(page: Page, clientName: string) {
 /** LIRA-322 — OMT is an account member, so it is paid only from the OMT
  *  account card's Settle Account sheet (the per-supplier "Commission
  *  Settlement" list is gone for OMT, OMT App and iPick). Open the sheet,
- *  tick THIS run's own SEND in "Pick transfers" (by kind + id — never by
- *  position, rule 15: the account lists every other spec's stale rows),
- *  enter the commission through the REAL USD-section commission input
- *  (never a hand-built IPC payload), pay the rest in CASH, and confirm. */
+ *  pick ONLY the day this run's SEND was backdated to (LIRA-343: the sheet
+ *  settles picked days; that day carries no other open row, rule 15), set
+ *  the OMT credit to 0, enter the commission through the REAL USD-section
+ *  commission input (never a hand-built IPC payload), pay the rest in
+ *  CASH, and confirm. */
 async function settleOmtRow(
   page: Page,
   rowId: number,
   owedUsd: number,
   enteredCommissionUsd: number,
+  today: string,
+  day: string,
 ) {
   await navigateTo(page, "/suppliers");
   const card = page.getByTestId("supplier-account-card-OMT");
@@ -347,12 +464,9 @@ async function settleOmtRow(
   const sheet = page.getByTestId("supplier-account-settle-sheet");
   await expect(sheet).toBeVisible({ timeout: 10_000 });
 
-  await sheet.getByTestId("supplier-account-settle-pick-toggle").click();
-  const row = sheet.locator(
-    `[data-testid="supplier-account-settle-row"][data-kind="FINANCIAL_SERVICE"][data-row-id="${rowId}"]`,
-  );
-  await expect(row).toBeVisible({ timeout: 15_000 });
-  await row.getByTestId("supplier-account-settle-row-toggle").check();
+  // The day and the credit BEFORE typing: changing either re-fills the box.
+  await pickOnlyDay(sheet, today, day);
+  await setCreditToZero(sheet);
 
   const usd = sheet.getByTestId("supplier-account-settle-section-usd");
   await expect(usd.getByTestId("supplier-account-settle-owed-usd")).toHaveText(
@@ -410,12 +524,17 @@ test.describe("LIRA-158 D17 — deferred settlement commission (cashless OMT set
 
     await closeAllActiveSessions(appPage);
 
+    // LIRA-343 — a past day with no other open OMT-account row.
+    const today = await browserToday(appPage);
+    const DAY = await freePastDay(appPage, today);
+
     // ── 1. Record the OMT SEND, charged ENTIRELY to the client's account ──
     const owed = await recordOmtSystemSendOnAccount(appPage, {
       client: CLIENT,
       phone: PHONE,
       amount: AMOUNT,
       fee: FEE,
+      day: DAY,
     });
     expect(owed).toBeCloseTo(AMOUNT + FEE, 2);
 
@@ -453,6 +572,18 @@ test.describe("LIRA-158 D17 — deferred settlement commission (cashless OMT set
     const ENTERED_COMMISSION = Math.round((estimate + 3.75) * 100) / 100;
     expect(ENTERED_COMMISSION).not.toBeCloseTo(estimate, 2);
 
+    // LIRA-343 — the backdated time reached the row, and DAY carries only
+    // this row, so picking DAY settles exactly it.
+    const accountQueue = await omtAccountQueue(appPage);
+    expect(
+      accountQueue.find(
+        (r) => r.kind === "FINANCIAL_SERVICE" && r.id === unsettledRow!.id,
+      )?.shop_day,
+    ).toBe(DAY);
+    expect(
+      accountQueue.filter((r) => r.shop_day === DAY).map((r) => r.id),
+    ).toEqual([unsettledRow!.id]);
+
     // ── 3. Snapshot Profits (IPC + real page) immediately before settling
     // (rule 15). ─────────────────────────────────────────────────────────
     const ipcBeforeSettle = await getProfitFigures(appPage);
@@ -460,7 +591,14 @@ test.describe("LIRA-158 D17 — deferred settlement commission (cashless OMT set
 
     // ── 4. Settle via the REAL OMT account Settle Account sheet (LIRA-322),
     // entering ENTERED_COMMISSION — never a hand-built IPC payload. ──────
-    await settleOmtRow(appPage, unsettledRow!.id, owed, ENTERED_COMMISSION);
+    await settleOmtRow(
+      appPage,
+      unsettledRow!.id,
+      owed,
+      ENTERED_COMMISSION,
+      today,
+      DAY,
+    );
 
     // ── 5. D17: the client hasn't repaid yet, so this cashless settlement's
     // commission must NOT be recognised — it must show up as deferred

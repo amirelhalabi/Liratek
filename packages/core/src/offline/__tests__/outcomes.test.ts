@@ -105,6 +105,24 @@ describe("repayment whose ticked item was paid online meanwhile (FR-029, O-new-3
   });
 });
 
+describe("LIRA-347 — repayment for picked days whose items changed online meanwhile", () => {
+  it("is booked without the ticks (stale check dropped), noted", async () => {
+    const sale = bookOnline("sales:process", SALE({ client_id: 7001, payment_usd: 0, payments: [{ method: "CUSTOMER_ACCOUNT", currency_code: "USD", amount: 40 }] }), "2026-10-10T10:00:00.000Z");
+    const saleId = sale.created.sales[0];
+    // $10 of it paid online after the cashier picked the day offline.
+    bookOnline("debt:add-repayment", { clientId: 7001, amountUSD: 10, payments: [{ method: "CASH", currencyCode: "USD", amount: 10 }] }, "2026-10-10T11:00:00.000Z");
+    const debtBefore = one<{ usd: number }>(`SELECT ROUND(SUM(amount_usd), 2) AS usd FROM debt_ledger WHERE client_id = 7001`).usd;
+    const out = await replay(
+      "debt:add-repayment",
+      { clientId: 7001, amountUSD: 20, payments: [{ method: "CASH", currencyCode: "USD", amount: 20 }], targets: [{ kind: "sale", id: saleId }], expectedOwed: { usd: 40, lbp: 0 } },
+      { created: { debt_ledger: [pcId("debt_ledger", 1)], transactions: [pcId("transactions", 1), pcId("transactions", 2)], payments: [pcId("payments", 1)] } },
+    );
+    expect(out.status).toBe("booked");
+    expect(kinds(1)).toContain("ticks_dropped");
+    expect(one<{ usd: number }>(`SELECT ROUND(SUM(amount_usd), 2) AS usd FROM debt_ledger WHERE client_id = 7001`).usd).toBeCloseTo(debtBefore - 20);
+  });
+});
+
 describe("customer created offline whose phone exists (FR-030, O-new-4)", () => {
   it("is linked to the existing customer; later work uses it; noted", async () => {
     const pcClient = pcId("clients", 1);

@@ -12,6 +12,10 @@ import {
   getTransactionRepository,
 } from "./TransactionRepository.js";
 import { CHECKPOINT_DIFFERENCE_SOURCE_TABLE } from "../constants/checkpointAdjustment.js";
+import {
+  OMT_CREDIT_REMOVED_EXPENSE_CATEGORY,
+  OMT_CREDIT_REMOVED_EXPENSE_LOCKED_MESSAGE,
+} from "../constants/accountCreditWriteOff.js";
 import { resolveBackTimedDrawerMovement } from "./checkpointResolution.js";
 import {
   TRANSACTION_TYPES,
@@ -1060,6 +1064,29 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
   }
 
   /**
+   * LIRA-344 (rule 20) — the "OMT credit not accepted" expense belongs to
+   * the credit removal that booked it; only that removal's void removes it.
+   * Same refusal as the Transactions table void
+   * (`TransactionRepository._assertNotOmtCreditRemovalExpense`).
+   */
+  private _assertNotOmtCreditRemoval(id: number): void {
+    if (!this._expensesHasSourceRefColumns()) return;
+    const row = this.db
+      .prepare(
+        `SELECT source_ref_table, category FROM expenses WHERE id = ? AND tenant_id = ?`,
+      )
+      .get(id, getCurrentTenantId()) as
+      | { source_ref_table: string | null; category: string }
+      | undefined;
+    if (
+      row?.source_ref_table === "supplier_ledger" &&
+      row.category === OMT_CREDIT_REMOVED_EXPENSE_CATEGORY
+    ) {
+      throw new BusinessRuleError(OMT_CREDIT_REMOVED_EXPENSE_LOCKED_MESSAGE);
+    }
+  }
+
+  /**
    * Delete an expense by ID and void its transaction
    */
   deleteExpense(
@@ -1071,6 +1098,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
   ): void {
     const internal = opts?.internal === true;
     if (!internal) this._assertNotDrawerShortage(id);
+    this._assertNotOmtCreditRemoval(id);
     this.db.transaction(() => {
       // Void the unified transaction (if exists)
       const txnRepo = getTransactionRepository();
@@ -1102,6 +1130,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
     // category is what marks it as the checkpoint's own row.
     if (data.category !== undefined && data.category !== existing.category) {
       this._assertNotDrawerShortage(id);
+      this._assertNotOmtCreditRemoval(id);
     }
 
     const fields: string[] = [];

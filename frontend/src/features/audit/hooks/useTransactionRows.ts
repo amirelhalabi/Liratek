@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCursorPages, type CursorPage } from "@liratek/ui";
 import {
   DEFAULT_HIDDEN_TRANSACTION_TYPES,
   PAID_VIA_ACCOUNT_OWN_TUPLES,
   PAID_VIA_DRAWER_OWN_TUPLES,
   PAID_VIA_VOUCHER_OWN_TUPLES,
   localDayOfUtcTimestamp,
+  type TransactionPageCursor,
 } from "@liratek/core";
 import {
   getRecentTransactions,
@@ -20,6 +22,7 @@ import {
   type FilterOption,
 } from "../auditConstants";
 import { isCashTransaction, extraCurrencyLegs } from "../cashFlow";
+import logger from "@/utils/logger";
 import type { TransactionPaymentLeg } from "../cashFlow";
 
 /** One element of `TransactionFiltersParam.typeFilters` — derived from the
@@ -347,24 +350,35 @@ const WIDEN_FACTOR = 3;
 const FETCH_CAP = 5000;
 
 export interface UseTransactionRowsParams {
-  /** Row count the operator asked for, as the raw select value. */
+  /** Rows per page (LIRA-348: 50 — the table loads more as it scrolls). */
   limit: string;
   /** Labels of the SELECTED FILTER_GROUPS options — a UNION (OR) of every
    *  one's tuple. Empty array means "All types" (the cleared state). */
   selectedFilters: string[];
   search: string;
-  /** Inclusive yyyy-mm-dd date bounds, "" when unset. */
+  /** Inclusive yyyy-mm-dd days — the operator's own days, sent to the
+   *  server as `day_from` / `day_to` (LIRA-348, rule 27). "" = open end. */
   from: string;
   to: string;
 }
 
 export interface UseTransactionRowsResult {
-  /** Visible rows for the active type/search filter, capped at `limit`. */
+  /** Visible rows for the active filters: every page loaded so far, each
+   *  page at most `limit` rows (LIRA-348). */
   rows: TransactionRow[];
-  /** `rows` narrowed to the from/to date range — what the table renders. */
+  /** `rows` narrowed to the from/to days — what the table renders. The
+   *  server already applies the range (LIRA-348); this is a no-op safety
+   *  net kept on the same local-day rule. */
   filteredRows: TransactionRow[];
+  /** The first page is loading. */
   loading: boolean;
-  /** Re-run the query (after a void/refund writes). */
+  /** LIRA-348 — a further page is loading / exists / load it. */
+  isLoadingMore: boolean;
+  hasMore: boolean;
+  loadMore: () => Promise<void>;
+  /** Load every remaining page — the export uses it (LIRA-348). */
+  loadAll: () => Promise<void>;
+  /** Start over from the first page (after a void/refund writes). */
   reload: () => void;
   /**
    * LIRA-232 round-3 review (finding 3) — session ids that already have AT
@@ -419,6 +433,12 @@ export interface UseTransactionRowsResult {
   sessionsFullyRefunded: Set<number>;
 }
 
+/** A failed page read would otherwise leave an empty table that only says
+ *  "No transactions" — log it (rule 4). */
+function logPageError(error: unknown): void {
+  logger.error("Failed to load transactions", { error });
+}
+
 export function useTransactionRows({
   limit,
   selectedFilters,
@@ -426,8 +446,6 @@ export function useTransactionRows({
   from,
   to,
 }: UseTransactionRowsParams): UseTransactionRowsResult {
-  const [rows, setRows] = useState<TransactionRow[]>([]);
-  const [loading, setLoading] = useState(false);
   // LIRA-232 round-3 review (finding 3) — populated ONLY while a filter is
   // active (see `hasActiveFilter` below); `null` otherwise, meaning "derive
   // it from `rows` instead" (see the `sessionsWithItemRefund` memo at the
@@ -437,16 +455,29 @@ export function useTransactionRows({
 
   // A content-derived primitive key, not the array reference itself. Any
   // caller that builds `selectedFilters` fresh per render (an inline `[]` in
-  // JSX, say) would otherwise recreate `load` — and refire the effect below
-  // — every render even though the actual selection hasn't changed
+  // JSX, say) would otherwise recreate the fetch — and refire the load —
+  // every render even though the actual selection hasn't changed
   // (CLAUDE.md rule 25: an unstable *dependency*, not the array type itself,
   // is the hazard). Order-independent, so reordering the same selection is a
   // no-op re-fetch.
   const filterKey = selectedFilters.slice().sort().join("|");
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
+  /**
+   * LIRA-348 — ONE page of visible rows, starting after `cursor` (the last
+   * row the table already shows, keyset on `created_at DESC, id DESC`).
+   *
+   * Some filters are client-only (the auto-row hide, Cash only, a mixed
+   * typed + untyped selection — see `filterVisible`), so a raw window can
+   * come back under-filled. The loop keeps reading the NEXT raw window (3×
+   * wider each time, up to FETCH_CAP raw rows per page) until the page has
+   * `limit` visible rows or the table is exhausted. Nothing is skipped: when
+   * a window holds more visible rows than the page has room for, the page
+   * ends at the last row KEPT and the next page resumes right after it.
+   */
+  const fetchPage = useCallback(
+    async (
+      cursor: TransactionPageCursor | undefined,
+    ): Promise<CursorPage<TransactionRow, TransactionPageCursor>> => {
       const activeOptions = ALL_FILTER_OPTIONS.filter((o) =>
         selectedFilters.includes(o.label),
       );
@@ -492,6 +523,9 @@ export function useTransactionRows({
         filters.typeFilters = typeTuples;
       }
       if (search) filters.search = search;
+      // LIRA-348 — the operator's days, applied server-side (rule 27).
+      if (from) filters.day_from = from;
+      if (to) filters.day_to = to;
 
       // Exclude the always-hidden types at the SQL level so LIMIT is applied
       // to already-filtered rows — a burst of hidden-type rows (e.g. hundreds
@@ -519,38 +553,49 @@ export function useTransactionRows({
           return effectiveOptions.some((opt) => isRowVisibleForOption(r, opt));
         });
 
-      // The SQL exclusion only covers CLIENT_CREATED (plus, when every
-      // selected option is typed, the typeFilters union above). The per-row
-      // JS-only filters (SUPPLIER_PAYMENT/EXPENSE auto-hide, Cash Only's
-      // joined payment legs, and any mixed cash_only+typed selection) can
-      // under-fill a window — a run of auto-generated supplier rows is the
-      // same "crowds out real rows" risk CLIENT_CREATED bulk-imports posed
-      // pre-D2 — so keep widening the fetch until it's satisfied or the
-      // table is exhausted (raw came back shorter than what we asked for).
       let fetchSize = requested * WIDEN_FACTOR;
-      const cap = Math.max(fetchSize, FETCH_CAP);
-      let visible: TransactionRow[] = [];
+      let fetched = 0;
+      let before = cursor;
+      const page: TransactionRow[] = [];
       for (;;) {
-        const raw = ((await getRecentTransactions(fetchSize, filters)) ||
-          []) as TransactionRow[];
-        visible = filterVisible(raw);
-        if (
-          visible.length >= requested ||
-          raw.length < fetchSize ||
-          fetchSize >= cap
-        ) {
-          break;
+        const raw = ((await getRecentTransactions(fetchSize, {
+          ...filters,
+          ...(before ? { before } : {}),
+        })) || []) as TransactionRow[];
+        fetched += raw.length;
+        const visible = filterVisible(raw);
+        const room = requested - page.length;
+        if (visible.length > room) {
+          page.push(...visible.slice(0, room));
+          const last = page[page.length - 1];
+          return {
+            rows: page,
+            nextCursor: { created_at: last.created_at, id: last.id },
+          };
+        }
+        page.push(...visible);
+        if (raw.length < fetchSize) return { rows: page }; // exhausted
+        const last = raw[raw.length - 1];
+        before = { created_at: last.created_at, id: last.id };
+        if (page.length >= requested || fetched >= FETCH_CAP) {
+          return { rows: page, nextCursor: before };
         }
         fetchSize *= WIDEN_FACTOR;
       }
-      setRows(visible.slice(0, requested));
-    } finally {
-      setLoading(false);
-    }
+    },
     // `filterKey` (not `selectedFilters`) is the intentional dependency —
     // see the comment on its declaration above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [limit, filterKey, search]);
+    [limit, filterKey, search, from, to],
+  );
+
+  const pages = useCursorPages(
+    fetchPage,
+    `${limit}|${filterKey}|${search}|${from}|${to}`,
+    logPageError,
+  );
+  const rows = pages.rows;
+  const loading = pages.loading;
 
   // LIRA-232 round-3 review (finding 3) — whether ANY active filter could
   // hide the one REFUND row that proves a session was touched by an item
@@ -596,10 +641,6 @@ export function useTransactionRows({
   }, []);
 
   useEffect(() => {
-    load();
-  }, [load]);
-
-  useEffect(() => {
     if (hasActiveFilter) {
       loadSessionsWithItemRefund();
     } else {
@@ -613,10 +654,11 @@ export function useTransactionRows({
   // that just voided or item-refunded something needs the table AND the
   // hide-Void-basket set to reflect it. Only re-runs the dedicated fetch
   // while a filter is active, for the same reason the effect above does.
+  const reloadPages = pages.reload;
   const reload = useCallback(() => {
-    load();
+    void reloadPages();
     if (hasActiveFilter) loadSessionsWithItemRefund();
-  }, [load, hasActiveFilter, loadSessionsWithItemRefund]);
+  }, [reloadPages, hasActiveFilter, loadSessionsWithItemRefund]);
 
   const filteredRows = useMemo(() => {
     if (!from && !to) return rows;
@@ -688,6 +730,10 @@ export function useTransactionRows({
     rows,
     filteredRows,
     loading,
+    isLoadingMore: pages.isLoadingMore,
+    hasMore: pages.hasMore,
+    loadMore: pages.loadMore,
+    loadAll: pages.loadAll,
     reload,
     sessionsWithItemRefund,
     sessionsWithPayoutMember,

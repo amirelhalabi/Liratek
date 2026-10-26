@@ -9,6 +9,9 @@ import {
   partnerRecordTransactionSchema,
   partnerSettleSchema,
   partnerWriteOffSchema,
+  partnerMonthRowsSchema,
+  partnerDayDetailSchema,
+  partnerSettleDaysSchema,
   type LedgerFilters,
 } from "@liratek/core";
 import type { AuthRequest } from "../middleware/auth.js";
@@ -97,6 +100,77 @@ router.get("/:id/ledger", (req, res) => {
       success: false,
       error:
         error instanceof Error ? error.message : "Failed to get partner ledger",
+    });
+  }
+});
+
+// ── LIRA-346 — settle by day (reads, any authenticated role, like the
+// ledger read and partners:get-ledger on desktop) ──────────────────────────
+
+/** Zod issue → one readable line (same envelope as validateRequest). */
+function firstIssue(error: { issues: Array<{ message: string }> }): string {
+  return error.issues[0]?.message ?? "Invalid request";
+}
+
+// GET /api/partners/:id/settle-open-rows — the settle queue
+router.get("/:id/settle-open-rows", (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.json({ success: false, error: "Invalid partner id" });
+    return;
+  }
+  try {
+    res.json({ success: true, rows: getPartnerService().getSettleOpenRows(id) });
+  } catch (error) {
+    res.json({
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to load the partner's open rows",
+    });
+  }
+});
+
+// GET /api/partners/:id/settle-month-rows?month=YYYY-MM — one calendar month
+router.get("/:id/settle-month-rows", (req, res) => {
+  const parsed = partnerMonthRowsSchema.safeParse({
+    partnerId: Number(req.params.id),
+    month: req.query.month,
+  });
+  if (!parsed.success) {
+    res.json({ success: false, error: firstIssue(parsed.error) });
+    return;
+  }
+  try {
+    res.json({
+      success: true,
+      rows: getPartnerService().getSettleMonthRows(parsed.data.partnerId, parsed.data.month),
+    });
+  } catch (error) {
+    res.json({
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to load the month",
+    });
+  }
+});
+
+// GET /api/partners/:id/settle-day-detail?day=YYYY-MM-DD — one shop day
+router.get("/:id/settle-day-detail", (req, res) => {
+  const parsed = partnerDayDetailSchema.safeParse({
+    partnerId: Number(req.params.id),
+    day: req.query.day,
+  });
+  if (!parsed.success) {
+    res.json({ success: false, error: firstIssue(parsed.error) });
+    return;
+  }
+  try {
+    res.json({
+      success: true,
+      rows: getPartnerService().getSettleDayDetail(parsed.data.partnerId, parsed.data.day),
+    });
+  } catch (error) {
+    res.json({
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to load the day",
     });
   }
 });
@@ -218,6 +292,32 @@ router.post(
           error instanceof Error ? error.message : "Failed to settle partner",
       });
     }
+  },
+);
+
+// POST /api/partners/settle-days — LIRA-346: settle the picked days (and
+// "settle old history up to <day>", the same request with no money). Same
+// gate as /settle; the actor comes from the JWT, never the body.
+router.post(
+  "/settle-days",
+  writeGate,
+  validateRequest(partnerSettleDaysSchema),
+  (req, res) => {
+    const userId = (req as AuthRequest).user!.userId;
+    const result = getPartnerService().settleDays({ ...req.body, userId });
+    if (result.success) {
+      auditRest(req, {
+        action: "settle",
+        entity_type: "partner_ledger",
+        summary: `Settled picked days for partner #${req.body.partnerId} (${req.body.selections.length} rows)`,
+        metadata: {
+          partnerId: req.body.partnerId,
+          selections: req.body.selections.length,
+          transactionId: result.id,
+        },
+      });
+    }
+    res.json(result);
   },
 );
 

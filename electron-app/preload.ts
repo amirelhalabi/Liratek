@@ -56,10 +56,18 @@ import type {
   SaleProcessPayload,
   // LIRA-256 — OMT statement covered commission types (core schema input).
   OmtCoveredTypesInput,
+  // LIRA-343 — the calendar's month read (core schema input).
+  AccountMonthInput,
+  // LIRA-343 — one shop day's details (core schema input).
+  AccountDayInput,
+  // LIRA-343 T033a — Transactions window shop-day range (core schema input).
+  SupplierDayRangeInput,
   // LIRA-313 — supplier Pay/Receive payload incl. change legs (rule 21).
   SupplierCashflowPayload,
   // LIRA-322 — account settlement payload (rule 21).
   SupplierSettleAccountPayload,
+  // LIRA-344 — Remove credit payload (rule 21).
+  RemoveAccountCreditPayload,
   // LIRA-319 — the recharge sale payload incl. extra_usd/extra_lbp (rule 21).
   CreateRechargePayload,
   // LIRA-319 — the financial-service payload incl. extra_usd/extra_lbp (rule 21).
@@ -86,6 +94,10 @@ import type { DesktopPairInput, DesktopUnpairInput } from "@liratek/core" with {
 };
 // LIRA-340 — partner ledger read filters incl. the display group (rule 21).
 import type { LedgerFilters } from "@liratek/core" with {
+  "resolution-mode": "import",
+};
+// LIRA-346 — settle partners by day: payload from the core schema (rule 21).
+import type { PartnerSettleDaysPayload } from "@liratek/core" with {
   "resolution-mode": "import",
 };
 // LIRA-333 — open a WhatsApp link outside LiraTek (rule 21).
@@ -426,9 +438,17 @@ contextBridge.exposeInMainWorld("api", {
         id: number;
         auto?: boolean;
       }>;
+      /** LIRA-347 — stale check for picked days. */
+      expectedOwed?: { usd: number; lbp: number };
+      /** LIRA-347 — "Use credit", per currency. */
+      creditUseUSD?: number;
+      creditUseLBP?: number;
     }) => ipcRenderer.invoke("debt:add-repayment", data),
     getOpenItems: (clientId: number) =>
       ipcRenderer.invoke("debt:get-open-items", clientId),
+    /** LIRA-347 — one month of debt items for the settle calendar. */
+    getMonthRows: (data: { clientId: number; month: string }) =>
+      ipcRenderer.invoke("debt:get-month-rows", data),
     cashOut: (data: {
       clientId: number;
       amountUSD: number;
@@ -712,10 +732,55 @@ contextBridge.exposeInMainWorld("api", {
     // account parent (OMT) and its children (OMT App, iPick). No role gate:
     // these are reads, same as getBalances/getLedger above.
     getAccountBalances: () => ipcRenderer.invoke("suppliers:account-balances"),
-    getAccountLedger: (accountSupplierId: number, limit?: number) =>
-      ipcRenderer.invoke("suppliers:account-ledger", accountSupplierId, limit),
+    // LIRA-343 T033a — optional shop-day range, last argument.
+    getAccountLedger: (
+      accountSupplierId: number,
+      limit?: number,
+      range?: SupplierDayRangeInput,
+    ) =>
+      ipcRenderer.invoke(
+        "suppliers:account-ledger",
+        accountSupplierId,
+        limit,
+        range,
+      ),
+    // LIRA-343 T033a — an account parent's Transactions window: every
+    // member's rows (OMT, OMT App, iPick), optional shop-day range.
+    getAccountTransactions: (
+      accountSupplierId: number,
+      limit?: number,
+      range?: SupplierDayRangeInput,
+    ) =>
+      ipcRenderer.invoke(
+        "suppliers:account-transactions",
+        accountSupplierId,
+        limit,
+        range,
+      ),
     getAccountUnsettled: (accountSupplierId: number) =>
       ipcRenderer.invoke("suppliers:account-unsettled", accountSupplierId),
+    // LIRA-343 — every account row whose shop day is in `month` (YYYY-MM),
+    // settled or not (settle calendar). Raw rows array, no role gate.
+    getAccountMonthRows: (
+      accountSupplierId: number,
+      month: AccountMonthInput["month"],
+    ) =>
+      ipcRenderer.invoke(
+        "suppliers:account-month-rows",
+        accountSupplierId,
+        month,
+      ),
+    // LIRA-343 — what is behind one shop day (YYYY-MM-DD): rows, who paid
+    // each one, "added after settlement". Raw rows array, no role gate.
+    getAccountDayDetail: (
+      accountSupplierId: number,
+      shopDay: AccountDayInput["day"],
+    ) =>
+      ipcRenderer.invoke(
+        "suppliers:account-day-detail",
+        accountSupplierId,
+        shopDay,
+      ),
     // LIRA-256 — optional covered OMT commission types (undefined = all).
     getAccountExpectedStatement: (
       accountSupplierId: number,
@@ -754,8 +819,12 @@ contextBridge.exposeInMainWorld("api", {
     }) => ipcRenderer.invoke("suppliers:add-ledger-entry", data),
     getUnsettledTransactions: (provider: string) =>
       ipcRenderer.invoke("suppliers:unsettled-transactions", provider),
-    getAllTransactions: (provider: string, limit?: number) =>
-      ipcRenderer.invoke("suppliers:all-transactions", provider, limit),
+    getAllTransactions: (
+      provider: string,
+      limit?: number,
+      range?: SupplierDayRangeInput,
+    ) =>
+      ipcRenderer.invoke("suppliers:all-transactions", provider, limit, range),
     getUnsettledSummary: () =>
       ipcRenderer.invoke("suppliers:unsettled-summary"),
     settleTransactions: (data: {
@@ -808,6 +877,10 @@ contextBridge.exposeInMainWorld("api", {
     // the hand-copied shape lacked `per_currency`/`expected_owed`.
     settleAccount: (data: SupplierSettleAccountPayload) =>
       ipcRenderer.invoke("suppliers:settle-account", data),
+    // LIRA-344 — close one open OMT account credit OMT will not accept and
+    // book it as an expense (admin). Derived from the core schema (rule 21).
+    removeAccountCredit: (data: RemoveAccountCreditPayload) =>
+      ipcRenderer.invoke("suppliers:remove-account-credit", data),
     // LIRA-313 (rule 12/21) — derived from the core schema: the hand-copied
     // type lacked the per-leg `direction` (change legs) and `discount`.
     recordCashflow: (data: SupplierCashflowPayload) =>
@@ -1231,6 +1304,15 @@ contextBridge.exposeInMainWorld("api", {
       amount_lbp: number;
       reason?: string;
     }) => ipcRenderer.invoke("partners:write-off", data),
+    // LIRA-346 — settle by day: calendar reads + settle picked days.
+    getSettleOpenRows: (partnerId: number) =>
+      ipcRenderer.invoke("partners:settle-open-rows", partnerId),
+    getSettleMonthRows: (partnerId: number, month: string) =>
+      ipcRenderer.invoke("partners:settle-month-rows", partnerId, month),
+    getSettleDayDetail: (partnerId: number, day: string) =>
+      ipcRenderer.invoke("partners:settle-day-detail", partnerId, day),
+    settleDays: (data: PartnerSettleDaysPayload) =>
+      ipcRenderer.invoke("partners:settle-days", data),
   },
 
   // Settings

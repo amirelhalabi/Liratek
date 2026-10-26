@@ -6,10 +6,18 @@
  *   A  OMT SEND  $145 + $7 fee  → owes $152 (oldest)
  *   B  OMT SEND  $95  + $6 fee  → owes $101
  *   C  OMT SEND  $18  + $3 fee  → owes $21
- *   L  iPick top-up in LBP      → owes L LBP
+ *   L  OMT SEND in LBP          → owes L LBP
  *
- *  1. UI, USD only while LBP is owed: the sheet's "Pick transfers" ticks
- *     exactly A/B/C/L. ONE payment box (owner 2026-10-15) opens with a USD
+ * LIRA-343: the sheet now opens on a day calendar and settles the PICKED
+ * DAYS (every open day before today starts picked; single transfers are no
+ * longer ticked). So all four rows are backdated (`transaction_time`, noon
+ * UTC) onto ONE past day that has no other open row on the account, and the
+ * UI step clears the default pick and picks only that day. L was an iPick
+ * LBP top-up before; a top-up cannot be backdated, so it is now an LBP OMT
+ * transfer (still "LBP owed while paying USD only").
+ *
+ *  1. UI, USD only while LBP is owed: the calendar picks exactly the seeded
+ *     day (A/B/C/L), the OMT credit is set to 0. ONE payment box (owner 2026-10-15) opens with a USD
  *     line and an LBP line pre-filled with what is owed; setting the USD
  *     line to $199 and clearing the LBP line previews A closes, B part-paid
  *     "$47 of $101 · $54 owed", C untouched, $75.00 still owed, L untouched,
@@ -19,15 +27,23 @@
  *     settlement sent no LBP section.
  *  2. Suppliers → OMT → Transactions shows B as "Partial · $47.00".
  *  3. REST: a second settlement (B + C, Cash $60) closes B and part-pays C.
- *  4. Voiding the FIRST settlement is refused (a later one paid the same
- *     transfer) and changes nothing; voiding the second, then the first, is
- *     allowed and puts every row, the drawer and the account back.
- *  5. Clean-up that is also a check: one REST call pays A/B/C in USD and L
- *     in LBP (both sections in one go), so this spec leaves nothing open.
+ *  4. LIRA-343 (FR-018, owner 2026-10-26): undoing the FIRST settlement is
+ *     allowed although the second one relied on it (both paid B). A
+ *     reopens to $152; B and the second settlement stay as they are (B
+ *     stays closed); the $47 the first one paid on B becomes an account
+ *     line "Owed to OMT added: $47.00 (undo of #s1)", on no day; the drawer
+ *     and the account move back by exactly the $199 of the undone one. In
+ *     the sheet, that line links to the day of the undo, which shows the ↺
+ *     badge naming the undo.
+ *  5. Clean-up that is also a check: one REST call pays A, C and the $47
+ *     account line in USD and L in LBP (both sections in one go), so this
+ *     spec leaves nothing open; the drawer and the account end exactly
+ *     $274 and L LBP below where they started (s2 + clean-up).
  *
  * Rule 15: the account carries other specs' backlog, so every settlement is
- * scoped to this spec's own rows (ticked in the UI, `selections` over REST),
- * rows are matched by kind + id, and every money check is a delta.
+ * scoped to this spec's own rows (their own day in the UI, `selections`
+ * over REST), rows are matched by kind + id, and every money check is a
+ * delta.
  */
 import type { Locator, Page } from "@playwright/test";
 import {
@@ -52,6 +68,14 @@ interface AccountUnsettledRow {
   covered_lbp?: number;
   remaining_usd: number;
   remaining_lbp: number;
+  /** LIRA-343 — the shop's calendar day of the row (`YYYY-MM-DD`). */
+  shop_day: string;
+  /** LIRA-343 — on a day, or an account line on no day. */
+  row_scope: "DAY" | "ACCOUNT";
+  /** LIRA-343 T037 — set on the account line an undo / void wrote. */
+  relief_origin?: "UNDO" | "VOID" | null;
+  /** `"#<undone / voided transaction id>"` when `relief_origin` is set. */
+  relief_ref?: string | null;
 }
 interface AccountBalance {
   account_supplier_id: number;
@@ -156,13 +180,98 @@ function expectedOwed(
   };
 }
 
+// ── LIRA-343 calendar helpers ───────────────────────────────────────────────
+
+/** The browser's own calendar day — what the sheet calls "today" (rule 27). */
+async function browserToday(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const d = new Date();
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  });
+}
+
+function shiftDay(day: string, delta: number): string {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().slice(0, 10);
+}
+
+/** Noon UTC on `day`: the same calendar day from UTC−11 to UTC+11. */
+const noonUtc = (day: string) => `${day}T12:00:00.000Z`;
+
+const monthNumber = (day: string) =>
+  Number(day.slice(0, 4)) * 12 + Number(day.slice(5, 7));
+
+/** The most recent past day with NO open row on the account, so picking it
+ *  in the calendar picks only what this spec seeds there (rule 15). */
+async function freePastDay(
+  page: Page,
+  auth: Auth,
+  accountId: number,
+  today: string,
+): Promise<string> {
+  const open = new Set(
+    (await queue(page, auth, accountId)).map((r) => r.shop_day),
+  );
+  for (let k = 1; k <= 180; k++) {
+    const day = shiftDay(today, -k);
+    if (!open.has(day)) return day;
+  }
+  throw new Error("no past day without open OMT rows in the last 180 days");
+}
+
+/** Clears the default pick (every open day before today), then picks
+ *  exactly `day`, walking back from today's month to the day's month. */
+async function pickOnlyDay(sheet: Locator, today: string, day: string) {
+  const bar = sheet.getByTestId("settle-selection-bar");
+  await expect(bar).toBeVisible({ timeout: 15_000 });
+  // No test id on Clear (reported): the bar's only button while days are
+  // picked; "Pick all open" while none are.
+  const clear = bar.getByRole("button", { name: "Clear", exact: true });
+  if (await clear.count()) await clear.click();
+  await expect(clear).toHaveCount(0);
+  for (let i = monthNumber(today) - monthNumber(day); i > 0; i--) {
+    await sheet
+      .getByRole("button", { name: "Previous month", exact: true })
+      .click();
+  }
+  const button = sheet.locator(`[data-day="${day}"] button`);
+  await expect(button).toBeEnabled({ timeout: 15_000 });
+  await button.click();
+  await expect(button).toHaveAttribute("aria-pressed", "true");
+  await expect(bar).toContainText("1 day picked");
+  await closeDayDetails(sheet);
+}
+
+/** LIRA-343 — tapping a day also opens its details panel (inline, under the
+ *  calendar; it grows once its rows load). Close it — by ITS Close button,
+ *  not the sheet's own "Close" — so the payment box below stays put. */
+async function closeDayDetails(sheet: Locator) {
+  const details = sheet.getByTestId("settle-day-details");
+  await expect(details).toBeVisible();
+  await details.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(details).toHaveCount(0);
+}
+
+/** The OMT credit line pre-fills min(owed, credit); other specs leave
+ *  credit on the account, so set it to 0 to keep the amounts this spec's. */
+async function setCreditToZero(sheet: Locator) {
+  for (const c of ["usd", "lbp"]) {
+    const input = sheet.getByTestId(`supplier-account-settle-credit-${c}`);
+    if (await input.count()) {
+      await input.fill("0");
+      await expect(input).toHaveValue("0");
+    }
+  }
+}
+
 function previewRow(section: Locator, ref: RowRef): Locator {
   return section.locator(
     `[data-testid="supplier-account-settle-preview-row"][data-kind="${ref.kind}"][data-row-id="${ref.id}"]`,
   );
 }
 
-test("lira-web-065 OMT settle by amount: USD only while LBP is owed, a previewed partial, the 'Partial · $47.00' label, and newest-first voids", async ({
+test("lira-web-065 OMT settle by amount: USD only while LBP is owed, a previewed partial, the 'Partial · $47.00' label, and undoing the older settlement leaves an 'owed to OMT' account line", async ({
   page,
 }) => {
   test.setTimeout(150_000);
@@ -170,21 +279,29 @@ test("lira-web-065 OMT settle by amount: USD only while LBP is owed, a previewed
   const token = await page.evaluate(() => localStorage.getItem("liratek.jwt"));
   const auth: Auth = { Authorization: `Bearer ${token}` };
   const marker = Date.now();
-  const LBP_OWED = 900_000 + (marker % 1000) * 1000;
+  const LBP_AMOUNT = 900_000 + (marker % 1000) * 1000;
+  const LBP_FEE = 50_000;
 
   const account = await omtAccount(page, auth);
   const omtId = account.account_supplier_id;
 
-  // ── Seed ────────────────────────────────────────────────────────────────
-  const send = async (amount: number, fee: number): Promise<RowRef> => {
+  // ── Seed: all four rows on ONE past day with no other open row ─────────
+  const today = await browserToday(page);
+  const DAY = await freePastDay(page, auth, omtId, today);
+  const send = async (
+    amount: number,
+    fee: number,
+    currency: "USD" | "LBP" = "USD",
+  ): Promise<RowRef> => {
     const r = await postJson(page, auth, "/api/services/transactions", {
       provider: "OMT",
       serviceType: "SEND",
       amount,
-      currency: "USD",
+      currency,
       omtServiceType: "INTRA",
       omtFee: fee,
-      payments: [{ method: "CASH", currencyCode: "USD", amount: amount + fee }],
+      payments: [{ method: "CASH", currencyCode: currency, amount: amount + fee }],
+      transaction_time: noonUtc(DAY),
     });
     expect(r.success, JSON.stringify(r)).toBeTruthy();
     return { kind: "FINANCIAL_SERVICE", id: r.id as number };
@@ -192,24 +309,26 @@ test("lira-web-065 OMT settle by amount: USD only while LBP is owed, a previewed
   const A = await send(145, 7);
   const B = await send(95, 6);
   const C = await send(18, 3);
+  const L = await send(LBP_AMOUNT, LBP_FEE, "LBP");
 
-  const before = await queue(page, auth, omtId);
-  const topUp = await postJson(page, auth, "/api/recharge/top-up-from-supplier", {
-    provider: "iPick",
-    amount: LBP_OWED,
-    currency: "LBP",
-  });
-  expect(topUp.success, JSON.stringify(topUp)).toBeTruthy();
   const seeded = await queue(page, auth, omtId);
-  const lRow = seeded.find(
-    (r) =>
-      r.kind === "LEDGER" &&
-      r.source_provider === "iPick" &&
-      r.amount_lbp === LBP_OWED &&
-      !before.some((b) => b.kind === "LEDGER" && b.id === r.id),
-  );
-  expect(lRow, "seeded iPick LBP top-up not in the OMT queue").toBeTruthy();
-  const L: RowRef = { kind: "LEDGER", id: lRow!.id };
+  // `transaction_time` reached the row (a stripped key would land it on
+  // today, and the day pick below would then settle nothing of ours).
+  for (const ref of [A, B, C, L]) {
+    expect(findRow(seeded, ref)?.shop_day, `${ref.kind}:${ref.id}`).toBe(DAY);
+  }
+  // DAY carries only this spec's four rows.
+  expect(
+    seeded.filter(
+      (r) =>
+        r.shop_day === DAY &&
+        ![A, B, C, L].some((ref) => ref.kind === r.kind && ref.id === r.id),
+    ),
+  ).toEqual([]);
+  const lRow = findRow(seeded, L);
+  expect(lRow?.amount_usd).toBe(0);
+  const LBP_OWED = lRow!.remaining_lbp;
+  expect(LBP_OWED).toBeGreaterThan(0);
 
   expect(findRow(seeded, A)?.remaining_usd).toBeCloseTo(152, 2);
   expect(findRow(seeded, B)?.remaining_usd).toBeCloseTo(101, 2);
@@ -229,15 +348,17 @@ test("lira-web-065 OMT settle by amount: USD only while LBP is owed, a previewed
   const sheet = page.getByTestId("supplier-account-settle-sheet");
   await expect(sheet).toBeVisible({ timeout: 10_000 });
 
-  // Nothing is ticked by default; tick exactly this spec's four rows.
-  await sheet.getByTestId("supplier-account-settle-pick-toggle").click();
-  for (const ref of [A, B, C, L]) {
-    const row = sheet.locator(
-      `[data-testid="supplier-account-settle-row"][data-kind="${ref.kind}"][data-row-id="${ref.id}"]`,
-    );
-    await expect(row).toBeVisible({ timeout: 15_000 });
-    await row.getByTestId("supplier-account-settle-row-toggle").check();
+  // LIRA-343: every open day before today starts picked — DAY among them.
+  const dayButton = sheet.locator(`[data-day="${DAY}"] button`);
+  if (DAY.slice(0, 7) === today.slice(0, 7)) {
+    await expect(dayButton).toHaveAttribute("aria-pressed", "true", {
+      timeout: 15_000,
+    });
   }
+  // Pick exactly this spec's day (its four rows), with no OMT credit. Both
+  // BEFORE typing: changing the days or the credit re-fills the box.
+  await pickOnlyDay(sheet, today, DAY);
+  await setCreditToZero(sheet);
 
   // ONE box for both currencies; the header keeps each in its own currency.
   const box = sheet.getByTestId("supplier-account-settle-section-usd-lbp");
@@ -355,50 +476,84 @@ test("lira-web-065 OMT settle by amount: USD only while LBP is owed, a previewed
     2,
   );
 
-  // ── 4. Newest-first voids ──────────────────────────────────────────────
-  const drawerBeforeRefusal = await omtDrawer(page, auth);
-  const refused = await postJson(
-    page,
-    auth,
-    `/api/transactions/${s1[0].id}/void`,
-  );
-  expect(refused.success, JSON.stringify(refused)).toBe(false);
-  expect(String(refused.error)).toContain("Void it first");
-  expect(
-    (await omtDrawer(page, auth)).usd - drawerBeforeRefusal.usd,
-  ).toBeCloseTo(0, 2);
-  const qRefused = await queue(page, auth, omtId);
-  expect(findRow(qRefused, B), "a refused void reopened B").toBeUndefined();
-  expect(findRow(qRefused, C)?.remaining_usd).toBeCloseTo(15, 2);
+  // ── 4. Undo the FIRST settlement although the second relied on it ────
+  // LIRA-343 FR-018: allowed, no refusal. s2 stays; B stays closed; the
+  // $47 s1 paid on B becomes an open account line owed to OMT.
+  const drawerBeforeUndo = await omtDrawer(page, auth);
+  const accountBeforeUndo = await omtAccount(page, auth);
+  const undo1 = await postJson(page, auth, `/api/transactions/${s1[0].id}/void`);
+  expect(undo1.success, JSON.stringify(undo1)).toBeTruthy();
 
-  const void2 = await postJson(page, auth, `/api/transactions/${s2!.id}/void`);
-  expect(void2.success, JSON.stringify(void2)).toBeTruthy();
-  const qVoid2 = await queue(page, auth, omtId);
-  expect(findRow(qVoid2, B)?.remaining_usd).toBeCloseTo(54, 2);
-  expect(findRow(qVoid2, C)?.remaining_usd).toBeCloseTo(21, 2);
-  expect((await omtDrawer(page, auth)).usd - drawerBefore2.usd).toBeCloseTo(
-    0,
+  const qUndo = await queue(page, auth, omtId);
+  expect(findRow(qUndo, A)?.remaining_usd).toBeCloseTo(152, 2);
+  expect(findRow(qUndo, B), "B stays closed by the second settlement").toBeUndefined();
+  expect(findRow(qUndo, C)?.remaining_usd).toBeCloseTo(15, 2);
+  expect(findRow(qUndo, L)?.remaining_lbp).toBe(LBP_OWED);
+  // The account line, by identity: written by the undo of s1.
+  const reliefRows = qUndo.filter(
+    (r) =>
+      r.kind === "LEDGER" &&
+      r.row_scope === "ACCOUNT" &&
+      r.relief_origin === "UNDO" &&
+      r.relief_ref === `#${s1[0].id}`,
+  );
+  expect(reliefRows, JSON.stringify(reliefRows)).toHaveLength(1);
+  const relief = reliefRows[0];
+  expect(relief.remaining_usd).toBeCloseTo(47, 2);
+  expect(relief.remaining_lbp).toBe(0);
+  const RELIEF: RowRef = { kind: "LEDGER", id: relief.id };
+
+  // Exactly s1's $199 comes back; the account line pair is balance-neutral.
+  const drawerAfterUndo = await omtDrawer(page, auth);
+  expect(drawerAfterUndo.usd - drawerBeforeUndo.usd).toBeCloseTo(199, 2);
+  expect(drawerAfterUndo.lbp - drawerBeforeUndo.lbp).toBeCloseTo(0, 0);
+  const accountAfterUndo = await omtAccount(page, auth);
+  expect(accountAfterUndo.total_usd - accountBeforeUndo.total_usd).toBeCloseTo(
+    199,
     2,
   );
+  expect(accountAfterUndo.total_lbp - accountBeforeUndo.total_lbp).toBeCloseTo(
+    0,
+    0,
+  );
+  // s2 is untouched by the undo.
+  const s2After = (await settlementTxns(page, auth)).find((t) => t.id === s2!.id);
+  expect(s2After?.status, JSON.stringify(s2After)).toBe(s2!.status);
 
-  const void1 = await postJson(page, auth, `/api/transactions/${s1[0].id}/void`);
-  expect(void1.success, JSON.stringify(void1)).toBeTruthy();
-  const qVoid1 = await queue(page, auth, omtId);
-  expect(findRow(qVoid1, A)?.remaining_usd).toBeCloseTo(152, 2);
-  expect(findRow(qVoid1, B)?.remaining_usd).toBeCloseTo(101, 2);
-  expect(findRow(qVoid1, C)?.remaining_usd).toBeCloseTo(21, 2);
-  expect(findRow(qVoid1, L)?.remaining_lbp).toBe(LBP_OWED);
-  const drawerVoided = await omtDrawer(page, auth);
-  expect(drawerVoided.usd - drawerStart.usd).toBeCloseTo(0, 2);
-  expect(drawerVoided.lbp - drawerStart.lbp).toBeCloseTo(0, 0);
-  const accountVoided = await omtAccount(page, auth);
-  expect(accountVoided.total_usd - accountStart.total_usd).toBeCloseTo(0, 2);
-  expect(accountVoided.total_lbp - accountStart.total_lbp).toBeCloseTo(0, 0);
+  // The sheet: the account line names the undo and links to its day, and
+  // that day carries the ↺ badge. The day is the row's own `shop_day` (the
+  // server stamped it), never the browser's today (rule 27).
+  await page.reload();
+  await gotoAndSettle(page, "/#/suppliers");
+  const card2 = page.getByTestId("supplier-account-card-OMT");
+  await expect(card2).toBeVisible({ timeout: 15_000 });
+  await card2.getByTestId("supplier-account-settle-button").click();
+  const sheet2 = page.getByTestId("supplier-account-settle-sheet");
+  await expect(sheet2).toBeVisible({ timeout: 10_000 });
+  const reliefLine = sheet2
+    .getByTestId("supplier-account-settle-relief-line")
+    .filter({ hasText: `(undo of #${s1[0].id})` });
+  await expect(reliefLine).toHaveCount(1, { timeout: 15_000 });
+  await expect(reliefLine).toContainText(
+    `Owed to OMT added: $47.00 (undo of #${s1[0].id})`,
+  );
+  await reliefLine.getByRole("button").click();
+  const undoDay = sheet2.locator(`[data-day="${relief.shop_day}"]`);
+  await expect(undoDay).toBeVisible({ timeout: 15_000 });
+  await expect(undoDay.locator("[data-account-mark]")).toHaveCount(1);
+  // Other undos / voids may mark the same day: the tooltip names this one.
+  // (The tooltip only shows on hover; its text is in the DOM already.)
+  await expect(undoDay.locator('[role="tooltip"]')).toContainText(
+    `Owed to OMT added: $47.00 (undo of #${s1[0].id})`,
+  );
 
   // ── 5. Both currencies in one call (also the clean-up) ─────────────────
-  const all = [A, B, C, L];
-  const owedAll = expectedOwed(qVoid1, all);
-  expect(owedAll).toEqual({ usd: 274, lbp: LBP_OWED });
+  // A and C in USD, L in LBP, plus the $47 account line (selected like a
+  // row: without `include_account_credits` it is not netted against other
+  // specs' account lines).
+  const all = [A, C, L, RELIEF];
+  const owedAll = expectedOwed(qUndo, all);
+  expect(owedAll).toEqual({ usd: 214, lbp: LBP_OWED });
   const both = await postJson(
     page,
     auth,
@@ -410,7 +565,7 @@ test("lira-web-065 OMT settle by amount: USD only while LBP is owed, a previewed
       per_currency: {
         USD: {
           direction: "PAY",
-          payments: [{ method: "CASH", currency_code: "USD", amount: 274 }],
+          payments: [{ method: "CASH", currency_code: "USD", amount: 214 }],
         },
         LBP: {
           direction: "PAY",
@@ -424,10 +579,21 @@ test("lira-web-065 OMT settle by amount: USD only while LBP is owed, a previewed
   );
   expect(both.success, JSON.stringify(both)).toBeTruthy();
   const qEnd = await queue(page, auth, omtId);
-  for (const ref of all) {
+  for (const ref of [A, B, C, L, RELIEF]) {
     expect(findRow(qEnd, ref), `${ref.kind}:${ref.id} still open`).toBeUndefined();
   }
   const drawerEnd = await omtDrawer(page, auth);
-  expect(drawerEnd.usd - drawerVoided.usd).toBeCloseTo(-274, 2);
-  expect(drawerEnd.lbp - drawerVoided.lbp).toBeCloseTo(-LBP_OWED, 0);
+  expect(drawerEnd.usd - drawerAfterUndo.usd).toBeCloseTo(-214, 2);
+  expect(drawerEnd.lbp - drawerAfterUndo.lbp).toBeCloseTo(-LBP_OWED, 0);
+  // End to end: s2 ($60) + the clean-up ($214) = everything A/B/C owed
+  // ($274), and all of L — the undone s1 nets to zero apart from the $47
+  // line the clean-up just paid.
+  expect(drawerEnd.usd - drawerStart.usd).toBeCloseTo(-274, 2);
+  expect(drawerEnd.lbp - drawerStart.lbp).toBeCloseTo(-LBP_OWED, 0);
+  const accountEnd = await omtAccount(page, auth);
+  expect(accountEnd.total_usd - accountStart.total_usd).toBeCloseTo(-274, 2);
+  expect(accountEnd.total_lbp - accountStart.total_lbp).toBeCloseTo(
+    -LBP_OWED,
+    0,
+  );
 });

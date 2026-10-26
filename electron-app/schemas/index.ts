@@ -37,6 +37,7 @@ import {
   debtCashOutSchema,
   debtAccountEntrySchema,
   addRepaymentSchema,
+  debtMonthRowsSchema,
   debtUseCreditSchema,
   debtWriteOffSchema,
   voucherCreateSchema,
@@ -46,7 +47,12 @@ import {
   // OMT open-credit account settlement (LIRA-189, CONTRACT_W2.md §2.1) — the
   // cast-bridge pattern immediately below mirrors SupplierSettleSchema's.
   supplierSettleAccountSchema,
+  // LIRA-344 — Remove credit (same cast-bridge pattern).
+  removeAccountCreditSchema,
   omtCoveredTypesSchema,
+  accountMonthSchema,
+  accountDaySchema,
+  supplierDayRangeSchema,
   supplierCashflowSchema,
   supplierPurchaseCreateSchema,
   // LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — same cast-bridge pattern.
@@ -57,6 +63,9 @@ import {
   partnerRecordTransactionSchema,
   partnerSettleSchema,
   partnerWriteOffSchema,
+  partnerSettleDaysSchema,
+  partnerMonthRowsSchema,
+  partnerDayDetailSchema,
   stockAdjustSchema,
   productListFiltersSchema,
   batchDeleteProductIdsSchema,
@@ -137,6 +146,7 @@ import {
   type DebtCashOutInput,
   type DebtAccountEntryInput,
   type AddRepaymentInput,
+  type DebtMonthRowsInput,
   type DebtUseCreditInput,
   type DebtWriteOffInput,
   type HoldMoneyCreateInput,
@@ -157,7 +167,11 @@ import {
   type SupplierLedgerEntryInput,
   type SupplierSettleInput,
   type SupplierSettleAccountInput,
+  type RemoveAccountCreditInput,
   type OmtCoveredTypesInput,
+  type AccountMonthInput,
+  type AccountDayInput,
+  type SupplierDayRangeInput,
   type SupplierCashflowInput,
   type SupplierPurchaseCreateInput,
   type SupplierAccountLinkInput,
@@ -166,6 +180,9 @@ import {
   type PartnerRecordTransactionInput,
   type PartnerSettleInput,
   type PartnerWriteOffInput,
+  type PartnerSettleDaysInput,
+  type PartnerMonthRowsInput,
+  type PartnerDayDetailInput,
   type CreateDrawerCashoutInput,
   type CreateWalletExchangeInput,
   type CreateDrawerTransferInput,
@@ -1005,6 +1022,11 @@ export const DebtAccountEntrySchema =
 export const DebtUseCreditSchema =
   debtUseCreditSchema as unknown as z.ZodSchema<DebtUseCreditInput>;
 
+// LIRA-347 — one month of a client's debt items (settle calendar read).
+// Same core schema as GET /api/debts/clients/:clientId/month-rows (rule 14).
+export const DebtMonthRowsSchema =
+  debtMonthRowsSchema as unknown as z.ZodSchema<DebtMonthRowsInput>;
+
 // CQ-10 (D4: admin-only on both transports) — standalone debt write-off.
 // Lifted to packages/core/src/validators/debt.ts so the IPC handler
 // (debt:write-off) and the REST route (POST /api/debts/write-off) validate
@@ -1046,10 +1068,24 @@ export const SupplierSettleSchema =
 // consumed by supplierHandlers.ts's `suppliers:settle-account` IPC channel.
 export const SupplierSettleAccountSchema =
   supplierSettleAccountSchema as unknown as z.ZodSchema<SupplierSettleAccountInput>;
+// LIRA-344 — Remove credit on the OMT account (`suppliers:remove-account-credit`).
+export const RemoveAccountCreditSchema =
+  removeAccountCreditSchema as unknown as z.ZodSchema<RemoveAccountCreditInput>;
 // LIRA-256 — which OMT commission types a statement covers; parsed for the
 // `suppliers:account-expected-statement` read's optional 2nd argument.
 export const OmtCoveredTypesSchema =
   omtCoveredTypesSchema as unknown as z.ZodSchema<OmtCoveredTypesInput>;
+// LIRA-343 — the calendar's month read (`suppliers:account-month-rows`).
+export const AccountMonthSchema =
+  accountMonthSchema as unknown as z.ZodSchema<AccountMonthInput>;
+// LIRA-343 — one shop day's details (`suppliers:account-day-detail`).
+export const AccountDaySchema =
+  accountDaySchema as unknown as z.ZodSchema<AccountDayInput>;
+// LIRA-343 T033a — the supplier Transactions window's optional shop-day
+// range (`suppliers:all-transactions` / `:account-transactions` /
+// `:account-ledger`, optional last argument).
+export const SupplierDayRangeSchema =
+  supplierDayRangeSchema as unknown as z.ZodSchema<SupplierDayRangeInput>;
 export const SupplierCashflowSchema =
   supplierCashflowSchema as unknown as z.ZodSchema<SupplierCashflowInput>;
 export const SupplierPurchaseCreateSchema =
@@ -1146,6 +1182,15 @@ export const PartnerSettleSchema =
 // validate against ONE schema (rule 14). Cast bridges the zod-major mismatch.
 export const PartnerWriteOffSchema =
   partnerWriteOffSchema as unknown as z.ZodSchema<PartnerWriteOffInput>;
+
+// LIRA-346 — settle partners by day: the write and the two calendar reads
+// share core's schemas with the REST routes (rule 14). Cast bridges zod.
+export const PartnerSettleDaysSchema =
+  partnerSettleDaysSchema as unknown as z.ZodSchema<PartnerSettleDaysInput>;
+export const PartnerMonthRowsSchema =
+  partnerMonthRowsSchema as unknown as z.ZodSchema<PartnerMonthRowsInput>;
+export const PartnerDayDetailSchema =
+  partnerDayDetailSchema as unknown as z.ZodSchema<PartnerDayDetailInput>;
 
 // =============================================================================
 // Service Providers (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 5)
@@ -1549,4 +1594,35 @@ export const OpenDifferencesAfterSchema =
     OpenDifferencesAfterInput,
     z.ZodTypeDef,
     OpenDifferencesAfterInput
+  >;
+
+// LIRA-348 — the paging keys of transactions:get-recent / audit:search
+// (shared with the REST routes, rule 14). Validated on their own and merged
+// into the filters those channels already forward (rule 23).
+import {
+  transactionPageFiltersSchema as coreTransactionPageFiltersSchema,
+  auditPageFiltersSchema as coreAuditPageFiltersSchema,
+  type TransactionPageCursor,
+} from "@liratek/core";
+type TransactionPageFiltersShape = {
+  day_from?: string;
+  day_to?: string;
+  before?: TransactionPageCursor;
+};
+type AuditPageFiltersShape = {
+  dayFrom?: string;
+  dayTo?: string;
+  beforeId?: number;
+};
+export const TransactionPageFiltersSchema =
+  coreTransactionPageFiltersSchema as unknown as z.ZodSchema<
+    TransactionPageFiltersShape,
+    z.ZodTypeDef,
+    TransactionPageFiltersShape
+  >;
+export const AuditPageFiltersSchema =
+  coreAuditPageFiltersSchema as unknown as z.ZodSchema<
+    AuditPageFiltersShape,
+    z.ZodTypeDef,
+    AuditPageFiltersShape
   >;

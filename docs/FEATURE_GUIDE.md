@@ -814,6 +814,40 @@ suites `AccountSettleSheet.lira322*`; page `Suppliers.lira322AccountOnly`; badge
 `CashFlowBadge.lira322MixedSettlement`; web e2e `lira-web-065-omt-amount-first-settle` (plus
 lira-web-035/053 and the shared desktop lira-189/lira-158 on the new sheet).
 
+#### Settle by day (LIRA-343, `specs/343-omt-settle-by-day/`)
+
+Settle Account for the OMT account opens on a month calendar; the operator picks days (default:
+every open day before today) and may untick single transfers inside a day. It is a layer ON TOP
+of amount-first settlement: same write path, same allocator, same coverage table, no migration.
+
+| Fact | Detail |
+| ---- | ------ |
+| Days are never stored | A day's state (settled / partly paid / unpaid / no activity) and its amounts left are worked out at read time from the open queue plus the month's **range rows** (the queue builder in "range" mode: same members, same FS branches, same not-refunded predicates, minus the "still open" conditions). Two definitions of "an account row" would drift, so there is ONE builder; an invariant test pins range = queue per day and currency |
+| Shop day | Every row carries a server-computed `shop_day` via `localDayExpr` (client offset on web, `'localtime'` on desktop — rule 27). The frontend never derives a day from `created_at`. The grouping util `settleDays.ts` takes `shop_day` strings only, so it stays browser-safe (rule 29) |
+| Day rows vs account rows | Every queue row has `row_scope` `DAY` or `ACCOUNT`, by **provenance, not sign**: a ledger row a settlement wrote (overpay, commission credit) or a manual Pay / Receive is ACCOUNT; FS rows (incl. RECEIVEs) and source-linked ledger rows (OMT App cash-out) are DAY. `rowScopeOf` / `accountRowScopeSql` (SupplierRepository.ts) (`utils/accountRowScope.ts`) are the single rule, kept branch-for-branch identical (rule 14). ACCOUNT rows sit on no day and never colour one; they show as one "OMT credit" line per currency. Day credits (a RECEIVE, a cash-out) are used only when their day is picked |
+| Payload | Unchanged shape: the sheet turns picked days minus unticked transfers into the existing `selections` (`buildDaySelections`, `utils/settleDaySelections.ts` — the ONE builder for every mode, rule 22), plus `include_account_credits: true` (adds every open ACCOUNT row to the scope) and `credit_used` (per currency; schema refuses it without `include_account_credits`). The server never works out a day on the write path. A transfer recorded while the sheet is open is not in `selections`, so it simply stays open |
+| Credit the user sets | "Use OMT credit [x] of [total]", pre-filled with min(what the picked days owe, total credit), editable down to 0 (OMT rejected the credit). The allocator takes `account_credits` (kept apart from `rows`) and `credit_used`: shop pays → exactly `credit_used` covers the oldest debts as `NETTING`, then the money; OMT pays → the money covers the day credits, then up to `credit_used` of account credit. Account credit never makes extra. Absent = LIRA-322 output unchanged. The payment pre-fill is owed − credit set; a payment typed afterwards never changes the credit |
+| Old history | "Settle old history up to D" is a **zero-money settlement** through the same path: `selections` = every open row with `shop_day` ≤ D, `include_account_credits`, money 0. Old credits cover old debts oldest first; nothing moves a drawer or the balance; anything they don't cover stays open. Undone like any settlement |
+| Undo / void with no exception (OMT accounts) | Replaces the newest-first and covered-void refusals above for OMT accounts (research R12). Later settlements never change. Undoing a settlement whose credit (or coverage) a later one relied on, or voiding a transfer a settlement paid, writes ONE balancing ACCOUNT row ("you owe OMT $X" / OMT credit). **Reversal owner (rule 20):** that row belongs to the undo / void transaction that wrote it (`transaction_id` = it), so it is reversed only with that transaction. The day of the undo / void shows a ↺ badge while the row is open |
+| Invariant | After every create, undo and void, in any order, per currency: **account balance == Σ open remaining** (day rows + account rows). Seeded property test over random settle / undo / void sequences |
+
+#### Partners — settle by day (LIRA-346, `specs/346-partner-settle-by-day/`)
+
+The Partners page's Settle opens the same calendar (generic `settleCalendar` components, core
+`buildSettleDays` / `buildDaySelections` / `allocateAccountSettlement`). Partners differ from OMT, so
+they have their own coverage table and row rules.
+
+| Fact | Detail |
+| ---- | ------ |
+| Sign | + = the partner owes the shop (DEBIT), − = the shop owes the partner (CREDIT) — the partner balance's own sign. With it the allocator's "account credit" is the **partner credit** ("Use partner credit [x]") |
+| Rows | A row is a GROUP: the booking (head, lowest id) plus its reversals / item refunds / undos (same type, currency and source; an item refund reaches the sale through its `transactions` row — the `sameObligationGroupSql` rule, extended to rows with no source). ONE definition: `utils/partnerSettleUnits.ts`. Every For / Through / Whish top-up / paper entry is a DAY row on its head's shop day (`localDayExpr`). Settlements, forgives and cash-moved entries are ACCOUNT rows |
+| Coverage (v225) | `partner_settlement_coverage`: one row per settlement × row × currency, with the `side` it consumes (DEBIT / CREDIT) and a source (PAYMENT / NETTING / WAIVE / DISCOUNT / RELIEF). Remaining = net − Σ active coverage (signed). A settlement also covers its own `SETTLEMENT` row by the money applied, so overpay is simply that row's open remaining (partner credit). The old balance-based `partners:settle`, bundled / standalone forgive and cash-moved entries write through the SAME writer (oldest-first on obligation heads, as before) |
+| Profit | `covered_amount` stays the ONE profit source; ONE writer keeps it = `legacy_covered_amount` (frozen at v225) + Σ active PAYMENT / NETTING / WAIVE / DISCOUNT coverage on obligation heads. **A row cleared by netting in a settlement is earned at that settlement** (owner decision 2026-10-26, D6 reversed); undoing the settlement takes it back out. RELIEF never counts. Pay-out read-time netting (LIRA-305) is unchanged |
+| Undo / void | Any settlement is undone exactly from its coverage rows, in any order. A row a LATER active settlement also paid keeps this one's coverage, and a RELIEF row (owned by the undo, rule 20) moves the amount onto the undone settlement's own row — the later day stays as it was, the account shows the difference with ↺ UNDO. Voiding a paid For sale needs no extra write: its group nets to 0 while the coverage stays, so the paid part shows as partner credit with ↺ VOID on the void day. Settlements from before v225 give back only their legacy part, newest first |
+| Old history | "Settle old history up to D" = the same `partners:settle-days` request, picked days ≤ D, every account row in scope, no money |
+| Transport | IPC `partners:settle-open-rows` / `:settle-month-rows` / `:settle-day-detail` (reads) and `partners:settle-days` (admin + staff, online-only); REST `GET /api/partners/:id/settle-open-rows`, `…/settle-month-rows?month=`, `…/settle-day-detail?day=`, `POST /api/partners/settle-days`; shared schemas in `validators/partner.ts` |
+| Invariant | After every settle, undo and void, per currency: **partner balance == Σ open remaining** (day + account rows), legacy rows included. Seeded property test: `PartnerSettlementRepository.lira346.test.ts` |
+
 ### 8.3 OMT App wallet — credit in, cashout out
 
 Loading the OMT App wallet and cashing it back out are **mirror images**, and neither moves physical
@@ -854,8 +888,8 @@ LIRA-305 decisions Y1–Y14). The old "Syria provider on the OMT/Whish page" pla
   (manual entries with "Cash moved" off) never count. Read-time only (`partnerEffectiveCoveredSql`,
   `constants/partnerObligation.ts`) — nothing is stored, so voids re-derive on the next read, and past days' figures
   can rise. Measured before → after: SEND 150/155 + Pay out 100/97, shop settles 50 → 5 → **8**; SEND 100/103 +
-  Pay out 100/97 → 3 → **6**; SEND 40/42 + Pay out 100/97, partner settles 60 → 3.8 → **5**. For Partner rows keep
-  the cash-only rule (Y7). Guard: `ProfitRepository.syriaCorridorNetting.test.ts`; REST: lira-web-054; desktop:
+  Pay out 100/97 → 3 → **6**; SEND 40/42 + Pay out 100/97, partner settles 60 → 3.8 → **5**. For Partner rows get no
+  read-time netting (Y7), but netting done in a day-calendar settlement counts for them (LIRA-346 D6). Guard: `ProfitRepository.syriaCorridorNetting.test.ts`; REST: lira-web-054; desktop:
   lira-305-syria-corridor-netting.
 
 ## 9. Void / refund

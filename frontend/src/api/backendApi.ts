@@ -91,8 +91,28 @@ import type {
   CompleteSetupInput,
 } from "@liratek/core";
 import type { PartnerSettleInput, SupplierSettleInput } from "@liratek/core";
+import type {
+  PartnerDayDetailRow,
+  PartnerSettleDaysPayload,
+  PartnerSettleRow,
+} from "@liratek/core";
 // LIRA-256 — OMT statement covered commission types (rule 21).
-import type { OmtCoveredTypesInput } from "@liratek/core";
+import type {
+  OmtCoveredTypesInput,
+  AccountMonthInput,
+  AccountDayInput,
+} from "@liratek/core";
+import type { SupplierDayRangeInput } from "@liratek/core";
+
+/** LIRA-343 T033a — the optional shop-day range as REST query params. An
+ *  empty bound (the cleared date field) is no bound, so it is not sent. */
+function setDayRangeParams(
+  qs: URLSearchParams,
+  range: SupplierDayRangeInput | undefined,
+): void {
+  if (range?.from) qs.set("from", range.from);
+  if (range?.to) qs.set("to", range.to);
+}
 // LIRA-267 — sign-up / invite payloads and views, derived from the core
 // schemas (rule 21). The `*BodyInput`/`*Input` aliases are `z.input<…>`
 // computed inside core, against core's own zod major.
@@ -115,6 +135,7 @@ import type {
 import type {
   AddRepaymentPayload,
   DebtCashOutPayload,
+  DebtMonthRows,
   OpenDebtItem,
 } from "@liratek/core";
 // LIRA-297 — write payloads derived from the core schemas (rule 21):
@@ -172,6 +193,7 @@ import type {
   SupplierPurchaseCreatePayload,
   SupplierRecordDebtPayload,
   SupplierSettleAccountPayload,
+  RemoveAccountCreditPayload,
   UpdateCustomServiceFulfillmentPayload,
   UpdateCustomServiceWorkStatusPayload,
   UpdateServiceProviderPayload,
@@ -203,6 +225,8 @@ import type {
   Client,
   CreateUserInput,
   TransactionTypeFilterInput,
+  TransactionPageFiltersInput,
+  AuditPageFiltersInput,
   SupplierAccountLinkInput,
   TopUpFromClientInput,
   CommissionsReport,
@@ -269,6 +293,7 @@ import type {
   AccountExpectedStatement,
   AccountLedgerEntry,
   AccountUnsettledRow,
+  AccountDayDetailRow,
   ChartDataPoint,
   ExpenseListRow,
 } from "@liratek/ui";
@@ -1883,6 +1908,36 @@ export async function getOpenDebtItems(
   );
 }
 
+// LIRA-347 — one month of a client's debt items for the settle calendar
+// (rows by shop day + the account lines). Read → raw object, both
+// transports. The month is the shop's month; the server works out each
+// row's shop day from the request's own zone (rule 27).
+export async function getDebtMonthRows(
+  clientId: number,
+  month: string,
+): Promise<DebtMonthRows> {
+  return ipcOrHttp(
+    async () =>
+      (await getElectronApi().debt.getMonthRows({
+        clientId,
+        month,
+      })) as DebtMonthRows,
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        data?: DebtMonthRows;
+        error?: string;
+      }>(
+        `/api/debts/clients/${clientId}/month-rows?month=${encodeURIComponent(month)}`,
+      );
+      if (!res.success || !res.data) {
+        throw new Error(res.error ?? "Failed to load the month");
+      }
+      return res.data;
+    },
+  );
+}
+
 export async function addRepayment(payload: AddRepaymentPayload) {
   if (isElectron()) {
     return (window as any).api.debt.addRepayment(payload);
@@ -2120,6 +2175,67 @@ export async function partnersSettle(payload: PartnerSettleInput) {
     async () =>
       requestJson<{ success: boolean; data?: any; error?: string }>(
         `/api/partners/settle`,
+        { method: "POST", body: payload },
+      ),
+  );
+}
+
+// LIRA-346 — settle partners by day. The three calendar reads return the
+// RAW rows array on both transports; the write returns the envelope.
+// `PartnerSettleRow` amounts are signed: + the partner owes the shop.
+export async function partnersGetSettleOpenRows(
+  partnerId: number,
+): Promise<PartnerSettleRow[]> {
+  return ipcOrHttp(
+    async () => getElectronApi().partners.getSettleOpenRows(partnerId),
+    async () => {
+      const res = await requestJson<{ success: boolean; rows?: PartnerSettleRow[] }>(
+        `/api/partners/${partnerId}/settle-open-rows`,
+      );
+      return res.rows || [];
+    },
+  );
+}
+
+export async function partnersGetSettleMonthRows(
+  partnerId: number,
+  month: string,
+): Promise<PartnerSettleRow[]> {
+  return ipcOrHttp(
+    async () => getElectronApi().partners.getSettleMonthRows(partnerId, month),
+    async () => {
+      const qs = new URLSearchParams({ month });
+      const res = await requestJson<{ success: boolean; rows?: PartnerSettleRow[] }>(
+        `/api/partners/${partnerId}/settle-month-rows?${qs.toString()}`,
+      );
+      return res.rows || [];
+    },
+  );
+}
+
+export async function partnersGetSettleDayDetail(
+  partnerId: number,
+  day: string,
+): Promise<PartnerDayDetailRow[]> {
+  return ipcOrHttp(
+    async () => getElectronApi().partners.getSettleDayDetail(partnerId, day),
+    async () => {
+      const qs = new URLSearchParams({ day });
+      const res = await requestJson<{ success: boolean; rows?: PartnerDayDetailRow[] }>(
+        `/api/partners/${partnerId}/settle-day-detail?${qs.toString()}`,
+      );
+      return res.rows || [];
+    },
+  );
+}
+
+// Payload derived from the core partnerSettleDaysSchema (rule 21).
+export async function partnersSettleDays(payload: PartnerSettleDaysPayload) {
+  return ipcOrHttp(
+    async () => getElectronApi().partners.settleDays(payload),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        `/api/partners/settle-days`,
         { method: "POST", body: payload },
       ),
   );
@@ -3691,13 +3807,20 @@ export async function getSupplierAccountBalances(): Promise<AccountBalance[]> {
 export async function getSupplierAccountLedger(
   accountSupplierId: number,
   limit?: number,
+  // LIRA-343 T033a — optional shop-day range, filtered on the server.
+  range?: SupplierDayRangeInput,
 ): Promise<AccountLedgerEntry[]> {
   return ipcOrHttp(
     async () =>
-      getElectronApi().suppliers.getAccountLedger(accountSupplierId, limit),
+      getElectronApi().suppliers.getAccountLedger(
+        accountSupplierId,
+        limit,
+        range,
+      ),
     async () => {
       const qs = new URLSearchParams();
       if (limit) qs.set("limit", limit.toString());
+      setDayRangeParams(qs, range);
       const res = await requestJson<{
         success: boolean;
         ledger: AccountLedgerEntry[];
@@ -3719,6 +3842,53 @@ export async function getSupplierAccountUnsettled(
         transactions: AccountUnsettledRow[];
       }>(`/api/suppliers/${accountSupplierId}/account-unsettled`);
       return res.transactions || [];
+    },
+  );
+}
+
+// LIRA-343 (contracts/calendar-reads.md §1) — every account row whose shop
+// day is in `month` (YYYY-MM), settled or not: feeds the settle calendar.
+// A read, so it returns the RAW rows array on both transports.
+export async function getSupplierAccountMonthRows(
+  accountSupplierId: number,
+  month: AccountMonthInput["month"],
+): Promise<AccountUnsettledRow[]> {
+  return ipcOrHttp(
+    async () =>
+      getElectronApi().suppliers.getAccountMonthRows(accountSupplierId, month),
+    async () => {
+      const qs = new URLSearchParams({ month });
+      const res = await requestJson<{
+        success: boolean;
+        rows: AccountUnsettledRow[];
+      }>(
+        `/api/suppliers/${accountSupplierId}/account-month-rows?${qs.toString()}`,
+      );
+      return res.rows || [];
+    },
+  );
+}
+
+// LIRA-343 (contracts/calendar-reads.md §3) — what is behind one shop day
+// (YYYY-MM-DD): its rows, who paid each one, and the "added after
+// settlement" tag. A read, so it returns the RAW rows array on both
+// transports.
+export async function getSupplierAccountDayDetail(
+  accountSupplierId: number,
+  day: AccountDayInput["day"],
+): Promise<AccountDayDetailRow[]> {
+  return ipcOrHttp(
+    async () =>
+      getElectronApi().suppliers.getAccountDayDetail(accountSupplierId, day),
+    async () => {
+      const qs = new URLSearchParams({ day });
+      const res = await requestJson<{
+        success: boolean;
+        rows: AccountDayDetailRow[];
+      }>(
+        `/api/suppliers/${accountSupplierId}/account-day-detail?${qs.toString()}`,
+      );
+      return res.rows || [];
     },
   );
 }
@@ -3883,6 +4053,35 @@ export async function settleSupplierAccount(
   );
 }
 
+// LIRA-344 — Remove credit: close one open OMT account credit OMT will not
+// accept and book it as an expense (no drawer). Same split as
+// settleSupplierAccount: the REST route takes the account id from the URL,
+// the IPC channel from the payload. Payload type derived from the core
+// schema (rule 21); built once by the caller (rule 22).
+export async function removeSupplierAccountCredit(
+  accountSupplierId: number,
+  data: Omit<RemoveAccountCreditPayload, "account_supplier_id">,
+) {
+  return ipcOrHttp(
+    async () =>
+      getElectronApi().suppliers.removeAccountCredit({
+        account_supplier_id: accountSupplierId,
+        ...data,
+      }),
+    async () =>
+      requestJson<{
+        success: boolean;
+        id?: number;
+        transaction_id?: number;
+        expense_id?: number;
+        error?: string;
+      }>(`/api/suppliers/${accountSupplierId}/remove-account-credit`, {
+        method: "POST",
+        body: data,
+      }),
+  );
+}
+
 // Pay a supplier down / record a supplier paying us, via payment-method legs
 // (CQ-9 — this had NO dual-mode wrapper at all before, so it was `undefined`
 // in the browser; useSuppliers.ts called window.api.suppliers.recordCashflow
@@ -3951,14 +4150,53 @@ export async function getSupplierProductStockValue(): Promise<
 export async function getAllSupplierTransactions(
   provider: string,
   limit?: number,
+  // LIRA-343 T033a — optional shop-day range, filtered on the server
+  // before the row limit (FR-016c).
+  range?: SupplierDayRangeInput,
 ) {
   return ipcOrHttp(
-    async () => getElectronApi().suppliers.getAllTransactions(provider, limit),
+    async () =>
+      getElectronApi().suppliers.getAllTransactions(provider, limit, range),
     async () => {
       const qs = new URLSearchParams({ provider });
       if (limit) qs.set("limit", String(limit));
+      setDayRangeParams(qs, range);
       const res = await requestJson<{ success: boolean; transactions: any[] }>(
         `/api/suppliers/all-transactions?${qs.toString()}`,
+      );
+      return res.transactions || [];
+    },
+  );
+}
+
+// LIRA-343 T033a (FR-016c) — an OMT open-credit ACCOUNT parent's
+// Transactions window: every member's rows (OMT, OMT App, iPick), newest
+// first, same row shape as getAllSupplierTransactions. Raw array on both
+// transports, matching IPC.
+export async function getSupplierAccountTransactions(
+  accountSupplierId: number,
+  limit?: number,
+  range?: SupplierDayRangeInput,
+) {
+  return ipcOrHttp(
+    async () =>
+      getElectronApi().suppliers.getAccountTransactions(
+        accountSupplierId,
+        limit,
+        range,
+      ),
+    async () => {
+      const qs = new URLSearchParams();
+      if (limit) qs.set("limit", String(limit));
+      setDayRangeParams(qs, range);
+      // Same row type the IPC binding declares (one definition).
+      const res = await requestJson<{
+        success: boolean;
+        transactions: Awaited<
+          ReturnType<Window["api"]["suppliers"]["getAccountTransactions"]>
+        >;
+      }>(
+        `/api/suppliers/${accountSupplierId}/account-transactions?${qs.toString()}`,
       );
       return res.transactions || [];
     },
@@ -4244,7 +4482,9 @@ export async function getRecentActivity(limit: number = 100) {
 
 // ==================== Transactions API ====================
 
-export interface TransactionFiltersParam {
+/** LIRA-348 — `day_from` / `day_to` (the operator's days) and the keyset
+ *  cursor `before` come from the shared core schema (rule 21). */
+export interface TransactionFiltersParam extends TransactionPageFiltersInput {
   type?: string;
   status?: string;
   user_id?: number;
@@ -4290,12 +4530,25 @@ export async function getRecentTransactions(
         }
         return;
       }
+      if (k === "before") {
+        // LIRA-348 — the keyset cursor is an object; JSON-encode it like
+        // `typeFilters` (the route parses and validates it back).
+        params.set("before", JSON.stringify(v));
+        return;
+      }
       params.set(k, String(v));
     });
   }
-  const res = await requestJson<{ success: boolean; transactions: any[] }>(
-    `/api/transactions/recent?${params}`,
-  );
+  const res = await requestJson<{
+    success: boolean;
+    transactions?: any[];
+    error?: string;
+  }>(`/api/transactions/recent?${params}`);
+  // Rule 19c: a refused read is HTTP 200 + `success: false`. Surface it
+  // (the IPC handler throws the same way), never read it as "no rows".
+  if (res.success === false) {
+    throw new Error(res.error || "Failed to get transactions");
+  }
   return res.transactions || [];
 }
 
@@ -6024,17 +6277,19 @@ export async function servicePresetsDelete(id: number) {
 
 // ── Audit log (dual-mode, read-only) — user-action audit trail ──
 
-export async function auditSearch(filters: {
-  userId?: number;
-  action?: string;
-  entityType?: string;
-  entityId?: string;
-  from?: string;
-  to?: string;
-  search?: string;
-  limit?: number;
-  offset?: number;
-}) {
+export async function auditSearch(
+  filters: {
+    userId?: number;
+    action?: string;
+    entityType?: string;
+    entityId?: string;
+    from?: string;
+    to?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  } & AuditPageFiltersInput, // LIRA-348 — paging keys from the core schema
+) {
   return ipcOrHttp(
     async () => getElectronApi().audit.search(filters),
     async () =>

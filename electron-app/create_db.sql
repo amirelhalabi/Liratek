@@ -1417,11 +1417,38 @@ CREATE TABLE IF NOT EXISTS partner_ledger (
     settlement_method TEXT CHECK(settlement_method IN ('CASH', 'OMT', 'WHISH', 'BINANCE', 'CLIENT_ACCOUNT', 'SPLIT')),
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     -- PFT-6: settlement coverage applied FIFO to FOR_% rows (v128)
-    covered_amount REAL NOT NULL DEFAULT 0
+    covered_amount REAL NOT NULL DEFAULT 0,
+    -- v225 (LIRA-346): covered_amount as it stood before v225 (no coverage
+    -- row explains it); covered_amount = legacy + active cash-like coverage.
+    legacy_covered_amount REAL NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_partner_ledger_partner_id ON partner_ledger(partner_id);
 CREATE INDEX IF NOT EXISTS idx_partner_ledger_created_at ON partner_ledger(created_at);
+
+-- v225 (LIRA-346): what each partner settlement paid on each partner row
+-- (partner_ledger_id = the row group's head), per currency, with the side of
+-- the row it consumes. 'Paid so far' = SUM of active (is_reversed = 0) rows;
+-- an undo soft-reverses, never deletes.
+CREATE TABLE IF NOT EXISTS partner_settlement_coverage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+    transaction_id INTEGER REFERENCES transactions(id),
+    settlement_ledger_id INTEGER NOT NULL REFERENCES partner_ledger(id),
+    partner_ledger_id INTEGER NOT NULL REFERENCES partner_ledger(id),
+    partner_id INTEGER NOT NULL REFERENCES partners(id),
+    currency TEXT NOT NULL CHECK(currency IN ('USD', 'LBP')),
+    side TEXT NOT NULL CHECK(side IN ('DEBIT', 'CREDIT')),
+    amount REAL NOT NULL CHECK(amount > 0),
+    source TEXT NOT NULL CHECK(source IN ('PAYMENT', 'NETTING', 'WAIVE', 'DISCOUNT', 'RELIEF')),
+    closes_row INTEGER NOT NULL DEFAULT 0,
+    is_reversed INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_psc_head ON partner_settlement_coverage(tenant_id, partner_ledger_id, is_reversed);
+CREATE INDEX IF NOT EXISTS idx_psc_settlement ON partner_settlement_coverage(tenant_id, settlement_ledger_id);
+CREATE INDEX IF NOT EXISTS idx_psc_transaction ON partner_settlement_coverage(tenant_id, transaction_id);
 
 -- Custom Services (standalone ad-hoc services with cost/price/profit tracking)
 CREATE TABLE IF NOT EXISTS custom_services (
@@ -3231,4 +3258,7 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (222, 'checkpoint_differences'),
     (223, 'resale_line_give_backs'),
     -- v224 (LIRA-339) adds vouchers.redeemed_session_id + its index, declared above.
-    (224, 'vouchers_redeemed_session_id');
+    (224, 'vouchers_redeemed_session_id'),
+    -- v225 (LIRA-346) adds partner_settlement_coverage + its three indexes and
+    -- partner_ledger.legacy_covered_amount, declared above.
+    (225, 'partner_settlement_coverage');

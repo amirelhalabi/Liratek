@@ -12,7 +12,11 @@
  * auditHandlers.ts (rule 19c). There are no write routes on this surface.
  */
 import express from "express";
-import { getAuditService, type AuditFilters } from "@liratek/core";
+import {
+  getAuditService,
+  auditPageFiltersSchema,
+  type AuditFilters,
+} from "@liratek/core";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
 
 const router = express.Router();
@@ -70,6 +74,21 @@ router.get("/by-entity", requireRole(["admin", "staff"]), (req, res) => {
 router.post("/search", requireRole(["admin", "staff"]), (req, res) => {
   try {
     const filters = (req.body ?? {}) as AuditFilters;
+    // LIRA-348 — validate ONLY the paging keys with the SAME core schema as
+    // the IPC twin (rule 14); every other key passes through as before
+    // (rule 23). Refused with the 200 envelope, like any other failure here.
+    const paging = auditPageFiltersSchema.safeParse({
+      dayFrom: filters.dayFrom,
+      dayTo: filters.dayTo,
+      beforeId: filters.beforeId,
+    });
+    if (!paging.success) {
+      res.json({
+        success: false,
+        error: paging.error.issues[0]?.message ?? "Invalid paging filters",
+      });
+      return;
+    }
     const result = getAuditService().search(filters);
     res.json({ success: true, ...result });
   } catch (err) {

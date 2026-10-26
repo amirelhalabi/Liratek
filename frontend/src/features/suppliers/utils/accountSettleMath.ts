@@ -153,33 +153,60 @@ export interface SectionMoney {
 }
 
 /**
+ * LIRA-343 — the account rows (`row_scope = 'ACCOUNT'`, either sign) and the
+ * credit the user chose to use, for one currency. The server adds every open
+ * account row to the scope (`include_account_credits`) and passes them to the
+ * allocator as `account_credits`, never as `rows` (contract
+ * settle-account-days.md).
+ */
+export interface SectionAccountCredits {
+  rows: AccountUnsettledRow[];
+  /** Magnitude, this currency. */
+  creditUsed: number;
+}
+
+function toAllocRow(r: AccountUnsettledRow, currency: SettleCurrency) {
+  return {
+    kind: r.kind,
+    id: r.id,
+    member_supplier_id: r.supplier_id,
+    created_at: r.created_at,
+    remaining: rowRemaining(r, currency),
+    commission_model1:
+      r.kind === "FINANCIAL_SERVICE" && r.commission_model === 1,
+    cashout_commission:
+      currency === "USD" ? r.commission_usd : r.commission_lbp,
+  };
+}
+
+/**
  * Run the core allocator for one currency section, exactly as the server
- * does (see the header comment).
+ * does (see the header comment). `account` (LIRA-343) adds the account
+ * credits and the credit the user set; without it the call is LIRA-322's.
  */
 export function allocateSection(
   rows: AccountUnsettledRow[],
   currency: SettleCurrency,
   direction: SettleDirection,
   money: SectionMoney,
+  account?: SectionAccountCredits,
 ): AccountSettleAllocResult {
   const dirSign = direction === "PAY" ? 1 : -1;
   return allocateAccountSettlement({
     currency,
-    rows: rowsInCurrency(rows, currency).map((r) => ({
-      kind: r.kind,
-      id: r.id,
-      member_supplier_id: r.supplier_id,
-      created_at: r.created_at,
-      remaining: rowRemaining(r, currency),
-      commission_model1:
-        r.kind === "FINANCIAL_SERVICE" && r.commission_model === 1,
-      cashout_commission:
-        currency === "USD" ? r.commission_usd : r.commission_lbp,
-    })),
+    rows: rowsInCurrency(rows, currency).map((r) => toAllocRow(r, currency)),
     paid: dirSign * (money.inSame - money.outSame),
     commission: money.commission,
     waive: 0,
     eps: SETTLE_EPS[currency],
+    ...(account
+      ? {
+          account_credits: rowsInCurrency(account.rows, currency).map((r) =>
+            toAllocRow(r, currency),
+          ),
+          credit_used: account.creditUsed,
+        }
+      : {}),
   });
 }
 

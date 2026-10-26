@@ -13,6 +13,7 @@ import { ipcMain } from "electron";
 import { getAuditService, auditLogger } from "@liratek/core";
 import type { AuditFilters } from "@liratek/core";
 import { requireRole } from "../session.js";
+import { AuditPageFiltersSchema, validatePayload } from "../schemas/index.js";
 
 export function registerAuditHandlers(): void {
   auditLogger.info("Registering Audit IPC handlers");
@@ -46,8 +47,18 @@ export function registerAuditHandlers(): void {
       const auth = requireRole(e.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
 
+      // LIRA-348 — validate ONLY the paging keys; every other filter key
+      // passes through exactly as before (rule 23).
+      const f = filters ?? {};
+      const paging = validatePayload(AuditPageFiltersSchema, {
+        dayFrom: f.dayFrom,
+        dayTo: f.dayTo,
+        beforeId: f.beforeId,
+      });
+      if (!paging.ok) return { success: false, error: paging.error };
+
       const service = getAuditService();
-      const result = service.search(filters ?? {});
+      const result = service.search(f);
       return { success: true, ...result };
     } catch (error) {
       auditLogger.error({ error }, "audit:search failed");

@@ -29,7 +29,12 @@ import {
   within,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { supplierSettleAccountSchema } from "@liratek/core";
+import {
+  buildDaySelections,
+  openDaysBefore,
+  supplierSettleAccountSchema,
+} from "@liratek/core";
+import { localDay } from "@/shared/utils/localDay";
 import { AccountSettleSheet } from "../AccountSettleSheet";
 import type { AccountUnsettledRow } from "../../hooks/useSuppliers";
 import {
@@ -44,6 +49,10 @@ const mockGetSupplierAccountUnsettled = jest.fn();
 const mockApi = {
   settleSupplierAccount: mockSettleSupplierAccount,
   getSupplierAccountUnsettled: mockGetSupplierAccountUnsettled,
+  // LIRA-343 — the calendar's month read. Empty here: these cases test the
+  // money, and the open queue (not this read) decides the picked days.
+  getSupplierAccountMonthRows: jest.fn(async () => []),
+  getSupplierAccountDayDetail: jest.fn(async () => []),
 };
 
 jest.mock("@liratek/ui", () => {
@@ -196,9 +205,17 @@ describe("AccountSettleSheet — one currency at a time (LIRA-322 US1)", () => {
     expect(parsed.expected_owed?.usd).toBeCloseTo(497, 2);
     expect(parsed.expected_owed?.lbp).toBe(900000);
     // Legacy whole-row keys are never sent (the schema refuses them anyway).
-    for (const key of ["selections", "direction", "amount_usd", "amount_lbp"]) {
+    for (const key of ["direction", "amount_usd", "amount_lbp"]) {
       expect(raw).not.toHaveProperty(key);
     }
+    // LIRA-343 — `selections` is now always sent: the picked days' open
+    // rows (every open day before today by default), from the ONE builder.
+    expect(parsed.selections).toEqual(
+      buildDaySelections([...SIX_USD_ROWS, LBP_ROW], {
+        pickedDays: openDaysBefore([...SIX_USD_ROWS, LBP_ROW], localDay()),
+      }).selections,
+    );
+    expect(parsed.selections).toHaveLength(7);
   });
 
   it("Confirm is enabled with money in one currency only, and disabled with none", async () => {
@@ -393,7 +410,10 @@ describe("AccountSettleSheet — one currency at a time (LIRA-322 US1)", () => {
     });
   });
 
-  it("mixed directions (shop owes $, OMT owes LBP): the LBP side keeps its own small box", async () => {
+  // LIRA-343 (FR-010): every payment box is pre-filled per currency with
+  // what the picked days owe, so the small opposite-direction box is no
+  // longer empty (rule 24: the "starts empty" assertion was rewritten).
+  it("mixed directions (shop owes $, OMT owes LBP): the LBP side keeps its own small box, pre-filled", async () => {
     const lbpCredit = queueRow({
       kind: "LEDGER",
       id: 203,
@@ -413,8 +433,8 @@ describe("AccountSettleSheet — one currency at a time (LIRA-322 US1)", () => {
     expect(screen.queryByTestId(BOTH)).toBeNull();
     expect(usd.textContent).toContain("You pay OMT");
     expect(lbp.textContent).toContain("OMT pays you");
-    // Main box pre-filled; the small opposite-direction box starts empty.
+    // Both boxes pre-filled with what is owed in their own currency.
     expect(lineInputs(usd)[0].value).toBe("497");
-    expect(["", "0"]).toContain(lineInputs(lbp)[0].value);
+    expect(lineInputs(lbp)[0].value).toBe("500,000");
   });
 });

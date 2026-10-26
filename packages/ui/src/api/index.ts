@@ -39,6 +39,8 @@ export type {
   AccountExpectedStatement,
   AccountLedgerEntry,
   AccountUnsettledRow,
+  AccountDayDetailRow,
+  AccountDaySettlement,
   CommissionsReport,
   CommissionProviderRow,
 } from "./types";

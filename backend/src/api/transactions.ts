@@ -18,6 +18,8 @@ import {
   transactionVoidSchema,
   refundUnitExtrasSchema,
   transactionTypeFiltersSchema,
+  // LIRA-348 — day range + keyset cursor (Audit & Transactions paging).
+  transactionPageFiltersSchema,
   // LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §7) — session-basket
   // single-item refund payload/preview contracts, shared with the Electron
   // IPC handler the same way (rule 14): packages/core/src/validators/
@@ -113,6 +115,48 @@ router.get("/recent", requireAuth, async (req, res) => {
       }
       if (parsedTypeFilters.data.length > 0) {
         filters.typeFilters = parsedTypeFilters.data;
+      }
+    }
+
+    // LIRA-348 — the paging keys, validated with the SAME core schema the
+    // IPC handler uses (rule 14) and merged into the filters above (rule
+    // 23: nothing else is touched). `before` is JSON-encoded by the web
+    // adapter for the same reason `typeFilters` is. A malformed key is
+    // refused (HTTP 200 + `{ success: false, error }`, rule 19c), never
+    // silently dropped (that would quietly widen the page to every day).
+    if (
+      req.query.day_from !== undefined ||
+      req.query.day_to !== undefined ||
+      req.query.before !== undefined
+    ) {
+      let before: unknown;
+      if (req.query.before !== undefined) {
+        try {
+          before = JSON.parse(String(req.query.before));
+        } catch {
+          // Rule 19c: IPC-identical envelope, HTTP 200 even on failure.
+          res.json({ success: false, error: "before must be valid JSON" });
+          return;
+        }
+      }
+      const paging = transactionPageFiltersSchema.safeParse({
+        day_from:
+          req.query.day_from !== undefined
+            ? String(req.query.day_from)
+            : undefined,
+        day_to:
+          req.query.day_to !== undefined ? String(req.query.day_to) : undefined,
+        before,
+      });
+      if (!paging.success) {
+        res.json({
+          success: false,
+          error: paging.error.issues[0]?.message ?? "Invalid paging filters",
+        });
+        return;
+      }
+      for (const [k, v] of Object.entries(paging.data)) {
+        if (v !== undefined) filters[k] = v;
       }
     }
 

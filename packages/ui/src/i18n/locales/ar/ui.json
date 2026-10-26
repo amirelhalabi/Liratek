@@ -11,7 +11,9 @@
     "reset": "إعادة الضبط",
     "selectAll": "تحديد الكل",
     "selectAllPages": "تحديد الكل (كل الصفحات)",
-    "actionsHeader": "إجراءات"
+    "actionsHeader": "إجراءات",
+    "loadMore": "تحميل المزيد",
+    "loadingMore": "جارٍ تحميل المزيد…"
   },
   "exportBar": {
     "excelTitle": "تصدير إلى Excel",
@@ -112,5 +114,13 @@
     "submitClient": "شراء رصيد من الزبون",
     "submitSupplier": "تأكيد رصيد المورّد",
     "submitTransfer": "تأكيد التعبئة"
+  },
+  "dayRange": {
+    "label": "الأيام",
+    "today": "اليوم",
+    "yesterday": "أمس",
+    "thisWeek": "هذا الأسبوع",
+    "thisMonth": "هذا الشهر",
+    "all": "الكل"
   }
 }

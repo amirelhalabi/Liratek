@@ -255,6 +255,9 @@ export const RESET_WIPE_TABLES: readonly string[] = [
   "offline_outbox",
   "offline_outbox_created",
   "offline_review_items",
+  // LIRA-346 v225 — what each partner settlement paid on each partner row;
+  // wiped with the ledger rows it points at (children before parents).
+  "partner_settlement_coverage",
   "partner_ledger",
   "payments",
   "product_stock_batches",

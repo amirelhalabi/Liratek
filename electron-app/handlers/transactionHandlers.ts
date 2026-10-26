@@ -11,8 +11,16 @@ import {
   TransactionRefundSchema,
   SessionItemRefundSchema,
   SessionItemRefundPreviewSchema,
+  TransactionPageFiltersSchema,
   validatePayload,
 } from "../schemas/index.js";
+
+/** Drop keys whose value is undefined so a merge never adds `key: undefined`. */
+function stripUndefined<T extends object>(o: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(o).filter(([, v]) => v !== undefined),
+  ) as Partial<T>;
+}
 
 export function registerTransactionHandlers(): void {
   const txnService = getTransactionService();
@@ -26,6 +34,19 @@ export function registerTransactionHandlers(): void {
   ipcMain.handle(
     "transactions:get-recent",
     (_e, limit?: number, filters?: TransactionFilters) => {
+      // LIRA-348 — validate ONLY the paging keys (day range + keyset
+      // cursor) and merge them back; every other filter key passes through
+      // exactly as before (rule 23). A malformed key is refused, never
+      // silently dropped (that would quietly widen the page to all days).
+      if (filters) {
+        const paging = validatePayload(TransactionPageFiltersSchema, {
+          day_from: filters.day_from,
+          day_to: filters.day_to,
+          before: filters.before,
+        });
+        if (!paging.ok) throw new Error(paging.error);
+        filters = { ...filters, ...stripUndefined(paging.data) };
+      }
       return txnService.getRecent(limit, filters);
     },
   );

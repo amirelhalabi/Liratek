@@ -945,7 +945,9 @@ function saleNetRevenueNotFullyPaid(
  * LIRA-305 (owner decisions Y6/Y13/Y14): both of those now judge each head on
  * `partnerEffectiveCoveredSql` — cash coverage, plus, for a Custom Services
  * Pay out only, netting against what the shop owes the same partner. Read-time
- * only; nothing stored.
+ * only; nothing stored. Separately, netting done IN a LIRA-346 settlement is
+ * stored as NETTING coverage and counts for every head, For rows included
+ * (D6, owner decision 2026-10-26).
  */
 export function notPartnerPending(refTable: string, idExpr: string): string {
   // LIRA-258 / G36: judged on the NET obligation after reversals

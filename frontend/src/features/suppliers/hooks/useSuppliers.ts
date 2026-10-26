@@ -1,11 +1,18 @@
 import { useCallback } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useQueries,
+  useQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useApi } from "@liratek/ui";
 import { normaliseCoveredTypes, type OmtCoveredType } from "@liratek/core";
 import type {
   SupplierCashflowPayload,
+  SupplierDayRangeInput,
   SupplierLedgerEntryPayload,
   SupplierSettleAccountPayload,
+  RemoveAccountCreditPayload,
   SupplierSettleInput,
 } from "@liratek/core";
 
@@ -25,11 +32,13 @@ import type {
 import type {
   AccountBalance,
   AccountChildBalance,
+  AccountDayDetailRow,
   AccountExpectedStatement,
   AccountLedgerEntry,
   AccountUnsettledRow,
 } from "@liratek/ui";
 export type {
+  AccountDayDetailRow,
   AccountBalance,
   AccountChildBalance,
   AccountExpectedStatement,
@@ -52,6 +61,10 @@ export const SUPPLIER_KEYS = {
   unsettled: (provider: string) => ["supplier-unsettled", provider] as const,
   allTransactions: (provider: string) =>
     ["supplier-all-transactions", provider] as const,
+  // LIRA-343 T033a — an OMT account parent's Transactions window (every
+  // member's rows). The range is appended by the hook, after this prefix.
+  accountTransactions: (accountSupplierId: number) =>
+    ["supplier-account-transactions", accountSupplierId] as const,
   purchases: (id: number) => ["supplier-purchases", id] as const,
   // LIRA-087 (migration v189) — the picker list for stock intake's "attach
   // to a recorded debt" flow.
@@ -65,6 +78,13 @@ export const SUPPLIER_KEYS = {
     ["supplier-account-ledger", accountSupplierId] as const,
   accountUnsettled: (accountSupplierId: number) =>
     ["supplier-account-unsettled", accountSupplierId] as const,
+  // LIRA-343 — the settle calendar's month read (every account row whose
+  // shop day is in the month, settled or not).
+  accountMonthRows: (accountSupplierId: number, month: string) =>
+    ["supplier-account-month-rows", accountSupplierId, month] as const,
+  // LIRA-343 T033 — what is behind one shop day of the settle calendar.
+  accountDayDetail: (accountSupplierId: number, day: string) =>
+    ["supplier-account-day-detail", accountSupplierId, day] as const,
   // LIRA-255 — "check against OMT's statement" panel.
   accountExpectedStatement: (accountSupplierId: number) =>
     ["supplier-account-expected-statement", accountSupplierId] as const,
@@ -89,6 +109,12 @@ function invalidateAccountQueries(
   queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.accountBalances });
   queryClient.invalidateQueries({ queryKey: ["supplier-account-ledger"] });
   queryClient.invalidateQueries({ queryKey: ["supplier-account-unsettled"] });
+  // LIRA-343 — the settle calendar repaints after any account change.
+  queryClient.invalidateQueries({ queryKey: ["supplier-account-month-rows"] });
+  queryClient.invalidateQueries({ queryKey: ["supplier-account-day-detail"] });
+  queryClient.invalidateQueries({
+    queryKey: ["supplier-account-transactions"],
+  });
   // LIRA-255 — the statement panel's gross/commission figures derive from
   // the same two sources the lines above already invalidate.
   queryClient.invalidateQueries({
@@ -177,12 +203,21 @@ export function useSupplierAccountBalancesQuery() {
 export function useSupplierAccountLedgerQuery(
   accountSupplierId: number | null,
   limit?: number,
+  /** LIRA-343 T033a — optional shop-day range (`""` = open end), applied
+   *  on the server; part of the query key. */
+  range?: SupplierDayRangeInput,
 ) {
   const api = useApi();
   return useQuery({
-    queryKey: SUPPLIER_KEYS.accountLedger(accountSupplierId ?? 0),
+    queryKey: [
+      ...SUPPLIER_KEYS.accountLedger(accountSupplierId ?? 0),
+      range?.from ?? "",
+      range?.to ?? "",
+    ],
     queryFn: () =>
-      api.getSupplierAccountLedger(accountSupplierId!, limit) as Promise<
+      (range
+        ? api.getSupplierAccountLedger(accountSupplierId!, limit, range)
+        : api.getSupplierAccountLedger(accountSupplierId!, limit)) as Promise<
         AccountLedgerEntry[]
       >,
     enabled: !!accountSupplierId,
@@ -224,6 +259,67 @@ export function useSupplierAccountUnsettledQuery(
       >,
     enabled: !!accountSupplierId,
     refetchOnMount: options?.refetchOnMount ?? true,
+  });
+}
+
+/**
+ * LIRA-343 — every row of the account whose shop day falls in `month`
+ * (`YYYY-MM`), settled or not: the settle calendar's month view. Read-only
+ * (the money the sheet moves is decided from the open queue above, never
+ * from this read). Rule 25: `api` never enters a dependency list or the
+ * query key — the query function only closes over it, like every sibling
+ * hook here (a ref read inside `queryFn` is refused by react-hooks/refs).
+ * Disabled when there is no parent id.
+ */
+export function useSupplierAccountMonthRowsQuery(
+  accountSupplierId: number | null,
+  month: string,
+) {
+  const api = useApi();
+  return useQuery({
+    queryKey: SUPPLIER_KEYS.accountMonthRows(accountSupplierId ?? 0, month),
+    queryFn: () => api.getSupplierAccountMonthRows(accountSupplierId!, month),
+    enabled: !!accountSupplierId,
+  });
+}
+
+/**
+ * "See transactions" (owner mock 2026-10-26) — the month rows of SEVERAL
+ * months at once (every month that has a picked day), on the SAME query keys
+ * as {@link useSupplierAccountMonthRowsQuery}, so a month the calendar
+ * already read is served from that cache. Read-only; off until `enabled`
+ * (the table is open). Same rule-25 shape as the hooks around it.
+ */
+export function useSupplierAccountMonthsRowsQueries(
+  accountSupplierId: number | null,
+  months: readonly string[],
+  enabled: boolean,
+) {
+  const api = useApi();
+  return useQueries({
+    queries: months.map((month) => ({
+      queryKey: SUPPLIER_KEYS.accountMonthRows(accountSupplierId ?? 0, month),
+      queryFn: () => api.getSupplierAccountMonthRows(accountSupplierId!, month),
+      enabled: enabled && !!accountSupplierId,
+    })),
+  });
+}
+
+/**
+ * LIRA-343 T033 (FR-016) — what is behind one shop day (`YYYY-MM-DD`) of
+ * the account: its rows, who paid each one, and the "added after
+ * settlement" tag. Read-only. Disabled while no day is open (`day` null) or
+ * there is no parent id. Same rule-25 shape as the month hook above.
+ */
+export function useSupplierAccountDayDetailQuery(
+  accountSupplierId: number | null,
+  day: string | null,
+) {
+  const api = useApi();
+  return useQuery({
+    queryKey: SUPPLIER_KEYS.accountDayDetail(accountSupplierId ?? 0, day ?? ""),
+    queryFn: () => api.getSupplierAccountDayDetail(accountSupplierId!, day!),
+    enabled: !!accountSupplierId && !!day,
   });
 }
 
@@ -343,12 +439,54 @@ export function useUnsettledTransactionsQuery(provider: string | null) {
   });
 }
 
-export function useAllTransactionsQuery(provider: string | null) {
+/** The supplier Transactions window's history. LIRA-343 T033a: an
+ *  optional shop-day range (`""` = open end), applied on the server before
+ *  the row limit; part of the query key (after the provider prefix, so
+ *  `SUPPLIER_KEYS.allTransactions(provider)` still invalidates every range). */
+export function useAllTransactionsQuery(
+  provider: string | null,
+  range?: SupplierDayRangeInput,
+) {
   const api = useApi();
   return useQuery({
-    queryKey: SUPPLIER_KEYS.allTransactions(provider ?? ""),
-    queryFn: () => api.getAllSupplierTransactions(provider!),
+    queryKey: [
+      ...SUPPLIER_KEYS.allTransactions(provider ?? ""),
+      range?.from ?? "",
+      range?.to ?? "",
+    ],
+    queryFn: () =>
+      range
+        ? api.getAllSupplierTransactions(provider!, undefined, range)
+        : api.getAllSupplierTransactions(provider!),
     enabled: !!provider,
+    select: (data) => data ?? [],
+  });
+}
+
+/** LIRA-343 T033a — an OMT account parent's Transactions window: every
+ *  member's rows (OMT, OMT App, iPick), same row shape as
+ *  {@link useAllTransactionsQuery}, optional shop-day range. Disabled when
+ *  there is no parent id. */
+export function useSupplierAccountTransactionsQuery(
+  accountSupplierId: number | null,
+  range?: SupplierDayRangeInput,
+) {
+  const api = useApi();
+  return useQuery({
+    queryKey: [
+      ...SUPPLIER_KEYS.accountTransactions(accountSupplierId ?? 0),
+      range?.from ?? "",
+      range?.to ?? "",
+    ],
+    queryFn: () =>
+      range
+        ? api.getSupplierAccountTransactions(
+            accountSupplierId!,
+            undefined,
+            range,
+          )
+        : api.getSupplierAccountTransactions(accountSupplierId!),
+    enabled: !!accountSupplierId,
     select: (data) => data ?? [],
   });
 }
@@ -642,6 +780,63 @@ export function useSettleSupplierAccountMutation(
       // open per-provider queue/history) match as prefixes of their own
       // parameterized keys (`SUPPLIER_KEYS.ledger(id)` etc.) the same way
       // `invalidateAccountQueries` already relies on for the account reads.
+      queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.all });
+      queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.balances });
+      // LIRA-345 — a product supplier settles here too.
+      queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.productBalances });
+      queryClient.invalidateQueries({ queryKey: ["supplier-ledger"] });
+      queryClient.invalidateQueries({ queryKey: ["supplier-unsettled"] });
+      queryClient.invalidateQueries({
+        queryKey: ["supplier-all-transactions"],
+      });
+      invalidateAccountQueries(queryClient);
+    },
+  });
+}
+
+// ── LIRA-344 — Remove credit on the OMT account ─────────────────────────────
+
+/** Wire shape for `removeSupplierAccountCredit` — the core schema's input
+ *  (rule 21) minus `account_supplier_id` (this hook's own argument). The
+ *  actor is injected server-side (rule 19c). */
+export type RemoveAccountCreditRequest = Omit<
+  RemoveAccountCreditPayload,
+  "account_supplier_id"
+>;
+
+export interface RemoveAccountCreditResult {
+  success: boolean;
+  id?: number;
+  transaction_id?: number;
+  expense_id?: number;
+  error?: string;
+}
+
+/**
+ * Close one open OMT account credit OMT will not accept and book it as an
+ * expense (no drawer). Admin only on both transports. Refreshes the same
+ * account reads a settlement does, so the sheet's credit line updates.
+ */
+export function useRemoveSupplierAccountCreditMutation(
+  accountSupplierId: number | null,
+) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (
+      data: RemoveAccountCreditRequest,
+    ): Promise<RemoveAccountCreditResult> => {
+      if (!accountSupplierId) {
+        return Promise.reject(
+          new Error(
+            "useRemoveSupplierAccountCreditMutation: accountSupplierId is required",
+          ),
+        );
+      }
+      return api.removeSupplierAccountCredit(accountSupplierId, data);
+    },
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.all });
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.balances });
       queryClient.invalidateQueries({ queryKey: ["supplier-ledger"] });

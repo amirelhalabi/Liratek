@@ -19,7 +19,9 @@ import {
 import { ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
 import { ExportBar } from "./ExportBar";
 import { DirIcon } from "./DirIcon";
+import { DayRangeFilter } from "./DayRangeFilter";
 import type { ExportSheet, TableData } from "../../utils/tableExport";
+import { exportToExcel, exportToPdf } from "../../utils/tableExport";
 import {
   exportTemplateToExcel,
   exportTemplateToPdf,
@@ -155,6 +157,41 @@ export interface DataTableProps<T> {
   /** Label shown in pagination footer e.g. "products" (default: "rows") */
   pageLabel?: string;
 
+  // ── Load more (LIRA-348) ────────────────────────────────────────────
+  /**
+   * Server-side "load more as you scroll". A sentinel sits under the last
+   * row; when it scrolls into view the table calls `onLoadMore` (never
+   * while `isLoadingMore`, never once `hasMore` is false), and again after
+   * each page lands while the sentinel is still in view. A "Load more"
+   * button does the same where IntersectionObserver is missing. Pair it
+   * with `useCursorPages` (`@liratek/ui`). Independent of `paginate`
+   * (client-side pages over rows already loaded).
+   */
+  loadMore?: {
+    hasMore: boolean;
+    isLoadingMore: boolean;
+    onLoadMore: () => void;
+    /**
+     * Load every remaining page. When given, Excel / PDF export first loads
+     * the rest, so an export covers the whole filter — never just the
+     * pages the operator happened to scroll through.
+     */
+    loadAll?: () => Promise<unknown>;
+  };
+
+  // ── Day filter (LIRA-348) ───────────────────────────────────────────
+  /**
+   * A From / To day filter with Today, Yesterday, This week, This month and
+   * All, shown in the table's header bar. Days are the browser's local
+   * `YYYY-MM-DD` ("" = open end). Start it on today with `useDayRange()`.
+   */
+  dayRange?: {
+    from: string;
+    to: string;
+    onChange: (from: string, to: string) => void;
+    testId?: string;
+  };
+
   // ── Column resizing ─────────────────────────────────────────────────
   /** Enable drag-to-resize columns (default: false) */
   resizable?: boolean;
@@ -244,6 +281,8 @@ function DataTableInner<T>({
   paginate = false,
   pageSize = 20,
   pageLabel,
+  loadMore,
+  dayRange,
   resizable = false,
   showRowCount = false,
   totalRowCount,
@@ -672,6 +711,86 @@ function DataTableInner<T>({
       })
     : undefined;
 
+  // ── Load more (LIRA-348) ─────────────────────────────────────────────
+  // The latest props through a ref, so the observer is created once per
+  // sentinel and never calls a stale `onLoadMore`.
+  const loadMoreRef = useRef(loadMore);
+  loadMoreRef.current = loadMore;
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const sentinelInView = useRef(false);
+  const showLoadMore = !!loadMore?.hasMore && !loading;
+  const requestMore = useCallback(() => {
+    const lm = loadMoreRef.current;
+    if (lm?.hasMore && !lm.isLoadingMore) lm.onLoadMore();
+  }, []);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!showLoadMore || !el || typeof IntersectionObserver === "undefined") {
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        const inView = entries.some((e) => e.isIntersecting);
+        sentinelInView.current = inView;
+        if (inView) requestMore();
+      },
+      { rootMargin: "200px" },
+    );
+    io.observe(el);
+    return () => {
+      io.disconnect();
+      sentinelInView.current = false;
+    };
+  }, [showLoadMore, requestMore]);
+  // An observer only fires when visibility CHANGES: if a page landed (the
+  // row count grew) and the sentinel is still in view — a tall screen, a
+  // short page — ask again. Keyed on the row count only, so a page that
+  // FAILED (no new rows) is never retried in a loop; the button still is.
+  useEffect(() => {
+    if (sentinelInView.current) requestMore();
+  }, [data.length, requestMore]);
+
+  // ── Export covers every page (LIRA-348) ──────────────────────────────
+  // With more pages on the server, an export first loads them all, then
+  // runs once the table has re-rendered with every row.
+  const [pendingExport, setPendingExport] = useState<{
+    kind: "excel" | "pdf";
+    filename: string;
+    ready: boolean;
+  } | null>(null);
+  const runExport = useCallback(
+    (kind: "excel" | "pdf", filename: string) => {
+      if (kind === "excel") {
+        if (onTemplateExcel) onTemplateExcel(filename);
+        else exportToExcel(getExportData(), filename);
+      } else if (onTemplatePdf) onTemplatePdf(filename);
+      else exportToPdf(getExportData(), filename);
+    },
+    [onTemplateExcel, onTemplatePdf, getExportData],
+  );
+  const exportAllPages = useCallback(
+    (kind: "excel" | "pdf") => (filename: string) => {
+      const lm = loadMoreRef.current;
+      if (!lm?.hasMore || !lm.loadAll) {
+        runExport(kind, filename);
+        return;
+      }
+      setPendingExport({ kind, filename, ready: false });
+      void lm
+        .loadAll()
+        .finally(() =>
+          setPendingExport((p) => (p ? { ...p, ready: true } : p)),
+        );
+    },
+    [runExport],
+  );
+  useEffect(() => {
+    if (!pendingExport?.ready) return;
+    setPendingExport(null);
+    runExport(pendingExport.kind, pendingExport.filename);
+  }, [pendingExport, runExport]);
+  const pagedExport = !!loadMore?.loadAll;
+
   // ── Column-picker visibility ─────────────────────────────────────────
   // Only meaningful when an export action exists, there are rows to export,
   // and there is at least one exportable column to pick from.
@@ -781,9 +900,18 @@ function DataTableInner<T>({
 
   // Merge the column picker with any consumer-provided header actions so both
   // render in the export bar without ExportBar needing to know about either.
+  const dayRangeFilter = dayRange ? (
+    <DayRangeFilter
+      from={dayRange.from}
+      to={dayRange.to}
+      onChange={dayRange.onChange}
+      testId={dayRange.testId ?? "data-table-day-range"}
+    />
+  ) : null;
   const mergedHeaderActions =
-    columnPicker || headerActions ? (
+    columnPicker || headerActions || dayRangeFilter ? (
       <>
+        {dayRangeFilter}
         {columnPicker}
         {headerActions}
       </>
@@ -797,8 +925,15 @@ function DataTableInner<T>({
         exportFilename={exportFilename}
         tableRef={tableRef}
         getExportData={getExportData}
-        {...(onTemplateExcel ? { onExcel: onTemplateExcel } : {})}
-        {...(onTemplatePdf ? { onPdf: onTemplatePdf } : {})}
+        {...(pagedExport
+          ? {
+              onExcel: exportAllPages("excel"),
+              onPdf: exportAllPages("pdf"),
+            }
+          : {
+              ...(onTemplateExcel ? { onExcel: onTemplateExcel } : {}),
+              ...(onTemplatePdf ? { onPdf: onTemplatePdf } : {}),
+            })}
         rowCount={data.length}
         headerActions={mergedHeaderActions}
         countLabel={countLabel}
@@ -952,6 +1087,26 @@ function DataTableInner<T>({
           {footerContent}
         </tbody>
       </table>
+
+      {/* ── Load more (LIRA-348) ───────────────────────────────────── */}
+      {showLoadMore && (
+        <div
+          ref={sentinelRef}
+          data-testid="data-table-load-more-sentinel"
+          className="flex justify-center p-3"
+        >
+          <button
+            type="button"
+            onClick={requestMore}
+            disabled={loadMore?.isLoadingMore}
+            className="px-4 py-1.5 text-sm rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors disabled:opacity-50"
+          >
+            {loadMore?.isLoadingMore
+              ? t("dataTable.loadingMore")
+              : t("dataTable.loadMore")}
+          </button>
+        </div>
+      )}
 
       {/* ── Pagination footer ──────────────────────────────────────── */}
       {paginate && data.length > pageSize && (

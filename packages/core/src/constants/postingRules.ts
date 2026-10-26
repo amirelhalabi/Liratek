@@ -1018,6 +1018,36 @@ const SUPPLIER_RULES = {
       "leg by leg (TransactionRepository._reverseSupplierSettlement / " +
       "_reversePayments) — nets 0 per member per currency.",
   },
+  "SUPPLIER_SETTLEMENT/account-credit-write-off": {
+    transactionType: "SUPPLIER_SETTLEMENT",
+    mode:
+      "Remove credit: one open OMT account credit OMT will not accept is " +
+      "closed and booked as an expense (SupplierRepository.removeAccountCredit, " +
+      "LIRA-344; metadata_json.mode = CREDIT_WRITE_OFF)",
+    mapRef: "current_sprint.md LIRA-344",
+    ledgers: {
+      // The credit was never cash: no payments row on the settlement or on
+      // its books-only expense.
+      drawers: NONE,
+      supplier: {
+        post: "unchecked",
+        reason:
+          "One ADJUSTMENT anchor row +credit per currency on the credit's own " +
+          "member (self-stamped, never an open row), and WAIVE coverage that " +
+          "closes the credit row. Ledger == Σ open remaining holds — pinned by " +
+          "SupplierRepository.lira344RemoveCredit (incl. the R12 undo order).",
+      },
+      partner: NONE,
+      debt: NONE,
+    },
+    notes:
+      "Amount 0 and profit 0 on the settlement; the cost is a books-only " +
+      "is_auto EXPENSE 'OMT credit not accepted' linked to the anchor " +
+      "(source_ref_table = 'supplier_ledger'), read by Profits from expenses. " +
+      "Void: _reverseSupplierSettlement (coverage soft-void, anchor soft-void, " +
+      "credit un-stamped) + _cascadeExpenseSiblingVoid — nets 0 per ledger " +
+      "per currency. The expense alone is locked.",
+  },
 } as const satisfies Record<string, PostingRule>;
 
 // ─── Partners — POSTING_MAP.md §4.7 ─────────────────────────────────────────

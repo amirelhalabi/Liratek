@@ -75,8 +75,15 @@
  * specs' backlog and oldest-first would otherwise pay that instead). Closed
  * rows now share ONE `settlement_id` (the settlement's anchor ledger row),
  * and the UI pass ticks its row in "Pick transfers" (nothing is pre-ticked).
+ *
+ * LIRA-343 (T026): the sheet opens on a day calendar and settles the PICKED
+ * DAYS (every open day before today starts picked; "Pick transfers" is
+ * gone). The UI pass therefore seeds an OMT SEND backdated
+ * (`transaction_time`, noon UTC) onto a past day with no other open row,
+ * clears the default pick and picks only that day. It seeded an iPick
+ * top-up before; a top-up cannot be backdated.
  */
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import {
   test,
   expect,
@@ -178,6 +185,8 @@ interface AccountUnsettledRow {
   // LIRA-322 — what each row still owes after part-payments.
   remaining_usd: number;
   remaining_lbp: number;
+  /** LIRA-343 — the shop's calendar day of the row (`YYYY-MM-DD`). */
+  shop_day: string;
 }
 async function getAccountUnsettled(
   page: Page,
@@ -192,6 +201,93 @@ async function getAccountUnsettled(
   ).json();
   expect(r.success, JSON.stringify(r)).toBeTruthy();
   return r.transactions as AccountUnsettledRow[];
+}
+
+// ── LIRA-343 calendar helpers ───────────────────────────────────────────────
+
+/** The browser's own calendar day — what the sheet calls "today" (rule 27). */
+async function browserToday(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const d = new Date();
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  });
+}
+
+function shiftDay(day: string, delta: number): string {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().slice(0, 10);
+}
+
+/** Noon UTC on `day`: the same calendar day from UTC−11 to UTC+11. */
+const noonUtc = (day: string) => `${day}T12:00:00.000Z`;
+
+const monthNumber = (day: string) =>
+  Number(day.slice(0, 4)) * 12 + Number(day.slice(5, 7));
+
+/** The most recent past day with NO open row on the account, so picking it
+ *  in the calendar picks only what this spec seeds there (rule 15). */
+async function freePastDay(
+  page: Page,
+  headers: { Authorization: string },
+  accountId: number,
+  today: string,
+): Promise<string> {
+  const open = new Set(
+    (await getAccountUnsettled(page, headers, accountId)).map(
+      (r) => r.shop_day,
+    ),
+  );
+  for (let k = 1; k <= 180; k++) {
+    const day = shiftDay(today, -k);
+    if (!open.has(day)) return day;
+  }
+  throw new Error("no past day without open OMT rows in the last 180 days");
+}
+
+/** Clears the default pick (every open day before today), then picks
+ *  exactly `day`, walking back from today's month to the day's month. */
+async function pickOnlyDay(sheet: Locator, today: string, day: string) {
+  const bar = sheet.getByTestId("settle-selection-bar");
+  await expect(bar).toBeVisible({ timeout: 15_000 });
+  // No test id on Clear (reported): the bar's only button while days are
+  // picked; "Pick all open" while none are.
+  const clear = bar.getByRole("button", { name: "Clear", exact: true });
+  if (await clear.count()) await clear.click();
+  await expect(clear).toHaveCount(0);
+  for (let i = monthNumber(today) - monthNumber(day); i > 0; i--) {
+    await sheet
+      .getByRole("button", { name: "Previous month", exact: true })
+      .click();
+  }
+  const button = sheet.locator(`[data-day="${day}"] button`);
+  await expect(button).toBeEnabled({ timeout: 15_000 });
+  await button.click();
+  await expect(button).toHaveAttribute("aria-pressed", "true");
+  await expect(bar).toContainText("1 day picked");
+  await closeDayDetails(sheet);
+}
+
+/** LIRA-343 — tapping a day also opens its details panel (inline, under the
+ *  calendar; it grows once its rows load). Close it — by ITS Close button,
+ *  not the sheet's own "Close" — so the payment box below stays put. */
+async function closeDayDetails(sheet: Locator) {
+  const details = sheet.getByTestId("settle-day-details");
+  await expect(details).toBeVisible();
+  await details.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(details).toHaveCount(0);
+}
+
+/** The OMT credit line pre-fills min(owed, credit); other specs leave
+ *  credit on the account, so set it to 0 to keep the amounts this spec's. */
+async function setCreditToZero(sheet: Locator) {
+  for (const c of ["usd", "lbp"]) {
+    const input = sheet.getByTestId(`supplier-account-settle-credit-${c}`);
+    if (await input.count()) {
+      await input.fill("0");
+      await expect(input).toHaveValue("0");
+    }
+  }
 }
 
 interface AccountLedgerEntry {
@@ -741,35 +837,58 @@ test.describe("OMT open-credit account settlement over REST (LIRA-189)", () => {
     expect(foreignRow?.total_usd).toBeCloseTo(-10, 2);
   });
 
-  // ── Real-UI layer-seam pass (LIRA-322 sheet). The sheet opens with
-  // NOTHING ticked (the whole account is in scope); "Pick transfers" narrows
-  // the scope. Ticking this spec's own row must narrow the USD section's
-  // owed figure to exactly that row's amount — the sheet's OWN arithmetic,
-  // which a hand-built REST payload cannot prove — and a real submit must
-  // reach the same core mutation the REST tests above proved. ──────────────
-  test("UI: ticking a row in the real settlement sheet narrows what is owed to exactly that row, the preview closes it, and a real submit reaches the same core mutation", async ({
+  // ── Real-UI layer-seam pass (LIRA-343 calendar sheet). The sheet opens
+  // with every open day before today picked; picking ONLY this spec's day
+  // must narrow the USD section's owed figure to exactly its one transfer —
+  // the sheet's OWN arithmetic, which a hand-built REST payload cannot
+  // prove — and a real submit must reach the same core mutation the REST
+  // tests above proved. ──────────────────────────────────────────────────
+  test("UI: picking only this spec's day in the real settlement sheet narrows what is owed to exactly that day's transfer, the preview closes it, and a real submit reaches the same core mutation", async ({
     page,
   }) => {
     const headers = await authHeaders(page);
     const marker = Date.now();
     const UI_AMOUNT = Number((6.5 + (marker % 211) / 100).toFixed(2));
+    const UI_FEE = 1;
 
     const account = await omtAccount(page, headers);
     const omtId = account.account_supplier_id;
+    const today = await browserToday(page);
+    const DAY = await freePastDay(page, headers, omtId, today);
 
     const seeded = await (
-      await page.request.post(
-        `${BACKEND_URL}/api/recharge/top-up-from-supplier`,
-        {
-          headers,
-          data: { provider: "iPick", amount: UI_AMOUNT, currency: "USD" },
+      await page.request.post(`${BACKEND_URL}/api/services/transactions`, {
+        headers,
+        data: {
+          provider: "OMT",
+          serviceType: "SEND",
+          amount: UI_AMOUNT,
+          currency: "USD",
+          omtServiceType: "INTRA",
+          omtFee: UI_FEE,
+          payments: [
+            { method: "CASH", currencyCode: "USD", amount: UI_AMOUNT + UI_FEE },
+          ],
+          transaction_time: noonUtc(DAY),
         },
-      )
+      })
     ).json();
     expect(seeded.success, JSON.stringify(seeded)).toBeTruthy();
+    const rowId = seeded.id as number;
 
     const unsettledBefore = await getAccountUnsettled(page, headers, omtId);
-    const row = findUnsettled(unsettledBefore, "iPick", "TOP_UP", UI_AMOUNT);
+    const row = unsettledBefore.find(
+      (r) => r.kind === "FINANCIAL_SERVICE" && r.id === rowId,
+    );
+    expect(row, "seeded OMT SEND not in the account queue").toBeTruthy();
+    // `transaction_time` reached the row, and DAY carries only this row.
+    expect(row!.shop_day).toBe(DAY);
+    expect(
+      unsettledBefore.filter((r) => r.shop_day === DAY).map((r) => r.id),
+    ).toEqual([rowId]);
+    const OWED = Math.round(row!.remaining_usd * 100) / 100;
+    expect(OWED).toBeCloseTo(UI_AMOUNT + UI_FEE, 2);
+    // Snapshot AFTER seeding: the SEND's own cash lands in this drawer.
     const omtSystemBefore = drawerOf(
       await drawerBalances(page, headers),
       "OMT_System",
@@ -787,25 +906,15 @@ test.describe("OMT open-credit account settlement over REST (LIRA-189)", () => {
     const sheet = page.getByTestId("supplier-account-settle-sheet");
     await expect(sheet).toBeVisible({ timeout: 10_000 });
 
-    await sheet.getByTestId("supplier-account-settle-pick-toggle").click();
-    const uiRow = sheet.locator(
-      `[data-testid="supplier-account-settle-row"][data-kind="LEDGER"][data-row-id="${row.id}"]`,
-    );
-    await expect(uiRow).toBeVisible({ timeout: 10_000 });
-    const toggle = uiRow.getByTestId("supplier-account-settle-row-toggle");
-    // Nothing is pre-ticked any more (US5: the picker is an override).
-    await expect(toggle).not.toBeChecked();
-    await expect(
-      sheet.locator(
-        '[data-testid="supplier-account-settle-row-toggle"]:checked',
-      ),
-    ).toHaveCount(0);
+    // Picking only DAY and setting the OMT credit to 0 come BEFORE the
+    // payment line: changing either re-fills the payment box.
+    await pickOnlyDay(sheet, today, DAY);
+    await setCreditToZero(sheet);
 
-    await toggle.check();
     const usd = sheet.getByTestId("supplier-account-settle-section-usd");
     await expect(
       usd.getByTestId("supplier-account-settle-owed-usd"),
-    ).toHaveText(`$${UI_AMOUNT.toFixed(2)}`);
+    ).toHaveText(`$${OWED.toFixed(2)}`);
     // Only this USD row is in scope, so no LBP section is open.
     await expect(
       sheet.getByTestId("supplier-account-settle-section-lbp"),
@@ -816,11 +925,11 @@ test.describe("OMT open-credit account settlement over REST (LIRA-189)", () => {
     await usd
       .locator('[data-testid^="payment-amount-"]')
       .first()
-      .fill(UI_AMOUNT.toFixed(2));
+      .fill(OWED.toFixed(2));
 
     await expect(
       usd.locator(
-        `[data-testid="supplier-account-settle-preview-row"][data-kind="LEDGER"][data-row-id="${row.id}"]`,
+        `[data-testid="supplier-account-settle-preview-row"][data-kind="FINANCIAL_SERVICE"][data-row-id="${rowId}"]`,
       ),
     ).toHaveAttribute("data-status", "closes");
     await expect(
@@ -835,14 +944,16 @@ test.describe("OMT open-credit account settlement over REST (LIRA-189)", () => {
     // Drawer paid exactly that row (D3).
     const unsettledAfter = await getAccountUnsettled(page, headers, omtId);
     expect(
-      unsettledAfter.some((r) => r.kind === "LEDGER" && r.id === row.id),
+      unsettledAfter.some(
+        (r) => r.kind === "FINANCIAL_SERVICE" && r.id === rowId,
+      ),
     ).toBe(false);
     const omtSystemAfter = drawerOf(
       await drawerBalances(page, headers),
       "OMT_System",
     );
     expect(omtSystemAfter.usdBalance - omtSystemBefore.usdBalance).toBeCloseTo(
-      -UI_AMOUNT,
+      -OWED,
       2,
     );
   });

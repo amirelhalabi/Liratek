@@ -65,6 +65,10 @@ export interface AllocationItem extends DebtItemRef {
   /** Present only on an open primary-system transfer: how much may still be
    *  routed to the primary cash drawer for it, per debt currency. */
   routingCap?: { usd: number; lbp: number } | null;
+  /** LIRA-347 — the shop day (`YYYY-MM-DD`) the item was booked on, worked
+   *  out by the repository with `localDayExpr` (rule 27); the settle
+   *  calendar groups by it. Absent / null on the earlier-balance line. */
+  shopDay?: string | null;
 }
 
 /** LIRA-308 owner answer 2 (2026-10-11) — the "Earlier balance (no

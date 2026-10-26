@@ -4,6 +4,7 @@ import {
   getFinancialService,
   describeSettleAccountForAudit,
   type OmtCoveredTypesInput,
+  type SupplierDayRangeInput,
 } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
@@ -12,13 +13,32 @@ import {
   SupplierLedgerEntrySchema,
   SupplierSettleSchema,
   SupplierSettleAccountSchema,
+  RemoveAccountCreditSchema,
   SupplierCashflowSchema,
   SupplierPurchaseCreateSchema,
   SupplierAccountLinkSchema,
   SupplierRecordDebtSchema,
   OmtCoveredTypesSchema,
+  AccountMonthSchema,
+  AccountDaySchema,
+  SupplierDayRangeSchema,
   validatePayload,
 } from "../schemas/index.js";
+
+/**
+ * LIRA-343 T033a — the optional shop-day range (last argument) of the
+ * supplier Transactions reads, checked with the shared core schema (rule
+ * 14). Absent → undefined (unchanged read). These are RAW-shape reads, so an
+ * invalid range THROWS (the invoke promise rejects), like month-rows.
+ */
+function parseDayRange(
+  range: unknown,
+): SupplierDayRangeInput | undefined {
+  if (range === undefined || range === null) return undefined;
+  const v = validatePayload(SupplierDayRangeSchema, range);
+  if (!v.ok) throw new Error(v.error);
+  return v.data;
+}
 
 export function registerSupplierHandlers(): void {
   const service = getSupplierService();
@@ -57,8 +77,26 @@ export function registerSupplierHandlers(): void {
    *  first, each row carrying which member it came from. */
   ipcMain.handle(
     "suppliers:account-ledger",
-    (_e, accountSupplierId: number, limit?: number) => {
-      return service.getAccountLedger(accountSupplierId, limit);
+    (_e, accountSupplierId: number, limit?: number, range?: unknown) => {
+      return service.getAccountLedger(
+        accountSupplierId,
+        limit,
+        parseDayRange(range),
+      );
+    },
+  );
+
+  /** LIRA-343 T033a — an account parent's Transactions window: every
+   *  member's financial_services rows, newest first, optional shop-day
+   *  range. Same no-role-gate treatment as account-ledger. */
+  ipcMain.handle(
+    "suppliers:account-transactions",
+    (_e, accountSupplierId: number, limit?: number, range?: unknown) => {
+      return getFinancialService().getAllByAccount(
+        accountSupplierId,
+        limit,
+        parseDayRange(range),
+      );
     },
   );
 
@@ -68,6 +106,33 @@ export function registerSupplierHandlers(): void {
     "suppliers:account-unsettled",
     (_e, accountSupplierId: number) => {
       return service.getAccountUnsettled(accountSupplierId);
+    },
+  );
+
+  /** LIRA-343 (contracts/calendar-reads.md §1) — every account row whose
+   *  shop day falls in `month` (YYYY-MM), settled or not: feeds the settle
+   *  calendar. Same no-role-gate treatment as account-unsettled. RAW-shape
+   *  read (the renderer expects the rows array, never an envelope), so an
+   *  invalid month THROWS — the invoke promise rejects. */
+  ipcMain.handle(
+    "suppliers:account-month-rows",
+    (_e, accountSupplierId: number, month: unknown) => {
+      const v = validatePayload(AccountMonthSchema, { month });
+      if (!v.ok) throw new Error(v.error);
+      return service.getAccountMonthRows(accountSupplierId, v.data.month);
+    },
+  );
+
+  /** LIRA-343 (contracts/calendar-reads.md §3) — what is behind one shop
+   *  day (YYYY-MM-DD): the day's rows, who paid each one, and the "added
+   *  after settlement" tag. Same no-role-gate treatment as
+   *  account-unsettled; RAW rows array, so an invalid day THROWS. */
+  ipcMain.handle(
+    "suppliers:account-day-detail",
+    (_e, accountSupplierId: number, shopDay: unknown) => {
+      const v = validatePayload(AccountDaySchema, { day: shopDay });
+      if (!v.ok) throw new Error(v.error);
+      return service.getAccountDayDetail(accountSupplierId, v.data.day);
     },
   );
 
@@ -175,8 +240,12 @@ export function registerSupplierHandlers(): void {
   /** Get all transactions for a provider (history tab) */
   ipcMain.handle(
     "suppliers:all-transactions",
-    (_e, provider: string, limit?: number) => {
-      return getFinancialService().getAllByProvider(provider, limit);
+    (_e, provider: string, limit?: number, range?: unknown) => {
+      return getFinancialService().getAllByProvider(
+        provider,
+        limit,
+        parseDayRange(range),
+      );
     },
   );
 
@@ -234,6 +303,37 @@ export function registerSupplierHandlers(): void {
         action: "settle",
         entity_type: "supplier_account_settlement",
         ...describeSettleAccountForAudit(v.data),
+      });
+    }
+    return result;
+  });
+
+  // ── LIRA-344 — Remove credit (admin only) ──────────────────────────────
+  // Closes one open OMT account credit OMT will not accept and books it as
+  // an expense (no drawer). The repository re-reads the open queue: the
+  // row's membership, scope and amount are never trusted from the client.
+  ipcMain.handle("suppliers:remove-account-credit", (e, data: unknown) => {
+    const auth = requireRole(e.sender.id, ["admin"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+
+    const v = validatePayload(RemoveAccountCreditSchema, data);
+    if (!v.ok) return { success: false, error: v.error };
+
+    const result = service.removeAccountCredit({
+      ...v.data,
+      created_by: auth.userId,
+    });
+    if (result.success) {
+      audit(e.sender.id, {
+        action: "remove_credit",
+        entity_type: "supplier_account_settlement",
+        entity_id: String(result.transaction_id ?? result.id ?? ""),
+        summary: `Removed OMT credit row #${v.data.ledger_row_id} on account #${v.data.account_supplier_id}: ${v.data.reason}`,
+        metadata: {
+          account_supplier_id: v.data.account_supplier_id,
+          ledger_row_id: v.data.ledger_row_id,
+          removed: v.data.expected_remaining,
+        },
       });
     }
     return result;

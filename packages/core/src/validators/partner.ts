@@ -222,3 +222,116 @@ export type PartnerRecordTransactionPayload = z.input<
   typeof partnerRecordTransactionSchema
 >;
 export type PartnerWriteOffPayload = z.input<typeof partnerWriteOffSchema>;
+
+// ── LIRA-346 — settle partners by day (specs/346-partner-settle-by-day) ────
+
+/** `YYYY-MM` — a calendar month of the shop. */
+export const partnerSettleMonthSchema = z
+  .string()
+  .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Month must be YYYY-MM");
+
+/** `YYYY-MM-DD` — a shop day. */
+export const partnerSettleDaySchema = z
+  .string()
+  .regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, "Day must be YYYY-MM-DD");
+
+/** Month rows read (calendar grid). */
+export const partnerMonthRowsSchema = z.object({
+  partnerId: idSchema,
+  month: partnerSettleMonthSchema,
+});
+
+/** One day's rows with the settlements that paid them. */
+export const partnerDayDetailSchema = z.object({
+  partnerId: idSchema,
+  day: partnerSettleDaySchema,
+});
+
+/** One currency of a settle-picked-days request. `payer` says who hands
+ *  over the money: the partner (money IN to the shop) or the shop (money
+ *  OUT). The legs pay the NET (IN − OUT change), in this currency only. */
+const partnerSettleDaysSectionSchema = z
+  .object({
+    payer: z.enum(["PARTNER", "SHOP"]),
+    payments: z.array(partnerSettlementLegSchema).default([]),
+    /** Forgive (today's bundled discount), oldest picked debts first. */
+    forgive: z
+      .object({
+        amount: z.number().nonnegative(),
+        reason: z.string().max(500).optional(),
+      })
+      .optional(),
+  })
+  .refine(
+    (s) => !s.payments.some((leg) => leg.method === "CLIENT_ACCOUNT"),
+    {
+      message: "CLIENT_ACCOUNT settles no money — it cannot be a payment leg",
+      path: ["payments"],
+    },
+  )
+  .refine(
+    (s) =>
+      s.payments.length === 0 || s.payments.some((l) => l.direction !== "OUT"),
+    {
+      message: "A settlement needs at least one payment leg, not only change",
+      path: ["payments"],
+    },
+  );
+
+/**
+ * Settle picked days (LIRA-346, D1–D10). `selections` = the head ids of the
+ * picked days' open rows (minus the ones unticked); `include_account_credits`
+ * adds every open account row (partner credit, overpay, ↺ reliefs) to the
+ * scope; `credit_used` = how much partner credit the user chose per currency;
+ * `expected_owed` = what the sheet showed (selections + account rows, signed:
+ * + the partner owes the shop) — the server refuses when it changed.
+ * "Settle old history up to <day>" is this same request with no money.
+ */
+export const partnerSettleDaysSchema = z
+  .object({
+    partnerId: idSchema,
+    selections: z.array(idSchema).max(5000),
+    include_account_credits: z.boolean().optional(),
+    credit_used: z
+      .object({
+        usd: z.number().nonnegative().optional(),
+        lbp: z.number().nonnegative().optional(),
+      })
+      .optional(),
+    expected_owed: z.object({ usd: z.number(), lbp: z.number() }),
+    per_currency: z.object({
+      USD: partnerSettleDaysSectionSchema.optional(),
+      LBP: partnerSettleDaysSectionSchema.optional(),
+    }),
+    notes: z.string().max(500).optional(),
+    exchange_rate: z.number().positive().optional(),
+  })
+  .refine((d) => !!d.per_currency.USD || !!d.per_currency.LBP, {
+    message: "Enter at least one currency",
+    path: ["per_currency"],
+  })
+  .refine(
+    (d) =>
+      (["USD", "LBP"] as const).every(
+        (c) =>
+          !d.per_currency[c] ||
+          d.per_currency[c]!.payments.every((l) => l.currency_code === c),
+      ),
+    {
+      message: "Every payment leg must be in its section's currency",
+      path: ["per_currency"],
+    },
+  )
+  .refine((d) => new Set(d.selections).size === d.selections.length, {
+    message: "A row is picked twice",
+    path: ["selections"],
+  })
+  .refine((d) => !d.credit_used || d.include_account_credits === true, {
+    message: "Partner credit can only be used with the account rows in scope",
+    path: ["credit_used"],
+  });
+
+export type PartnerSettleDaysInput = z.infer<typeof partnerSettleDaysSchema>;
+export type PartnerSettleDaysPayload = z.input<typeof partnerSettleDaysSchema>;
+export type PartnerMonthRowsInput = z.infer<typeof partnerMonthRowsSchema>;
+export type PartnerDayDetailInput = z.infer<typeof partnerDayDetailSchema>;

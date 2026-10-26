@@ -17,11 +17,18 @@ import {
   type UpdatePartnerData,
   type CreateLedgerEntryData,
 } from "../repositories/index.js";
+import {
+  getPartnerSettlementRepository,
+  type PartnerSettlementRepository,
+  type PartnerSettleRow,
+  type PartnerDayDetailRow,
+} from "../repositories/PartnerSettlementRepository.js";
 import { NotFoundError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
 import {
   partnerSettlementMethod,
   partnerSettlementNet,
+  type PartnerSettleDaysInput,
 } from "../validators/partner.js";
 
 const partnerLogger = logger.child({ module: "partner" });
@@ -32,9 +39,17 @@ const partnerLogger = logger.child({ module: "partner" });
 
 export class PartnerService {
   private repo: PartnerRepository;
+  /** LIRA-346 — settle by day (partner_settlement_coverage). Lazily
+   *  resolved so callers that only pass a PartnerRepository keep working. */
+  private settleRepoOverride: PartnerSettlementRepository | undefined;
 
-  constructor(repo: PartnerRepository) {
+  constructor(repo: PartnerRepository, settleRepo?: PartnerSettlementRepository) {
     this.repo = repo;
+    this.settleRepoOverride = settleRepo;
+  }
+
+  private get settleRepo(): PartnerSettlementRepository {
+    return this.settleRepoOverride ?? getPartnerSettlementRepository();
   }
 
   // ── Partners ──────────────────────────────────────────────────────────────
@@ -508,6 +523,73 @@ export class PartnerService {
           e instanceof Error
             ? e.message
             : "Failed to write off partner balance",
+      };
+    }
+  }
+
+  // ── Settle by day (LIRA-346) ──────────────────────────────────────────────
+
+  /** The settle queue: every open day row and every open account row
+   *  (partner credit, overpay, ↺ reliefs). Signed: + the partner owes. */
+  getSettleOpenRows(partnerId: number): PartnerSettleRow[] {
+    try {
+      return this.settleRepo.getOpenRows(partnerId);
+    } catch (e) {
+      partnerLogger.error({ error: e, partnerId }, "getSettleOpenRows failed");
+      throw e;
+    }
+  }
+
+  /** One calendar month (`YYYY-MM`), shop days from the repository. */
+  getSettleMonthRows(partnerId: number, month: string): PartnerSettleRow[] {
+    try {
+      return this.settleRepo.getMonthRows(partnerId, month);
+    } catch (e) {
+      partnerLogger.error({ error: e, partnerId, month }, "getSettleMonthRows failed");
+      throw e;
+    }
+  }
+
+  /** One shop day (`YYYY-MM-DD`) with the settlements that paid each row. */
+  getSettleDayDetail(partnerId: number, day: string): PartnerDayDetailRow[] {
+    try {
+      return this.settleRepo.getDayDetail(partnerId, day);
+    } catch (e) {
+      partnerLogger.error({ error: e, partnerId, day }, "getSettleDayDetail failed");
+      throw e;
+    }
+  }
+
+  /**
+   * Settle the picked days (and "settle old history up to <day>", the same
+   * request with no money). The actor comes from the caller (JWT / IPC
+   * session), never from the payload.
+   */
+  settleDays(data: PartnerSettleDaysInput & { userId: number }): {
+    success: boolean;
+    id?: number;
+    error?: string;
+  } {
+    try {
+      const result = this.settleRepo.settleDays(data);
+      partnerLogger.info(
+        {
+          partnerId: data.partnerId,
+          txnId: result.id,
+          picked: data.selections.length,
+          currencies: Object.keys(data.per_currency),
+        },
+        "Partner days settled",
+      );
+      return { success: true, id: result.id };
+    } catch (e) {
+      partnerLogger.error({ error: e, partnerId: data.partnerId }, "settleDays failed");
+      const cause =
+        e instanceof Error && e.cause instanceof Error ? e.cause.message : null;
+      return {
+        success: false,
+        error:
+          cause ?? (e instanceof Error ? e.message : "Failed to settle the picked days"),
       };
     }
   }

@@ -421,6 +421,24 @@ function webApiShimBody(): void {
           `/api/suppliers/${accountSupplierId}/account-unsettled`,
         )
       ).transactions ?? [],
+    // LIRA-343 — the settle calendar's reads: REST wraps the raw rows as
+    // { rows } (IPC returns the array).
+    "suppliers.getAccountMonthRows": async ([accountSupplierId, month]) =>
+      (
+        await rest(
+          "GET",
+          `/api/suppliers/${accountSupplierId}/account-month-rows` +
+            qs({ month }),
+        )
+      ).rows ?? [],
+    "suppliers.getAccountDayDetail": async ([accountSupplierId, day]) =>
+      (
+        await rest(
+          "GET",
+          `/api/suppliers/${accountSupplierId}/account-day-detail` +
+            qs({ day }),
+        )
+      ).rows ?? [],
     "suppliers.getUnsettledSummary": async () =>
       (await rest("GET", "/api/suppliers/unsettled-summary")).summary ?? [],
     "suppliers.create": async ([data]) => rest("POST", "/api/suppliers", data),
@@ -447,6 +465,17 @@ function webApiShimBody(): void {
       return rest(
         "POST",
         `/api/suppliers/${account_supplier_id}/settle-account`,
+        body,
+      );
+    },
+    // LIRA-344 Remove credit: same split as settleAccount.
+    "suppliers.removeAccountCredit": async ([data]) => {
+      const { account_supplier_id, ...body } = data as {
+        account_supplier_id: number;
+      } & Record<string, unknown>;
+      return rest(
+        "POST",
+        `/api/suppliers/${account_supplier_id}/remove-account-credit`,
         body,
       );
     },

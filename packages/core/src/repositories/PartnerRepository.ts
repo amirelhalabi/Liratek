@@ -7,9 +7,11 @@
 
 import { requestNow } from "../utils/requestNow.js";
 import { BaseRepository } from "./BaseRepository.js";
+import { localDayExpr } from "./reportingTimeFragments.js";
 import { DatabaseError, NotFoundError } from "../utils/errors.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
+import { getPartnerSettlementRepository } from "./PartnerSettlementRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
   partnerObligationCoverableSql,
@@ -279,6 +281,10 @@ export interface CreateLedgerEntryData {
   /** PFT-7b: force settlement FIFO coverage for a non-SETTLEMENT row (a
    *  cash-moved manual entry) — profit realizes when real money moves. */
   applyCoverage?: boolean;
+  /** LIRA-346: the settle-picked-days path writes its own coverage
+   *  (PartnerSettlementRepository.settleDays) — no oldest-first coverage
+   *  here, even for a SETTLEMENT / DISCOUNT row. */
+  skipCoverage?: boolean;
   /** CQ-7: optional backdated timestamp (mirrors the caller's own
    *  `transaction_time` override, e.g. FinancialServiceRepository's FOR_%/
    *  THROUGH_% rows) — COALESCEd with CURRENT_TIMESTAMP, so omitting it keeps
@@ -464,18 +470,37 @@ export class PartnerRepository extends BaseRepository<Partner> {
       // amount is just as real as cash for closing out a FOR_% obligation
       // (skipping this would leave the deferred profit stuck forever, the
       // exact "paper ADJUSTMENT" trap this ticket exists to avoid).
+      // LIRA-346 (D8): from v225 the same oldest-first coverage goes through
+      // the ONE coverage writer (partner_settlement_coverage + the profit
+      // stamp kept in step), so every settlement is undone exactly. Older
+      // schemas keep the direct stamp below.
       if (
-        data.transaction_type === "SETTLEMENT" ||
-        data.transaction_type === "DISCOUNT" ||
-        data.applyCoverage === true
+        data.skipCoverage !== true &&
+        (data.transaction_type === "SETTLEMENT" ||
+          data.transaction_type === "DISCOUNT" ||
+          data.applyCoverage === true)
       ) {
-        this.applySettlementCoverage(
-          data.partner_id,
-          data.currency,
-          data.direction,
-          data.amount,
-          tenantId,
-        );
+        const settleRepo = getPartnerSettlementRepository();
+        if (settleRepo.hasCoverageTable()) {
+          settleRepo.applyLegacyPathCoverage(
+            {
+              id,
+              partner_id: data.partner_id,
+              currency: data.currency,
+              direction: data.direction,
+              amount: data.amount,
+            },
+            data.transaction_type === "DISCOUNT" ? "DISCOUNT" : "PAYMENT",
+          );
+        } else {
+          this.applySettlementCoverage(
+            data.partner_id,
+            data.currency,
+            data.direction,
+            data.amount,
+            tenantId,
+          );
+        }
       }
 
       const entry = this.db
@@ -811,6 +836,8 @@ export class PartnerRepository extends BaseRepository<Partner> {
           });
         }
       }
+      // LIRA-346: the coverage this row applied now knows its transaction.
+      getPartnerSettlementRepository().linkTransaction(entry.id, txnId);
       return txnId;
     });
     return txn();
@@ -843,7 +870,7 @@ export class PartnerRepository extends BaseRepository<Partner> {
     const magnitude = Math.abs(entry.amount);
     const signed = entry.direction === "CREDIT" ? magnitude : -magnitude;
 
-    return getTransactionRepository().createTransaction({
+    const txnId = getTransactionRepository().createTransaction({
       type: TRANSACTION_TYPES.PARTNER_ADJUSTMENT,
       source_table: "partner_ledger",
       source_id: entry.id,
@@ -884,6 +911,10 @@ export class PartnerRepository extends BaseRepository<Partner> {
         }),
       },
     });
+    // LIRA-346: a paper entry typed SETTLEMENT applied coverage with no
+    // transaction yet; link it (no-op for every other paper entry).
+    getPartnerSettlementRepository().linkTransaction(entry.id, txnId);
+    return txnId;
   }
 
   /**
@@ -931,7 +962,7 @@ export class PartnerRepository extends BaseRepository<Partner> {
       },
     });
 
-    return getTransactionRepository().createTransaction({
+    const txnId = getTransactionRepository().createTransaction({
       type: TRANSACTION_TYPES.COUNTERPARTY_DISCOUNT,
       source_table: "partner_ledger",
       source_id: entry.id,
@@ -955,6 +986,9 @@ export class PartnerRepository extends BaseRepository<Partner> {
           : `Partner discount received: ${magnitude} ${entry.currency} — ${label}`,
       metadata_json: posting.metadata_json,
     });
+    // LIRA-346: a forgive's own coverage (written with no transaction yet).
+    getPartnerSettlementRepository().linkTransaction(entry.id, txnId);
+    return txnId;
   }
 
   getLedgerEntries(
@@ -965,12 +999,15 @@ export class PartnerRepository extends BaseRepository<Partner> {
       const conditions = ["pl.partner_id = ?", "pl.tenant_id = ?"];
       const params: unknown[] = [partnerId, getCurrentTenantId()];
 
+      // LIRA-346 — by the shop's own day (rule 27), both ends inclusive:
+      // a raw text compare dropped the whole "to" day and mixed the two
+      // stored formats (`YYYY-MM-DD HH:MM:SS` vs ISO `…T…Z`).
       if (filters?.startDate) {
-        conditions.push("pl.created_at >= ?");
+        conditions.push(`${localDayExpr("pl.created_at")} >= substr(?, 1, 10)`);
         params.push(filters.startDate);
       }
       if (filters?.endDate) {
-        conditions.push("pl.created_at <= ?");
+        conditions.push(`${localDayExpr("pl.created_at")} <= substr(?, 1, 10)`);
         params.push(filters.endDate);
       }
       if (filters?.type) {

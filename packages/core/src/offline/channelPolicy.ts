@@ -239,6 +239,8 @@ const ONLINE_ONLY: readonly string[] = [
   "partners:activate",
   "partners:record-transaction",
   "partners:settle",
+  // LIRA-346 — settle picked days: a settlement, online-only like settle.
+  "partners:settle-days",
   "partners:write-off",
   "payment-methods:create",
   "payment-methods:update",
@@ -264,6 +266,9 @@ const ONLINE_ONLY: readonly string[] = [
   "suppliers:add-ledger-entry",
   "suppliers:settle-transactions",
   "suppliers:settle-account",
+  // LIRA-344 — closes an OMT account credit + books its expense (money
+  // bookkeeping on the account queue): online-only like settle-account.
+  "suppliers:remove-account-credit",
   "suppliers:purchase-create",
   "suppliers:record-debt",
   "suppliers:record-cashflow",
@@ -374,6 +379,8 @@ const READ: readonly string[] = [
   "debt:get-client-total",
   "debt:get-debtors",
   "debt:get-open-items",
+  // LIRA-347: one month of a client's debt items (settle calendar).
+  "debt:get-month-rows",
   "diagnostics:foreign-key-check",
   "diagnostics:get-sync-errors",
   "diagnostics:getDbPath",
@@ -443,6 +450,10 @@ const READ: readonly string[] = [
   "partners:get-balance",
   "partners:get-by-id",
   "partners:get-ledger",
+  // LIRA-346 — the settle-by-day calendar reads.
+  "partners:settle-day-detail",
+  "partners:settle-month-rows",
+  "partners:settle-open-rows",
   "payment-methods:list",
   "payment-methods:list-active",
   "print:get-printers",
@@ -499,8 +510,11 @@ const READ: readonly string[] = [
   "setup:detectNetworkDb",
   "setup:isRequired",
   "suppliers:account-balances",
+  "suppliers:account-day-detail",
   "suppliers:account-expected-statement",
   "suppliers:account-ledger",
+  "suppliers:account-month-rows",
+  "suppliers:account-transactions",
   "suppliers:account-unsettled",
   "suppliers:all-transactions",
   "suppliers:balances",

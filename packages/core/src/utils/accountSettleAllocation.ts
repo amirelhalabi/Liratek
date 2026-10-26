@@ -21,6 +21,16 @@
  *      (largest remainder, cents / whole LBP). That split is for PROFIT
  *      only.
  *
+ * LIRA-343 (specs/343-omt-settle-by-day research R5, contract
+ * "LIRA-343 extension" in the allocator.md above): optional
+ * `account_credits` (account-level rows, kept apart from `rows`) and the
+ * user-chosen `credit_used`. Positive account rows net against negative
+ * ones, then join the scope as debts after the day debts. Shop pays:
+ * exactly `credit_used` of account credit covers the oldest debts
+ * (NETTING) before the money. OMT pays: the money received covers the day
+ * credits, then up to `credit_used` of account credit (PAYMENT). Account
+ * credit never makes extra. Absent/empty = LIRA-322 output, unchanged.
+ *
  * The commission is NEVER a coverage source (owner decision 2026-10-15,
  * replacing FR-013a: "Pay the amount in full; don't let the commission
  * amount affect the payment leg amount. After the payment is processed, the
@@ -82,6 +92,19 @@ export interface AccountSettleAllocInput {
   waive: number;
   /** 0.005 USD, 0.5 LBP. */
   eps: number;
+  /**
+   * LIRA-343 (research R5). Open account-level rows (`row_scope =
+   * 'ACCOUNT'`), this currency, kept APART from `rows`. Usually remaining
+   * < 0 (OMT owes the shop); a positive one (shop owes OMT) is possible.
+   * Absent or empty = the LIRA-322 behaviour, byte-identical.
+   */
+  account_credits?: AccountSettleAllocRow[];
+  /**
+   * LIRA-343: how much account credit the user chose to use, this
+   * currency (magnitude, ≥ 0, default 0). The payment never moves it
+   * (owner 2026-10-26, "I want to be in control").
+   */
+  credit_used?: number;
 }
 
 export interface AccountSettleAllocTake {
@@ -115,7 +138,7 @@ export interface AccountSettleAllocResult {
   takes: AccountSettleAllocTake[];
   /** Remaining within eps after this settlement (includes rows already within eps). */
   closed: AccountSettleAllocRowRef[];
-  /** At most one row. */
+  /** At most one row, and only a day row (`rows`); see `account_partial`. */
   partial: AccountSettleAllocPartial | null;
   untouched: AccountSettleAllocRowRef[];
   /** Cross-member netting only, aggregated per member pair. */
@@ -131,6 +154,22 @@ export interface AccountSettleAllocResult {
   cashout_commission_recognised: number;
   /** Sign of the in-scope total owed. */
   direction_from_rows: "PAY" | "COLLECT" | "NONE";
+  /**
+   * LIRA-343: `credit_used` is more than may be used (shop pays: more than
+   * min(owed, open account credit); OMT pays: more than the open account
+   * credit). Nothing of it was applied; the caller refuses. The key is
+   * present only when true.
+   */
+  credit_used_too_high?: boolean;
+  /** LIRA-343: account credit actually applied (magnitude). */
+  account_credit_applied: number;
+  /**
+   * LIRA-343: the one ACCOUNT row (either sign) left part-covered, if any.
+   * `partial` now covers day rows (`rows`) only. Both can be set at once:
+   * a user-chosen credit can leave a credit row part-used while the money
+   * leaves a day debt part-paid.
+   */
+  account_partial: AccountSettleAllocPartial | null;
 }
 
 const KIND_ORDER: Record<AccountSettleRowKind, number> = {
@@ -143,7 +182,8 @@ export function compareAccountSettleRows(
   a: Pick<AccountSettleAllocRow, "kind" | "id" | "created_at">,
   b: Pick<AccountSettleAllocRow, "kind" | "id" | "created_at">,
 ): number {
-  if (a.created_at !== b.created_at) return a.created_at < b.created_at ? -1 : 1;
+  if (a.created_at !== b.created_at)
+    return a.created_at < b.created_at ? -1 : 1;
   if (a.kind !== b.kind) return KIND_ORDER[a.kind] - KIND_ORDER[b.kind];
   return a.id - b.id;
 }
@@ -163,11 +203,32 @@ export function allocateAccountSettlement(
   const epsMinor = Math.max(0.5, (input.eps || 0) * factor);
   const isZero = (m: number): boolean => Math.abs(m) <= epsMinor;
 
+  // LIRA-343: account rows ride in the same arrays AFTER the scope rows
+  // (indices ≥ nRows), so every take, netting pair and classification uses
+  // one code path. With no account rows the arrays are exactly LIRA-322's.
   const rows = [...input.rows].sort(compareAccountSettleRows);
-  const orig = rows.map((r) => toMinor(r.remaining));
+  const nRows = rows.length;
+  const acct = [...(input.account_credits ?? [])].sort(
+    compareAccountSettleRows,
+  );
+  const all = [...rows, ...acct];
+  const orig = all.map((r) => toMinor(r.remaining));
   const rem = [...orig];
-  const takenMinor = rows.map(() => 0);
-  const takes: Array<{ i: number; source: AccountSettleCoverageSource; m: number }> = [];
+  const takenMinor = all.map(() => 0);
+  const takes: Array<{
+    i: number;
+    source: AccountSettleCoverageSource;
+    m: number;
+  }> = [];
+  const indices = all.map((_, i) => i);
+  const rowIdx = indices.slice(0, nRows);
+  const acctIdx = indices.slice(nRows);
+  /** Positive account rows: debts in scope, queued after every day debt. */
+  const acctDebtIdx = acctIdx.filter((i) => orig[i] > 0);
+  /** Negative account rows: the account credit pool. */
+  const acctCreditIdx = acctIdx.filter((i) => orig[i] < 0);
+  /** The debt queue / scope: day rows, then positive account rows. */
+  const scopeIdx = [...rowIdx, ...acctDebtIdx];
 
   const record = (
     i: number,
@@ -180,15 +241,24 @@ export function allocateAccountSettlement(
     rem[i] += orig[i] > 0 ? -m : m;
   };
 
-  // ── 1. Netting ────────────────────────────────────────────────────────
-  const debtIdx = rows.map((_, i) => i).filter((i) => rem[i] > epsMinor);
-  const creditIdx = rows.map((_, i) => i).filter((i) => rem[i] < -epsMinor);
-  const totalDebt = debtIdx.reduce((s, i) => s + rem[i], 0);
-  const totalCredit = creditIdx.reduce((s, i) => s - rem[i], 0);
-  const netting = Math.min(totalDebt, totalCredit);
-
   const netPairs = new Map<string, AccountSettleNettingPair & { m: number }>();
-  if (netting > 0) {
+  /**
+   * Net open debts in `debtPool` against open credits in `creditPool`, both
+   * oldest first in the order given, up to `cap` (default: the smaller
+   * total). Both sides get NETTING coverage of equal size. Returns the
+   * amount netted.
+   */
+  const net = (
+    debtPool: number[],
+    creditPool: number[],
+    cap?: number,
+  ): number => {
+    const debtIdx = debtPool.filter((i) => rem[i] > epsMinor);
+    const creditIdx = creditPool.filter((i) => rem[i] < -epsMinor);
+    const totalDebt = debtIdx.reduce((s, i) => s + rem[i], 0);
+    const totalCredit = creditIdx.reduce((s, i) => s - rem[i], 0);
+    const netting = Math.min(totalDebt, totalCredit, cap ?? Infinity);
+    if (netting <= 0) return 0;
     const debitTakes = allocateFifo(
       debtIdx.map((i) => ({ id: i, outstanding: rem[i] })),
       netting,
@@ -208,8 +278,8 @@ export function allocateAccountSettlement(
     let cLeft = creditTakes[0]?.m ?? 0;
     while (d < debitTakes.length && c < creditTakes.length) {
       const m = Math.min(dLeft, cLeft);
-      const creditMember = rows[creditTakes[c].i].member_supplier_id;
-      const debitMember = rows[debitTakes[d].i].member_supplier_id;
+      const creditMember = all[creditTakes[c].i].member_supplier_id;
+      const debitMember = all[debitTakes[d].i].member_supplier_id;
       if (m > 0 && creditMember !== debitMember) {
         const key = `${creditMember}:${debitMember}`;
         const pair = netPairs.get(key) ?? {
@@ -229,16 +299,54 @@ export function allocateAccountSettlement(
 
     for (const t of debitTakes) record(t.i, "NETTING", t.m);
     for (const t of creditTakes) record(t.i, "NETTING", t.m);
-  }
+    return netting;
+  };
+
+  // ── 1. Netting ────────────────────────────────────────────────────────
+  // 1a. Day credits against day debts (LIRA-322, unchanged).
+  net(rowIdx, rowIdx);
+  // 1b. LIRA-343: positive account rows against the account credit pool.
+  net(acctDebtIdx, acctCreditIdx);
+  // 1c. LIRA-343: day credits still open against the positive account rows
+  //     still open (they are debts in scope). After 1a–1c the scope is
+  //     one-sided: only debts or only credits remain open in it.
+  net(acctDebtIdx, rowIdx);
 
   // ── 2. Budget ─────────────────────────────────────────────────────────
-  const owedAfterNetting = rem.reduce((s, m) => s + m, 0);
+  // D: what the scope (day rows + positive account rows) owes after
+  // netting. The account credit pool is NOT in D.
+  const owedAfterNetting = scopeIdx.reduce((s, i) => s + rem[i], 0);
   const direction_from_rows: AccountSettleAllocResult["direction_from_rows"] =
     owedAfterNetting > epsMinor
       ? "PAY"
       : owedAfterNetting < -epsMinor
         ? "COLLECT"
         : "NONE";
+
+  // LIRA-343: the user-chosen account credit. Compared in minor units, so
+  // 8.70 of an 8.70 credit is accepted and 9.00 is not.
+  const creditUsedMinor = Math.abs(toMinor(input.credit_used ?? 0));
+  const creditPoolMinor = acctCreditIdx.reduce(
+    (s, i) => s + Math.max(0, -rem[i]),
+    0,
+  );
+  const creditCap =
+    direction_from_rows === "PAY"
+      ? Math.min(owedAfterNetting, creditPoolMinor)
+      : creditPoolMinor;
+  const credit_used_too_high = creditUsedMinor > creditCap;
+  let accountCreditAppliedMinor = 0;
+
+  // Shop pays: exactly `credit_used` of account credit covers the oldest
+  // open debts first (NETTING on both sides), then the money the rest.
+  if (
+    direction_from_rows === "PAY" &&
+    !credit_used_too_high &&
+    creditUsedMinor > 0
+  ) {
+    accountCreditAppliedMinor = net(scopeIdx, acctCreditIdx, creditUsedMinor);
+  }
+
   const paidMinor = toMinor(input.paid);
   const waiveSign =
     direction_from_rows === "PAY"
@@ -256,14 +364,38 @@ export function allocateAccountSettlement(
   let applied = 0;
   if (budget !== 0) {
     const sign = budget > 0 ? 1 : -1;
-    const targets = rows
-      .map((_, i) => i)
-      .filter((i) => (sign > 0 ? rem[i] > epsMinor : rem[i] < -epsMinor));
+    // Money only ever reaches the scope here; the account credit pool is
+    // reached only through `credit_used` below, so it never makes extra.
+    const targets = scopeIdx.filter((i) =>
+      sign > 0 ? rem[i] > epsMinor : rem[i] < -epsMinor,
+    );
     const budgetTakes = allocateFifo(
       targets.map((i) => ({ id: i, outstanding: rem[i] * sign })),
       Math.abs(budget),
       0.5,
     );
+    // OMT pays (money received): after every day credit, up to
+    // `credit_used` of account credit, oldest first, as PAYMENT. If the
+    // money runs out first, less than `credit_used` is applied.
+    if (
+      sign < 0 &&
+      direction_from_rows !== "PAY" &&
+      !credit_used_too_high &&
+      creditUsedMinor > 0
+    ) {
+      const leftOver =
+        Math.abs(budget) - budgetTakes.reduce((s, t) => s + t.take, 0);
+      const creditTakes = allocateFifo(
+        acctCreditIdx.map((i) => ({
+          id: i,
+          outstanding: Math.max(0, -rem[i]),
+        })),
+        Math.min(leftOver, creditUsedMinor),
+        0.5,
+      );
+      accountCreditAppliedMinor = creditTakes.reduce((s, t) => s + t.take, 0);
+      budgetTakes.push(...creditTakes);
+    }
     // Tag each take: waive first, then money.
     let waiveLeft = Math.max(0, waiveMinor * sign);
     for (const t of budgetTakes) {
@@ -281,30 +413,54 @@ export function allocateAccountSettlement(
   const extraMinor = budget - applied;
 
   // ── 3. Classify rows ──────────────────────────────────────────────────
+  // Every input row lands in exactly one of closed / untouched / partial /
+  // account_partial.
+  //
+  // `partial` (day rows only, LIRA-322's meaning) is at most one row: after
+  // step 1a only one sign is open among the day rows, and every later step
+  // (1c, the account credit, the money) continues that side's oldest-first
+  // queue without a gap, so only the row where the last one stops can be
+  // left part-covered.
+  //
+  // `account_partial` (account rows, either sign) is at most one row for
+  // the same reason: after step 1b only one sign is open among the account
+  // rows, and 1c / `credit_used` / the money continue that side's queue.
+  //
+  // The two can BOTH be set. The user chooses the credit (owner
+  // 2026-10-26), so credit 5 of 8.70 with too little money leaves a credit
+  // part-used AND a day debt part-paid; and step 1b can part-net a
+  // positive account row before the money stops inside a day debt. R5's
+  // original "never both" no longer holds, hence the separate field.
   const closed: AccountSettleAllocRowRef[] = [];
   const untouched: AccountSettleAllocRowRef[] = [];
   let partial: AccountSettleAllocPartial | null = null;
-  for (let i = 0; i < rows.length; i++) {
-    const ref = { kind: rows[i].kind, id: rows[i].id };
+  let account_partial: AccountSettleAllocPartial | null = null;
+  for (const i of indices) {
+    const ref = { kind: all[i].kind, id: all[i].id };
     if (isZero(rem[i])) closed.push(ref);
     else if (takenMinor[i] === 0) untouched.push(ref);
-    else if (partial === null) {
-      partial = {
+    else {
+      const p = {
         ...ref,
         applied: fromMinor(takenMinor[i]),
         remaining: fromMinor(rem[i]),
       };
+      if (i >= nRows) {
+        if (account_partial === null) account_partial = p;
+      } else if (partial === null) partial = p;
     }
   }
-  const closedSet = new Set(rows.map((_, i) => i).filter((i) => isZero(rem[i])));
+  const closedSet = new Set(indices.filter((i) => isZero(rem[i])));
 
   // ── 4. Commission over closed model-1 rows ────────────────────────────
   let commission_alloc: Array<{ id: number; amount: number }> = [];
   let commission_without_closed_model1 = false;
   if (commissionMinor > 0) {
-    const eligible = rows
+    const eligible = all
       .map((r, i) => ({ r, i }))
-      .filter(({ r, i }) => closedSet.has(i) && r.commission_model1 && orig[i] > 0);
+      .filter(
+        ({ r, i }) => closedSet.has(i) && r.commission_model1 && orig[i] > 0,
+      );
     if (eligible.length === 0) {
       commission_without_closed_model1 = true;
     } else {
@@ -313,26 +469,24 @@ export function allocateAccountSettlement(
         commissionMinor,
         1,
       ).map((s) => ({
-        id: rows[Number(s.id)].id,
+        id: all[Number(s.id)].id,
         amount: fromMinor(s.amount),
       }));
     }
   }
 
   // ── 5. Deferred cash-out commission on closed credits ─────────────────
-  const cashoutMinor = rows.reduce(
+  const cashoutMinor = all.reduce(
     (s, r, i) =>
-      closedSet.has(i) && orig[i] < 0
-        ? s + toMinor(r.cashout_commission)
-        : s,
+      closedSet.has(i) && orig[i] < 0 ? s + toMinor(r.cashout_commission) : s,
     0,
   );
 
-  return {
+  const result: AccountSettleAllocResult = {
     takes: takes.map((t) => ({
-      kind: rows[t.i].kind,
-      id: rows[t.i].id,
-      member_supplier_id: rows[t.i].member_supplier_id,
+      kind: all[t.i].kind,
+      id: all[t.i].id,
+      member_supplier_id: all[t.i].member_supplier_id,
       source: t.source,
       amount: fromMinor(t.m),
     })),
@@ -345,10 +499,15 @@ export function allocateAccountSettlement(
       amount: fromMinor(p.m),
     })),
     extra: fromMinor(extraMinor),
-    remaining_after: fromMinor(rem.reduce((s, m) => s + m, 0)),
+    remaining_after: fromMinor(scopeIdx.reduce((s, i) => s + rem[i], 0)),
     commission_alloc,
     commission_without_closed_model1,
     cashout_commission_recognised: fromMinor(cashoutMinor),
     direction_from_rows,
+    account_credit_applied: fromMinor(accountCreditAppliedMinor),
+    account_partial,
   };
+  // Present only when true, so a LIRA-322 call's output keeps its shape.
+  if (credit_used_too_high) result.credit_used_too_high = true;
+  return result;
 }

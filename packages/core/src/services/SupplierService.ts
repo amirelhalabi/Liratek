@@ -1,4 +1,5 @@
 import type { OmtCoveredType } from "../utils/omtCoveredTypes.js";
+import type { SupplierDayRangeInput } from "../validators/supplier.js";
 import {
   getSupplierRepository,
   getProductSupplierRepository,
@@ -23,9 +24,11 @@ import {
 // the conventional way.
 import type {
   AccountBalance,
+  AccountDayDetailRow,
   AccountExpectedStatement,
   AccountLedgerEntry,
   AccountUnsettledRow,
+  RemoveAccountCreditData,
   SettleAccountRequest,
   UpdateSupplierAccountLinkData,
 } from "../repositories/SupplierRepository.js";
@@ -61,12 +64,49 @@ export class SupplierService {
   getAccountLedger(
     accountSupplierId: number,
     limit?: number,
+    // LIRA-343 T033a — optional shop-day range (supplierDayRangeSchema).
+    range?: SupplierDayRangeInput,
   ): AccountLedgerEntry[] {
-    return this.repo.getAccountLedger(accountSupplierId, limit);
+    return this.repo.getAccountLedger(accountSupplierId, limit, range);
   }
 
   getAccountUnsettled(accountSupplierId: number): AccountUnsettledRow[] {
     return this.repo.getAccountUnsettled(accountSupplierId);
+  }
+
+  /**
+   * LIRA-343 (contracts/calendar-reads.md §1) — every account row whose
+   * shop day falls in `month` (`YYYY-MM`), settled or not. The repository
+   * is asked for a UTC window of the month ± 1 day (so a row near midnight
+   * whose shop day is in the month is never cut off by the zone offset),
+   * then rows are kept by their `shop_day`. Pure arithmetic on the
+   * argument, UTC getters only — nothing read from the host (rule 27).
+   */
+  getAccountMonthRows(
+    accountSupplierId: number,
+    month: string,
+  ): AccountUnsettledRow[] {
+    const [y, m] = month.split("-").map(Number);
+    // Day 0 of month m (0-based m-1) = last day of the previous month;
+    // day 2 of the next month = (last day + 2) — the exclusive upper bound.
+    const fromUtc = utcStamp(Date.UTC(y, m - 1, 0));
+    const toUtc = utcStamp(Date.UTC(y, m, 2));
+    return this.repo
+      .getAccountRows(accountSupplierId, { fromUtc, toUtc })
+      .filter((r) => r.shop_day.startsWith(month));
+  }
+
+  /**
+   * LIRA-343 (contracts/calendar-reads.md §3) — what is behind one shop day
+   * (`YYYY-MM-DD`): the day's rows, who paid each one, and the "added after
+   * settlement" tag. Thin pass-through (rule 13): the repository owns the
+   * window and every query.
+   */
+  getAccountDayDetail(
+    accountSupplierId: number,
+    shopDay: string,
+  ): AccountDayDetailRow[] {
+    return this.repo.getAccountDayDetail(accountSupplierId, shopDay);
   }
 
   // LIRA-255 — "check against OMT's statement" panel (rule 13: thin
@@ -225,6 +265,15 @@ export class SupplierService {
       // decides what the money covers, inside its own write transaction;
       // the selections/amount checks below belong to the legacy path only.
       if (data.per_currency !== undefined) {
+        // LIRA-345 (S1) — only suppliers on the day calendar settle here
+        // (the OMT account, Katsh, active Whish, product suppliers); Loto
+        // keeps its checkpoints. The ONE rule: `settlesByDay`.
+        if (!this.repo.settlesByDay(data.account_supplier_id))
+          return {
+            success: false,
+            error:
+              "This supplier is not settled from the day calendar — use its own settle screen.",
+          };
         if (!data.expected_owed)
           return {
             success: false,
@@ -279,6 +328,34 @@ export class SupplierService {
     }
   }
 
+  /**
+   * LIRA-344 — "Remove credit" on the OMT Settle Account sheet: close one
+   * open account credit OMT will not accept and book it as an expense (no
+   * drawer). Thin pass-through (rule 13): every check lives in the
+   * repository, inside its own write transaction, next to the rows it
+   * protects. Returns the anchor ledger id (`id`) and the settlement
+   * transaction id (the one to void to undo it).
+   */
+  removeAccountCredit(
+    data: RemoveAccountCreditData,
+  ): SupplierResult & { transaction_id?: number; expense_id?: number } {
+    try {
+      if (!data.account_supplier_id)
+        return { success: false, error: "account_supplier_id is required" };
+      if (!data.ledger_row_id)
+        return { success: false, error: "ledger_row_id is required" };
+      const res = this.repo.removeAccountCredit(data);
+      return {
+        success: true,
+        id: res.id,
+        transaction_id: res.transaction_id,
+        expense_id: res.expense_id,
+      };
+    } catch (e) {
+      return { success: false, error: toErrorString(e) };
+    }
+  }
+
   createPurchase(
     data: CreateSupplierPurchaseData,
   ): SupplierPurchase | { success: false; error: string } {
@@ -323,6 +400,14 @@ export class SupplierService {
   // branch → postSupplierBundledDiscount) is the only supported forgive-a-payable
   // path now. See BUILD_CONTRACT.md handoffs for every caller that still
   // references the removed method.
+}
+
+/** `YYYY-MM-DD 00:00:00` for a UTC midnight epoch (the format `created_at`
+ *  is stored in), built from UTC getters only. */
+function utcStamp(ms: number): string {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} 00:00:00`;
 }
 
 let supplierServiceInstance: SupplierService | null = null;

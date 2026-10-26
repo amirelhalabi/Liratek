@@ -52,6 +52,16 @@
  * same delta-by-identity discipline as lira-188/lira-192, just applied to
  * the selection step too since this flow is itself a selection UI.
  *
+ * LIRA-343 (T026): the sheet now opens on a day calendar and settles the
+ * PICKED DAYS ("Pick transfers" is gone). This spec's rows are ledger rows
+ * (an iPick top-up, an OMT App cash-out) that cannot be backdated, so they
+ * all sit on TODAY, next to whatever earlier specs left open today. Each
+ * test therefore clears the default pick, picks ONLY today, and in today's
+ * day details (FR-016a) unticks every open row that is not its own — the
+ * others stay open and untouched — then sets the OMT credit to 0. The
+ * preview then lists exactly this test's rows, so every amount below is
+ * still this test's own.
+ *
  * Every money assertion is a DELTA snapshotted immediately before the
  * seeding action and matched by IDENTITY (a unique, non-round amount plus
  * provider/kind), never an absolute total or row position (rule 15).
@@ -116,6 +126,11 @@ type AccountUnsettledRow = {
   amount_lbp: number;
   entry_type: string | null;
   service_type: string | null;
+  // LIRA-322/343 — what is still owed, the shop day and day/account scope.
+  remaining_usd: number;
+  remaining_lbp: number;
+  shop_day: string;
+  row_scope: "DAY" | "ACCOUNT";
 };
 
 type DrawerBalance = { name: string; usdBalance: number; lbpBalance: number };
@@ -332,6 +347,49 @@ async function seedOmtAppCashout(
   return expectedCommission;
 }
 
+// ── LIRA-343 calendar helpers ───────────────────────────────────────────────
+
+/** The browser's own calendar day — what the sheet calls "today" (rule 27). */
+async function browserToday(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const d = new Date();
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  });
+}
+
+/** Clears the default pick (every open day before today), then picks
+ *  exactly `day` (here: today, in the month the sheet opens on). */
+async function pickOnlyDay(sheet: Locator, day: string) {
+  const bar = sheet.getByTestId("settle-selection-bar");
+  await expect(bar).toBeVisible({ timeout: 15_000 });
+  // No test id on Clear (reported): the bar's only button while days are
+  // picked; "Pick all open" while none are.
+  const clear = bar.getByRole("button", { name: "Clear", exact: true });
+  if (await clear.count()) await clear.click();
+  await expect(clear).toHaveCount(0);
+  const button = sheet.locator(`[data-day="${day}"] button`);
+  await expect(button).toBeEnabled({ timeout: 15_000 });
+  // Today is never picked by default (FR-008).
+  await expect(button).toHaveAttribute("aria-pressed", "false");
+  await button.click();
+  await expect(button).toHaveAttribute("aria-pressed", "true");
+  await expect(bar).toContainText("1 day picked");
+}
+
+/** The OMT credit line pre-fills min(owed, credit) — or the whole credit
+ *  when OMT pays; earlier specs leave credit on the account, so set it to
+ *  0 to keep the amounts this test's own. */
+async function setCreditToZero(sheet: Locator) {
+  for (const c of ["usd", "lbp"]) {
+    const input = sheet.getByTestId(`supplier-account-settle-credit-${c}`);
+    if (await input.count()) {
+      await input.fill("0");
+      await expect(input).toHaveValue("0");
+    }
+  }
+}
+
 async function openOmtAccountCard(page: Page): Promise<Locator> {
   await navigateTo(page, "/suppliers");
   const tab = page.getByRole("button", { name: "Companies" });
@@ -357,46 +415,53 @@ async function openAccountSettleSheet(page: Page): Promise<Locator> {
 }
 
 /**
- * LIRA-322 — ticks EXACTLY the given rows in the sheet's "Pick transfers"
- * override. The sheet opens with nothing ticked (the whole account is in
- * scope, oldest first), so on this shared, accumulating DB every test scopes
- * the settlement to its own rows (matched by `data-kind`/`data-row-id`
- * identity, never position) — otherwise the amount would pay ~150 earlier
- * specs' backlog instead.
- *
- * Waits for every WANTED row to be rendered before touching any checkbox:
- * the sheet's queue can still be mid-refetch right after a raw `window.api`
- * seed (the sheet asks for `refetchOnMount: "always"`, so the wait is one
- * round trip). Any row left ticked is unticked.
+ * LIRA-343 — narrows the settlement to EXACTLY the given rows. They all sit
+ * on `today`: pick only today, then, in today's day details (picking a day
+ * also opens them), untick every open row that is not wanted — earlier
+ * specs' leftovers stay open and untouched. Close the details, set the OMT
+ * credit to 0, and wait for the preview to list every wanted row (identity,
+ * never position) and nothing else. All before any payment is typed (the
+ * day, the unticks and the credit each re-fill the box).
  */
 async function isolateSelection(
   sheet: Locator,
+  today: string,
   wanted: Array<{ kind: "FINANCIAL_SERVICE" | "LEDGER"; id: number }>,
 ) {
-  await sheet.getByTestId("supplier-account-settle-pick-toggle").click();
+  await pickOnlyDay(sheet, today);
+  const details = sheet.getByTestId("settle-day-details");
+  await expect(details).toBeVisible();
+  // Every wanted row listed = the details were loaded after seeding.
+  const wantedIds = wanted.map((w) => `settle-day-row-${w.kind}:${w.id}`);
+  for (const id of wantedIds) {
+    await expect(details.getByTestId(id)).toBeVisible({ timeout: 15_000 });
+  }
+  const listed = await details
+    .locator('[data-testid^="settle-day-row-"]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute("data-testid") ?? ""));
+  for (const id of listed) {
+    if (wantedIds.includes(id)) continue;
+    // Only OPEN rows of a picked day carry the box; a closed one has none.
+    const box = details.getByTestId(id).getByRole("checkbox");
+    if (await box.count()) {
+      await box.uncheck();
+      await expect(box).not.toBeChecked();
+    }
+  }
+  // Close the details by THEIR Close button (the sheet has its own).
+  await details.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(details).toHaveCount(0);
+  await setCreditToZero(sheet);
   for (const w of wanted) {
     await expect(
       sheet.locator(
-        `[data-testid="supplier-account-settle-row"][data-kind="${w.kind}"][data-row-id="${w.id}"]`,
+        `[data-testid="supplier-account-settle-preview-row"][data-kind="${w.kind}"][data-row-id="${w.id}"]`,
       ),
     ).toBeVisible({ timeout: 10_000 });
   }
-
-  const rows = sheet.locator('[data-testid="supplier-account-settle-row"]');
-  const count = await rows.count();
-  for (let i = 0; i < count; i++) {
-    const row = rows.nth(i);
-    const kind = await row.getAttribute("data-kind");
-    const idAttr = await row.getAttribute("data-row-id");
-    const id = idAttr === null ? Number.NaN : Number(idAttr);
-    const shouldCheck = wanted.some((w) => w.kind === kind && w.id === id);
-    const toggle = row.getByTestId("supplier-account-settle-row-toggle");
-    if (shouldCheck) {
-      await toggle.check();
-    } else if (await toggle.isChecked()) {
-      await toggle.uncheck();
-    }
-  }
+  await expect(
+    sheet.locator('[data-testid="supplier-account-settle-preview-row"]'),
+  ).toHaveCount(wanted.length);
 }
 
 /** Fills a single CASH leg in the sheet's USD section — each currency has
@@ -429,19 +494,23 @@ test.describe("LIRA-189 — OMT account settlement, driven through the real sett
   test("A mixed account settles in ONE payment: OMT counter debt + iPick credit debt + an OMT App cashout credit all net back to baseline, and the OMT Cash Drawer falls by exactly the cash leg", async ({
     appPage,
   }) => {
+    // LIRA-343: unticking today's other open rows one by one can take a
+    // while on the shared, accumulating DB.
+    test.setTimeout(180_000);
     const accountId = await omtAccountId(appPage);
 
     // Fund the OMT_App wallet BEFORE any ledger baseline snapshot:
     // `topUpFromSupplier` moves no drawer (D2), but it DOES book its own
     // 'OMT App' debt row — capturing `beforeApp` only after this step keeps
-    // every OMT_APP delta below attributable to the cashout alone (the
-    // wallet-funding debt stays a constant, unselected, still-unsettled row
-    // throughout, exactly like the ~150 earlier specs' own backlog this
-    // file's docblock already designs around). The DRAWER baseline
+    // every OMT_APP delta below attributable to the cashout alone (LIRA-343:
+    // the wallet-funding debt sits on today; `isolateSelection` unticks it
+    // with the rest of today's other open rows, so it is never part of this
+    // test's settlement and stays open). The DRAWER baseline
     // (`beforeDrawers`) is snapshotted separately, later — see its own
     // comment below for why it must come AFTER seeding too, not just after
     // the wallet funding.
     await seedOmtAppWallet(appPage, CASHOUT_USD);
+    const today = await browserToday(appPage);
 
     const beforeOmt = await supplierBalanceByProvider(appPage, "OMT");
     const beforeIpick = await supplierBalanceByProvider(appPage, "iPick");
@@ -515,7 +584,7 @@ test.describe("LIRA-189 — OMT account settlement, driven through the real sett
     if (!sendRow || !ipickRow || !cashoutRow) return;
 
     const sheet = await openAccountSettleSheet(appPage);
-    await isolateSelection(sheet, [
+    await isolateSelection(sheet, today, [
       { kind: "FINANCIAL_SERVICE", id: sendRow.id },
       { kind: "LEDGER", id: ipickRow.id },
       { kind: "LEDGER", id: cashoutRow.id },
@@ -581,12 +650,16 @@ test.describe("LIRA-189 — OMT account settlement, driven through the real sett
   test("A net-negative account (cashout credit alone, no debt) offers the COLLECT direction; settling it credits cash INTO the OMT Cash Drawer and recognises the deferred commission as profit", async ({
     appPage,
   }) => {
+    // LIRA-343: unticking today's other open rows one by one can take a
+    // while on the shared, accumulating DB.
+    test.setTimeout(180_000);
     const accountId = await omtAccountId(appPage);
 
     // Fund BEFORE the baseline snapshot — see the previous test's comment on
     // why (topUpFromSupplier moves no drawer per D2, but does book its own
-    // constant, unselected 'OMT App' debt row).
+    // 'OMT App' debt row, which `isolateSelection` leaves out).
     await seedOmtAppWallet(appPage, COLLECT_CASHOUT_USD);
+    const today = await browserToday(appPage);
 
     const beforeApp = await supplierBalanceByProvider(appPage, "OMT_APP");
     const beforeDrawers = await drawers(appPage);
@@ -605,7 +678,9 @@ test.describe("LIRA-189 — OMT account settlement, driven through the real sett
     if (!cashoutRow) return;
 
     const sheet = await openAccountSettleSheet(appPage);
-    await isolateSelection(sheet, [{ kind: "LEDGER", id: cashoutRow.id }]);
+    await isolateSelection(sheet, today, [
+      { kind: "LEDGER", id: cashoutRow.id },
+    ]);
 
     // §8.4: a negative net is a COLLECT — this IS the assertion. LIRA-322:
     // the direction follows the sign of what is owed in the currency, so the

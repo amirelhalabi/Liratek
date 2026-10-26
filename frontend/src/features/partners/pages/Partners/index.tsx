@@ -60,7 +60,6 @@ import {
   Select,
   useApi,
   type PaymentLine,
-  type PaymentMethod,
   type ServiceProviderEntity,
 } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
@@ -72,6 +71,8 @@ import {
   discountRoomAfterSettlement,
   isDiscountClippedBySettlement,
 } from "../../utils/settlementDiscount";
+import { partnerLegMethods } from "../../utils/partnerLegMethods";
+import { PartnerSettleSheet } from "../../components/PartnerSettleSheet";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -168,24 +169,10 @@ function BalanceIcon({ usd, lbp }: { usd: number; lbp: number }) {
   return <Minus className="w-4 h-4 text-slate-400" />;
 }
 
-// CQ-11 — split-leg settlement methods (MultiPaymentInput). Deliberately a
-// FIXED local list, not the DB-driven `usePaymentMethods()` (which carries
-// CUSTOMER_ACCOUNT/GIFT_CARD — methods with no meaning for a partner
-// settlement) — and deliberately WITHOUT "CLIENT_ACCOUNT": that value settles
-// no money (partner_ledger.settlement_method CHECK constraint keeps it
-// legacy-field-only) and can never appear as a split-leg method (core
-// PartnerService.settle rejects it outright). CLIENT_ACCOUNT stays reachable
-// only via the modal's separate "Cash moved" checkbox below (unticked).
-// Labels are resolved at render time (`partnerLegMethods(t)`); the codes
-// are the wire values. OMT / Whish / Binance are brand names.
-function partnerLegMethods(cashLabel: string): PaymentMethod[] {
-  return [
-    { code: "CASH", label: cashLabel },
-    { code: "OMT", label: "OMT" },
-    { code: "WHISH", label: "Whish" },
-    { code: "BINANCE", label: "Binance" },
-  ];
-}
+// CQ-11 — split-leg settlement methods (MultiPaymentInput): ONE fixed list
+// shared with the by-day sheet (`utils/partnerLegMethods.ts`, rule 14).
+// CLIENT_ACCOUNT stays reachable only via the old modal's separate "Cash
+// moved" checkbox below (unticked).
 
 // ─── Modal shell ──────────────────────────────────────────────────────────────
 
@@ -2184,6 +2171,15 @@ export function PartnersPage() {
   const [editingPartner, setEditingPartner] = useState<Partner | null>(null);
   const [settlingPartner, setSettlingPartner] =
     useState<PartnerWithBalance | null>(null);
+  // LIRA-346 — Settle opens the by-day calendar sheet; the old balance-based
+  // modal stays reachable from it ("Settle by amount (old way)") until the
+  // owner decides its removal.
+  const [settleByAmount, setSettleByAmount] = useState(false);
+  const closeSettle = useCallback(() => {
+    setSettlingPartner(null);
+    setSettleByAmount(false);
+  }, []);
+  const { user } = useAuth();
   const [addingCreditPartner, setAddingCreditPartner] =
     useState<PartnerWithBalance | null>(null);
   const [deactivatingPartner, setDeactivatingPartner] =
@@ -2425,10 +2421,20 @@ export function PartnersPage() {
           onSaved={loadPartners}
         />
       )}
-      {settlingPartner && (
+      {settlingPartner && !settleByAmount && (
+        <PartnerSettleSheet
+          partner={{ id: settlingPartner.id, name: settlingPartner.name }}
+          onClose={closeSettle}
+          onSettled={afterMoneyAction}
+          // Same role gate as the page's write-off (admins).
+          canSettleOldHistory={user?.role === "admin"}
+          onSettleByAmount={() => setSettleByAmount(true)}
+        />
+      )}
+      {settlingPartner && settleByAmount && (
         <SettleModal
           partner={settlingPartner}
-          onClose={() => setSettlingPartner(null)}
+          onClose={closeSettle}
           onSettled={afterMoneyAction}
         />
       )}

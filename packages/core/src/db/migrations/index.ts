@@ -15062,6 +15062,67 @@ DROP TABLE IF EXISTS resale_line_give_backs;`);
       }
     },
   },
+  {
+    version: 225,
+    name: "partner_settlement_coverage",
+    description:
+      "LIRA-346: settle partners by day. partner_settlement_coverage holds " +
+      "what each partner settlement paid on each partner row (the group head " +
+      "partner_ledger_id), per currency, with the side of the row it " +
+      "consumes (DEBIT / CREDIT) and its source (PAYMENT / NETTING / WAIVE / " +
+      "DISCOUNT / RELIEF). 'Paid so far' = SUM of active (is_reversed = 0) " +
+      "rows; an undo soft-reverses, never deletes. partner_ledger gains " +
+      "legacy_covered_amount = covered_amount as it stood before v225 (the " +
+      "part no coverage row explains); covered_amount stays the profit " +
+      "source, kept equal to legacy + active cash-like coverage by one writer.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`CREATE TABLE IF NOT EXISTS partner_settlement_coverage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+    transaction_id INTEGER REFERENCES transactions(id),
+    settlement_ledger_id INTEGER NOT NULL REFERENCES partner_ledger(id),
+    partner_ledger_id INTEGER NOT NULL REFERENCES partner_ledger(id),
+    partner_id INTEGER NOT NULL REFERENCES partners(id),
+    currency TEXT NOT NULL CHECK(currency IN ('USD', 'LBP')),
+    side TEXT NOT NULL CHECK(side IN ('DEBIT', 'CREDIT')),
+    amount REAL NOT NULL CHECK(amount > 0),
+    source TEXT NOT NULL CHECK(source IN ('PAYMENT', 'NETTING', 'WAIVE', 'DISCOUNT', 'RELIEF')),
+    closes_row INTEGER NOT NULL DEFAULT 0,
+    is_reversed INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_psc_head ON partner_settlement_coverage(tenant_id, partner_ledger_id, is_reversed);
+CREATE INDEX IF NOT EXISTS idx_psc_settlement ON partner_settlement_coverage(tenant_id, settlement_ledger_id);
+CREATE INDEX IF NOT EXISTS idx_psc_transaction ON partner_settlement_coverage(tenant_id, transaction_id);`);
+      // Guarded: minimal test schemas may have no partner_ledger table.
+      if (
+        tableExists(db, "partner_ledger") &&
+        !columnExists(db, "partner_ledger", "legacy_covered_amount")
+      ) {
+        db.exec(
+          `ALTER TABLE partner_ledger ADD COLUMN legacy_covered_amount REAL NOT NULL DEFAULT 0`,
+        );
+        // Freeze today's coverage: no coverage row explains it.
+        db.exec(
+          `UPDATE partner_ledger SET legacy_covered_amount = covered_amount WHERE covered_amount <> 0`,
+        );
+      }
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP INDEX IF EXISTS idx_psc_transaction;
+DROP INDEX IF EXISTS idx_psc_settlement;
+DROP INDEX IF EXISTS idx_psc_head;
+DROP TABLE IF EXISTS partner_settlement_coverage;`);
+      if (
+        tableExists(db, "partner_ledger") &&
+        columnExists(db, "partner_ledger", "legacy_covered_amount")
+      ) {
+        db.exec(`ALTER TABLE partner_ledger DROP COLUMN legacy_covered_amount`);
+      }
+    },
+  },
 ];
 
 /** v219 — partner_ledger.settlement_method's allowed values. */

@@ -65,6 +65,16 @@ export * from "./utils/sessionNothingToCollect.js";
 export * from "./utils/debtRepaymentAllocation.js";
 // LIRA-322 — the ONE amount-first OMT account allocator (preview + write).
 export * from "./utils/accountSettleAllocation.js";
+// LIRA-343 — OMT settle by day: day vs account rows (R4), calendar days and
+// the ONE picked-days payload builder (rule 22). Pure leaves (rule 29).
+export * from "./utils/accountRowScope.js";
+export * from "./utils/settleDays.js";
+export * from "./utils/settleDaySelections.js";
+// LIRA-346 — partner settle units (server side; the repository uses them).
+export * from "./utils/partnerSettleUnits.js";
+export * from "./utils/debtSettleDays.js";
+// LIRA-345 — which suppliers settle on the day calendar (pure leaf, rule 29).
+export * from "./utils/settlesByDay.js";
 // LIRA-322 — the one audit/summary text for suppliers:settle-account.
 export * from "./utils/settleAccountAudit.js";
 // LIRA-304 — basket checkout cash split, OMT first: shared by the session
@@ -236,6 +246,7 @@ export * from "./constants/drawerModules.js";
 // the frontend's audit display can label a checkpoint leg's drawer from the
 // SAME definition ClosingRepository posts it with (rule 14).
 export * from "./constants/checkpointAdjustment.js";
+export * from "./constants/accountCreditWriteOff.js";
 
 // LIRA-335 — checkpoint open differences: the one status derivation
 // (pure leaf, no imports beyond constants), shared by core and the timeline.

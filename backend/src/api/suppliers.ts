@@ -6,19 +6,26 @@
 
 import { Router } from "express";
 import { requireAuth, requireRole, AuthRequest } from "../middleware/auth.js";
-import { validateRequest } from "../middleware/validation.js";
+import { validateRequest, validateQuery } from "../middleware/validation.js";
 import {
   getSupplierService,
   getFinancialService,
   supplierLedgerEntrySchema,
   supplierSettleSchema,
   supplierSettleAccountSchema,
+  removeAccountCreditSchema,
   supplierCashflowSchema,
   supplierPurchaseCreateSchema,
   supplierAccountLinkSchema,
   supplierRecordDebtSchema,
   supplierCreateSchema,
   omtCoveredTypesSchema,
+  accountMonthSchema,
+  type AccountMonthInput,
+  accountDaySchema,
+  type AccountDayInput,
+  supplierDayRangeSchema,
+  type SupplierDayRangeInput,
   describeSettleAccountForAudit,
   type SupplierCreateInput,
   type OmtCoveredTypesInput,
@@ -40,6 +47,35 @@ const supplierService = getSupplierService();
  */
 function parseIncludeInactive(raw: unknown): boolean {
   return raw === "true" || raw === "1";
+}
+
+/**
+ * LIRA-343 T033a — `?from=YYYY-MM-DD&to=YYYY-MM-DD` → the optional shop-day
+ * range of the supplier Transactions reads, checked with the SAME core
+ * schema as the IPC handlers (`supplierDayRangeSchema`, rule 14). Only the
+ * two keys are picked (never `validateQuery`, which would replace
+ * `req.query` with the parsed object and strip `provider`/`limit`). Neither
+ * key present → `{ ok: true, range: undefined }`: the read is unchanged.
+ */
+function parseDayRangeQuery(
+  query: Record<string, unknown>,
+):
+  | { ok: true; range: SupplierDayRangeInput | undefined }
+  | { ok: false; error: string } {
+  if (query.from === undefined && query.to === undefined) {
+    return { ok: true, range: undefined };
+  }
+  const parsed = supplierDayRangeSchema.safeParse({
+    from: query.from,
+    to: query.to,
+  });
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? "Invalid date range",
+    };
+  }
+  return { ok: true, range: parsed.data };
 }
 
 // GET /api/suppliers?search=&includeInactive=true — mirrors suppliers:list
@@ -106,9 +142,16 @@ router.get("/all-transactions", requireAuth, async (req, res) => {
     const limit = req.query.limit
       ? parseInt(req.query.limit as string, 10)
       : undefined;
+    // LIRA-343 T033a — optional shop-day range; refused → HTTP 200 envelope.
+    const day = parseDayRangeQuery(req.query);
+    if (!day.ok) {
+      res.json({ success: false, error: day.error });
+      return;
+    }
     const transactions = getFinancialService().getAllByProvider(
       provider,
       limit,
+      day.range,
     );
     res.json({ success: true, transactions });
   } catch (error) {
@@ -242,13 +285,57 @@ router.get("/:id/account-ledger", requireAuth, async (req, res) => {
     const limit = req.query.limit
       ? parseInt(req.query.limit as string)
       : undefined;
-    const ledger = supplierService.getAccountLedger(accountSupplierId, limit);
+    // LIRA-343 T033a — optional shop-day range; refused → HTTP 200 envelope.
+    const day = parseDayRangeQuery(req.query);
+    if (!day.ok) {
+      res.json({ success: false, error: day.error });
+      return;
+    }
+    const ledger = supplierService.getAccountLedger(
+      accountSupplierId,
+      limit,
+      day.range,
+    );
     res.json({ success: true, ledger });
   } catch (error) {
     logger.error({ error }, "Get supplier account ledger error");
     res
       .status(500)
       .json({ success: false, error: "Failed to get account ledger" });
+  }
+});
+
+// GET /api/suppliers/:id/account-transactions?limit=&from=&to= — LIRA-343
+// T033a (FR-016c): an account parent's Transactions window — every member's
+// financial_services rows (OMT, OMT App, iPick), newest first, optional
+// shop-day range (mirrors suppliers:account-transactions →
+// FinancialService.getAllByAccount). Same gate as account-ledger.
+router.get("/:id/account-transactions", requireAuth, async (req, res) => {
+  try {
+    const accountSupplierId = parseInt(req.params.id, 10);
+    if (isNaN(accountSupplierId)) {
+      res.status(400).json({ success: false, error: "Invalid supplier ID" });
+      return;
+    }
+    const limit = req.query.limit
+      ? parseInt(req.query.limit as string, 10)
+      : undefined;
+    const day = parseDayRangeQuery(req.query);
+    if (!day.ok) {
+      res.json({ success: false, error: day.error });
+      return;
+    }
+    const transactions = getFinancialService().getAllByAccount(
+      accountSupplierId,
+      limit,
+      day.range,
+    );
+    res.json({ success: true, transactions });
+  } catch (error) {
+    logger.error({ error }, "Get supplier account transactions error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to get account transactions" });
   }
 });
 
@@ -273,6 +360,69 @@ router.get("/:id/account-unsettled", requireAuth, async (req, res) => {
       .json({ success: false, error: "Failed to get account unsettled" });
   }
 });
+
+// GET /api/suppliers/:id/account-month-rows?month=YYYY-MM — LIRA-343
+// (contracts/calendar-reads.md §1): every account row whose shop day falls
+// in the month, settled or not, for the settle calendar (mirrors
+// suppliers:account-month-rows). Same gate as account-unsettled. The month
+// is checked with the SAME core schema as the IPC handler (rule 14);
+// refused → HTTP 200 { success: false } (rule 19c envelope parity).
+router.get(
+  "/:id/account-month-rows",
+  requireAuth,
+  validateQuery(accountMonthSchema),
+  async (req, res) => {
+    try {
+      const accountSupplierId = parseInt(req.params.id, 10);
+      if (isNaN(accountSupplierId)) {
+        res.status(400).json({ success: false, error: "Invalid supplier ID" });
+        return;
+      }
+
+      const { month } = req.query as unknown as AccountMonthInput;
+      const rows = supplierService.getAccountMonthRows(
+        accountSupplierId,
+        month,
+      );
+      res.json({ success: true, rows });
+    } catch (error) {
+      logger.error({ error }, "Get supplier account month rows error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to get account month rows" });
+    }
+  },
+);
+
+// GET /api/suppliers/:id/account-day-detail?day=YYYY-MM-DD — LIRA-343
+// (contracts/calendar-reads.md §3): what is behind one shop day — its rows,
+// who paid each one, and the "added after settlement" tag (mirrors
+// suppliers:account-day-detail). Same gate as account-unsettled. The day is
+// checked with the SAME core schema as the IPC handler (rule 14); refused →
+// HTTP 200 { success: false } (rule 19c envelope parity).
+router.get(
+  "/:id/account-day-detail",
+  requireAuth,
+  validateQuery(accountDaySchema),
+  async (req, res) => {
+    try {
+      const accountSupplierId = parseInt(req.params.id, 10);
+      if (isNaN(accountSupplierId)) {
+        res.status(400).json({ success: false, error: "Invalid supplier ID" });
+        return;
+      }
+
+      const { day } = req.query as unknown as AccountDayInput;
+      const rows = supplierService.getAccountDayDetail(accountSupplierId, day);
+      res.json({ success: true, rows });
+    } catch (error) {
+      logger.error({ error }, "Get supplier account day detail error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to get account day detail" });
+    }
+  },
+);
 
 // GET /api/suppliers/:id/account-expected-statement — LIRA-255: "check
 // against OMT's statement" (gross owed minus unsettled commission, in
@@ -533,6 +683,50 @@ router.post(
       res
         .status(500)
         .json({ success: false, error: "Failed to settle account" });
+    }
+  },
+);
+
+// POST /api/suppliers/:id/remove-account-credit — LIRA-344 "Remove credit":
+// close one open OMT account credit OMT will not accept and book it as an
+// expense (no drawer). Mirrors suppliers:remove-account-credit: admin only,
+// `:id` is the account parent (from the URL, like /:id/settle-account), the
+// actor comes from the JWT (rule 19c), HTTP 200 envelope on failure too.
+router.post(
+  "/:id/remove-account-credit",
+  requireAuth,
+  requireRole(["admin"]),
+  (req: AuthRequest, _res, next) => {
+    req.body = { ...req.body, account_supplier_id: Number(req.params.id) };
+    next();
+  },
+  validateRequest(removeAccountCreditSchema),
+  (req: AuthRequest, res) => {
+    try {
+      const result = supplierService.removeAccountCredit({
+        ...req.body,
+        created_by: req.user!.userId,
+      });
+      if (result.success) {
+        // Mirrors supplierHandlers.ts's suppliers:remove-account-credit audit.
+        auditRest(req, {
+          action: "remove_credit",
+          entity_type: "supplier_account_settlement",
+          entity_id: String(result.transaction_id ?? result.id ?? ""),
+          summary: `Removed OMT credit row #${req.body.ledger_row_id} on account #${req.body.account_supplier_id}: ${req.body.reason}`,
+          metadata: {
+            account_supplier_id: req.body.account_supplier_id,
+            ledger_row_id: req.body.ledger_row_id,
+            removed: req.body.expected_remaining,
+          },
+        });
+      }
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Remove OMT account credit error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to remove the credit" });
     }
   },
 );

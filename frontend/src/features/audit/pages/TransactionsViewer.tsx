@@ -161,8 +161,13 @@ export interface TransactionsViewerProps {
    *  "All types". */
   selectedFilters: string[];
   search: string;
+  /** The operator's days (`YYYY-MM-DD`, "" = open end), applied by the
+   *  server (LIRA-348). */
   from: string;
   to: string;
+  /** LIRA-348 — when given, the table shows its own day filter (Today by
+   *  default, set by the page) and reports changes here. */
+  onDayRangeChange?: (from: string, to: string) => void;
 }
 
 /**
@@ -233,11 +238,15 @@ export default function TransactionsViewer({
   search,
   from,
   to,
+  onDayRangeChange,
 }: TransactionsViewerProps) {
   const {
-    rows,
     filteredRows,
     loading,
+    isLoadingMore,
+    hasMore,
+    loadMore,
+    loadAll,
     reload: load,
     sessionsWithItemRefund,
     sessionsWithPayoutMember,
@@ -1041,7 +1050,15 @@ export default function TransactionsViewer({
         defaultSortKey="created_at"
         defaultSortDirection="desc"
         showRowCount
-        totalRowCount={rows.length}
+        totalRowCount={filteredRows.length}
+        // LIRA-348 — 50 at a time, the next 50 as the operator scrolls; the
+        // day filter (Today by default) lives on the table itself.
+        // An export first loads every remaining page, so its totals cover
+        // the whole filter, not just what was scrolled through.
+        loadMore={{ hasMore, isLoadingMore, onLoadMore: loadMore, loadAll }}
+        {...(onDayRangeChange
+          ? { dayRange: { from, to, onChange: onDayRangeChange } }
+          : {})}
         exportExcel
         exportPdf
         exportFilename="transactions"

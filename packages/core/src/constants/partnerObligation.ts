@@ -19,8 +19,9 @@
  *     partner owes the shop the price (CustomServiceRepository.createService,
  *     `isPayout` branch). A Pay out also counts NETTING as paying — LIRA-305,
  *     owner decisions Y6/Y13/Y14: netting counts as paying; paper credits
- *     never do. See {@link partnerEffectiveCoveredSql}. FOR rows stay
- *     cash-only (Y7).
+ *     never do. See {@link partnerEffectiveCoveredSql}. FOR rows get no
+ *     read-time netting (Y7); netting done IN a settlement is stored as
+ *     NETTING coverage and counts (LIRA-346 D6, owner decision 2026-10-26).
  *
  * Deliberately NOT members:
  *  - A Via-Partner IN service's `THROUGH_CUSTOM_SERVICE` CREDIT: the customer
@@ -195,10 +196,12 @@ export function partnerObligationCoverableSql(alias: string): string {
  *  - effective covered(h) = coverable(h) − held(h). Every other head keeps
  *    MIN(covered_amount, coverable) — FOR rows of every module are unchanged.
  *
- * Nothing is stored. `covered_amount` keeps meaning "cash covered"; netting
- * must never be written into it (`applySettlementCoverage` and
- * `TransactionRepository._unwindPartnerSettlementCoverage` stay on raw
- * stamps). Undo (Y14): delete `partnerEffectiveCoveredSql` and point the two
+ * Nothing is stored for this read-time netting. Since LIRA-346 D6 (owner
+ * decision 2026-10-26) `covered_amount` also carries netting done IN a
+ * settlement (NETTING coverage, `PartnerSettlementRepository.
+ * PARTNER_PROFIT_COVERAGE_SOURCES`). That cannot double count: the stored
+ * netting lowers the uncovered amount, while N (the balance) is unchanged by
+ * a netting, so held(h) only shrinks to what is still really owed. Undo (Y14): delete `partnerEffectiveCoveredSql` and point the two
  * consumers below back at `covered_amount`; no data to migrate.
  *
  * Reserved inner aliases — callers must not pass these as `alias`: `plb`,

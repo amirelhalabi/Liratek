@@ -11,6 +11,16 @@ export type {
   DateRangeFilterProps,
   DateRangeFilterVariant,
 } from "./DateRangeFilter";
+export {
+  DayRangeFilter,
+  useDayRange,
+  dayRangeForPreset,
+} from "./DayRangeFilter";
+export type {
+  DayRangeFilterProps,
+  DayRange,
+  DayRangePreset,
+} from "./DayRangeFilter";
 export { default as ServiceTypeTabs } from "./ServiceTypeTabs";
 export type {
   ServiceTypeTabsProps,

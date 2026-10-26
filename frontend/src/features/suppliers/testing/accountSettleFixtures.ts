@@ -63,6 +63,12 @@ export function queueRow(
     covered_lbp: 0,
     remaining_usd: amountUsd,
     remaining_lbp: amountLbp,
+    // LIRA-343 — the four row fields the calendar reads. A fixture's shop
+    // day is simply created_at's date (no zone shift in test data).
+    shop_day: over.created_at.slice(0, 10),
+    source_ref_table: null,
+    row_scope: "DAY",
+    transaction_id: null,
     ...over,
     amount_usd: amountUsd,
     amount_lbp: amountLbp,

@@ -24,6 +24,7 @@ import {
   Download,
   Plus,
   Eraser,
+  Calendar,
 } from "lucide-react";
 import { saveAs } from "file-saver";
 import {
@@ -68,9 +69,12 @@ import {
 } from "../../components/ServiceDebtDetailModal";
 import { SessionDebtDetailModal } from "../../components/SessionDebtDetailModal";
 import DebtItemPicker from "../../components/DebtItemPicker";
+import DebtDayCalendar from "../../components/DebtDayCalendar";
 import {
   allocateRepayment,
+  ownTargetsOpen,
   planRepaymentTargets,
+  type DebtDayTargets,
   type DebtItemRef,
   type OpenDebtItem,
 } from "@liratek/core";
@@ -281,6 +285,13 @@ export default function Debts() {
   const [repayOpenItems, setRepayOpenItems] = useState<OpenDebtItem[]>([]);
   const [repayTargets, setRepayTargets] = useState<DebtItemRef[]>([]);
   const [repayFillKey, setRepayFillKey] = useState(0);
+  // LIRA-347 — the settle-by-day calendar inside the repayment: open or
+  // not, and its last plan (picked days → ticks, expected owed, "Use
+  // credit"). null = the calendar was not used: today's repayment exactly.
+  const [repayCalendarOpen, setRepayCalendarOpen] = useState(false);
+  const [repayDayPlan, setRepayDayPlan] = useState<DebtDayTargets | null>(
+    null,
+  );
   // T3 keep-change: change the operator chose to KEEP as shop profit rather
   // than return. Excluded from the debt reduction (it is NOT the client's
   // credit) and stamped on the DEBT_REPAYMENT transaction as profit.
@@ -698,6 +709,8 @@ export default function Debts() {
   const repayClientId = selectedClient?.id ?? null;
   useEffect(() => {
     setRepayTargets([]);
+    setRepayDayPlan(null);
+    setRepayCalendarOpen(false);
     if (!showRepaymentModal || repayMode !== "repay" || repayClientId == null) {
       setRepayOpenItems([]);
       return;
@@ -820,6 +833,19 @@ export default function Debts() {
   // ticked items after it.
   const repayTickedUsd = repayTickedItems.reduce((s, it) => s + it.openUsd, 0);
   const repayTickedLbp = repayTickedItems.reduce((s, it) => s + it.openLbp, 0);
+  // LIRA-347 D2 — "Use credit" from the calendar: it pays the ticked items
+  // too, so the amount fills to the ticked sum minus it (the credit already
+  // lowered the balance, so `dueUsd` is unchanged).
+  const repayCreditUseUsd =
+    repayMode === "repay" ? (repayDayPlan?.credit_used.usd ?? 0) : 0;
+  const repayCreditUseLbp =
+    repayMode === "repay" ? (repayDayPlan?.credit_used.lbp ?? 0) : 0;
+  const repayUsesCredit = repayCreditUseUsd > 0 || repayCreditUseLbp > 0;
+  const handleRepayDayPlan = (plan: DebtDayTargets) => {
+    setRepayDayPlan(plan);
+    setRepayTargets(plan.targets);
+    setRepayFillKey((k) => k + 1);
+  };
   const repayTickedTotals = (
     usd: number,
     lbp: number,
@@ -837,7 +863,12 @@ export default function Debts() {
       },
     ].filter((t) => t.amount > 0);
   const repayFillTotals = repayHasPicker
-    ? repayTickedTotals(repayTickedUsd, repayTickedLbp, dueUsd, dueLbp)
+    ? repayTickedTotals(
+        repayTickedUsd - repayCreditUseUsd,
+        repayTickedLbp - repayCreditUseLbp,
+        dueUsd,
+        dueLbp,
+      )
     : undefined;
   const repayWaiveTotals = repayHasPicker
     ? repayTickedTotals(
@@ -947,8 +978,10 @@ export default function Debts() {
       repayFillTotals?.find((t) => t.currency === "USD")?.amount ?? 0;
     const fillLbp =
       repayFillTotals?.find((t) => t.currency === "LBP")?.amount ?? 0;
-    const reductionUsd = f.reduceUsd + repayAppliedDiscountUsd;
-    const reductionLbp = f.reduceLbp + repayAppliedDiscountLbp;
+    const reductionUsd =
+      f.reduceUsd + repayAppliedDiscountUsd + repayCreditUseUsd;
+    const reductionLbp =
+      f.reduceLbp + repayAppliedDiscountLbp + repayCreditUseLbp;
     return planRepaymentTargets({
       items: repayOpenItems,
       ticked: repayTargets,
@@ -1014,8 +1047,9 @@ export default function Debts() {
     const result = allocateRepayment({
       items: repayOpenItems,
       targets: repaySentTargets,
-      reductionUsd: f.reduceUsd,
-      reductionLbp: f.reduceLbp,
+      // LIRA-347 D2 — the credit used pays items too (same as the server).
+      reductionUsd: f.reduceUsd + repayCreditUseUsd,
+      reductionLbp: f.reduceLbp + repayCreditUseLbp,
       appliedUsd,
       appliedLbp,
       cashUsd,
@@ -1072,7 +1106,12 @@ export default function Debts() {
     if (repayForgiveBlocked) return;
 
     const validLines = repayPaymentLines.filter((l) => l.amount > 0);
-    if (validLines.length === 0) {
+    // LIRA-347 D2 — a repayment wholly from the client's credit moves no
+    // money: no payment line needed.
+    if (
+      validLines.length === 0 &&
+      !(repayMode === "repay" && repayUsesCredit)
+    ) {
       alert(t("repay.enterAmount"));
       return;
     }
@@ -1280,6 +1319,15 @@ export default function Debts() {
         // LIRA-304 — the items the cashier ticked (the server re-checks
         // them); LIRA-308 — then the ones the amount ticked itself (`auto`).
         ...(repaySentTargets.length > 0 ? { targets: repaySentTargets } : {}),
+        // LIRA-347 D1 — days were picked: the server refuses (nothing
+        // written) if the ticked items no longer owe what was shown. The
+        // figure comes from the ONE shared function the server uses.
+        ...(repayDayPlan && repaySentTargets.length > 0
+          ? { expectedOwed: ownTargetsOpen(repayOpenItems, repaySentTargets) }
+          : {}),
+        // LIRA-347 D2 — "Use credit".
+        ...(repayCreditUseUsd > 0 ? { creditUseUSD: repayCreditUseUsd } : {}),
+        ...(repayCreditUseLbp > 0 ? { creditUseLBP: repayCreditUseLbp } : {}),
         ...(repayTransactionTime
           ? { transaction_time: repayTransactionTime }
           : {}),
@@ -2774,14 +2822,48 @@ export default function Debts() {
             }
             beforeContent={
               repayHasPicker ? (
-                <DebtItemPicker
-                  items={repayOpenItems}
-                  selected={repaySentTargets}
-                  onToggle={toggleRepayTarget}
-                  onClear={clearRepayTargets}
-                  coverage={repayPlan?.coverage ?? []}
-                  rate={repayModalRate ?? EXCHANGE_RATE}
-                />
+                <div className="space-y-3">
+                  {/* LIRA-347 — pick days on a calendar, then pay them
+                      through this same repayment. */}
+                  {selectedClient && (
+                    <button
+                      type="button"
+                      data-testid="repay-pick-days"
+                      aria-expanded={repayCalendarOpen}
+                      onClick={() => {
+                        // Hiding the calendar drops its plan (credit use,
+                        // stale figure): what is on screen is what is sent.
+                        // The ticks stay; the amount re-fills to them.
+                        if (repayCalendarOpen) {
+                          setRepayDayPlan(null);
+                          setRepayFillKey((k) => k + 1);
+                        }
+                        setRepayCalendarOpen(!repayCalendarOpen);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-300 hover:border-slate-500 hover:text-white"
+                    >
+                      <Calendar className="h-3.5 w-3.5" aria-hidden="true" />
+                      {repayCalendarOpen
+                        ? t("dayCalendar.hide")
+                        : t("dayCalendar.open")}
+                    </button>
+                  )}
+                  {repayCalendarOpen && selectedClient && (
+                    <DebtDayCalendar
+                      clientId={selectedClient.id}
+                      openItems={repayOpenItems}
+                      onPlan={handleRepayDayPlan}
+                    />
+                  )}
+                  <DebtItemPicker
+                    items={repayOpenItems}
+                    selected={repaySentTargets}
+                    onToggle={toggleRepayTarget}
+                    onClear={clearRepayTargets}
+                    coverage={repayPlan?.coverage ?? []}
+                    rate={repayModalRate ?? EXCHANGE_RATE}
+                  />
+                </div>
               ) : undefined
             }
             confirmColor="emerald"

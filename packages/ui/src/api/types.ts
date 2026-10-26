@@ -7,6 +7,7 @@
 
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
 import type { LedgerFilters } from "@liratek/core";
+import type { AuditPageFiltersInput } from "@liratek/core";
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
 // LIRA-335 — checkpoint differences: timeline filters/rows and the
 // close/reopen/open-after payloads from core (rule 21).
@@ -172,6 +173,11 @@ import type {
   RechargePartnerOrderPayload,
   // Partner settle payload, derived from partnerSettleSchema (rule 21).
   PartnerSettleInput,
+  // LIRA-346 — settle partners by day: payload derived from
+  // partnerSettleDaysSchema (rule 21) and the calendar row shapes.
+  PartnerSettleDaysPayload,
+  PartnerSettleRow,
+  PartnerDayDetailRow,
   // Supplier settle payload, derived from supplierSettleSchema (rule 21).
   SupplierSettleInput,
   // LIRA-296 — warranty search payload + row, derived from the core schema.
@@ -206,6 +212,7 @@ import type {
   DebtUpdateMetadataPayload,
   DebtWriteOffPayload,
   AddRepaymentPayload,
+  DebtMonthRows,
   OpenDebtItem,
   ExpenseUpdateMetadataPayload,
   FinancialUpdateMetadataPayload,
@@ -253,6 +260,7 @@ import type {
   SupplierPurchaseCreatePayload,
   SupplierRecordDebtPayload,
   SupplierSettleAccountPayload,
+  RemoveAccountCreditPayload,
   UpdateCustomServiceFulfillmentPayload,
   UpdateCustomServiceWorkStatusPayload,
   UpdateServiceProviderPayload,
@@ -274,6 +282,12 @@ import type {
   DrawerTopUpFromDrawerPayload,
   // LIRA-256 — OMT statement covered commission types (rule 21).
   OmtCoveredTypesInput,
+  // LIRA-343 — the calendar's month read (rule 21).
+  AccountMonthInput,
+  // LIRA-343 — one shop day's details (rule 21).
+  AccountDayInput,
+  // LIRA-343 T033a — Transactions window shop-day range (rule 21).
+  SupplierDayRangeInput,
 } from "@liratek/core";
 
 // Re-export so api consumers don't need a separate import
@@ -681,6 +695,47 @@ export type AccountUnsettledRow = {
    */
   remaining_usd: number;
   remaining_lbp: number;
+  /** LIRA-343 — `YYYY-MM-DD`: the shop's calendar day of `created_at`,
+   *  computed by the repository with `localDayExpr`. */
+  shop_day: string;
+  /** LIRA-343 — LEDGER rows: the source link, or null. */
+  source_ref_table: string | null;
+  /** LIRA-343 — by provenance, not sign: ACCOUNT rows sit on no day. */
+  row_scope: "DAY" | "ACCOUNT";
+  /** LIRA-343 — the unified `transactions.id`, or null. */
+  transaction_id: number | null;
+  /** LIRA-343 T037 — set on an ACCOUNT row an undo ("UNDO") or a void /
+   *  refund ("VOID") wrote; null otherwise. Optional for older fixtures. */
+  relief_origin?: "UNDO" | "VOID" | null;
+  /** LIRA-343 T037 — `"#<reversed transaction id>"`, or null. */
+  relief_ref?: string | null;
+  /** Settle table ("See transactions") — display only. FINANCIAL_SERVICE
+   *  rows: first non-empty customer / sender / receiver name, reference
+   *  number, phone number, note; LEDGER rows: the note only. */
+  party_name?: string | null;
+  reference?: string | null;
+  phone?: string | null;
+  note?: string | null;
+};
+
+/** LIRA-343 — one settlement's active coverage on a row (one entry per
+ *  settlement transaction, currency and source). Mirrors `@liratek/core`'s
+ *  `AccountDaySettlement` verbatim (rule 14). `settled_at` is the
+ *  settlement's stored UTC `created_at`. */
+export type AccountDaySettlement = {
+  transaction_id: number;
+  settled_at: string;
+  currency: "USD" | "LBP";
+  amount: number;
+  source: string;
+};
+
+/** LIRA-343 — one row of a shop day's details: the month-row shape plus who
+ *  paid it and the "added after settlement" tag (research R7). Mirrors
+ *  `@liratek/core`'s `AccountDayDetailRow` verbatim (rule 14). */
+export type AccountDayDetailRow = AccountUnsettledRow & {
+  settlements: AccountDaySettlement[];
+  added_after_settlement: boolean;
 };
 
 /**
@@ -1511,6 +1566,9 @@ export type ApiAdapter = {
   addRepayment: (payload: AddRepaymentPayload) => Promise<ApiResult>;
   /** LIRA-304 — open debt items for the repayment picker / preview. */
   getOpenDebtItems: (clientId: number) => Promise<OpenDebtItem[]>;
+  /** LIRA-347 — one month of a client's debt items for the settle calendar
+   *  (rows by shop day + the account lines). */
+  getDebtMonthRows: (clientId: number, month: string) => Promise<DebtMonthRows>;
   /** CQ-10: standalone debt write-off (admin-only) — pure forgiveness, no
    *  cash movement. Capped server-side at the client's outstanding balance
    *  per currency. */
@@ -1956,12 +2014,26 @@ export type ApiAdapter = {
   getSupplierAccountLedger: (
     accountSupplierId: number,
     limit?: number,
+    /** LIRA-343 T033a — optional shop-day range, filtered on the server. */
+    range?: SupplierDayRangeInput,
   ) => Promise<AccountLedgerEntry[]>;
   /** Unioned unsettled rows (financial_services + raw supplier_ledger,
    *  plan §9.3) across an account's parent + children. */
   getSupplierAccountUnsettled: (
     accountSupplierId: number,
   ) => Promise<AccountUnsettledRow[]>;
+  /** LIRA-343 — every account row whose shop day is in `month` (YYYY-MM),
+   *  settled or not: feeds the settle calendar. Raw rows array. */
+  getSupplierAccountMonthRows: (
+    accountSupplierId: number,
+    month: AccountMonthInput["month"],
+  ) => Promise<AccountUnsettledRow[]>;
+  /** LIRA-343 — what is behind one shop day (YYYY-MM-DD): its rows, who
+   *  paid each one, and the "added after settlement" tag. Raw rows array. */
+  getSupplierAccountDayDetail: (
+    accountSupplierId: number,
+    day: AccountDayInput["day"],
+  ) => Promise<AccountDayDetailRow[]>;
   /** LIRA-255 — gross owed minus unsettled commission, in OMT's own sign
    *  convention. Display-only; no mutation. */
   getSupplierAccountExpectedStatement: (
@@ -2016,6 +2088,18 @@ export type ApiAdapter = {
     accountSupplierId: number,
     data: Omit<SupplierSettleAccountPayload, "account_supplier_id">,
   ) => Promise<ApiResult & { id?: number }>;
+  /**
+   * LIRA-344 — Remove credit: close one open OMT account credit OMT will not
+   * accept and book it as an expense (no drawer, admin only). Undone by
+   * voiding the returned `transaction_id`. Payload = the core schema's input
+   * (rule 21) minus `account_supplier_id` (passed separately, as above).
+   */
+  removeSupplierAccountCredit: (
+    accountSupplierId: number,
+    data: Omit<RemoveAccountCreditPayload, "account_supplier_id">,
+  ) => Promise<
+    ApiResult & { id?: number; transaction_id?: number; expense_id?: number }
+  >;
   // supplierWriteOff REMOVED (supplier stock-intake, D8) — the standalone
   // write-off is gone; recordSupplierCashflow's bundled `discount` leg above
   // is the only surviving forgive-debt path. `debtWriteOff`/`partnerWriteOff`
@@ -2024,7 +2108,18 @@ export type ApiAdapter = {
   getAllSupplierTransactions: (
     provider: string,
     limit?: number,
+    /** LIRA-343 T033a — optional shop-day range `{ from?, to? }`
+     *  (YYYY-MM-DD), applied on the server before the row limit. */
+    range?: SupplierDayRangeInput,
   ) => Promise<any[]>;
+  /** LIRA-343 T033a — an OMT account parent's Transactions window: every
+   *  member's rows (OMT, OMT App, iPick), same row shape as
+   *  getAllSupplierTransactions, optional shop-day range. */
+  getSupplierAccountTransactions: (
+    accountSupplierId: number,
+    limit?: number,
+    range?: SupplierDayRangeInput,
+  ) => ReturnType<ApiAdapter["getAllSupplierTransactions"]>;
   /** Per-provider unsettled commission summary (dashboard + profits page). */
   getUnsettledSummary: () => Promise<UnsettledSummary[]>;
   /** Product-supplier aggregate balances (Inventory-linked suppliers). */
@@ -2436,17 +2531,19 @@ export type ApiAdapter = {
     getRecent: (
       limit?: number,
     ) => Promise<{ success: boolean; rows?: any[]; error?: string }>;
-    search: (filters: {
-      userId?: number;
-      action?: string;
-      entityType?: string;
-      entityId?: string;
-      from?: string;
-      to?: string;
-      search?: string;
-      limit?: number;
-      offset?: number;
-    }) => Promise<{
+    search: (
+      filters: {
+        userId?: number;
+        action?: string;
+        entityType?: string;
+        entityId?: string;
+        from?: string;
+        to?: string;
+        search?: string;
+        limit?: number;
+        offset?: number;
+      } & AuditPageFiltersInput, // LIRA-348 — from the core schema (rule 21)
+    ) => Promise<{
       success: boolean;
       rows?: any[];
       total?: number;
@@ -2491,6 +2588,23 @@ export type ApiAdapter = {
      *  per currency. */
     writeOff: (
       data: PartnerWriteOffPayload,
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
+    /** LIRA-346 — the settle queue: open day rows + open account rows
+     *  (partner credit, overpay, ↺). Signed: + the partner owes the shop. */
+    getSettleOpenRows: (partnerId: number) => Promise<PartnerSettleRow[]>;
+    /** LIRA-346 — one calendar month (`YYYY-MM`), shop days from the server. */
+    getSettleMonthRows: (
+      partnerId: number,
+      month: string,
+    ) => Promise<PartnerSettleRow[]>;
+    /** LIRA-346 — one shop day (`YYYY-MM-DD`) with who paid each row. */
+    getSettleDayDetail: (
+      partnerId: number,
+      day: string,
+    ) => Promise<PartnerDayDetailRow[]>;
+    /** LIRA-346 — settle the picked days (also "settle old history"). */
+    settleDays: (
+      data: PartnerSettleDaysPayload,
     ) => Promise<{ success: boolean; id?: number; error?: string }>;
   };
 

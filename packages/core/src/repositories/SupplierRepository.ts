@@ -1,7 +1,21 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { DatabaseError, ValidationError } from "../utils/errors.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
-import { getFinancialServiceRepository } from "./FinancialServiceRepository.js";
+import { getExpenseRepository } from "./ExpenseRepository.js";
+import { clientDay } from "../utils/requestDay.js";
+import {
+  ACCOUNT_CREDIT_REASON_MAX,
+  ACCOUNT_CREDIT_REASON_MIN,
+  ACCOUNT_CREDIT_WRITE_OFF_MODE,
+  OMT_CREDIT_REMOVED_EXPENSE_CATEGORY,
+} from "../constants/accountCreditWriteOff.js";
+import type { RemoveAccountCreditInput } from "../validators/supplier.js";
+import {
+  getFinancialServiceRepository,
+  NOT_REFUNDED_SQL,
+  type FinancialServiceAccountWindow,
+} from "./FinancialServiceRepository.js";
+import { localDayExpr, localDayRangeFilter } from "./reportingTimeFragments.js";
 import {
   TRANSACTION_TYPES,
   type TransactionType,
@@ -34,6 +48,17 @@ import {
   type AccountSettleAllocResult,
 } from "../utils/accountSettleAllocation.js";
 import { formatSettleAccountSections } from "../utils/settleAccountAudit.js";
+import {
+  isRemovableAccountCredit,
+  MANUAL_CASHFLOW_ENTRY_TYPES,
+} from "../utils/accountRowScope.js";
+import { isSettleRowOpen, isSettleRowWaiting } from "../utils/settleDays.js";
+import {
+  billsStayOnTickList,
+  settleStaleMessage,
+  settlesByDay as settlesByDayRule,
+  type SettlesByDayInput,
+} from "../utils/settlesByDay.js";
 import {
   OMT_COVERED_TYPE_VALUES,
   coveredTypeLabel,
@@ -317,11 +342,96 @@ const accountMemberOf = (alias = "s."): string =>
  * 'LEDGER'), `row_id`. Returns one row `{ covered_usd, covered_lbp }`
  * (0/0 when nothing applies). Served by `idx_ssc_row`.
  */
-export const ACCOUNT_ROW_COVERED_SQL = `SELECT
+const ACCOUNT_ROW_COVERED_COLUMNS = `
     COALESCE(SUM(CASE WHEN currency = 'USD' THEN amount END), 0) AS covered_usd,
-    COALESCE(SUM(CASE WHEN currency = 'LBP' THEN amount END), 0) AS covered_lbp
+    COALESCE(SUM(CASE WHEN currency = 'LBP' THEN amount END), 0) AS covered_lbp`;
+export const ACCOUNT_ROW_COVERED_SQL = `SELECT${ACCOUNT_ROW_COVERED_COLUMNS}
   FROM supplier_settlement_coverage
   WHERE tenant_id = ? AND row_kind = ? AND row_id = ? AND is_reversed = 0`;
+
+/**
+ * LIRA-343 — the batched form of {@link ACCOUNT_ROW_COVERED_SQL} (same
+ * columns, same active-only rule): one row per covered `row_id` among
+ * `count` ids. Binds `tenant_id`, `row_kind`, then the ids. Rows with no
+ * active coverage are absent (callers read them as 0/0).
+ */
+const accountRowsCoveredSql = (count: number): string =>
+  `SELECT row_id,${ACCOUNT_ROW_COVERED_COLUMNS}
+  FROM supplier_settlement_coverage
+  WHERE tenant_id = ? AND row_kind = ? AND is_reversed = 0
+    AND row_id IN (${Array.from({ length: count }, () => "?").join(", ")})
+  GROUP BY row_id`;
+
+/** Largest id batch per `IN (...)` read (well under SQLite's bind limit). */
+const ID_BATCH = 500;
+
+function chunk<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+/**
+ * LIRA-343 (research R4), rule 14 — the ONE SQL rule for a LEDGER account
+ * row's scope, by provenance, not sign. The JS twin is `rowScopeOf`
+ * (`utils/accountRowScope.ts`, which also owns `MANUAL_CASHFLOW_ENTRY_TYPES`
+ * used below); this is the ONLY SQL copy, and the two must stay in step:
+ *
+ *  - written by a settlement (`transaction_id` → a SUPPLIER_SETTLEMENT
+ *    transaction: overpay rows of either sign, the amount-first commission
+ *    credit) → 'ACCOUNT';
+ *  - a supplier `DISCOUNT` (LIRA-345: it rides on a manual Pay, linked to
+ *    the Pay's ledger row or, older, unlinked) → 'ACCOUNT';
+ *  - `source_ref_table` set (a cash-out, a charge with a source; '' counts
+ *    as unset, like the JS twin) → 'DAY';
+ *  - a manual Pay / Receive (`PAYMENT` / `SUPPLIER_PAYS_US`, no source)
+ *    → 'ACCOUNT';
+ *  - anything else → 'DAY'.
+ *
+ * A FINANCIAL_SERVICE row is always 'DAY'. The flags degrade on fixtures
+ * without `source_ref_*` columns or without a `transactions` table.
+ */
+export const accountRowScopeSql = (
+  alias = "l.",
+  opts: { sourceRef: boolean; settlementLink: boolean } = {
+    sourceRef: true,
+    settlementLink: true,
+  },
+): string => `CASE
+    ${
+      opts.settlementLink
+        ? `WHEN EXISTS (
+        SELECT 1 FROM transactions t
+         WHERE t.id = ${alias}transaction_id AND t.tenant_id = ${alias}tenant_id
+           AND t.type = 'SUPPLIER_SETTLEMENT'
+      ) THEN 'ACCOUNT'`
+        : ""
+    }
+    WHEN ${alias}entry_type = 'DISCOUNT' THEN 'ACCOUNT'
+    ${opts.sourceRef ? `WHEN COALESCE(${alias}source_ref_table, '') <> '' THEN 'DAY'` : ""}
+    WHEN ${alias}entry_type IN (${MANUAL_CASHFLOW_ENTRY_TYPES.map((t) => `'${t}'`).join(", ")}) THEN 'ACCOUNT'
+    ELSE 'DAY'
+  END`;
+
+/**
+ * LIRA-343 (research R3), rule 14 — the ONE predicate for "this ledger row
+ * is a settlement's own bookkeeping, not account activity": a legacy
+ * `SETTLEMENT` entry, a self-stamped settlement anchor / member row
+ * (`settlement_id = id`), or a waive `DISCOUNT` that rides on the
+ * settlement (`source_ref` back to the anchor it is stamped with). BOTH
+ * account modes exclude these: the open queue (a legacy `settleTransactions`
+ * SETTLEMENT row is unstamped, so `settlement_id IS NULL` alone would list it
+ * as a phantom open credit) and range mode (so a settlement never gives its
+ * day false activity).
+ */
+// NULL-safe on purpose (`IS`, not `=`): an open row has `settlement_id`
+// NULL, and `NOT (NULL)` would silently drop it from range mode.
+const isSettlementOwnRow = (alias = "l.", sourceRef = true): string =>
+  `(COALESCE(${alias}entry_type, '') = 'SETTLEMENT' OR ${alias}settlement_id IS ${alias}id${
+    sourceRef
+      ? ` OR (${alias}settlement_id IS NOT NULL AND COALESCE(${alias}source_ref_table, '') = 'supplier_ledger' AND ${alias}source_ref_id IS ${alias}settlement_id)`
+      : ""
+  })`;
 
 /**
  * LIRA-322 finding F3, rule 14 — the ONE predicate for "this ledger row is
@@ -346,6 +456,32 @@ export const ACCOUNT_ROW_COVERED_SQL = `SELECT
  */
 export const isSettlementCommissionCredit = (alias = ""): string =>
   `(${alias}entry_type = 'SUPPLIER_PAYS_US' AND COALESCE(${alias}source_ref_table, '') = 'supplier_ledger' AND COALESCE(${alias}is_auto, 0) = 1)`;
+
+/**
+ * LIRA-345 (coordinator follow-up), rule 14 — the ONE "this ledger row is
+ * account activity" rule every account read applies, whatever the mode:
+ * non-zero, not refunded, not a `financial_services` auto sibling (the FS
+ * row stands for it), not a settlement commission credit
+ * ({@link isSettlementCommissionCredit}) and not a settlement's own row
+ * ({@link isSettlementOwnRow}). The open queue adds `settlement_id IS NULL`
+ * ({@link openAccountLedgerRowSql}); range mode adds its window. Without the
+ * `source_ref_*` columns (old fixtures) the two link-based exclusions drop.
+ */
+const accountLedgerRowSql = (alias: string, sourceRef: boolean): string =>
+  `(${alias}amount_usd <> 0 OR ${alias}amount_lbp <> 0)
+             AND ${ledgerNotRefunded(alias)}${
+               sourceRef
+                 ? `
+             AND COALESCE(${alias}source_ref_table, '') <> 'financial_services'
+             AND NOT ${isSettlementCommissionCredit(alias)}`
+                 : ""
+             }
+             AND NOT ${isSettlementOwnRow(alias, sourceRef)}`;
+
+/** {@link accountLedgerRowSql} for the OPEN queue: also not yet settled.
+ *  Shared by `_accountRows` (open mode) and `_countOpenUnsettledRows`. */
+const openAccountLedgerRowSql = (alias: string, sourceRef: boolean): string =>
+  `${alias}settlement_id IS NULL AND ${accountLedgerRowSql(alias, sourceRef)}`;
 
 /** Signed remaining after coverage: the row's own sign, |amount| − covered. */
 function remainingAfterCoverage(amount: number, covered: number): number {
@@ -796,6 +932,12 @@ export interface AccountLedgerEntry {
  * `supplier_ledger` row with no settlement batch yet (iPick / OMT App
  * supplier-credit debt, which has no `financial_services` row at all).
  */
+/** LIRA-344 — `removeAccountCredit`'s input: the parsed schema plus the
+ *  actor the transport injects (rule 19c). */
+export type RemoveAccountCreditData = RemoveAccountCreditInput & {
+  created_by: number;
+};
+
 export interface AccountUnsettledRow {
   kind: "FINANCIAL_SERVICE" | "LEDGER";
   id: number;
@@ -841,6 +983,75 @@ export interface AccountUnsettledRow {
    */
   remaining_usd: number;
   remaining_lbp: number;
+  /**
+   * LIRA-343 — `YYYY-MM-DD`: the shop's calendar day of `created_at`,
+   * computed by the repository with `localDayExpr` (rule 27). The frontend
+   * never derives a day from `created_at`.
+   */
+  shop_day: string;
+  /** LIRA-343 — LEDGER rows: the source link (`supplier_ledger
+   *  .source_ref_table`), or null. Always null for FINANCIAL_SERVICE rows. */
+  source_ref_table: string | null;
+  /**
+   * LIRA-343 — `'DAY'` or `'ACCOUNT'`, by provenance, not sign (research
+   * R4): an ACCOUNT row (written by a settlement or a manual Pay / Receive)
+   * sits on no day. SQL: `accountRowScopeSql`; JS twin `rowScopeOf`.
+   */
+  row_scope: "DAY" | "ACCOUNT";
+  /** LIRA-343 — the unified `transactions.id` of this row (FS: the row's
+   *  own transaction; LEDGER: `supplier_ledger.transaction_id`), or null. */
+  transaction_id: number | null;
+  /**
+   * LIRA-343 T037 (FR-016b) — for an ACCOUNT ledger row written by an undo
+   * or a void (`TransactionRepository._bookSettlementCoverageRelief`: its
+   * `transaction_id` is a reversal, i.e. a transaction with `reverses_id`):
+   * `"UNDO"` when the reversed transaction is a SUPPLIER_SETTLEMENT, else
+   * `"VOID"`. Null for every other row. Optional so hand-built fixtures
+   * stay valid; the repository always sets it.
+   */
+  relief_origin?: "UNDO" | "VOID" | null;
+  /** LIRA-343 T037 — `"#<reversed transaction id>"` when `relief_origin`
+   *  is set, else null. */
+  relief_ref?: string | null;
+  /**
+   * Settle table ("See transactions", owner mock 2026-10-26) — display
+   * only, never read for money. FINANCIAL_SERVICE rows: the first
+   * non-empty customer / sender / receiver name, the reference number, the
+   * phone number and the note. LEDGER rows: the note only (the others are
+   * null). Optional so hand-built fixtures stay valid; the repository
+   * always sets them.
+   */
+  party_name?: string | null;
+  reference?: string | null;
+  phone?: string | null;
+  note?: string | null;
+}
+
+/**
+ * LIRA-343 (contracts/calendar-reads.md §3) — one settlement's ACTIVE
+ * coverage on a row: one entry per settlement transaction, currency and
+ * source (`PAYMENT` / `NETTING` / …), amounts summed. `settled_at` is the
+ * settlement transaction's own `created_at` (UTC, as stored).
+ */
+export interface AccountDaySettlement {
+  transaction_id: number;
+  settled_at: string;
+  currency: "USD" | "LBP";
+  amount: number;
+  source: string;
+}
+
+/** LIRA-343 — one row of a shop day's details: the month-row shape plus
+ *  who paid it and the "added after settlement" tag (research R7). */
+export interface AccountDayDetailRow extends AccountUnsettledRow {
+  /** Active coverage only (reversed coverage is left out), oldest
+   *  settlement first. Empty for a row nothing covered, and for a row
+   *  closed by a pre-LIRA-322 whole-row settlement (no coverage stored). */
+  settlements: AccountDaySettlement[];
+  /** An open FINANCIAL_SERVICE row whose unified transaction id is greater
+   *  than the transaction id of an active coverage row on ANOTHER row of
+   *  the same shop day (research R7). */
+  added_after_settlement: boolean;
 }
 
 /**
@@ -1002,6 +1213,11 @@ export type SettleAccountRequest = Omit<
       LBP?: SettleAccountCurrencySectionData;
     };
     expected_owed?: { usd: number; lbp: number };
+    /** LIRA-343 — add every open ACCOUNT row to the scope, as the
+     *  allocator's `account_credits` (contracts/settle-account-days.md). */
+    include_account_credits?: boolean;
+    /** LIRA-343 — account credit to use per currency (magnitude, ≥ 0). */
+    credit_used?: { usd?: number; lbp?: number };
   };
 
 /**
@@ -1056,6 +1272,9 @@ interface AmountFirstCurrencyMeta {
   waive: number;
   /** In flow terms: + paid / collected beyond what was owed. */
   extra: number;
+  /** LIRA-343: account credit this section actually used (magnitude);
+   *  present only when account rows were in scope or credit was asked for. */
+  account_credit_applied?: number;
 }
 
 interface AmountFirstSectionPlan {
@@ -1134,6 +1353,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
   /** Memoized result of {@link _hasSettlementCoverageTable}. */
   private _hasSettlementCoverageTableCache: boolean | null = null;
+  /** Memoized result of {@link _hasTransactionsTable}. */
+  private _hasTransactionsTableCache: boolean | null = null;
 
   constructor() {
     super("suppliers", { softDelete: false });
@@ -1292,28 +1513,49 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   }
 
   /**
-   * LIRA-322 — adds `covered_*` / `remaining_*` to queue rows, through
-   * {@link ACCOUNT_ROW_COVERED_SQL} (rule 14). One indexed lookup per row.
+   * LIRA-343 — schema-drift guard, same shape as
+   * `_hasSettlementCoverageTable()`: some hand-rolled jest fixtures have no
+   * `transactions` table. Without it `transaction_id` reads null for FS rows
+   * and the row scope skips the settlement link.
+   */
+  private _hasTransactionsTable(): boolean {
+    if (this._hasTransactionsTableCache === null) {
+      const row = this.db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'transactions'`,
+        )
+        .get();
+      this._hasTransactionsTableCache = !!row;
+    }
+    return this._hasTransactionsTableCache;
+  }
+
+  /**
+   * LIRA-322 / LIRA-343 — adds `covered_*` / `remaining_*` to account rows,
+   * through the batched {@link getRowCoverage} (rule 14: one active-coverage
+   * definition), one read per kind. A CLOSED row (its own "still open"
+   * condition no longer holds — fully settled, or a legacy whole-row
+   * settlement with no coverage rows) counts as fully paid: covered =
+   * |amount|, remaining 0. Open rows keep the LIRA-322 math.
    */
   private _withCoverage(
     rows: Array<
       Omit<
         AccountUnsettledRow,
         "covered_usd" | "covered_lbp" | "remaining_usd" | "remaining_lbp"
-      >
+      > & { is_closed: boolean }
     >,
-    tenantId: number,
   ): AccountUnsettledRow[] {
-    const stmt = this._hasSettlementCoverageTable()
-      ? this.db.prepare(ACCOUNT_ROW_COVERED_SQL)
-      : null;
-    return rows.map((r) => {
-      const covered = stmt
-        ? (stmt.get(tenantId, r.kind, r.id) as {
-            covered_usd: number;
-            covered_lbp: number;
-          })
-        : { covered_usd: 0, covered_lbp: 0 };
+    const ids = (kind: AccountUnsettledRow["kind"]) =>
+      rows.filter((r) => r.kind === kind && !r.is_closed).map((r) => r.id);
+    const coverage = {
+      FINANCIAL_SERVICE: this.getRowCoverage("FINANCIAL_SERVICE", ids("FINANCIAL_SERVICE")),
+      LEDGER: this.getRowCoverage("LEDGER", ids("LEDGER")),
+    };
+    return rows.map(({ is_closed, ...r }) => {
+      const covered = is_closed
+        ? { covered_usd: Math.abs(r.amount_usd), covered_lbp: Math.abs(r.amount_lbp) }
+        : (coverage[r.kind].get(r.id) ?? { covered_usd: 0, covered_lbp: 0 });
       return {
         ...r,
         covered_usd: covered.covered_usd,
@@ -1436,11 +1678,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    * lost its parent right now: this supplier's OWN pending
    * `financial_services` queue (only a provider-bearing supplier — e.g. the
    * OMT counter — has one) plus its own un-settled `supplier_ledger` rows.
-   * Same three exclusions `getAccountUnsettled` applies per member
-   * (`settlement_id IS NULL`, non-zero, not refunded, not a
-   * financial_services auto-sibling), scoped to ONE supplier instead of an
-   * account-wide `accountMemberOf` OR — reuses `ledgerNotRefunded()` and the
-   * same schema-drift guards rather than re-typing them (rule 14). Returns 0
+   * The SAME open-row rule `getAccountUnsettled` applies per member
+   * (`openAccountLedgerRowSql`, LIRA-345), scoped to ONE supplier instead of
+   * an account-wide `accountMemberOf` OR, with the same schema-drift guards
+   * (rule 14). Returns 0
    * for the ledger half on a connection that predates v176's
    * `settlement_id` column, matching every other guard in this file.
    */
@@ -1460,17 +1701,17 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     }
 
     if (this._supplierLedgerHasSettlementIdColumn()) {
-      const excludeFsSiblings = this._supplierLedgerHasSourceRefColumns()
-        ? "AND COALESCE(source_ref_table, '') <> 'financial_services'"
-        : "";
+      // LIRA-345 (rule 14) — the SAME open-row rule as the queue
+      // (`openAccountLedgerRowSql`): a legacy SETTLEMENT row or a settlement
+      // commission credit is never an open row, so it never blocks a detach.
       const row = this.db
         .prepare(
           `SELECT COUNT(*) as cnt FROM supplier_ledger
              WHERE supplier_id = ? AND tenant_id = ?
-               AND settlement_id IS NULL
-               AND (amount_usd <> 0 OR amount_lbp <> 0)
-               AND ${ledgerNotRefunded()}
-               ${excludeFsSiblings}`,
+               AND ${openAccountLedgerRowSql(
+                 "",
+                 this._supplierLedgerHasSourceRefColumns(),
+               )}`,
         )
         .get(supplierId, tenantId) as { cnt: number };
       count += row.cnt;
@@ -2780,10 +3021,15 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   getAccountLedger(
     accountSupplierId: number,
     limit = 200,
+    // LIRA-343 T033a (FR-016c) — optional shop-day range (YYYY-MM-DD,
+    // `supplierDayRangeSchema`), filtered by `localDayExpr` (rule 27) BEFORE
+    // the LIMIT. Absent → no filter, no extra bind: unchanged.
+    range?: { from?: string; to?: string },
   ): AccountLedgerEntry[] {
     try {
       if (!this._suppliersHasAccountLinkColumn()) return [];
       const tenantId = getCurrentTenantId();
+      const day = localDayRangeFilter("l.created_at", range);
       const settlementCol = this._supplierLedgerHasSettlementIdColumn()
         ? "l.settlement_id AS settlement_id"
         : "NULL AS settlement_id";
@@ -2797,7 +3043,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
              ${settlementCol}
            FROM supplier_ledger l
            JOIN suppliers s ON s.id = l.supplier_id AND s.tenant_id = l.tenant_id
-           WHERE ${accountMemberOf("s.")} AND s.tenant_id = ?
+           WHERE ${accountMemberOf("s.")} AND s.tenant_id = ?${day.sql ? ` AND ${day.sql}` : ""}
            ORDER BY l.created_at DESC, l.id DESC
            LIMIT ?`,
         )
@@ -2805,6 +3051,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           accountSupplierId,
           accountSupplierId,
           tenantId,
+          ...day.params,
           limit,
         ) as AccountLedgerEntry[];
     } catch (e) {
@@ -2835,6 +3082,37 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   }
 
   /**
+   * LIRA-345 (S1/S3) — is this supplier settled on the day calendar? The ONE
+   * rule is `settlesByDay` (`utils/settlesByDay.ts`, shared with the
+   * Suppliers page); this resolves its inputs from the row. False for an
+   * unknown supplier.
+   */
+  settlesByDay(supplierId: number): boolean {
+    const input = this._settlesByDayInput(supplierId, getCurrentTenantId());
+    return input !== null && settlesByDayRule(input);
+  }
+
+  private _settlesByDayInput(
+    supplierId: number,
+    tenantId: number,
+  ): SettlesByDayInput | null {
+    const row = this.db
+      .prepare(
+        `SELECT provider, is_system, is_active FROM suppliers WHERE id = ? AND tenant_id = ?`,
+      )
+      .get(supplierId, tenantId) as
+      | { provider: string | null; is_system: number; is_active: number }
+      | undefined;
+    if (!row) return null;
+    return {
+      provider: row.provider,
+      is_system: row.is_system,
+      is_active: row.is_active,
+      is_account_member: this.isAccountMember(supplierId),
+    };
+  }
+
+  /**
    * LIRA-322 — what active settlements applied to each queue row, per
    * currency, through {@link ACCOUNT_ROW_COVERED_SQL} (rule 14). Rows with
    * nothing applied read 0/0; empty map on a pre-v217 database.
@@ -2846,12 +3124,20 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     const out = new Map<number, { covered_usd: number; covered_lbp: number }>();
     if (!ids.length || !this._hasSettlementCoverageTable()) return out;
     const tenantId = getCurrentTenantId();
-    const stmt = this.db.prepare(ACCOUNT_ROW_COVERED_SQL);
-    for (const id of ids) {
-      out.set(
-        id,
-        stmt.get(tenantId, kind, id) as { covered_usd: number; covered_lbp: number },
-      );
+    // LIRA-343 — one batched read per ~500 ids instead of one per row; ids
+    // with no active coverage read 0/0, exactly as the per-row form did.
+    for (const id of ids) out.set(id, { covered_usd: 0, covered_lbp: 0 });
+    for (const part of chunk([...new Set(ids)], ID_BATCH)) {
+      const rows = this.db
+        .prepare(accountRowsCoveredSql(part.length))
+        .all(tenantId, kind, ...part) as Array<{
+        row_id: number;
+        covered_usd: number;
+        covered_lbp: number;
+      }>;
+      for (const r of rows) {
+        out.set(r.row_id, { covered_usd: r.covered_usd, covered_lbp: r.covered_lbp });
+      }
     }
     return out;
   }
@@ -2900,120 +3186,405 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    */
   getAccountUnsettled(accountSupplierId: number): AccountUnsettledRow[] {
     try {
-      const tenantId = getCurrentTenantId();
-      const members = this._getAccountMembers(accountSupplierId, tenantId);
-
-      type QueueRowBase = Omit<
-        AccountUnsettledRow,
-        "covered_usd" | "covered_lbp" | "remaining_usd" | "remaining_lbp"
-      >;
-      const financialServiceRows: QueueRowBase[] = [];
-      const financialServiceRepo = getFinancialServiceRepository();
-      for (const member of members) {
-        if (!member.provider) continue;
-        const rows = financialServiceRepo.getUnsettledBySupplier(
-          member.provider,
-        );
-        for (const row of rows) {
-          financialServiceRows.push({
-            kind: "FINANCIAL_SERVICE",
-            id: row.id,
-            supplier_id: member.id,
-            source_provider: member.provider,
-            source_name: member.name,
-            created_at: row.created_at,
-            amount_usd: row.currency === "USD" ? row.supplier_owed : 0,
-            amount_lbp: row.currency === "LBP" ? row.supplier_owed : 0,
-            entry_type: null,
-            service_type: row.service_type,
-            // LIRA-256 — lets the settle sheet tell covered from waiting rows.
-            omt_service_type: row.omt_service_type ?? null,
-            commission_model: row.commission_model ?? null,
-            // A FINANCIAL_SERVICE row is never a WALLET_CASHOUT credit (D14
-            // only ever stamps cashout commission onto a raw LEDGER row —
-            // see `_cashoutCommissionByLedgerId`'s own doc comment).
-            commission_usd: 0,
-            commission_lbp: 0,
-          });
-        }
-      }
-
-      let ledgerRows: QueueRowBase[] = [];
-      if (this._supplierLedgerHasSettlementIdColumn()) {
-        // LIRA-322 F3 — a settlement's own commission credit is never an
-        // open credit (isSettlementCommissionCredit), so it stays out too.
-        const excludeFsSiblings = this._supplierLedgerHasSourceRefColumns()
-          ? `AND COALESCE(l.source_ref_table, '') <> 'financial_services'
-               AND NOT ${isSettlementCommissionCredit("l.")}`
-          : "";
-        const rows = this.db
-          .prepare(
-            `SELECT
-               l.id AS id, l.supplier_id AS supplier_id,
-               s.provider AS source_provider, s.name AS source_name,
-               l.created_at AS created_at, l.amount_usd AS amount_usd, l.amount_lbp AS amount_lbp,
-               l.entry_type AS entry_type
-             FROM supplier_ledger l
-             JOIN suppliers s ON s.id = l.supplier_id AND s.tenant_id = l.tenant_id
-             WHERE ${accountMemberOf("s.")} AND s.tenant_id = ?
-               AND l.settlement_id IS NULL
-               AND (l.amount_usd <> 0 OR l.amount_lbp <> 0)
-               AND ${ledgerNotRefunded("l.")}
-               ${excludeFsSiblings}`,
-          )
-          .all(accountSupplierId, accountSupplierId, tenantId) as {
-          id: number;
-          supplier_id: number;
-          source_provider: string | null;
-          source_name: string;
-          created_at: string;
-          amount_usd: number;
-          amount_lbp: number;
-          entry_type: string;
-        }[];
-        // D14 preview (the bug this method exists to fix) — reads the SAME
-        // per-row commission `_sumCashoutCommission` sums for `settleAccount`
-        // itself (rule 14: one shared helper, `_cashoutCommissionByLedgerId`,
-        // so the sheet's preview and the eventual profit stamp can never
-        // diverge). Computed in one batched lookup for every ledger row
-        // returned here, not once per row.
-        const commissionByLedgerId = this._cashoutCommissionByLedgerId(
-          rows.map((r) => r.id),
-          tenantId,
-        );
-        ledgerRows = rows.map((r) => {
-          const commission = commissionByLedgerId.get(r.id);
-          return {
-            kind: "LEDGER" as const,
-            id: r.id,
-            supplier_id: r.supplier_id,
-            source_provider: r.source_provider,
-            source_name: r.source_name,
-            created_at: r.created_at,
-            amount_usd: r.amount_usd,
-            amount_lbp: r.amount_lbp,
-            entry_type: r.entry_type,
-            service_type: null,
-            omt_service_type: null,
-            commission_model: null,
-            commission_usd: commission?.usd ?? 0,
-            commission_lbp: commission?.lbp ?? 0,
-          };
-        });
-      }
-
-      return this._withCoverage(
-        [...financialServiceRows, ...ledgerRows].sort((a, b) =>
-          a.created_at.localeCompare(b.created_at),
-        ),
-        tenantId,
-      );
+      return this._accountRows(accountSupplierId, null);
     } catch (e) {
       throw new DatabaseError("Failed to get account unsettled transactions", {
         cause: e,
         entityId: accountSupplierId,
       });
     }
+  }
+
+  /**
+   * LIRA-343 (research R3, contracts/calendar-reads.md) — every account row
+   * with `created_at` in `[fromUtc, toUtc)`, settled or not, from the SAME
+   * builder as {@link getAccountUnsettled}. Closed rows come back with
+   * `remaining_* = 0` and `covered_* = |amount|`; born-settled FS rows with
+   * nothing owed come back with amount 0 (their day still has activity).
+   * A settlement's own rows, FS auto siblings, settlement commission credits
+   * and refunded rows are left out.
+   */
+  getAccountRows(
+    accountSupplierId: number,
+    window: { fromUtc: string; toUtc: string },
+  ): AccountUnsettledRow[] {
+    try {
+      return this._accountRows(accountSupplierId, {
+        fromUtc: window.fromUtc,
+        toUtc: window.toUtc,
+      });
+    } catch (e) {
+      throw new DatabaseError("Failed to get account rows", {
+        cause: e,
+        entityId: accountSupplierId,
+      });
+    }
+  }
+
+  /**
+   * LIRA-343 (contracts/calendar-reads.md §3, research R7/R8) — what is
+   * behind one shop day (`YYYY-MM-DD`) of the account: the day's range rows
+   * ({@link getAccountRows}, window = the day ± 1 UTC day, kept by
+   * `shop_day`, so the zone offset never cuts a row off — rule 27), each
+   * with its ACTIVE coverage per settlement and the "added after
+   * settlement" tag. Read only.
+   */
+  getAccountDayDetail(
+    accountSupplierId: number,
+    shopDay: string,
+  ): AccountDayDetailRow[] {
+    try {
+      const [y, m, d] = shopDay.split("-").map(Number);
+      const stamp = (ms: number): string =>
+        `${new Date(ms).toISOString().slice(0, 10)} 00:00:00`;
+      const rows = this._accountRows(accountSupplierId, {
+        fromUtc: stamp(Date.UTC(y, m - 1, d - 1)),
+        toUtc: stamp(Date.UTC(y, m - 1, d + 2)),
+      }).filter((r) => r.shop_day === shopDay);
+      const settlements = this._activeSettlementsByRow(rows);
+      const detail: AccountDayDetailRow[] = rows.map((r) => ({
+        ...r,
+        settlements: settlements.get(`${r.kind}:${r.id}`) ?? [],
+        added_after_settlement: false,
+      }));
+      // R7 — ids only grow in insert order: an open transfer whose unified
+      // transaction is newer than a settlement that covered ANOTHER row of
+      // this day was recorded after that settlement.
+      for (const row of detail) {
+        if (
+          row.kind !== "FINANCIAL_SERVICE" ||
+          row.transaction_id === null ||
+          !isSettleRowOpen(row)
+        ) {
+          continue;
+        }
+        const txnId = row.transaction_id;
+        row.added_after_settlement = detail.some(
+          (other) =>
+            other !== row &&
+            other.settlements.some((s) => s.transaction_id < txnId),
+        );
+      }
+      return detail;
+    } catch (e) {
+      throw new DatabaseError("Failed to get account day detail", {
+        cause: e,
+        entityId: accountSupplierId,
+      });
+    }
+  }
+
+  /** LIRA-343 — active (`is_reversed = 0`) coverage of `rows`, keyed
+   *  `"KIND:id"`, one entry per settlement transaction, currency and source
+   *  (amounts summed), oldest settlement first, dated by the settlement
+   *  transaction's `created_at`. One batched read per kind and ~500 ids. */
+  private _activeSettlementsByRow(
+    rows: readonly AccountUnsettledRow[],
+  ): Map<string, AccountDaySettlement[]> {
+    const out = new Map<string, AccountDaySettlement[]>();
+    if (!rows.length || !this._hasSettlementCoverageTable()) return out;
+    const tenantId = getCurrentTenantId();
+    const settledAt = this._hasTransactionsTable()
+      ? `COALESCE((SELECT t.created_at FROM transactions t
+                    WHERE t.id = c.transaction_id AND t.tenant_id = c.tenant_id),
+                  MIN(c.created_at))`
+      : "MIN(c.created_at)";
+    for (const kind of ["FINANCIAL_SERVICE", "LEDGER"] as const) {
+      const ids = rows.filter((r) => r.kind === kind).map((r) => r.id);
+      for (const part of chunk([...new Set(ids)], ID_BATCH)) {
+        const found = this.db
+          .prepare(
+            `SELECT c.row_id, c.transaction_id, c.currency, c.source,
+                    SUM(c.amount) AS amount, ${settledAt} AS settled_at
+               FROM supplier_settlement_coverage c
+              WHERE c.tenant_id = ? AND c.row_kind = ? AND c.is_reversed = 0
+                AND c.row_id IN (${part.map(() => "?").join(", ")})
+              GROUP BY c.row_id, c.transaction_id, c.currency, c.source
+              ORDER BY c.row_id, c.transaction_id, MIN(c.id)`,
+          )
+          .all(tenantId, kind, ...part) as Array<{
+          row_id: number;
+          transaction_id: number;
+          currency: "USD" | "LBP";
+          source: string;
+          amount: number;
+          settled_at: string;
+        }>;
+        for (const f of found) {
+          const key = `${kind}:${f.row_id}`;
+          const list = out.get(key) ?? [];
+          list.push({
+            transaction_id: f.transaction_id,
+            settled_at: f.settled_at,
+            currency: f.currency,
+            amount: f.amount,
+            source: f.source,
+          });
+          out.set(key, list);
+        }
+      }
+    }
+    return out;
+  }
+
+  /** LIRA-343 — `financial_services.id` → its unified `transactions.id`
+   *  (the first one written for it: the original, never its refund). */
+  private _fsTransactionIds(ids: readonly number[], tenantId: number): Map<number, number> {
+    const out = new Map<number, number>();
+    if (!ids.length || !this._hasTransactionsTable()) return out;
+    for (const part of chunk([...new Set(ids)], ID_BATCH)) {
+      const rows = this.db
+        .prepare(
+          `SELECT source_id, MIN(id) AS id FROM transactions
+            WHERE tenant_id = ? AND source_table = 'financial_services'
+              AND source_id IN (${part.map(() => "?").join(", ")})
+            GROUP BY source_id`,
+        )
+        .all(tenantId, ...part) as Array<{ source_id: number; id: number }>;
+      for (const r of rows) out.set(r.source_id, r.id);
+    }
+    return out;
+  }
+
+  /**
+   * LIRA-343 (research R3) — the ONE account row source. `window = null` is
+   * the open settle queue ({@link getAccountUnsettled}, unchanged rows);
+   * a window is range mode ({@link getAccountRows}): the same members, the
+   * same FS branches (plus born-settled activity), the same exclusions,
+   * without the "still open" conditions. Both modes add `shop_day`
+   * (`localDayExpr`, rule 27), `source_ref_table`, `row_scope`
+   * ({@link accountRowScopeSql}) and the unified `transaction_id`.
+   */
+  private _accountRows(
+    accountSupplierId: number,
+    window: FinancialServiceAccountWindow,
+  ): AccountUnsettledRow[] {
+    const tenantId = getCurrentTenantId();
+    const members = this._getAccountMembers(accountSupplierId, tenantId);
+    // LIRA-345 (S1) — a calendar supplier outside the OMT account (Katsh,
+    // Whish) settles its bills on the "Settle" tick list, bill by bill: they
+    // owe nothing and carry commission the calendar cannot settle, so the
+    // calendar leaves them out (both modes).
+    const byDay = this._settlesByDayInput(accountSupplierId, tenantId);
+    const skipBills = byDay !== null && billsStayOnTickList(byDay);
+
+    type RowBase = Omit<
+      AccountUnsettledRow,
+      "covered_usd" | "covered_lbp" | "remaining_usd" | "remaining_lbp"
+    > & { is_closed: boolean };
+
+    const financialServiceRepo = getFinancialServiceRepository();
+    const fsRows: RowBase[] = [];
+    for (const member of members) {
+      if (!member.provider) continue;
+      for (const row of financialServiceRepo.getAccountRowsByProvider(
+        member.provider,
+        window,
+      )) {
+        if (skipBills && row.service_type === "BILL") continue;
+        fsRows.push({
+          kind: "FINANCIAL_SERVICE",
+          id: row.id,
+          supplier_id: member.id,
+          source_provider: member.provider,
+          source_name: member.name,
+          created_at: row.created_at,
+          amount_usd: row.currency === "USD" ? row.supplier_owed : 0,
+          amount_lbp: row.currency === "LBP" ? row.supplier_owed : 0,
+          entry_type: null,
+          service_type: row.service_type,
+          // LIRA-256 — lets the settle sheet tell covered from waiting rows.
+          omt_service_type: row.omt_service_type ?? null,
+          commission_model: row.commission_model ?? null,
+          // A FINANCIAL_SERVICE row is never a WALLET_CASHOUT credit (D14
+          // only ever stamps cashout commission onto a raw LEDGER row —
+          // see `_cashoutCommissionByLedgerId`'s own doc comment).
+          commission_usd: 0,
+          commission_lbp: 0,
+          shop_day: row.shop_day,
+          source_ref_table: null,
+          // A FINANCIAL_SERVICE row is always a day row (research R4).
+          row_scope: "DAY",
+          transaction_id: null,
+          is_closed: row.is_closed === 1,
+          party_name: row.party_name ?? null,
+          reference: row.reference ?? null,
+          phone: row.phone ?? null,
+          note: row.note ?? null,
+        });
+      }
+    }
+    const fsTxn = this._fsTransactionIds(
+      fsRows.map((r) => r.id),
+      tenantId,
+    );
+    for (const r of fsRows) r.transaction_id = fsTxn.get(r.id) ?? null;
+
+    let ledgerRows: RowBase[] = [];
+    if (this._supplierLedgerHasSettlementIdColumn()) {
+      const sourceRef = this._supplierLedgerHasSourceRefColumns();
+      // LIRA-322 F3 — a settlement's own commission credit is never an
+      // open credit (isSettlementCommissionCredit), so it stays out too.
+      // LIRA-343/345 — the ONE ledger-row rule both modes and the detach
+      // count share (`accountLedgerRowSql`, rule 14): non-zero, not refunded,
+      // not an FS auto sibling, not a settlement commission credit (LIRA-322
+      // F3), not a settlement's own row (a legacy `settleTransactions`
+      // SETTLEMENT row is never stamped, so `settlement_id IS NULL` alone
+      // listed it as a phantom open credit).
+      const modeSql =
+        window === null
+          ? `AND l.settlement_id IS NULL`
+          : `AND l.created_at >= ? AND l.created_at < ?`;
+      const rows = this.db
+        .prepare(
+          `SELECT
+             l.id AS id, l.supplier_id AS supplier_id,
+             s.provider AS source_provider, s.name AS source_name,
+             l.created_at AS created_at, l.amount_usd AS amount_usd, l.amount_lbp AS amount_lbp,
+             l.entry_type AS entry_type,
+             NULLIF(TRIM(l.note), '') AS note,
+             ${sourceRef ? "l.source_ref_table" : "NULL"} AS source_ref_table,
+             l.transaction_id AS transaction_id,
+             ${localDayExpr("l.created_at")} AS shop_day,
+             ${accountRowScopeSql("l.", {
+               sourceRef,
+               settlementLink: this._hasTransactionsTable(),
+             })} AS row_scope,
+             CASE WHEN l.settlement_id IS NULL THEN 0 ELSE 1 END AS is_closed
+           FROM supplier_ledger l
+           JOIN suppliers s ON s.id = l.supplier_id AND s.tenant_id = l.tenant_id
+           WHERE ${accountMemberOf("s.")} AND s.tenant_id = ?
+             AND ${accountLedgerRowSql("l.", sourceRef)}
+             ${modeSql}`,
+        )
+        .all(
+          accountSupplierId,
+          accountSupplierId,
+          tenantId,
+          ...(window === null ? [] : [window.fromUtc, window.toUtc]),
+        ) as {
+        id: number;
+        supplier_id: number;
+        source_provider: string | null;
+        source_name: string;
+        created_at: string;
+        amount_usd: number;
+        amount_lbp: number;
+        entry_type: string;
+        note: string | null;
+        source_ref_table: string | null;
+        transaction_id: number | null;
+        shop_day: string;
+        row_scope: "DAY" | "ACCOUNT";
+        is_closed: number;
+      }[];
+      // D14 preview (the bug this method exists to fix) — reads the SAME
+      // per-row commission `_sumCashoutCommission` sums for `settleAccount`
+      // itself (rule 14: one shared helper, `_cashoutCommissionByLedgerId`,
+      // so the sheet's preview and the eventual profit stamp can never
+      // diverge). Computed in one batched lookup for every ledger row
+      // returned here, not once per row.
+      const commissionByLedgerId = this._cashoutCommissionByLedgerId(
+        rows.map((r) => r.id),
+        tenantId,
+      );
+      ledgerRows = rows.map((r) => {
+        const commission = commissionByLedgerId.get(r.id);
+        return {
+          kind: "LEDGER" as const,
+          id: r.id,
+          supplier_id: r.supplier_id,
+          source_provider: r.source_provider,
+          source_name: r.source_name,
+          created_at: r.created_at,
+          amount_usd: r.amount_usd,
+          amount_lbp: r.amount_lbp,
+          entry_type: r.entry_type,
+          service_type: null,
+          omt_service_type: null,
+          commission_model: null,
+          commission_usd: commission?.usd ?? 0,
+          commission_lbp: commission?.lbp ?? 0,
+          shop_day: r.shop_day,
+          source_ref_table: r.source_ref_table,
+          row_scope: r.row_scope,
+          transaction_id: r.transaction_id,
+          is_closed: r.is_closed === 1,
+          party_name: null,
+          reference: null,
+          phone: null,
+          note: r.note ?? null,
+        };
+      });
+    }
+
+    const withCoverage = this._withCoverage(
+      [...fsRows, ...ledgerRows].sort((a, b) =>
+        a.created_at.localeCompare(b.created_at),
+      ),
+    );
+    const relief = this._reliefOrigins(withCoverage, tenantId);
+    return withCoverage.map((r) => {
+      const found =
+        r.kind === "LEDGER" && r.row_scope === "ACCOUNT" && r.transaction_id !== null
+          ? relief.get(r.transaction_id)
+          : undefined;
+      return {
+        ...r,
+        relief_origin: found?.origin ?? null,
+        relief_ref: found ? `#${found.reversedId}` : null,
+      };
+    });
+  }
+
+  /**
+   * LIRA-343 T037 — for the ACCOUNT ledger rows' `transaction_id`s, the
+   * ones that are reversals (`reverses_id` set): origin UNDO when the
+   * reversed transaction is a SUPPLIER_SETTLEMENT, else VOID. One batched
+   * read per ~500 ids, keyed by the reversal's id.
+   */
+  private _reliefOrigins(
+    rows: readonly AccountUnsettledRow[],
+    tenantId: number,
+  ): Map<number, { origin: "UNDO" | "VOID"; reversedId: number }> {
+    const out = new Map<number, { origin: "UNDO" | "VOID"; reversedId: number }>();
+    if (!this._hasTransactionsTable()) return out;
+    const ids = rows
+      .filter(
+        (r) =>
+          r.kind === "LEDGER" &&
+          r.row_scope === "ACCOUNT" &&
+          r.transaction_id !== null,
+      )
+      .map((r) => r.transaction_id as number);
+    if (!ids.length) return out;
+    // Schema-drift guard (hand-built fixtures without the column).
+    const cols = this.db
+      .prepare(`PRAGMA table_info(transactions)`)
+      .all() as { name: string }[];
+    if (!cols.some((c) => c.name === "reverses_id")) return out;
+    for (const part of chunk([...new Set(ids)], ID_BATCH)) {
+      const found = this.db
+        .prepare(
+          `SELECT t.id AS id, o.id AS reversed_id, o.type AS reversed_type
+             FROM transactions t
+             JOIN transactions o ON o.id = t.reverses_id AND o.tenant_id = t.tenant_id
+            WHERE t.tenant_id = ? AND t.reverses_id IS NOT NULL
+              AND t.id IN (${part.map(() => "?").join(", ")})`,
+        )
+        .all(tenantId, ...part) as Array<{
+        id: number;
+        reversed_id: number;
+        reversed_type: string;
+      }>;
+      for (const f of found) {
+        out.set(f.id, {
+          origin: f.reversed_type === "SUPPLIER_SETTLEMENT" ? "UNDO" : "VOID",
+          reversedId: f.reversed_id,
+        });
+      }
+    }
+    return out;
   }
 
   /**
@@ -3355,6 +3926,24 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       data.supplier_id,
       getCurrentTenantId(),
     );
+    // LIRA-345 — a transfer the day calendar already part-paid is never
+    // settled whole here: the tick list books its full amount, so the
+    // covered part would be paid a second time (the same refusal the legacy
+    // account settle has, T008a). Settle the rest from Settle Account.
+    const covered = this.getRowCoverage(
+      "FINANCIAL_SERVICE",
+      data.financial_service_ids,
+    );
+    for (const id of data.financial_service_ids) {
+      const c = covered.get(id);
+      if (c && (c.covered_usd > 0 || c.covered_lbp > 0)) {
+        throw new DatabaseError(
+          "This transfer is partly paid; settle it from the Settle Account " +
+            `sheet. (Settlement: financial_service ${id} already has ` +
+            `$${c.covered_usd.toFixed(2)} + ${c.covered_lbp} LBP applied)`,
+        );
+      }
+    }
 
     // COMMISSION_AT_SETTLEMENT_PLAN.md D2/D3/D4 — resolve BEFORE the generic
     // try/catch below (same tier as the two validations above, deliberately
@@ -4076,7 +4665,20 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   ): void {
     if (covered === undefined) return;
     const offenders = rows
-      .filter((r) => r.commission_model === 1 && !isOmtRowCovered(r, covered))
+      .filter((r) =>
+        // LIRA-343 — the ONE "waiting for its statement type" rule (rule
+        // 14), shared with the settle calendar. Every caller passes
+        // FINANCIAL_SERVICE rows.
+        isSettleRowWaiting(
+          {
+            kind: "FINANCIAL_SERVICE",
+            commission_model: r.commission_model,
+            source_provider: r.provider,
+            omt_service_type: r.omt_service_type,
+          },
+          covered,
+        ),
+      )
       .sort((a, b) => a.id - b.id);
     if (offenders.length === 0) return;
     const first = offenders[0];
@@ -4719,7 +5321,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
              settlement_id = ?
          WHERE id IN (${placeholders})
            AND settlement_id IS NULL
-           AND ${ledgerNotRefunded()}
+           AND ${NOT_REFUNDED_SQL}
            AND tenant_id = ?`,
       )
       .run(settlementLedgerId, ...financialServiceIds, tenantId);
@@ -6107,6 +6709,24 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     const mixedDirections = sections.some((s) => s.direction !== flow);
     const tenantId = getCurrentTenantId();
     const accountId = data.account_supplier_id;
+    // LIRA-343 — the account credit the user chose to use, per currency
+    // (contracts/settle-account-days.md). Read here, with
+    // `include_account_credits` (rule 23 reverse): both reach the scope,
+    // the allocator and `metadata_json`.
+    const includeAccountCredits = data.include_account_credits === true;
+    const creditUsed = {
+      USD: Math.abs(data.credit_used?.usd ?? 0),
+      LBP: Math.abs(data.credit_used?.lbp ?? 0),
+    };
+    for (const currency of AMOUNT_FIRST_CURRENCIES) {
+      if (creditUsed[currency] > 0 && !pc[currency]) {
+        throw new DatabaseError(
+          `Enter the ${currency} amount to use the account credit in ${currency}. ` +
+            `(Account settlement: credit_used.${currency.toLowerCase()} with no ` +
+            `${currency} section)`,
+        );
+      }
+    }
 
     const run = this.db.transaction((): { id: number } => {
       const parent = this.findById(accountId);
@@ -6120,7 +6740,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
       // ── 1. Fresh queue + scope (selections override, covered types) ────
       const queue = this.getAccountUnsettled(accountId);
-      const scoped = this._amountFirstScope(queue, data);
+      const scope = this._amountFirstScope(queue, data);
+      // Day rows + account rows: the stale sum, and every lookup by key
+      // below (coverage, stamps, netting names) spans both.
+      const scoped = [...scope.rows, ...scope.accountRows];
 
       // ── 2. Stale-preview refusal (FR-021) ─────────────────────────────
       const owed = {
@@ -6132,7 +6755,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         Math.abs(owed.lbp - expected.lbp) > AMOUNT_FIRST_EPS.LBP
       ) {
         throw new DatabaseError(
-          "OMT's balance changed since you opened this sheet. Check the new " +
+          `${settleStaleMessage(parent.name)} Check the new ` +
             `amounts. (expected $${expected.usd.toFixed(2)} + ${expected.lbp} ` +
             `LBP, found $${owed.usd.toFixed(2)} + ${owed.lbp} LBP)`,
         );
@@ -6148,7 +6771,14 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       const plans: AmountFirstSectionPlan[] = [];
       for (const section of sections) {
         plans.push(
-          this._planAmountFirstSection(section, scoped, rate, ledgerExtra),
+          this._planAmountFirstSection(
+            section,
+            scope,
+            creditUsed[section.currency],
+            rate,
+            ledgerExtra,
+            parent.name,
+          ),
         );
       }
 
@@ -6354,6 +6984,14 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           per_currency: perCurrency,
           expected_owed: expected,
           ...(data.selections ? { selections: data.selections } : {}),
+          // LIRA-343 — the request as sent: account rows in scope, and the
+          // credit the user chose per currency (applied: per_currency.*).
+          ...(includeAccountCredits
+            ? {
+                include_account_credits: true,
+                credit_used: { usd: creditUsed.USD, lbp: creditUsed.LBP },
+              }
+            : {}),
           members,
           cashout_commission_usd: cashout.usd,
           cashout_commission_lbp: cashout.lbp,
@@ -6615,15 +7253,24 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    * row outside the statement's types is refused, LIRA-256), otherwise the
    * whole queue minus model-1 OMT rows the statement does not cover (they
    * are never closed or part-paid, FR-009).
+   *
+   * LIRA-343 (contracts/settle-account-days.md, research R1/R5) — with
+   * `include_account_credits`, every open ACCOUNT row (`row_scope`, either
+   * sign) joins the scope AFTER the selection checks, as a separate list:
+   * the allocator takes it as `account_credits`, never as `rows`. An
+   * ACCOUNT row a client also put in `selections` goes to that list too (it
+   * is account-level whatever the client sent). Without the flag, ACCOUNT
+   * rows stay in `rows` exactly as before (LIRA-322 unchanged).
    */
   private _amountFirstScope(
     queue: AccountUnsettledRow[],
     data: SettleAccountRequest,
-  ): AccountUnsettledRow[] {
+  ): { rows: AccountUnsettledRow[]; accountRows: AccountUnsettledRow[] } {
+    let picked: AccountUnsettledRow[];
     if (data.selections) {
       const byKey = new Map(queue.map((r) => [`${r.kind}:${r.id}`, r]));
       const seen = new Set<string>();
-      const rows: AccountUnsettledRow[] = [];
+      picked = [];
       for (const sel of data.selections) {
         const key = `${sel.kind}:${sel.id}`;
         if (seen.has(key)) throw new DatabaseError(`Duplicate selection: ${key}`);
@@ -6636,10 +7283,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
               `${data.account_supplier_id})`,
           );
         }
-        rows.push(row);
+        picked.push(row);
       }
       this._assertRowsCoveredByStatement(
-        rows
+        picked
           .filter((r) => r.kind === "FINANCIAL_SERVICE")
           .map((r) => ({
             id: r.id,
@@ -6649,19 +7296,19 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           })),
         data.covered_omt_service_types,
       );
-      return rows;
+    } else {
+      picked = queue.filter(
+        (r) => !isSettleRowWaiting(r, data.covered_omt_service_types),
+      );
     }
-    return queue.filter(
-      (r) =>
-        !(
-          r.kind === "FINANCIAL_SERVICE" &&
-          r.commission_model === 1 &&
-          !isOmtRowCovered(
-            { provider: r.source_provider, omt_service_type: r.omt_service_type },
-            data.covered_omt_service_types,
-          )
-        ),
-    );
+    if (data.include_account_credits !== true) {
+      return { rows: picked, accountRows: [] };
+    }
+    return {
+      rows: picked.filter((r) => r.row_scope !== "ACCOUNT"),
+      // Queue order = oldest first (the allocator re-sorts by the same key).
+      accountRows: queue.filter((r) => r.row_scope === "ACCOUNT"),
+    };
   }
 
   /**
@@ -6680,9 +7327,12 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    */
   private _planAmountFirstSection(
     section: SettleAccountCurrencySectionData & { currency: "USD" | "LBP" },
-    scoped: AccountUnsettledRow[],
+    scope: { rows: AccountUnsettledRow[]; accountRows: AccountUnsettledRow[] },
+    creditUsed: number,
     rate: number,
     ledgerExtra: { usd: number; lbp: number },
+    /** LIRA-345 — the supplier settled, named in the refusals. */
+    name: string,
   ): AmountFirstSectionPlan {
     const { currency } = section;
     const eps = AMOUNT_FIRST_EPS[currency];
@@ -6693,17 +7343,49 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     const commission = section.commission ?? 0;
     const waive = section.waive ?? 0;
 
-    const rows = scoped.filter((r) => Math.abs(rowRemaining(r, currency)) > eps);
-    const owedNet = rows.reduce((s, r) => s + rowRemaining(r, currency), 0);
+    const inCurrency = (list: AccountUnsettledRow[]) =>
+      list.filter((r) => Math.abs(rowRemaining(r, currency)) > eps);
+    const rows = inCurrency(scope.rows);
+    // LIRA-343 — open ACCOUNT rows (either sign), kept apart from `rows`.
+    const accountRows = inCurrency(scope.accountRows);
+    const toAllocRow = (r: AccountUnsettledRow) => ({
+      kind: r.kind,
+      id: r.id,
+      member_supplier_id: r.supplier_id,
+      created_at: r.created_at,
+      remaining: rowRemaining(r, currency),
+      commission_model1:
+        r.kind === "FINANCIAL_SERVICE" && r.commission_model === 1,
+      cashout_commission: currency === "USD" ? r.commission_usd : r.commission_lbp,
+    });
+    const allocRows = rows.map(toAllocRow);
+    const allocAccountRows = accountRows.map(toAllocRow);
+
+    // What the scope owes after netting (D), and the account credit still
+    // usable — from a money-free run of the ONE allocator (rule 14), so the
+    // direction check, the waive check and the "at most" refusal read the
+    // same figure the allocation uses. With no account rows D is exactly
+    // the signed net of `rows` (netting moves nothing in or out).
+    const probe = allocateAccountSettlement({
+      currency,
+      rows: allocRows,
+      account_credits: allocAccountRows,
+      credit_used: 0,
+      paid: 0,
+      commission: 0,
+      waive: 0,
+      eps,
+    });
+    const owedNet = probe.remaining_after;
     if (owedNet > eps && section.direction !== "PAY") {
       throw new DatabaseError(
-        `You pay OMT in ${label} — ${fmt(owedNet)} is owed to OMT. ` +
+        `You pay ${name} in ${label} — ${fmt(owedNet)} is owed to ${name}. ` +
           `(Account settlement: ${label} section direction COLLECT contradicts the rows)`,
       );
     }
     if (owedNet < -eps && section.direction !== "COLLECT") {
       throw new DatabaseError(
-        `OMT pays you in ${label} — OMT owes the shop ${fmt(owedNet)}. ` +
+        `${name} pays you in ${label} — ${name} owes the shop ${fmt(owedNet)}. ` +
           `(Account settlement: ${label} section direction PAY contradicts the rows)`,
       );
     }
@@ -6734,20 +7416,35 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
     const alloc = allocateAccountSettlement({
       currency,
-      rows: rows.map((r) => ({
-        kind: r.kind,
-        id: r.id,
-        member_supplier_id: r.supplier_id,
-        created_at: r.created_at,
-        remaining: rowRemaining(r, currency),
-        commission_model1: r.kind === "FINANCIAL_SERVICE" && r.commission_model === 1,
-        cashout_commission: currency === "USD" ? r.commission_usd : r.commission_lbp,
-      })),
+      rows: allocRows,
+      ...(accountRows.length > 0 ? { account_credits: allocAccountRows } : {}),
+      ...(creditUsed > 0 ? { credit_used: creditUsed } : {}),
       paid,
       commission,
       waive,
       eps,
     });
+    // LIRA-343 — the user sets the credit; more than may be used is refused
+    // (shop pays: at most min(owed, credit); OMT pays: at most the credit).
+    if (alloc.credit_used_too_high) {
+      const nettedAway = new Map<string, number>();
+      for (const t of probe.takes) {
+        const k = `${t.kind}:${t.id}`;
+        nettedAway.set(k, (nettedAway.get(k) ?? 0) + t.amount);
+      }
+      const pool = allocAccountRows
+        .filter((r) => r.remaining < 0)
+        .reduce(
+          (s, r) =>
+            s + Math.max(0, -r.remaining - (nettedAway.get(`${r.kind}:${r.id}`) ?? 0)),
+          0,
+        );
+      const cap = roundMoney(owedNet > eps ? Math.min(owedNet, pool) : pool, currency);
+      throw new DatabaseError(
+        `You can use at most ${fmt(cap)} of ${name} credit in ${label}. ` +
+          `(Account settlement: ${label} credit_used ${creditUsed} is more than ${cap})`,
+      );
+    }
 
     const sumBy = (source: string) =>
       alloc.takes
@@ -6772,14 +7469,16 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             `currency. (Account settlement: ${label} waive with extra ${alloc.extra})`,
         );
       }
-      const waivedPartial =
-        alloc.partial &&
-        alloc.takes.some(
-          (t) =>
-            t.source === "WAIVE" &&
-            t.kind === alloc.partial!.kind &&
-            t.id === alloc.partial!.id,
-        );
+      // LIRA-343: `partial` is day rows only; a waive can also stop inside
+      // a positive account row (`account_partial`).
+      const waivedPartial = [alloc.partial, alloc.account_partial].some(
+        (part) =>
+          part !== null &&
+          alloc.takes.some(
+            (t) =>
+              t.source === "WAIVE" && t.kind === part.kind && t.id === part.id,
+          ),
+      );
       if (waivedPartial) {
         throw new DatabaseError(
           "A waive must settle the transfers it covers in full.",
@@ -6787,7 +7486,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       }
     }
 
-    const byKey = new Map(rows.map((r) => [`${r.kind}:${r.id}`, r]));
+    const byKey = new Map(
+      [...rows, ...accountRows].map((r) => [`${r.kind}:${r.id}`, r]),
+    );
     const commissionRows = alloc.commission_alloc.map(
       (a) => byKey.get(`FINANCIAL_SERVICE:${a.id}`)!,
     );
@@ -6857,6 +7558,14 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         commission,
         waive,
         extra: roundMoney(flowExtra, currency),
+        ...(scope.accountRows.length > 0 || creditUsed > 0
+          ? {
+              account_credit_applied: roundMoney(
+                alloc.account_credit_applied,
+                currency,
+              ),
+            }
+          : {}),
       },
     };
   }
@@ -6950,8 +7659,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    *   keeps it OUT of `isSettlementCommissionCredit` (which matches only
    *   the legacy back-linked credits, already netted into their payment),
    *   lets `_reverseSupplierSettlement` soft-void it with the settlement
-   *   (rule 20), and lets `_assertNoActiveSettlementCoverage` refuse this
-   *   settlement's void once a later settlement has netted the credit.
+   *   (rule 20). If a later settlement has already netted the credit, the
+   *   undo is still allowed (LIRA-343 FR-018, R12): the used part comes
+   *   back as an open account row ("owed to OMT") owned by the undo
+   *   (`TransactionRepository._bookSettlementCoverageRelief`).
    *   `is_auto`: bookkeeping the settlement wrote, not an operator action
    *   (rule 26). One row per currency, never a mixed row: a later
    *   settlement may net only one currency (FR-002).
@@ -7042,6 +7753,268 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         is_auto: true,
         transaction_id: txnId,
       });
+    }
+  }
+
+  /**
+   * LIRA-344 — "Remove credit": close ONE open account credit that OMT will
+   * never accept (miscalculated, or really the shop's own cost) and book it
+   * as a shop expense. No money moves: the credit was never cash.
+   *
+   * Why a SUPPLIER_SETTLEMENT and not the LIRA-310 settlement waive: a waive
+   * is capped at SHORTFALL_MAX, must be less than what is owed, refuses a
+   * scope with nothing owed, and books a supplier DISCOUNT, not an expense.
+   * A write-off is none of those. It is written in the SAME shape an
+   * amount-first settlement uses, so the generic undo reverses it with no
+   * new reversal code (rule 20):
+   *
+   *  - an anchor `supplier_ledger` row (`ADJUSTMENT`, +credit in ledger
+   *    sign, on the credit's own member so each line still equals its own
+   *    open rows), self-stamped (`settlement_id = id`): never an open row;
+   *  - the ONE SUPPLIER_SETTLEMENT transaction (amount 0, profit 0,
+   *    `metadata_json.mode = CREDIT_WRITE_OFF`), sourced on the anchor;
+   *  - `supplier_settlement_coverage` (`source 'WAIVE'`, `closes_row`) on
+   *    the credit row, which is then stamped with the anchor;
+   *  - a books-only expense (no payments row, no drawer) linked to the
+   *    anchor (`source_ref_table = 'supplier_ledger'`), so it is `is_auto`
+   *    (rule 26) and the cost reaches Profits through `expenses` only.
+   *
+   * Reversal owner: the settlement's void. `_reverseSupplierSettlement`
+   * reverses the coverage, soft-voids the anchor and un-stamps the credit;
+   * `_cascadeExpenseSiblingVoid` voids the expense (source_table /
+   * source_id = the anchor). The expense alone is locked
+   * (`OMT_CREDIT_REMOVED_EXPENSE_LOCKED_MESSAGE`).
+   *
+   * Rule 31: the reason is copied into the anchor note, the transaction
+   * summary / metadata and the expense description / metadata as a
+   * SNAPSHOT at removal time; editing the expense description later does
+   * not change the other copies (the metadata keeps what was typed).
+   *
+   * Refusals: not an open row of this account, a day row, a row with
+   * anything owed to OMT (a debt), nothing left, a stale amount, an empty
+   * reason. The admin gate is the transport's (`requireRole(['admin'])`).
+   */
+  removeAccountCredit(data: RemoveAccountCreditData): {
+    id: number;
+    transaction_id: number;
+    expense_id: number;
+  } {
+    if (!this._suppliersHasAccountLinkColumn()) {
+      throw new DatabaseError(
+        "Account settlement requires the account schema (migration v176)",
+      );
+    }
+    if (!this._hasSettlementCoverageTable()) {
+      throw new DatabaseError(
+        "Removing an OMT credit needs a database update. " +
+          "(supplier_settlement_coverage is missing — migration v217)",
+      );
+    }
+    const reason = (data.reason ?? "").trim();
+    if (
+      reason.length < ACCOUNT_CREDIT_REASON_MIN ||
+      reason.length > ACCOUNT_CREDIT_REASON_MAX
+    ) {
+      throw new DatabaseError(
+        `Enter a reason of ${ACCOUNT_CREDIT_REASON_MIN} to ` +
+          `${ACCOUNT_CREDIT_REASON_MAX} characters. (Remove credit: reason ` +
+          `has ${reason.length})`,
+      );
+    }
+    const tenantId = getCurrentTenantId();
+    const accountId = data.account_supplier_id;
+
+    const run = this.db.transaction(() => {
+      const parent = this.findById(accountId);
+      if (!parent) {
+        throw new DatabaseError(`Supplier account ${accountId} not found`);
+      }
+      // The ONE open-queue read decides membership, open / not refunded,
+      // scope and what is left (rule 14) — nothing re-derived here.
+      const row = this.getAccountUnsettled(accountId).find(
+        (r) => r.kind === "LEDGER" && r.id === data.ledger_row_id,
+      );
+      if (!row) {
+        throw new DatabaseError(
+          "This OMT credit is no longer open — reopen the sheet. (Remove " +
+            `credit: ledger row ${data.ledger_row_id} is not an open row of ` +
+            `account ${accountId})`,
+        );
+      }
+      if (row.row_scope !== "ACCOUNT") {
+        throw new DatabaseError(
+          "Only a credit on the OMT account can be removed — a day's " +
+            "transfer or cash-out is settled on its day. (Remove credit: " +
+            `ledger row ${row.id} is a DAY row)`,
+        );
+      }
+      const left = {
+        usd: roundMoney(row.remaining_usd, "USD"),
+        lbp: roundMoney(row.remaining_lbp, "LBP"),
+      };
+      // The same rule the sheet shows the button by (rule 14).
+      if (!isRemovableAccountCredit(row)) {
+        throw new DatabaseError(
+          "Only a credit (OMT owes the shop) can be removed. (Remove credit: " +
+            `ledger row ${row.id} has $${left.usd.toFixed(2)} + ${left.lbp} LBP left)`,
+        );
+      }
+      const expected = data.expected_remaining;
+      if (
+        Math.abs(left.usd - expected.usd) > AMOUNT_FIRST_EPS.USD ||
+        Math.abs(left.lbp - expected.lbp) > AMOUNT_FIRST_EPS.LBP
+      ) {
+        throw new DatabaseError(
+          "OMT's balance changed since you opened this sheet. Check the new " +
+            `amounts. (Remove credit: expected $${expected.usd.toFixed(2)} + ` +
+            `${expected.lbp} LBP, found $${left.usd.toFixed(2)} + ${left.lbp} LBP)`,
+        );
+      }
+      // Magnitudes removed (the credit is negative in ledger sign).
+      const removed = {
+        usd: left.usd < 0 ? -left.usd : 0,
+        lbp: left.lbp < 0 ? -left.lbp : 0,
+      };
+      const money = [
+        removed.usd > 0 ? `$${removed.usd.toFixed(2)}` : null,
+        removed.lbp > 0 ? `${removed.lbp.toLocaleString("en-US")} LBP` : null,
+      ]
+        .filter(Boolean)
+        .join(" + ");
+      const note = `OMT credit removed: ${reason}`;
+
+      // Rule 27 / FR-021: business time through requestNow() (same
+      // 'YYYY-MM-DD HH:MM:SS' UTC text as datetime('now')), shared by the
+      // anchor row and its coverage rows.
+      const createdAt = requestNow();
+
+      // ── 1. Anchor row: +credit on the credit's own member ──────────────
+      const anchorId = Number(
+        this.db
+          .prepare(
+            `INSERT INTO supplier_ledger
+               (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
+             VALUES (?, 'ADJUSTMENT', ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            row.supplier_id,
+            removed.usd,
+            removed.lbp,
+            note,
+            data.created_by,
+            tenantId,
+            createdAt,
+          ).lastInsertRowid,
+      );
+
+      // ── 2. The ONE transaction that owns every write below ────────────
+      const txnId = getTransactionRepository().createTransaction({
+        type: TRANSACTION_TYPES.SUPPLIER_SETTLEMENT,
+        source_table: "supplier_ledger",
+        source_id: anchorId,
+        user_id: data.created_by,
+        // No money moved; the cost is the expense below (Profits reads
+        // `expenses`), so no profit stamp here — it would count it twice.
+        amount_usd: 0,
+        amount_lbp: 0,
+        profit_usd: 0,
+        profit_lbp: 0,
+        summary: `OMT credit removed: ${parent.name} — ${money} (${reason})`,
+        details: buildSupplierEntryDetails({
+          supplierId: accountId,
+          action: "ACCOUNT_SETTLE",
+          note,
+        }),
+        metadata_json: {
+          account_supplier_id: accountId,
+          mode: ACCOUNT_CREDIT_WRITE_OFF_MODE,
+          reason,
+          credit_row: { kind: "LEDGER", id: row.id },
+          removed,
+          expected_remaining: expected,
+          members: [row.supplier_id],
+          counterparty: buildCounterpartyMetadata({
+            kind: "supplier",
+            id: accountId,
+            name: parent.name,
+            flow: "OUT",
+            method: "WRITE_OFF",
+            ledgerEntryId: anchorId,
+          }),
+        },
+      });
+      const stamped = this.db
+        .prepare(
+          `UPDATE supplier_ledger SET transaction_id = ?, settlement_id = ? WHERE id = ? AND tenant_id = ?`,
+        )
+        .run(txnId, anchorId, anchorId, tenantId);
+      if (stamped.changes !== 1) {
+        throw new DatabaseError(
+          `Remove credit aborted: failed to stamp the anchor supplier_ledger row ${anchorId}`,
+        );
+      }
+
+      // ── 3. Coverage closes the credit row, per currency ───────────────
+      const takes = (["USD", "LBP"] as const).filter((c) =>
+        c === "USD" ? removed.usd > 0 : removed.lbp > 0,
+      );
+      const insertCoverage = this.db.prepare(
+        `INSERT INTO supplier_settlement_coverage
+           (tenant_id, transaction_id, anchor_ledger_id, row_kind, row_id,
+            member_supplier_id, currency, amount, source, closes_row, is_reversed,
+            created_at, updated_at)
+         VALUES (?, ?, ?, 'LEDGER', ?, ?, ?, ?, 'WAIVE', ?, 0, ?, datetime('now'))`,
+      );
+      takes.forEach((c, i) => {
+        insertCoverage.run(
+          tenantId,
+          txnId,
+          anchorId,
+          row.id,
+          row.supplier_id,
+          c,
+          c === "USD" ? removed.usd : removed.lbp,
+          i === takes.length - 1 ? 1 : 0,
+          createdAt,
+        );
+      });
+      if (this._markLedgerRowsSettled([row.id], anchorId, tenantId) !== 1) {
+        throw new DatabaseError(
+          `Remove credit aborted: failed to close the credit row ${row.id}`,
+        );
+      }
+
+      // ── 4. The cost: a books-only expense owned by the anchor ─────────
+      const expenseId = getExpenseRepository().createExpense(
+        {
+          description: `${note} (${row.source_name}, row #${row.id})`,
+          category: OMT_CREDIT_REMOVED_EXPENSE_CATEGORY,
+          paid_by_method: "CASH",
+          amount_usd: removed.usd,
+          amount_lbp: removed.lbp,
+          // Rule 27: the shop's own day, as the client sent it.
+          expense_date: data.client_day ?? clientDay(),
+          books_only: true,
+          source_ref_table: "supplier_ledger",
+          source_ref_id: anchorId,
+          extra_metadata: {
+            account_supplier_id: accountId,
+            credit_ledger_row_id: row.id,
+            settlement_transaction_id: txnId,
+            reason,
+          },
+        },
+        data.created_by,
+      );
+
+      return { id: anchorId, transaction_id: txnId, expense_id: expenseId };
+    });
+
+    try {
+      return run();
+    } catch (e) {
+      if (e instanceof DatabaseError) throw e;
+      throw new DatabaseError("Failed to remove the OMT credit", { cause: e });
     }
   }
 

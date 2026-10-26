@@ -26,6 +26,8 @@ describe("debtHandlers registration", () => {
       "debt:get-client-history",
       "debt:get-client-total",
       "debt:add-repayment",
+      // LIRA-347 — the settle calendar's month read.
+      "debt:get-month-rows",
       "dashboard:get-debt-summary",
     ];
     expected.forEach((ch) => expect(calls).toContain(ch));

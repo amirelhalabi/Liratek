@@ -179,7 +179,11 @@ describe("useTransactionRows", () => {
     expect(result.current.rows.map((r) => r.id)).toEqual([1]);
   });
 
-  it("narrows filteredRows to the from/to range without refetching", async () => {
+  // LIRA-348 (rule 24): the from/to days are now applied by the SERVER
+  // (`day_from`/`day_to` — see useTransactionRows.lira348Paging.test.ts),
+  // so a range change refetches. `filteredRows` keeps the same local-day
+  // cut as a safety net over whatever comes back; this guards that net.
+  it("filteredRows still cuts anything outside the from/to days that comes back", async () => {
     mockFetch.mockResolvedValue([
       {
         id: 1,

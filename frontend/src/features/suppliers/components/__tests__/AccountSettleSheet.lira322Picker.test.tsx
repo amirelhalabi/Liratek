@@ -1,11 +1,20 @@
 /** @jest-environment jsdom */
 
 /**
- * LIRA-322 (US5, T047) — ticking transfers is an optional override. The
- * sheet opens with NOTHING ticked behind a collapsed "Pick transfers"
- * toggle; the whole account is in scope. Ticking rows narrows the preview
- * (and `expected_owed`) to them and sends `selections`; "Clear" goes back to
- * the whole account and omits `selections`.
+ * LIRA-322 (US5, T047) — ticking transfers narrowed what a settlement covers.
+ *
+ * LIRA-343 rewrite (rule 24, intent kept): the top-level "Pick transfers"
+ * toggle is gone (single transfers return inside a day's details, US4). The
+ * scope is now narrowed by picking DAYS on the calendar. The same three
+ * intents are guarded:
+ *   - the sheet opens with the default scope and no top-level picker;
+ *   - narrowing (now: unpicking days) narrows the preview, `expected_owed`
+ *     and `selections`;
+ *   - "Clear" no longer means "the whole account": with nothing picked
+ *     Confirm is off, so a payload never goes out without `selections`
+ *     (the server reads a missing list as the whole account); "Pick all
+ *     open" brings every open day back.
+ * Today is fixed at 26 Oct 2026; the six fixture transfers sit on 1–6 Oct.
  */
 
 import {
@@ -21,11 +30,20 @@ import { AccountSettleSheet } from "../AccountSettleSheet";
 import type { AccountUnsettledRow } from "../../hooks/useSuppliers";
 import { OMT_ACCOUNT, SIX_USD_ROWS } from "../../testing/accountSettleFixtures";
 
+jest.mock("@/shared/utils/localDay", () => {
+  const actual = jest.requireActual("@/shared/utils/localDay");
+  return { ...actual, localDay: () => "2026-10-26" };
+});
+
 const mockSettleSupplierAccount = jest.fn();
 const mockGetSupplierAccountUnsettled = jest.fn();
 const mockApi = {
   settleSupplierAccount: mockSettleSupplierAccount,
   getSupplierAccountUnsettled: mockGetSupplierAccountUnsettled,
+  // LIRA-343 — the calendar's month read: the same six October rows, so
+  // their days can be tapped.
+  getSupplierAccountMonthRows: jest.fn(async () => SIX_USD_ROWS),
+  getSupplierAccountDayDetail: jest.fn(async () => []),
 };
 
 jest.mock("@liratek/ui", () => {
@@ -75,13 +93,16 @@ function previewRows(section: HTMLElement) {
     .map((r) => [r.getAttribute("data-row-id"), r.getAttribute("data-status")]);
 }
 
-async function tick(rowId: number) {
-  const row = (
-    await screen.findAllByTestId("supplier-account-settle-row")
-  ).find((r) => r.getAttribute("data-row-id") === String(rowId))!;
-  fireEvent.click(
-    within(row).getByTestId("supplier-account-settle-row-toggle"),
-  );
+/** Tap the calendar day `2026-10-DD`. */
+async function tapDay(dd: string) {
+  const cell = await waitFor(() => {
+    const el = document.querySelector(`[data-day="2026-10-${dd}"]`);
+    if (!el) throw new Error(`day ${dd} not rendered`);
+    return el as HTMLElement;
+  });
+  const button = within(cell).getByRole("button");
+  await waitFor(() => expect(button).not.toBeDisabled());
+  fireEvent.click(button);
 }
 
 async function submitAndParse() {
@@ -101,40 +122,33 @@ async function submitAndParse() {
   };
 }
 
-describe("AccountSettleSheet — optional transfer picker (LIRA-322 US5)", () => {
+describe("AccountSettleSheet — narrowing the scope (LIRA-322 US5 → LIRA-343 days)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSettleSupplierAccount.mockResolvedValue({ success: true, id: 900 });
   });
 
-  it("opens with the picker collapsed and nothing ticked", async () => {
+  it("opens with every open day picked and no top-level transfer picker", async () => {
     renderSheet(SIX_USD_ROWS);
 
-    const toggle = await screen.findByTestId(
-      "supplier-account-settle-pick-toggle",
+    const usd = await screen.findByTestId(
+      "supplier-account-settle-section-usd",
     );
+    expect(
+      within(usd).getByTestId("supplier-account-settle-owed-usd").textContent,
+    ).toBe("$497.00");
+    expect(
+      screen.queryByTestId("supplier-account-settle-pick-toggle"),
+    ).not.toBeInTheDocument();
     expect(screen.queryAllByTestId("supplier-account-settle-row")).toHaveLength(
       0,
     );
-
-    fireEvent.click(toggle);
-    const rows = await screen.findAllByTestId("supplier-account-settle-row");
-    expect(rows).toHaveLength(6);
-    for (const row of rows) {
-      expect(
-        within(row).getByTestId("supplier-account-settle-row-toggle"),
-      ).not.toBeChecked();
-    }
   });
 
-  it("ticking the two $21 transfers narrows the preview and sends them as selections", async () => {
+  it("unpicking 1–4 Oct narrows the preview to the two $21 transfers and sends them as selections", async () => {
     renderSheet(SIX_USD_ROWS);
 
-    fireEvent.click(
-      await screen.findByTestId("supplier-account-settle-pick-toggle"),
-    );
-    await tick(105);
-    await tick(106);
+    for (const dd of ["01", "02", "03", "04"]) await tapDay(dd);
 
     const usd = screen.getByTestId("supplier-account-settle-section-usd");
     await waitFor(() =>
@@ -159,25 +173,31 @@ describe("AccountSettleSheet — optional transfer picker (LIRA-322 US5)", () =>
     expect(parsed.expected_owed?.lbp).toBe(0);
   });
 
-  it("Clear returns to the whole account and omits selections", async () => {
+  it("Clear turns Confirm off (never a payload without selections); Pick all open brings every day back", async () => {
     renderSheet(SIX_USD_ROWS);
 
-    fireEvent.click(
-      await screen.findByTestId("supplier-account-settle-pick-toggle"),
+    await screen.findByTestId("supplier-account-settle-section-usd");
+    fireEvent.click(screen.getByText("Clear"));
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("supplier-account-settle-submit"),
+      ).toBeDisabled(),
     );
-    await tick(105);
-    fireEvent.click(screen.getByTestId("supplier-account-settle-pick-clear"));
+    expect(mockSettleSupplierAccount).not.toHaveBeenCalled();
 
-    const usd = screen.getByTestId("supplier-account-settle-section-usd");
+    fireEvent.click(screen.getByText("Pick all open"));
+    const usd = await screen.findByTestId(
+      "supplier-account-settle-section-usd",
+    );
     await waitFor(() =>
       expect(
         within(usd).getByTestId("supplier-account-settle-owed-usd").textContent,
       ).toBe("$497.00"),
     );
-    fireEvent.change(amountInput(usd), { target: { value: "497" } });
 
     const { raw, parsed } = await submitAndParse();
-    expect(raw).not.toHaveProperty("selections");
+    expect(raw).toHaveProperty("selections");
+    expect(parsed.selections).toHaveLength(6);
     expect(parsed.expected_owed?.usd).toBeCloseTo(497, 2);
   });
 });

@@ -307,5 +307,21 @@
   },
   "errors": {
     "withMessage": "Error: {{message}}"
+  },
+  "dayCalendar": {
+    "open": "Pick days on a calendar",
+    "hide": "Hide the calendar",
+    "intro": "Tap the days the customer is paying for. Their items are ticked below and the amount fills in.",
+    "loading": "Loading the month…",
+    "failed": "Couldn't load this month. Close the calendar and try again.",
+    "earlierBalance": "Earlier balance (no items):",
+    "earlierHint": "Not on a day — tick it in the list below to pay it.",
+    "useCredit": "Use credit",
+    "useCreditOf": "of {{amount}}",
+    "useCreditLabel": "Credit to use in {{currency}}",
+    "creditNote": "The credit pays the picked days. No money moves for that part.",
+    "kindSale": "Sale",
+    "kindCharge": "Charge",
+    "kindMember": "Basket item"
   }
 }

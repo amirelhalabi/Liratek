@@ -37,6 +37,10 @@ const mockGetSupplierAccountUnsettled = jest.fn();
 const mockApi = {
   settleSupplierAccount: mockSettleSupplierAccount,
   getSupplierAccountUnsettled: mockGetSupplierAccountUnsettled,
+  // LIRA-343 — the calendar's month read. Empty here: these cases test the
+  // money, and the open queue (not this read) decides the picked days.
+  getSupplierAccountMonthRows: jest.fn(async () => []),
+  getSupplierAccountDayDetail: jest.fn(async () => []),
 };
 
 jest.mock("@liratek/ui", () => {
@@ -187,18 +191,27 @@ describe("AccountSettleSheet (LIRA-189, amount-first since LIRA-322)", () => {
     mockSettleSupplierAccount.mockResolvedValue({ success: true, id: 555 });
   });
 
-  it("previews every open row oldest first, and nothing is ticked by hand", async () => {
+  // LIRA-343 rewrite (rule 24): "nothing is ticked by hand" was the
+  // LIRA-322 Pick transfers override, now removed. Its intent — the default
+  // settles every open row with no hand-picking — is kept: every open day
+  // before today is picked, so every row is in `selections`, and the old
+  // toggle must not come back at the top level.
+  it("previews every open row oldest first, and every open day is picked without a tap", async () => {
     renderSheet([ROW_CASHOUT, ROW_OMT, ROW_IPICK]);
 
     const usd = await usdSection();
     // Oldest first: ROW_OMT (09-01), ROW_IPICK (09-03), ROW_CASHOUT (09-05).
     expect(previewRows(usd).map(([id]) => id)).toEqual(["10", "30", "20"]);
-    fireEvent.click(screen.getByTestId("supplier-account-settle-pick-toggle"));
-    for (const toggle of await screen.findAllByTestId(
-      "supplier-account-settle-row-toggle",
-    )) {
-      expect(toggle).not.toBeChecked();
-    }
+    expect(
+      screen.queryByTestId("supplier-account-settle-pick-toggle"),
+    ).not.toBeInTheDocument();
+    fireEvent.change(amountInput(usd), { target: { value: "1124.90" } });
+    const parsed = await submitAndParse();
+    expect(parsed.selections).toEqual([
+      { kind: "FINANCIAL_SERVICE", id: 10 },
+      { kind: "LEDGER", id: 30 },
+      { kind: "LEDGER", id: 20 },
+    ]);
   });
 
   it("nets a credit row against the debt rows: You pay OMT $1124.90", async () => {

@@ -19,7 +19,8 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { partnerSettleSchema } from "@liratek/core";
+import { partnerSettleDaysSchema, partnerSettleSchema } from "@liratek/core";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Partners from "../index";
 
 const mockSettle = jest.fn();
@@ -37,6 +38,10 @@ const mockApi = {
     deactivate: jest.fn(),
     activate: jest.fn(),
     getBalance: jest.fn(),
+    getSettleOpenRows: jest.fn(),
+    getSettleMonthRows: jest.fn(),
+    getSettleDayDetail: jest.fn(),
+    settleDays: jest.fn(),
   },
 };
 
@@ -44,6 +49,50 @@ jest.mock("@liratek/ui", () => {
   const actual = jest.requireActual("@liratek/ui");
   return { ...actual, useApi: () => mockApi };
 });
+
+// LIRA-346 — Settle opens the by-day sheet (TanStack queries); the old
+// balance-based modal is reached through "Settle by amount (old way)".
+jest.mock("@/shared/utils/localDay", () => {
+  const actual = jest.requireActual("@/shared/utils/localDay");
+  return { ...actual, localDay: () => "2026-10-26" };
+});
+
+/** One open partner row: For +$100 on 20 Oct (the partner owes the shop). */
+const OPEN_FOR_ROW = {
+  kind: "LEDGER" as const,
+  id: 11,
+  partner_id: 1,
+  currency: "USD" as const,
+  transaction_type: "FOR_POS",
+  direction: "DEBIT" as const,
+  reference_table: null,
+  reference_id: null,
+  notes: null,
+  source_txn_id: null,
+  created_at: "2026-10-20 09:00:00",
+  shop_day: "2026-10-20",
+  amount_usd: 100,
+  amount_lbp: 0,
+  covered_usd: 0,
+  covered_lbp: 0,
+  remaining_usd: 100,
+  remaining_lbp: 0,
+  row_scope: "DAY" as const,
+  unit_class: "DAY" as const,
+  relief_origin: null,
+  relief_ref: null,
+};
+
+function renderPage() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <Partners />
+    </QueryClientProvider>,
+  );
+}
 
 jest.mock("@/features/auth/context/AuthContext", () => ({
   useAuth: () => ({ user: { id: 1, username: "admin", role: "admin" } }),
@@ -72,9 +121,11 @@ const PARTNER = {
 };
 
 async function openSettle() {
-  render(<Partners />);
+  renderPage();
   fireEvent.click(await screen.findByText("Acme Partner"));
   fireEvent.click(await screen.findByRole("button", { name: "Settle" }));
+  // LIRA-346: the old balance-based modal, through the sheet's link.
+  fireEvent.click(await screen.findByTestId("partner-settle-by-amount"));
   await screen.findByTestId("payment-exchange-rate");
 }
 
@@ -89,6 +140,29 @@ const paymentInput = () => {
 const forgiveInput = () =>
   screen.getByTestId("partner-settle-forgive-input") as HTMLInputElement;
 
+/** LIRA-346 — Settle opens the by-day sheet: 20 Oct For +$100 is picked. */
+async function openByDay() {
+  renderPage();
+  fireEvent.click(await screen.findByText("Acme Partner"));
+  fireEvent.click(await screen.findByRole("button", { name: "Settle" }));
+  expect(
+    await screen.findByTestId("partner-settle-payer-usd"),
+  ).toHaveTextContent("Acme Partner pays you");
+  await screen.findByTestId("payment-exchange-rate");
+}
+
+async function submitByDay() {
+  const submit = screen.getByTestId("partner-settle-submit");
+  await waitFor(() => expect(submit).not.toBeDisabled());
+  fireEvent.click(submit);
+  await waitFor(() =>
+    expect(mockApi.partners.settleDays).toHaveBeenCalledTimes(1),
+  );
+  return partnerSettleDaysSchema.parse(
+    mockApi.partners.settleDays.mock.calls[0][0],
+  );
+}
+
 describe("Partners settle — Forgive line inside the payment box (LIRA-318)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -99,6 +173,10 @@ describe("Partners settle — Forgive line inside the payment box (LIRA-318)", (
       breakdown: null,
     });
     mockSettle.mockResolvedValue({ success: true, data: { id: 9 } });
+    mockApi.partners.getSettleOpenRows.mockResolvedValue([OPEN_FOR_ROW]);
+    mockApi.partners.getSettleMonthRows.mockResolvedValue([OPEN_FOR_ROW]);
+    mockApi.partners.getSettleDayDetail.mockResolvedValue([]);
+    mockApi.partners.settleDays.mockResolvedValue({ success: true, id: 9 });
   });
 
   it("renders the forgive line inside the payment summary, not as a separate block", async () => {
@@ -196,5 +274,26 @@ describe("Partners settle — Forgive line inside the payment box (LIRA-318)", (
     expect(parsed.discount).toEqual(
       expect.objectContaining({ amount_usd: 20, amount_lbp: 0 }),
     );
+  });
+  // LIRA-346 — the by-day sheet keeps the one Forgive line inside the
+  // payment box (not failing-first: written after the sheet).
+  it("by day: paid 80 + forgive 20 — the line is in the payment box, payment stays 80, forgive sent per currency", async () => {
+    await openByDay();
+    const summary = screen.getByTestId("payment-summary");
+    expect(
+      within(summary).getByTestId("partner-settle-forgive"),
+    ).toBeInTheDocument();
+    fireEvent.change(paymentInput(), { target: { value: "80" } });
+    fireEvent.change(forgiveInput(), { target: { value: "20" } });
+    await waitFor(() => expect(forgiveInput().value).toBe("20"));
+    expect(paymentInput().value).toBe("80");
+    const after = within(summary).getByTestId("after-page-discount");
+    expect(after).toHaveTextContent("After Forgive");
+    expect(after).toHaveTextContent("$80.00");
+    const parsed = await submitByDay();
+    expect(parsed.per_currency.USD?.payments).toEqual([
+      { method: "CASH", currency_code: "USD", amount: 80 },
+    ]);
+    expect(parsed.per_currency.USD?.forgive).toEqual({ amount: 20 });
   });
 });

@@ -241,7 +241,9 @@ describe("Suppliers page — Transactions and Payments open in their own modal",
     renderPage();
     await selectKatsh();
 
-    expect(await screen.findByText("Pay / Receive")).toBeInTheDocument();
+    // LIRA-345 (S3) — Katsh settles by day: no Pay / Receive tab either.
+    await screen.findByTestId("supplier-open-transactions");
+    expect(screen.queryByText("Pay / Receive")).toBeNull();
     expect(screen.queryByRole("button", { name: "Settle" })).toBeNull();
     expect(screen.queryByText("Commission Settlement")).toBeNull();
     // Recording a supplier payment is admin-only, so the form is not opened

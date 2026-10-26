@@ -9,6 +9,7 @@ import {
   FinancialServiceRepository,
   getFinancialServiceRepository,
   type FinancialServiceEntity,
+  type FifoPrefixRow,
   type CreateFinancialServiceData,
   type FinancialServiceAnalytics,
   type UnsettledSummary,
@@ -16,6 +17,7 @@ import {
   type SelfChargeTelecomItemResult,
   getSupplierRepository,
 } from "../repositories/index.js";
+import type { SupplierDayRangeInput } from "../validators/supplier.js";
 import { getItemCostService } from "./ItemCostService.js";
 import { financialLogger } from "../utils/logger.js";
 import { isAppError } from "../utils/errors.js";
@@ -66,6 +68,18 @@ export interface TransactionWithFifoStatus extends FinancialServiceEntity {
    */
   fifo_paid_lbp?: number;
 }
+
+/** LIRA-343 T033a — the fields the manual-payment FIFO walk reads: a shown
+ *  row, or a hidden older one replayed before a ranged read. */
+type FifoWalkRow = Pick<
+  FifoPrefixRow,
+  | "id"
+  | "service_type"
+  | "supplier_owed"
+  | "settlement_id"
+  | "is_refunded"
+  | "created_at"
+>;
 
 export interface FinancialServiceResult {
   success: boolean;
@@ -272,9 +286,16 @@ export class FinancialService {
   getAllByProvider(
     provider: string,
     limit?: number,
+    // LIRA-343 T033a (FR-016c) — optional shop-day range, applied by the
+    // repository before the row limit. Absent → unchanged.
+    range?: SupplierDayRangeInput,
   ): TransactionWithFifoStatus[] {
     try {
-      const transactions = this.fsRepo.getAllByProvider(provider, limit);
+      const transactions = this.fsRepo.getAllByProvider(
+        provider,
+        limit,
+        range,
+      );
 
       const supplierRepo = getSupplierRepository();
       const supplier = supplierRepo.getByProvider(provider);
@@ -288,8 +309,11 @@ export class FinancialService {
       }
 
       // LIRA-322 (FR-017) — an OMT-account member's labels come from what
-      // settlements actually recorded (coverage), per currency.
-      if (supplierRepo.isAccountMember(supplier.id)) {
+      // settlements actually recorded (coverage), per currency. LIRA-345:
+      // every supplier settled on the day calendar (`settlesByDay`: Katsh,
+      // active Whish too), whose settlements pay picked days, not oldest
+      // first.
+      if (supplierRepo.settlesByDay(supplier.id)) {
         const coverage = supplierRepo.getRowCoverage(
           "FINANCIAL_SERVICE",
           transactions
@@ -304,10 +328,24 @@ export class FinancialService {
       const pools = supplierRepo.getManualPaymentPools(supplier.id);
 
       // Sort oldest-first to apply FIFO
-      const sorted = [...transactions].sort(
+      const shownAsc: FifoWalkRow[] = [...transactions].sort(
         (a, b) =>
           new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
       );
+      // LIRA-343 T033a — a range with a `from` hides older rows, but they
+      // still consume the pool BEFORE the rows shown. Replay them first
+      // (labels discarded) so a row reads the same in "Today" as it does
+      // unfiltered. No `from` → nothing prepended: unchanged. `concat`, not
+      // a spread into `unshift`: the prefix is unbounded history, and
+      // spreading ~100k+ rows as call arguments overflows the stack.
+      const sorted: FifoWalkRow[] = range?.from
+        ? (
+            this.fsRepo.getFifoPrefixByProvider(
+              provider,
+              range.from,
+            ) as FifoWalkRow[]
+          ).concat(shownAsc)
+        : shownAsc;
 
       let sendPool = pools.send_pool_usd;
       let receivePool = pools.receive_pool_usd;
@@ -390,6 +428,53 @@ export class FinancialService {
       financialLogger.error(
         { error, provider },
         "Failed to get all transactions for provider",
+      );
+      return [];
+    }
+  }
+
+  /**
+   * LIRA-343 T033a (FR-016c) — the Transactions window of an OMT open-credit
+   * ACCOUNT parent: every member's financial_services rows (the parent and
+   * each child — OMT, OMT App, iPick today), not just the parent provider's.
+   * Each member is read with {@link getAllByProvider} (same rows, same
+   * projection, same coverage labels an account member already gets, same
+   * optional shop-day `range` applied before the limit), then merged newest
+   * first (`created_at DESC, id DESC`) and cut to `limit` (default 200).
+   * Members come from the account rollup the Suppliers page already reads
+   * (`getAccountBalances().children`). Unknown / non-parent id → [].
+   */
+  getAllByAccount(
+    accountSupplierId: number,
+    limit = 200,
+    range?: SupplierDayRangeInput,
+  ): TransactionWithFifoStatus[] {
+    try {
+      const account = getSupplierRepository()
+        .getAccountBalances()
+        .find((a) => a.account_supplier_id === accountSupplierId);
+      if (!account) return [];
+      const providers = [
+        ...new Set(
+          account.children
+            .map((c) => c.provider)
+            .filter((p): p is string => !!p),
+        ),
+      ];
+      return providers
+        .flatMap((provider) => this.getAllByProvider(provider, limit, range))
+        .sort((a, b) =>
+          a.created_at === b.created_at
+            ? b.id - a.id
+            : a.created_at < b.created_at
+              ? 1
+              : -1,
+        )
+        .slice(0, limit);
+    } catch (error) {
+      financialLogger.error(
+        { error, accountSupplierId },
+        "Failed to get all transactions for account",
       );
       return [];
     }

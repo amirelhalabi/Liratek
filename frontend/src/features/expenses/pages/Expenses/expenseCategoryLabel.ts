@@ -1,5 +1,8 @@
 import type { TFunction } from "i18next";
-import { DRAWER_SHORTAGE_EXPENSE_CATEGORY } from "@liratek/core";
+import {
+  DRAWER_SHORTAGE_EXPENSE_CATEGORY,
+  OMT_CREDIT_REMOVED_EXPENSE_CATEGORY,
+} from "@liratek/core";
 
 /**
  * LIRA-331 (OD-3): the label shown for an expense category. The stored value
@@ -33,5 +36,8 @@ export function expenseCategoryLabel(
   // by hand. The stored value is core's one definition (rule 14).
   if (code === DRAWER_SHORTAGE_EXPENSE_CATEGORY)
     return t("category.Drawer_shortage");
+  // LIRA-344: written by "Remove credit" on the OMT Settle Account sheet.
+  if (code === OMT_CREDIT_REMOVED_EXPENSE_CATEGORY)
+    return t("category.OMT_credit_not_accepted");
   return code.replace(/_/g, " ");
 }

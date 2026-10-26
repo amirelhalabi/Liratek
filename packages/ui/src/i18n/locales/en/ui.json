@@ -11,7 +11,9 @@
     "reset": "Reset",
     "selectAll": "Select all",
     "selectAllPages": "Select all (all pages)",
-    "actionsHeader": "Actions"
+    "actionsHeader": "Actions",
+    "loadMore": "Load more",
+    "loadingMore": "Loading more…"
   },
   "exportBar": {
     "excelTitle": "Export to Excel",
@@ -112,5 +114,13 @@
     "submitClient": "Buy Credits from Client",
     "submitSupplier": "Confirm Supplier Credit",
     "submitTransfer": "Confirm Top-Up"
+  },
+  "dayRange": {
+    "label": "Days",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "thisWeek": "This week",
+    "thisMonth": "This month",
+    "all": "All"
   }
 }

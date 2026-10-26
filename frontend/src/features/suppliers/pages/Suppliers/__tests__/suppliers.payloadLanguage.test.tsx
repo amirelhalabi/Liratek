@@ -12,7 +12,7 @@
  * batch settle (legacy with the page's own default note; new-model OMT with a
  * commission; bills-only lump/rate × top-up/other payment), and the Settle
  * Account sheet (USD, USD + LBP with an LBP commission, a covered-types
- * choice, picked transfers).
+ * choice, two picked days on the LIRA-343 calendar).
  *
  * Not failing-first: a guard against future drift, written before the
  * conversion and run green against the English-only screen.
@@ -30,6 +30,7 @@ import {
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  buildDaySelections,
   supplierCashflowSchema,
   supplierSettleSchema,
   supplierSettleAccountSchema,
@@ -52,12 +53,21 @@ import {
 } from "../../../testing/accountSettleFixtures";
 import { toggleCoveredType } from "../../../testing/coveredTypesPicker";
 
+// LIRA-343 — the Settle Account calendar works from the device's today; pin
+// it so the fixtures' October days are always "before today" and October is
+// the month the sheet opens on.
+jest.mock("@/shared/utils/localDay", () => {
+  const actual = jest.requireActual("@/shared/utils/localDay");
+  return { ...actual, localDay: () => "2026-10-26" };
+});
+
 const mockApi = {
   getSuppliers: jest.fn(),
   getSupplierBalances: jest.fn(),
   getSupplierAccountBalances: jest.fn(),
   getSupplierAccountLedger: jest.fn(),
   getSupplierAccountUnsettled: jest.fn(),
+  getSupplierAccountMonthRows: jest.fn(),
   getSupplierAccountExpectedStatement: jest.fn(),
   getSupplierProductBalances: jest.fn(),
   getSupplierProductStockValue: jest.fn(),
@@ -226,6 +236,7 @@ function baseMocks() {
   mockApi.getSupplierAccountBalances.mockResolvedValue([]);
   mockApi.getSupplierAccountLedger.mockResolvedValue([]);
   mockApi.getSupplierAccountUnsettled.mockResolvedValue([]);
+  mockApi.getSupplierAccountMonthRows.mockResolvedValue([]);
   mockApi.getSupplierAccountExpectedStatement.mockResolvedValue(null);
   mockApi.getSupplierProductBalances.mockResolvedValue([]);
   mockApi.getSupplierProductStockValue.mockResolvedValue([]);
@@ -322,6 +333,23 @@ async function openAccountSheet() {
   return screen.findByTestId("supplier-account-settle-sheet");
 }
 
+/** LIRA-343 — the calendar day `YYYY-MM-DD`, found by data, not by label. */
+async function calendarDayButton(
+  sheet: HTMLElement,
+  day: string,
+): Promise<HTMLElement> {
+  const cell = await waitFor(() => {
+    const el = sheet.querySelector(`[data-day="${day}"]`);
+    if (!el) throw new Error(`calendar day ${day} not rendered`);
+    return el as HTMLElement;
+  });
+  return within(cell).getByRole("button");
+}
+
+/** The two days left picked, and the four unpicked, in the day scenario. */
+const PICKED_DAYS = ["2026-10-01", "2026-10-02"];
+const UNPICKED_DAYS = ["2026-10-03", "2026-10-04", "2026-10-05", "2026-10-06"];
+
 const cashflowPayload = (calls: unknown[][]) =>
   supplierCashflowSchema.parse(calls[0]![0]);
 const settlePayload = (calls: unknown[][]) =>
@@ -334,16 +362,19 @@ const accountPayload = (calls: unknown[][]) =>
 
 const SCENARIOS: Scenario[] = [
   {
+    // LIRA-345 (S3) — a product supplier settles by day (no Pay / Receive);
+    // the Pay form is shown on a company supplier that still has it.
     name: "Pay / Receive — pay $97 with a $3 discount, reason and note",
     write: "recordSupplierCashflow",
     setup: () => {
-      mockApi.getSuppliers.mockResolvedValue([PRODUCT_SUPPLIER]);
-      mockApi.getSupplierProductBalances.mockResolvedValue([
-        { supplier_id: 5, total_usd: 100, total_lbp: 0 },
+      mockApi.getSuppliers.mockResolvedValue([WHISH_APP_SUPPLIER]);
+      mockApi.getSupplierBalances.mockResolvedValue([
+        { supplier_id: 7, total_usd: 100, total_lbp: 0 },
       ]);
     },
     drive: async () => {
-      await openProductSupplier("manual");
+      click(await screen.findByTestId("supplier-tile-WHISH_APP"));
+      click(await screen.findByTestId("supplier-tab-manual"));
       await screen.findByTestId("payment-exchange-rate");
       type(firstPaymentAmount(), "97");
       type(paymentDiscountInput(), "3");
@@ -653,7 +684,10 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
-    name: "Settle Account — covered types and two picked transfers",
+    // LIRA-343 — the old "Pick transfers" toggle is gone: transfers are
+    // picked by DAY on the calendar. Every open day before today starts
+    // picked (1–6 Oct); unpicking 3–6 Oct leaves the first two transfers.
+    name: "Settle Account — covered types and two picked days",
     write: "settleSupplierAccount",
     setup: () => {
       mockApi.getSuppliers.mockResolvedValue([ACCOUNT_PARENT, ACCOUNT_CHILD]);
@@ -661,17 +695,25 @@ const SCENARIOS: Scenario[] = [
         { ...OMT_ACCOUNT, total_lbp: 0 },
       ]);
       mockApi.getSupplierAccountUnsettled.mockResolvedValue(SIX_USD_ROWS);
+      mockApi.getSupplierAccountMonthRows.mockImplementation(
+        async (_id: number, month: string) =>
+          SIX_USD_ROWS.filter((r) => r.shop_day.startsWith(`${month}-`)),
+      );
     },
     drive: async () => {
       const sheet = await openAccountSheet();
       await within(sheet).findByTestId("supplier-account-settle-section-usd");
       await toggleCoveredType("supplier-account-settle-covered", "INTRA");
-      click(within(sheet).getByTestId("supplier-account-settle-pick-toggle"));
-      const toggles = await within(sheet).findAllByTestId(
-        "supplier-account-settle-row-toggle",
-      );
-      click(toggles[0]!);
-      click(toggles[1]!);
+      for (const day of UNPICKED_DAYS) {
+        const button = await calendarDayButton(sheet, day);
+        await waitFor(() =>
+          expect(button).toHaveAttribute("aria-pressed", "true"),
+        );
+        click(button);
+        await waitFor(() =>
+          expect(button).toHaveAttribute("aria-pressed", "false"),
+        );
+      }
       const submit = within(sheet).getByTestId(
         "supplier-account-settle-submit",
       );
@@ -681,10 +723,15 @@ const SCENARIOS: Scenario[] = [
     check: (calls) => {
       const p = accountPayload(calls);
       expect(p.covered_omt_service_types).toEqual(["INTRA"]);
-      expect(p.selections).toEqual([
-        { kind: "FINANCIAL_SERVICE", id: 101 },
-        { kind: "FINANCIAL_SERVICE", id: 102 },
-      ]);
+      // Rule 24 — the expected list comes from the ONE builder the sheet
+      // uses, never a hand-typed row list.
+      const expected = buildDaySelections(SIX_USD_ROWS, {
+        pickedDays: new Set(PICKED_DAYS),
+        coveredTypes: ["INTRA"],
+      });
+      expect(p.selections).toEqual(expected.selections);
+      // Data sanity: the two picked days are the first two transfers.
+      expect(expected.selections.map((sel) => sel.id)).toEqual([101, 102]);
       expect(p.per_currency?.USD?.payments).toEqual([
         { method: "CASH", currency_code: "USD", amount: 253 },
       ]);

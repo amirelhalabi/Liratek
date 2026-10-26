@@ -45,6 +45,10 @@ const mockGetSupplierAccountUnsettled = jest.fn();
 const mockApi = {
   settleSupplierAccount: mockSettleSupplierAccount,
   getSupplierAccountUnsettled: mockGetSupplierAccountUnsettled,
+  // LIRA-343 — the calendar's month read. Empty here: these cases test the
+  // money, and the open queue (not this read) decides the picked days.
+  getSupplierAccountMonthRows: jest.fn(async () => []),
+  getSupplierAccountDayDetail: jest.fn(async () => []),
 };
 
 jest.mock("@liratek/ui", () => {
@@ -256,26 +260,41 @@ describe("AccountSettleSheet — overpayment (LIRA-203 → LIRA-315)", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("surfaces an available-credit banner when the account already carries a negative (credit) balance", async () => {
-    renderSheet([ROW_OMT, ROW_IPICK, ROW_CREDIT], ACCOUNT_WITH_CREDIT);
-
-    const banner = await screen.findByTestId(
-      "supplier-account-settle-available-credit",
+  // LIRA-343 rewrite (rule 24): the "available credit" banner became the
+  // "Use OMT credit [x] of [total]" line (FR-012). It is driven by the
+  // account rows (`row_scope = 'ACCOUNT'`, credit sitting on no day), not by
+  // the account card's balance. The old banner must not come back.
+  it("surfaces the 'Use OMT credit' line when the account carries an account credit", async () => {
+    renderSheet(
+      [ROW_OMT, ROW_IPICK, { ...ROW_CREDIT, row_scope: "ACCOUNT" }],
+      ACCOUNT_WITH_CREDIT,
     );
-    expect(banner.textContent).toMatch(/available credit/i);
-    expect(banner.textContent).toMatch(/\$50\.00/);
-  });
 
-  it("does NOT show the available-credit banner when the account has no credit", async () => {
-    renderSheet([ROW_OMT, ROW_IPICK]);
-    await usdSection();
-
+    const line = await screen.findByTestId(
+      "supplier-account-settle-credit-line-usd",
+    );
+    expect(line.textContent).toMatch(/Use OMT credit/);
+    expect(line.textContent).toMatch(/\$50\.00/);
     expect(
       screen.queryByTestId("supplier-account-settle-available-credit"),
     ).not.toBeInTheDocument();
   });
 
-  it('badges a negative (credit) row as "Credit" in the preview and the picker', async () => {
+  it("does NOT show the credit line when the account has no credit", async () => {
+    renderSheet([ROW_OMT, ROW_IPICK]);
+    await usdSection();
+
+    expect(
+      screen.queryByTestId("supplier-account-settle-credit-line-usd"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("supplier-account-settle-available-credit"),
+    ).not.toBeInTheDocument();
+  });
+
+  // LIRA-343: the top-level picker is gone (it returns inside day details),
+  // so the badge is checked in the preview and the picker is guarded absent.
+  it('badges a negative (credit) row as "Credit" in the preview', async () => {
     renderSheet([ROW_OMT, ROW_CREDIT], ACCOUNT_WITH_CREDIT);
     const usd = await usdSection();
     const preview = within(usd).getAllByTestId(
@@ -290,12 +309,9 @@ describe("AccountSettleSheet — overpayment (LIRA-203 → LIRA-315)", () => {
     )!;
     expect(within(debtRow).queryByText("Credit")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId("supplier-account-settle-pick-toggle"));
-    const rows = await screen.findAllByTestId("supplier-account-settle-row");
-    const pickCredit = rows.find(
-      (r) => r.getAttribute("data-row-id") === "40",
-    )!;
-    expect(within(pickCredit).getByText("Credit")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("supplier-account-settle-pick-toggle"),
+    ).not.toBeInTheDocument();
   });
 
   it("an existing credit nets automatically: with $1,050 owed and a $50 credit, the box asks for $1,000", async () => {

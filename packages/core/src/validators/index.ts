@@ -86,3 +86,5 @@ export * from "./offline.js";
 export * from "./app.js";
 // LIRA-331: a user's own UI language.
 export * from "./userPreferences.js";
+// LIRA-348: Audit & Transactions open on today, 50 at a time (keyset paging).
+export * from "./tablePaging.js";

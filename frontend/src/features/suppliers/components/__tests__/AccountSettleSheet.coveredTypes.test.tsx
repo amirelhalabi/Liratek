@@ -18,6 +18,11 @@
  * (the amount decides what closes); a waiting WU transfer is now out of the
  * settlement's scope — out of the preview, out of `expected_owed` — and can't
  * be picked in "Pick transfers".
+ *
+ * LIRA-343 rewrite (rule 24 — intent kept): the top-level "Pick transfers"
+ * list is gone (it returns inside a day's details, US4), so "unpickable" is
+ * now checked where it matters: a waiting row is never in the `selections`
+ * the sheet sends, while every in-scope row is.
  */
 
 import {
@@ -48,6 +53,10 @@ const mockGetSupplierAccountUnsettled = jest.fn();
 const mockApi = {
   settleSupplierAccount: mockSettleSupplierAccount,
   getSupplierAccountUnsettled: mockGetSupplierAccountUnsettled,
+  // LIRA-343 — the calendar's month read. Empty here: these cases test the
+  // money, and the open queue (not this read) decides the picked days.
+  getSupplierAccountMonthRows: jest.fn(async () => []),
+  getSupplierAccountDayDetail: jest.fn(async () => []),
 };
 
 jest.mock("@liratek/ui", () => {
@@ -149,11 +158,6 @@ function renderSheet(rows: AccountUnsettledRow[]) {
   );
 }
 
-async function openPicker() {
-  fireEvent.click(
-    await screen.findByTestId("supplier-account-settle-pick-toggle"),
-  );
-}
 const previewIds = async () =>
   within(await screen.findByTestId("supplier-account-settle-section-usd"))
     .getAllByTestId("supplier-account-settle-preview-row")
@@ -164,12 +168,6 @@ async function payUsd(value: string) {
     target: { value },
   });
 }
-const rowById = async (id: number) =>
-  (await screen.findAllByTestId("supplier-account-settle-row")).find(
-    (r) => r.getAttribute("data-row-id") === String(id),
-  )!;
-const toggleOf = async (id: number) =>
-  within(await rowById(id)).getByTestId("supplier-account-settle-row-toggle");
 
 async function submitAndGetPayload(): Promise<Record<string, unknown>> {
   const submit = await screen.findByTestId("supplier-account-settle-submit");
@@ -204,14 +202,6 @@ describe("AccountSettleSheet — LIRA-256 covered types", () => {
       screen.getByTestId("supplier-account-settle-owed-usd").textContent,
     ).toBe("$668.00");
 
-    await openPicker();
-    const wuToggle = await toggleOf(11);
-    expect(wuToggle).not.toBeChecked();
-    expect(wuToggle).toBeDisabled();
-    expect(
-      within(await rowById(11)).getByText(/Waiting — not in this statement/),
-    ).toBeInTheDocument();
-    expect(await toggleOf(10)).not.toBeDisabled();
     expect(await isCoveredTypeTicked(SP, "INTRA")).toBe(true);
 
     await payUsd("668");
@@ -222,7 +212,11 @@ describe("AccountSettleSheet — LIRA-256 covered types", () => {
     });
     expect(parsed[KEY]).toEqual(["INTRA"]);
     expect(parsed.expected_owed?.usd).toBeCloseTo(668, 2);
-    expect(payload).not.toHaveProperty("selections");
+    // The waiting WU row (11) is never selected; the others are.
+    expect(parsed.selections).toEqual([
+      { kind: "FINANCIAL_SERVICE", id: 10 },
+      { kind: "LEDGER", id: 30 },
+    ]);
   });
 
   it("switching to 'All types' brings the WU row back in scope and the payload has NO covered key", async () => {
@@ -236,12 +230,14 @@ describe("AccountSettleSheet — LIRA-256 covered types", () => {
     await toggleCoveredType(SP, "INTRA");
     expect(coveredPickerShowsAllTypes(SP)).toBe(true);
     await waitFor(async () => expect(await previewIds()).toEqual(["10", "11"]));
-    await openPicker();
-    expect(await toggleOf(11)).not.toBeDisabled();
 
     await payUsd("994");
     const payload = await submitAndGetPayload();
     expect(KEY in payload).toBe(false);
+    expect(payload.selections).toEqual([
+      { kind: "FINANCIAL_SERVICE", id: 10 },
+      { kind: "FINANCIAL_SERVICE", id: 11 },
+    ]);
   });
 
   it("an old-style (model 0) WU row is never restricted", async () => {
@@ -251,8 +247,6 @@ describe("AccountSettleSheet — LIRA-256 covered types", () => {
     );
     renderSheet([ROW_WU_LEGACY]);
     await waitFor(async () => expect(await previewIds()).toEqual(["12"]));
-    await openPicker();
-    expect(await toggleOf(12)).not.toBeDisabled();
   });
 
   it("ticking a type on the sheet re-derives the scope and remembers it", async () => {
@@ -260,9 +254,6 @@ describe("AccountSettleSheet — LIRA-256 covered types", () => {
     await waitFor(async () => expect(await previewIds()).toEqual(["10", "11"]));
     await toggleCoveredType(SP, "INTRA");
     await waitFor(async () => expect(await previewIds()).toEqual(["10"]));
-    await openPicker();
-    expect(await toggleOf(11)).toBeDisabled();
-    expect(await toggleOf(10)).not.toBeDisabled();
     expect(window.localStorage.getItem("liratek:omt-covered-types:1")).toBe(
       JSON.stringify(["INTRA"]),
     );

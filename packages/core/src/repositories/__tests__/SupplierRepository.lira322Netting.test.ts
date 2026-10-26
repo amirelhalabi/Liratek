@@ -658,16 +658,24 @@ describe("LIRA-322 — netting, COLLECT and two directions (SupplierRepository)"
     expect(queueOwed()).toEqual({ usd: 0, lbp: 0 });
     expectBalanceInvariant();
 
-    // The netted payment can no longer be voided on its own.
+    // LIRA-343 (FR-019, R12) — rewritten from the LIRA-322 refusal: the
+    // netted payment CAN be voided. Its $100 comes back to the drawer, the
+    // settlement stays as it is, and the $100 it had used to pay transfers
+    // is now owed to OMT on the account (one open ACCOUNT row).
     const cashflowTxn = db
       .prepare(
         `SELECT id FROM transactions WHERE source_table = 'supplier_ledger' AND source_id = ? AND type = 'SUPPLIER_PAYMENT'`,
       )
       .get(cashflowLedgerId) as { id: number };
-    const counts0 = writeCounts(db);
-    expect(() => getTransactionRepository().voidTransaction(cashflowTxn.id, 1)).toThrow(
-      /settlement/,
-    );
-    expect(writeCounts(db)).toEqual(counts0);
+    const coverage0 = coverageRows(db);
+    getTransactionRepository().voidTransaction(cashflowTxn.id, 1);
+    expect(coverageRows(db)).toEqual(coverage0);
+    expect(round2(drawerTotals(db).usd - drawers0.usd)).toBe(-397);
+    expect(queueOwed()).toEqual({ usd: 100, lbp: 0 });
+    const open = repo
+      .getAccountUnsettled(acc.omtId)
+      .filter((r) => r.kind === "LEDGER" && r.remaining_usd !== 0);
+    expect(open.map((r) => [r.row_scope, round2(r.remaining_usd)])).toEqual([["ACCOUNT", 100]]);
+    expectBalanceInvariant();
   });
 });

@@ -20,7 +20,8 @@ import {
   reopenBasketMembers,
   uncoverBasketMember,
 } from "./basketMemberCoverage.js";
-import { localDayExpr } from "./reportingTimeFragments.js";
+import { localDayExpr, localDayRangeFilter } from "./reportingTimeFragments.js";
+import type { TransactionPageCursor } from "../validators/tablePaging.js";
 import { saleItemRefundOriginalIdSql } from "./saleRefundOriginalFragment.js";
 import {
   MODULE_DEBT_TRANSACTION_TYPES,
@@ -43,11 +44,16 @@ import {
   type SessionPayoutMemberCandidate,
 } from "../constants/sessionPayoutMember.js";
 import { partnerObligationHeadRowSql } from "../constants/partnerObligation.js";
+import { getPartnerSettlementRepository } from "./PartnerSettlementRepository.js";
 import { isAuditOnlyPaymentMethod } from "../constants/auditOnlyPaymentMethods.js";
 import {
   CHECKPOINT_DIFFERENCE_SOURCE_TABLE,
   CHECKPOINT_RESOLUTION_METHOD,
 } from "../constants/checkpointAdjustment.js";
+import {
+  OMT_CREDIT_REMOVED_EXPENSE_CATEGORY,
+  OMT_CREDIT_REMOVED_EXPENSE_LOCKED_MESSAGE,
+} from "../constants/accountCreditWriteOff.js";
 // LIRA-335: checkpointResolution imports ClosingRepository, which imports
 // this file — safe for the same reason as the SalesRepository cycle below:
 // only called from inside method bodies, never at module evaluation.
@@ -103,7 +109,11 @@ import { getPaymentMethodRepository } from "./PaymentMethodRepository.js";
 import { getCarrierLineMovementRepository } from "./CarrierLineMovementRepository.js";
 import { getResaleLineRepository } from "./ResaleLineRepository.js";
 import { getCarrierLineService } from "../services/CarrierLineService.js";
-import { isPendingSupplierSettlement } from "./FinancialServiceRepository.js";
+import {
+  getFinancialServiceRepository,
+  isPendingSupplierSettlement,
+} from "./FinancialServiceRepository.js";
+import { roundMoneyForCurrency } from "../utils/omtFees.js";
 import { getExchangeLotRepository } from "./ExchangeLotRepository.js";
 import { getProductUnitRepository } from "./ProductUnitRepository.js";
 import { getStockBatchRepository } from "./StockBatchRepository.js";
@@ -186,6 +196,17 @@ export const SESSION_BASKET_ALREADY_FULLY_REFUNDED_MESSAGE =
 // below shares (rule 14), so they can never split a caller's id list
 // differently from one another.
 const SESSION_BATCH_CHUNK_SIZE = 400;
+
+/**
+ * LIRA-345, rule 14 — the ONE selector for the supplier TOP_UP row a
+ * RECHARGE_TOPUP transaction books in link mode. Shared by its void
+ * (`_reverseSupplierLedgerByTransactionLink`, which soft-voids it) and the
+ * settlement relief planner (`_planSettlementCoverageRelief`, which puts
+ * what a settlement paid on it back on the account). Binds the
+ * transaction id only; each caller appends `AND tenant_id = ?` literally
+ * (bound right after it) so `check:tenant-scoping` can see the predicate.
+ */
+const LINKED_TOP_UP_LEDGER_WHERE = `transaction_id = ? AND entry_type = 'TOP_UP' AND COALESCE(is_refunded, 0) = 0`;
 
 function chunkIds<T>(ids: T[], size: number): T[][] {
   if (ids.length === 0) return [];
@@ -1107,6 +1128,22 @@ export interface TransactionFilters {
    * paths, rule 14).
    */
   typeFilters?: TransactionTypeFilterInput[];
+  /**
+   * LIRA-348 — the OPERATOR's days (`YYYY-MM-DD`), inclusive, either end
+   * optional: `localDayRangeFilter` on `t.created_at`, so a 00:30 Beirut
+   * row stored as 21:30 UTC the day before is still on the operator's day
+   * (rule 27). Separate from `from`/`to` above, which stay raw timestamp
+   * bounds for their existing callers.
+   */
+  day_from?: string;
+  day_to?: string;
+  /**
+   * LIRA-348 — keyset paging: only rows strictly after this one in the
+   * query's own `ORDER BY t.created_at DESC, t.id DESC` order. The client
+   * sends the last row it already has; never an OFFSET, so a row written
+   * while the operator scrolls cannot repeat or skip a row.
+   */
+  before?: TransactionPageCursor;
 }
 
 /**
@@ -1614,6 +1651,31 @@ export interface RefundSessionBasketItemResult {
 // Repository
 // =============================================================================
 
+/** LIRA-343 (R12) — one member / currency of what an undo or void puts on
+ *  the OMT account. `amount` is in LEDGER sign (+ = the shop owes OMT). */
+interface SettlementCoverageReliefEntry {
+  member: number;
+  currency: "USD" | "LBP";
+  amount: number;
+  /** Transactions whose coverage the amount was used by (for the note). */
+  usedBy: number[];
+}
+
+/** LIRA-343 (R12) — see `TransactionRepository._planSettlementCoverageRelief`. */
+interface SettlementCoverageRelief {
+  /** An undone settlement's own coverage rows that stay active. */
+  keepCoverageIds: number[];
+  entries: SettlementCoverageReliefEntry[];
+}
+
+/** "$8.70" / "450,000 LBP" — locale-free (rule 27: the server's locale is
+ *  not the shop's). */
+function formatReliefMoney(amount: number, currency: "USD" | "LBP"): string {
+  const abs = Math.abs(amount);
+  if (currency === "USD") return `$${abs.toFixed(2)}`;
+  return `${String(Math.round(abs)).replace(/\B(?=(\d{3})+(?!\d))/g, ",")} LBP`;
+}
+
 export class TransactionRepository extends BaseRepository<TransactionEntity> {
   constructor() {
     super("transactions");
@@ -1944,6 +2006,24 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     if (filters?.to) {
       conditions.push("t.created_at <= ?");
       params.push(filters.to);
+    }
+    const dayRange = localDayRangeFilter("t.created_at", {
+      from: filters?.day_from,
+      to: filters?.day_to,
+    });
+    if (dayRange.sql) {
+      conditions.push(dayRange.sql);
+      params.push(...dayRange.params);
+    }
+    if (filters?.before) {
+      // The SAME raw column and tie-break as the ORDER BY below, so the
+      // cursor and the sort can never disagree about what comes next.
+      conditions.push("(t.created_at < ? OR (t.created_at = ? AND t.id < ?))");
+      params.push(
+        filters.before.created_at,
+        filters.before.created_at,
+        filters.before.id,
+      );
     }
 
     // Type/provider/service_type/has_item_key — either the classic single
@@ -6169,6 +6249,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       /** LIRA-335 (FR-013) — lets the Drawer shortage owner (Reopen / the
        *  shrink in `syncShortageExpense`) void its own expense. */
       internal?: boolean;
+      /** LIRA-344 — set ONLY by `_voidExpensesLinkedTo` (the parent's own
+       *  cascade): lets a parent void the expense sibling it owns. */
+      allowParentOwnedExpense?: boolean;
     },
   ): number {
     const original = this.findById(id);
@@ -6190,10 +6273,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // removed by the payment's void/refund; refuse up front if that
     // discount was already swept into a settlement.
     this._assertSupplierBundledDiscountVoidable(original);
-    // LIRA-322 (R8) — amount-first OMT account settlements are voided
-    // newest first, and nothing a settlement part-paid is voided under it.
-    this._assertSettlementIsNewestOnItsRows(original);
-    this._assertNoActiveSettlementCoverage(original);
+    // LIRA-343 (R12) — no refusal any more: undoing any OMT-account
+    // settlement, in any order, and voiding a transfer a settlement covered
+    // are allowed. Planned here, before any write changes the coverage /
+    // stamp / refunded state it reads; booked after step 5e.
+    const coverageRelief = this._planSettlementCoverageRelief(original);
     // EXCHANGE_LOT_SETTLEMENT.md Q12 — refuse up-front if this exchange's
     // acquired lot has already been partially/fully sold. No-op for every
     // non-EXCHANGE type.
@@ -6321,13 +6405,23 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // PARTNER_PAYMENT, restore its own partner_ledger row (+ any bundled
       // CQ-10 discount) and unwind the FIFO covered_amount stamps it
       // applied. No-op for every other type.
-      this._reversePartnerSettlementLedger(original, userId);
+      this._reversePartnerSettlementLedger(original, userId, reversalId);
 
       // 5e. LIRA-085 — if this transaction IS a SUPPLIER_SETTLEMENT, reverse
       // the commission drawer funding, soft-void the linked SUPPLIER_PAYS_US
       // row, and un-stamp financial_services.settlement_id/is_settled. No-op
-      // for every other type.
-      this._reverseSupplierSettlement(original, userId);
+      // for every other type. LIRA-343: keeps the coverage later
+      // settlements rely on.
+      this._reverseSupplierSettlement(original, userId, coverageRelief);
+      // 5e0. LIRA-343 (R12, rule 20) — what later settlements relied on, or
+      // what a settlement paid on this voided row, goes on the account.
+      this._bookSettlementCoverageRelief(
+        original,
+        coverageRelief,
+        reversalId,
+        userId,
+        "void",
+      );
 
       // 5e1. SUPPLIER_STOCK_INTAKE_PLAN.md, rule 20 — if this transaction IS
       // a SUPPLIER_STOCK_INTAKE (or, since LIRA-087, an ATTACHED
@@ -6644,9 +6738,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // removed by the payment's void/refund; refuse up front if that
     // discount was already swept into a settlement.
     this._assertSupplierBundledDiscountVoidable(original);
-    // LIRA-322 (R8) — same up-front guards as voidTransaction.
-    this._assertSettlementIsNewestOnItsRows(original);
-    this._assertNoActiveSettlementCoverage(original);
+    // LIRA-343 (R12) — the LIRA-322 settlement-coverage refusals are gone;
+    // `_applyGenericItemReversal` plans and books the account rows instead.
     // Same up-front settled-lot guard as voidTransaction — see
     // _assertExchangeLotsVoidable's doc. No-op for every non-EXCHANGE type.
     this._assertExchangeLotsVoidable(original);
@@ -6995,6 +7088,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   ): void {
     const tenantId = getCurrentTenantId();
 
+    // LIRA-343 (R12) — planned before step 3 changes the refunded / stamp
+    // state it reads (the refund row and its payments, written before this
+    // point, touch neither coverage nor the ledger). Same plan as
+    // voidTransaction's.
+    const coverageRelief = this._planSettlementCoverageRelief(original);
+
     // 3. Mark source module record as refunded
     this._markSourceRefunded(original.source_table, original.source_id);
 
@@ -7028,11 +7127,19 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
     // 4d. LIRA-085 — PARTNER_SETTLEMENT/PARTNER_PAYMENT ledger + coverage
     // restore. See voidTransaction's identical step.
-    this._reversePartnerSettlementLedger(original, userId);
+    this._reversePartnerSettlementLedger(original, userId, refundId);
 
     // 4e. LIRA-085 — SUPPLIER_SETTLEMENT commission/ledger/fs-stamp
-    // restore. See voidTransaction's identical step.
-    this._reverseSupplierSettlement(original, userId);
+    // restore. See voidTransaction's identical step (LIRA-343: keeps the
+    // relied-on coverage, then books the account rows).
+    this._reverseSupplierSettlement(original, userId, coverageRelief);
+    this._bookSettlementCoverageRelief(
+      original,
+      coverageRelief,
+      refundId,
+      userId,
+      "refund",
+    );
 
     // 4e1. SUPPLIER_STOCK_INTAKE_PLAN.md, rule 20 — SUPPLIER_STOCK_INTAKE
     // (or ATTACHED SUPPLIER_RECORDED_DEBT, LIRA-087) batch delete (refuses
@@ -7130,9 +7237,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       allowSessionMember?: boolean;
       allowParentOwnedWaivedSibling?: boolean;
       internal?: boolean;
+      allowParentOwnedExpense?: boolean;
     } = {},
   ): void {
     if (!opts.internal) this._assertNotDrawerShortageExpense(original);
+    if (!opts.internal && !opts.allowParentOwnedExpense)
+      this._assertNotOmtCreditRemovalExpense(original);
     if (NON_REVERSIBLE_TRANSACTION_TYPES.has(original.type)) {
       // LIRA-201c: LOTO_CASH_PRIZE and KEPT_CHANGE stay blocked for a
       // standalone void/refund (the throw below still fires for those), but
@@ -7627,7 +7737,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       !(
         original.type === "SUPPLIER_SETTLEMENT" &&
         discount.settlement_id === original.source_id
-      )
+      ) &&
+      // LIRA-345 (R12) — a discount a day-calendar settlement used (active
+      // coverage) is no exception: the void goes ahead and the part that
+      // settlement relied on goes back on the account
+      // (`_planSettlementCoverageRelief` counts the discount as removed).
+      // Only a whole-row legacy settlement, which kept no coverage, blocks.
+      !this._hasActiveSettlementCoverage("LEDGER", discount.id)
     ) {
       throw new DatabaseError(
         `Cannot void/refund — its bundled supplier discount has already been included in settlement #${discount.settlement_id}; correct the supplier balance with a manual adjustment instead.`,
@@ -7757,6 +7873,24 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
   /** LIRA-322 — `supplier_settlement_coverage` exists from v217; many
    *  hand-rolled jest fixtures predate it. */
+  /** LIRA-345 — does this queue row carry ACTIVE settlement coverage? */
+  private _hasActiveSettlementCoverage(
+    kind: "FINANCIAL_SERVICE" | "LEDGER",
+    rowId: number,
+  ): boolean {
+    if (!this._hasSettlementCoverageTable()) return false;
+    return (
+      this.queryOne<{ one: number }>(
+        `SELECT 1 AS one FROM supplier_settlement_coverage
+          WHERE tenant_id = ? AND row_kind = ? AND row_id = ? AND is_reversed = 0
+          LIMIT 1`,
+        getCurrentTenantId(),
+        kind,
+        rowId,
+      ) != null
+    );
+  }
+
   private _hasSettlementCoverageTable(): boolean {
     return !!this.db
       .prepare(
@@ -7766,113 +7900,322 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   }
 
   /**
-   * LIRA-322 (R8, FR-018) — settlements that share transfers are voided
-   * newest first. Refuses, before any write, the void/refund of a
-   * SUPPLIER_SETTLEMENT when another ACTIVE coverage row of a LATER
-   * settlement (higher transaction id — the channel is online-only, so ids
-   * only grow, and two settlements in the same second still order) sits on
-   * any row this settlement covered. Otherwise the later settlement's
-   * coverage would keep counting against a row this void reopens. No-op for
-   * every other type and for a legacy whole-row settlement (no coverage).
+   * LIRA-343 (FR-018 / FR-019 / FR-020, research R12; owner decision
+   * 2026-10-26, option 3) — replaces the two LIRA-322 refusals
+   * (`_assertSettlementIsNewestOnItsRows`: "a later settlement paid the same
+   * transfers", `_assertNoActiveSettlementCoverage`: "it is partly paid by
+   * settlement #…"). Undoing any settlement, in any order, and voiding /
+   * refunding any transfer a settlement covered are allowed. Later
+   * settlements are never changed.
+   *
+   * Read-only; called before the reversal touches the coverage, stamp or
+   * refunded state it reads. Returns what the reversal must keep and book:
+   *
+   *  - Term 1 (an undone SUPPLIER_SETTLEMENT): its OWN active coverage on a
+   *    row this undo does NOT reopen — a row closed by ANOTHER settlement's
+   *    stamp (#A part-paid it, #B finished it) or a row already voided (its
+   *    paid share became OMT credit at that void). That coverage is KEPT
+   *    active (the row stays as the later settlement left it; reversing it
+   *    would double-count once the later settlement is undone too), and
+   *    `+sign × amount` goes to the account.
+   *  - Term 2 (any reversal): OTHER transactions' active coverage on rows
+   *    this reversal removes from the account — a voided transfer
+   *    (`financial_services` row), the ledger row the transaction IS, or an
+   *    undone settlement's own rows (its overpay / commission credit a later
+   *    settlement netted). Left as written; `−sign × amount` goes to the
+   *    account (what was paid on a voided debt becomes OMT credit; a credit
+   *    a later settlement used becomes owed to OMT).
+   *
+   * `sign` is the covered row's own sign (+ a debt, − a credit); amounts are
+   * in LEDGER sign (+ = the shop owes OMT). Grouped per member and currency,
+   * so each member line keeps equalling its own open rows. Derived from
+   * coverage rows only — never from the observed balance−queue gap, which
+   * would hide any other defect.
+   *
+   * Each row is accounted once: a transfer's FINANCIAL_SERVICE row by the
+   * transfer's own transaction, a ledger row by the transaction whose
+   * `source_id` it is (the recursive sibling void), never by a parent that
+   * merely cascades to it.
+   *
+   * Coverage only exists for OMT-account settlements (two writers:
+   * `SupplierRepository._settleAccountAmountFirst` and, LIRA-344,
+   * `SupplierRepository.removeAccountCredit` — both SUPPLIER_SETTLEMENT,
+   * reversed the same way), so the two
+   * LIRA-322 refusals only ever fired there and nothing else changes. The
+   * legacy refusal for a row closed by a whole-row settlement (no coverage)
+   * stays in `_assertSupplierSiblingsVoidable`.
    */
-  private _assertSettlementIsNewestOnItsRows(
+  private _planSettlementCoverageRelief(
     original: TransactionEntity,
-  ): void {
-    if (original.type !== "SUPPLIER_SETTLEMENT") return;
-    if (!this._hasSettlementCoverageTable()) return;
-    const later = this.queryOne<{ id: number; created_at: string }>(
-      `SELECT t.id AS id, t.created_at AS created_at
-         FROM supplier_settlement_coverage mine
-         JOIN supplier_settlement_coverage other
-           ON other.tenant_id = mine.tenant_id
-          AND other.row_kind = mine.row_kind
-          AND other.row_id = mine.row_id
-          AND other.is_reversed = 0
-          AND other.transaction_id > mine.transaction_id
-         JOIN transactions t
-           ON t.id = other.transaction_id AND t.tenant_id = other.tenant_id
-        WHERE mine.tenant_id = ? AND mine.transaction_id = ? AND mine.is_reversed = 0
-        ORDER BY t.id DESC
-        LIMIT 1`,
-      getCurrentTenantId(),
-      original.id,
-    );
-    if (later) {
-      throw new DatabaseError(
-        `A later settlement (#${later.id}, ${later.created_at}) paid the same transfers. Void it first.`,
-        { entityId: original.id },
-      );
-    }
-  }
-
-  /**
-   * LIRA-322 (rule 20) — refuse, before any write, voiding/refunding the
-   * transaction behind an OMT-account queue row that an ACTIVE settlement
-   * still has coverage on (part-paid or netted): the transfer itself
-   * (`financial_services`), a ledger row it booked (its auto sibling, or
-   * the ledger row it IS), or — for a settlement — the overpay credit it
-   * left on the account and a later settlement already applied. Voiding
-   * it anyway would drop the row from the queue while the settlement's
-   * money row stayed booked against it. "Blocking beats corrupting", as
-   * `_assertSupplierSiblingsVoidable` does for fully settled rows.
-   */
-  private _assertNoActiveSettlementCoverage(original: TransactionEntity): void {
-    if (!this._hasSettlementCoverageTable()) return;
-    if (!original.source_table || original.source_id == null) return;
+  ): SettlementCoverageRelief | null {
+    if (!this._hasSettlementCoverageTable()) return null;
+    if (!original.source_table || original.source_id == null) return null;
     const tenantId = getCurrentTenantId();
-    const ledgerIds: number[] = [];
+    const isSettlement = original.type === "SUPPLIER_SETTLEMENT";
+
+    const removedLedger = new Set<number>();
     if (original.source_table === "supplier_ledger")
-      ledgerIds.push(original.source_id);
-    if (this._supplierLedgerHasSourceRefColumns()) {
+      removedLedger.add(original.source_id);
+    // LIRA-345 — a Pay's bundled DISCOUNT is an account credit too, and the
+    // Pay's void soft-voids it (`_reverseSupplierBundledDiscount`): what a
+    // settlement used of it comes back on the account like the Pay's own row.
+    if (!isSettlement) {
+      const discount = this._linkedSupplierDiscount(original);
+      if (discount) removedLedger.add(discount.id);
+    }
+    // LIRA-345 — a supplier top-up (Katsh, iPick, OMT App) books its TOP_UP
+    // in link mode (`transaction_id`, source 'recharges'); its void
+    // soft-voids that row (`_reverseSupplierLedgerByTransactionLink`, the
+    // SAME selector). What a settlement paid on it goes on the account.
+    if (original.type === "RECHARGE_TOPUP") {
       for (const r of this.query<{ id: number }>(
-        `SELECT id FROM supplier_ledger
-          WHERE source_ref_table = ? AND source_ref_id = ? AND tenant_id = ?`,
-        original.source_table,
-        original.source_id,
+        `SELECT id FROM supplier_ledger WHERE ${LINKED_TOP_UP_LEDGER_WHERE} AND tenant_id = ?`,
+        original.id,
         tenantId,
       )) {
-        ledgerIds.push(r.id);
+        removedLedger.add(r.id);
       }
     }
-    if (original.type === "SUPPLIER_SETTLEMENT") {
+    if (isSettlement) {
       for (const r of this.query<{ id: number }>(
         `SELECT id FROM supplier_ledger WHERE transaction_id = ? AND tenant_id = ?`,
         original.id,
         tenantId,
       )) {
-        ledgerIds.push(r.id);
+        removedLedger.add(r.id);
       }
     }
-    const fsId =
-      original.source_table === "financial_services"
-        ? original.source_id
-        : null;
-    if (fsId == null && ledgerIds.length === 0) return;
+    const removedFs =
+      original.source_table === "financial_services" ? original.source_id : null;
+
+    const sums = new Map<string, SettlementCoverageReliefEntry>();
+    const add = (
+      member: number,
+      currency: "USD" | "LBP",
+      amount: number,
+      usedBy: number[],
+    ): void => {
+      const key = `${member}:${currency}`;
+      const cur =
+        sums.get(key) ??
+        ({ member, currency, amount: 0, usedBy: [] } as SettlementCoverageReliefEntry);
+      cur.amount += amount;
+      for (const id of usedBy) if (!cur.usedBy.includes(id)) cur.usedBy.push(id);
+      sums.set(key, cur);
+    };
+
+    type Cov = {
+      id: number;
+      transaction_id: number;
+      row_kind: "FINANCIAL_SERVICE" | "LEDGER";
+      row_id: number;
+      member_supplier_id: number;
+      currency: "USD" | "LBP";
+      amount: number;
+    };
+    const covCols = `id, transaction_id, row_kind, row_id, member_supplier_id, currency, amount`;
+
+    // ── Term 2: others' coverage on rows this reversal removes ──────────
     const conditions: string[] = [];
-    const params: Array<number | string> = [tenantId, original.id];
-    if (fsId != null) {
+    const params: number[] = [tenantId, original.id];
+    if (removedFs != null) {
       conditions.push(`(row_kind = 'FINANCIAL_SERVICE' AND row_id = ?)`);
-      params.push(fsId);
+      params.push(removedFs);
     }
-    if (ledgerIds.length > 0) {
+    if (removedLedger.size > 0) {
       conditions.push(
-        `(row_kind = 'LEDGER' AND row_id IN (${ledgerIds.map(() => "?").join(",")}))`,
+        `(row_kind = 'LEDGER' AND row_id IN (${[...removedLedger].map(() => "?").join(",")}))`,
       );
-      params.push(...ledgerIds);
+      params.push(...removedLedger);
     }
-    const covering = this.queryOne<{ transaction_id: number }>(
-      `SELECT transaction_id FROM supplier_settlement_coverage
-        WHERE tenant_id = ? AND is_reversed = 0 AND transaction_id <> ?
-          AND (${conditions.join(" OR ")})
-        ORDER BY transaction_id DESC
-        LIMIT 1`,
-      ...params,
+    if (conditions.length > 0) {
+      for (const c of this.query<Cov>(
+        `SELECT ${covCols} FROM supplier_settlement_coverage
+          WHERE tenant_id = ? AND is_reversed = 0 AND transaction_id <> ?
+            AND (${conditions.join(" OR ")})
+          ORDER BY id`,
+        ...params,
+      )) {
+        const sign = this._coveredRowSign(c.row_kind, c.row_id, c.currency);
+        add(c.member_supplier_id, c.currency, -sign * c.amount, [c.transaction_id]);
+      }
+    }
+
+    // ── Term 1: an undone settlement's own coverage it does not reopen ──
+    const keepCoverageIds: number[] = [];
+    if (isSettlement) {
+      for (const c of this.query<Cov>(
+        `SELECT ${covCols} FROM supplier_settlement_coverage
+          WHERE tenant_id = ? AND transaction_id = ? AND is_reversed = 0
+          ORDER BY id`,
+        tenantId,
+        original.id,
+      )) {
+        const state = this.queryOne<{ refunded: number; settlement_id: number | null }>(
+          c.row_kind === "FINANCIAL_SERVICE"
+            ? `SELECT COALESCE(is_refunded, 0) AS refunded, settlement_id
+                 FROM financial_services WHERE id = ? AND tenant_id = ?`
+            : `SELECT COALESCE(is_refunded, 0) AS refunded, settlement_id
+                 FROM supplier_ledger WHERE id = ? AND tenant_id = ?`,
+          c.row_id,
+          tenantId,
+        );
+        if (!state) continue;
+        const closedByOther =
+          state.settlement_id != null && !removedLedger.has(state.settlement_id);
+        if (state.refunded !== 1 && !closedByOther) continue; // reopens as today
+        keepCoverageIds.push(c.id);
+        const others = this.query<{ transaction_id: number }>(
+          `SELECT DISTINCT transaction_id FROM supplier_settlement_coverage
+            WHERE tenant_id = ? AND row_kind = ? AND row_id = ? AND is_reversed = 0
+              AND transaction_id <> ?
+            ORDER BY transaction_id`,
+          tenantId,
+          c.row_kind,
+          c.row_id,
+          original.id,
+        ).map((r) => r.transaction_id);
+        const sign = this._coveredRowSign(c.row_kind, c.row_id, c.currency);
+        add(c.member_supplier_id, c.currency, sign * c.amount, others);
+      }
+    }
+
+    const entries: SettlementCoverageReliefEntry[] = [];
+    for (const e of sums.values()) {
+      const amount = roundMoneyForCurrency(e.amount, e.currency);
+      if (Math.abs(amount) <= (e.currency === "USD" ? 0.005 : 0.5)) continue;
+      entries.push({ ...e, amount });
+    }
+    if (entries.length === 0 && keepCoverageIds.length === 0) return null;
+    return { keepCoverageIds, entries };
+  }
+
+  /** LIRA-343 — the covered row's own sign in `currency`: +1 a debt (the
+   *  shop owes), −1 a credit, 0 when the row is gone or empty. FS rows read
+   *  `supplier_owed` through FinancialServiceRepository (rule 14: the ONE
+   *  SUPPLIER_OWED_EXPR), never a re-typed formula. */
+  private _coveredRowSign(
+    kind: "FINANCIAL_SERVICE" | "LEDGER",
+    rowId: number,
+    currency: "USD" | "LBP",
+  ): number {
+    if (kind === "FINANCIAL_SERVICE") {
+      const row = getFinancialServiceRepository().findById(rowId) as
+        | { supplier_owed?: number | null }
+        | null
+        | undefined;
+      return Math.sign(row?.supplier_owed ?? 0);
+    }
+    const row = this.queryOne<{ amount_usd: number; amount_lbp: number }>(
+      `SELECT amount_usd, amount_lbp FROM supplier_ledger WHERE id = ? AND tenant_id = ?`,
+      rowId,
+      getCurrentTenantId(),
     );
-    if (covering) {
-      throw new DatabaseError(
-        `It is partly paid by settlement #${covering.transaction_id} — void that settlement first.`,
-        { entityId: original.id },
+    if (!row) return 0;
+    return Math.sign(currency === "USD" ? row.amount_usd : row.amount_lbp);
+  }
+
+  /**
+   * LIRA-343 (R12, rule 20) — books what `_planSettlementCoverageRelief`
+   * planned, owned by the undo / void / refund transaction `reversalId`.
+   * Per member and currency, a BALANCE-NEUTRAL pair:
+   *
+   *  - the ACCOUNT row, open (`settlement_id` NULL), amount `+r` — "you owe
+   *    OMT $X" (`SUPPLIER_PAYS_US`) or "OMT owes you $X" (`PAYMENT`). No
+   *    `source_ref_*`, so `accountRowScopeSql` classifies it ACCOUNT (on no
+   *    day) whatever the reversal's type; `transaction_id` = the reversal
+   *    (a row with `reverses_id` set) is how T037's ↺ badge finds it.
+   *  - the CARRY row, `−r`, self-stamped (`settlement_id = id`): never an
+   *    open queue row, left out of range mode by `isSettlementOwnRow`.
+   *
+   * Why two rows: the reversal's own postings (the undone settlement's
+   * money row soft-voided, or the voided transfer's ledger sibling) already
+   * move the balance by exactly the right amount, but the part a later
+   * settlement relied on stays closed in the queue. The open row puts it
+   * back in the queue; the carry keeps the balance where the reversal left
+   * it (FR-020: balance == open owed + open credits).
+   *
+   * `is_auto = 1` on both (rule 26): the operator undid / voided; these rows
+   * are bookkeeping the code wrote because that action required them, like
+   * the netting pairs. They are ledger rows, not transactions, so nothing is
+   * hidden from the Transactions table; the settle queue does not filter on
+   * `is_auto`, so the account row stays visible on the sheet, and
+   * `is_auto = 1` keeps both out of the manual Pay / Receive pools
+   * (`getManualPaymentPools`).
+   *
+   * Reversal owner (rule 20): the reversal transaction that wrote them. A
+   * reversal cannot itself be voided or refunded (`_assertReversible`), so
+   * they are final, as R12 states.
+   */
+  private _bookSettlementCoverageRelief(
+    original: TransactionEntity,
+    relief: SettlementCoverageRelief | null,
+    reversalId: number,
+    userId: number,
+    how: "void" | "refund",
+  ): void {
+    if (!relief || relief.entries.length === 0) return;
+    const tenantId = getCurrentTenantId();
+    const now = requestNow();
+    const action =
+      original.type === "SUPPLIER_SETTLEMENT"
+        ? `Undo of settlement #${original.id}`
+        : `${how === "refund" ? "Refund" : "Void"} of #${original.id}`;
+    const insert = this.db.prepare(
+      `INSERT INTO supplier_ledger
+         (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by,
+          transaction_id, is_auto, tenant_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+    );
+    const write = (
+      member: number,
+      currency: "USD" | "LBP",
+      amount: number,
+      note: string,
+    ): number => {
+      const res = insert.run(
+        member,
+        amount < 0 ? "PAYMENT" : "SUPPLIER_PAYS_US",
+        currency === "USD" ? amount : 0,
+        currency === "LBP" ? amount : 0,
+        note,
+        userId,
+        reversalId,
+        tenantId,
+        now,
       );
+      if (res.changes !== 1) {
+        throw new DatabaseError(
+          `${action} aborted: failed to write the account row for supplier ${member}`,
+        );
+      }
+      return Number(res.lastInsertRowid);
+    };
+    for (const e of relief.entries) {
+      const money = formatReliefMoney(e.amount, e.currency);
+      const usedBy = e.usedBy.length
+        ? ` already used by ${e.usedBy.map((id) => `#${id}`).join(", ")}`
+        : " already applied";
+      write(
+        e.member,
+        e.currency,
+        e.amount,
+        `${action}: ${money}${usedBy} — ${e.amount > 0 ? "owed to OMT" : "OMT credit"}`,
+      );
+      const carryId = write(
+        e.member,
+        e.currency,
+        -e.amount,
+        `Auto: carry for ${action.toLowerCase()} (balances the account row above)`,
+      );
+      const stamped = this.db
+        .prepare(
+          `UPDATE supplier_ledger SET settlement_id = ? WHERE id = ? AND tenant_id = ?`,
+        )
+        .run(carryId, carryId, tenantId);
+      if (stamped.changes !== 1) {
+        throw new DatabaseError(`${action} aborted: failed to stamp the carry row ${carryId}`);
+      }
     }
   }
 
@@ -7956,10 +8299,17 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     const ownSettlementCredit =
       original.type === "SUPPLIER_SETTLEMENT" &&
       sibling.settlement_id === original.source_id;
+    // LIRA-343 (FR-019, R12) — a row an amount-first OMT-account settlement
+    // closed (it carries that settlement's coverage) IS voidable: the
+    // settlement stays and what it paid becomes OMT credit
+    // (`_bookSettlementCoverageRelief`). Only a row closed by a whole-row
+    // settlement (legacy `settleTransactions` / pre-LIRA-322 account
+    // settle: a stamp with no coverage) is still refused below.
     if (
       hasSettlementIdColumn &&
       sibling.settlement_id != null &&
-      !ownSettlementCredit
+      !ownSettlementCredit &&
+      !this._isClosedByAmountFirstCoverage("LEDGER", sibling.id, sibling.settlement_id)
     ) {
       throw new DatabaseError(
         `Cannot void/refund — its auto supplier-ledger entry has already been included in settlement #${sibling.settlement_id}; correct the supplier balance with a manual adjustment instead.`,
@@ -7971,12 +8321,46 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       original.source_table,
       original.source_id,
     );
-    if (settlementId != null) {
+    if (
+      settlementId != null &&
+      !(
+        original.source_table === "financial_services" &&
+        this._isClosedByAmountFirstCoverage(
+          "FINANCIAL_SERVICE",
+          original.source_id,
+          settlementId,
+        )
+      )
+    ) {
       throw new DatabaseError(
         `Cannot void/refund — its auto supplier-ledger entry has already been included in settlement #${settlementId}; correct the supplier balance with a manual adjustment instead.`,
         { entityId: original.id },
       );
     }
+  }
+
+  /**
+   * LIRA-343 (FR-019) — true when the row's `settlement_id` stamp was
+   * written by an amount-first OMT-account settlement: that settlement's
+   * active coverage sits on the row under the same anchor. A whole-row
+   * (legacy) settlement writes no coverage, so its stamp reads false.
+   */
+  private _isClosedByAmountFirstCoverage(
+    kind: "FINANCIAL_SERVICE" | "LEDGER",
+    rowId: number,
+    anchorLedgerId: number,
+  ): boolean {
+    if (!this._hasSettlementCoverageTable()) return false;
+    return !!this.queryOne<{ id: number }>(
+      `SELECT id FROM supplier_settlement_coverage
+        WHERE tenant_id = ? AND row_kind = ? AND row_id = ?
+          AND anchor_ledger_id = ? AND is_reversed = 0
+        LIMIT 1`,
+      getCurrentTenantId(),
+      kind,
+      rowId,
+      anchorLedgerId,
+    );
   }
 
   /**
@@ -8376,6 +8760,32 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     }
   }
 
+  /**
+   * LIRA-344 (rule 20) — the books-only "OMT credit not accepted" expense
+   * belongs to the SUPPLIER_SETTLEMENT that removed the credit
+   * (`SupplierRepository.removeAccountCredit`, linked by `source_ref_table =
+   * 'supplier_ledger'` / the anchor). Voiding it alone would leave the
+   * credit closed with no cost booked, so every manual path is refused here;
+   * the settlement's void removes it through `_voidExpensesLinkedTo`.
+   */
+  private _assertNotOmtCreditRemovalExpense(original: TransactionEntity): void {
+    if (original.source_table !== "expenses" || original.source_id == null) {
+      return;
+    }
+    if (!this._expensesHasSourceRefColumns()) return;
+    const row = this.queryOne<{ source_ref_table: string | null; category: string }>(
+      `SELECT source_ref_table, category FROM expenses WHERE id = ? AND tenant_id = ?`,
+      original.source_id,
+      getCurrentTenantId(),
+    );
+    if (
+      row?.source_ref_table === "supplier_ledger" &&
+      row.category === OMT_CREDIT_REMOVED_EXPENSE_CATEGORY
+    ) {
+      throw new BusinessRuleError(OMT_CREDIT_REMOVED_EXPENSE_LOCKED_MESSAGE);
+    }
+  }
+
   private _voidExpensesLinkedTo(
     sourceTable: string,
     sourceId: number,
@@ -8398,6 +8808,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       this._voidTransactionInternal(siblingTxn.id, userId, {
         allowSplitGroupMember: true,
         internal: internal === true,
+        // LIRA-344 — the parent (or its owner) is reversing its own sibling.
+        allowParentOwnedExpense: true,
       });
     }
   }
@@ -9718,6 +10130,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   private _reversePartnerSettlementLedger(
     original: TransactionEntity,
     userId: number,
+    /** LIRA-346 — the void / refund transaction (owns any RELIEF row). */
+    reversalTxnId: number | null = null,
   ): void {
     if (
       (original.type !== "PARTNER_SETTLEMENT" &&
@@ -9749,6 +10163,33 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     );
     if (!entry) return;
 
+    // LIRA-346: rows the settlement wrote that point at its anchor — a
+    // second currency's SETTLEMENT row (settle picked days) and every
+    // bundled DISCOUNT (either currency). Read before any reversal row is
+    // written (a reversal row carries the same reference).
+    const linked = this.query<{
+      id: number;
+      transaction_type: string;
+      amount: number;
+      currency: string;
+      direction: "DEBIT" | "CREDIT";
+    }>(
+      `SELECT id, transaction_type, amount, currency, direction FROM partner_ledger
+       WHERE reference_table = 'partner_ledger' AND reference_id = ?
+         AND transaction_type IN ('SETTLEMENT', 'DISCOUNT') AND tenant_id = ?
+       ORDER BY id`,
+      original.source_id,
+      tenantId,
+    );
+    const settleRepo = getPartnerSettlementRepository();
+    const exact = settleRepo.hasCoverageTable();
+    const plan = exact
+      ? settleRepo.planReversal(entry.partner_id, [
+          original.source_id,
+          ...linked.map((l) => l.id),
+        ])
+      : null;
+
     const insertLedgerReversal = this.db.prepare(`
       INSERT INTO partner_ledger (
         partner_id, transaction_type, reference_table, reference_id,
@@ -9772,57 +10213,62 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       requestNow(),
     );
 
-    let coverageBudget = Math.abs(entry.amount);
+    // Old-schema give-back budget per currency (unchanged rule).
+    const budget = new Map<string, number>([
+      [entry.currency, Math.abs(entry.amount)],
+    ]);
 
-    // 2. Sweep a bundled CQ-10 discount, if this settlement carried one.
-    const discountEntry = this.queryOne<{
-      id: number;
-      amount: number;
-      currency: string;
-      direction: "DEBIT" | "CREDIT";
-    }>(
-      `SELECT id, amount, currency, direction FROM partner_ledger
-       WHERE reference_table = 'partner_ledger' AND reference_id = ?
-         AND transaction_type = 'DISCOUNT' AND tenant_id = ?`,
-      original.source_id,
-      tenantId,
-    );
-    if (discountEntry) {
+    // 2. Sweep the linked rows: a second currency's SETTLEMENT row, and
+    //    every bundled CQ-10 discount (its profit negated too).
+    for (const row of linked) {
+      const isDiscount = row.transaction_type === "DISCOUNT";
       insertLedgerReversal.run(
         entry.partner_id,
-        "DISCOUNT",
+        row.transaction_type,
         "partner_ledger",
         original.source_id,
-        discountEntry.amount,
-        discountEntry.currency,
-        discountEntry.direction === "DEBIT" ? "CREDIT" : "DEBIT",
-        `Reversal of bundled discount for settlement/payment txn #${original.id}`,
+        row.amount,
+        row.currency,
+        row.direction === "DEBIT" ? "CREDIT" : "DEBIT",
+        isDiscount
+          ? `Reversal of bundled discount for settlement/payment txn #${original.id}`
+          : `Reversal of settlement/payment txn #${original.id} (${row.currency})`,
         userId,
         tenantId,
         // LIRA-306 FR-021: the event time on an offline replay.
         requestNow(),
       );
-      coverageBudget += Math.abs(discountEntry.amount);
-
-      // Negate the discount's own COUNTERPARTY_DISCOUNT transaction's
-      // profit stamp via a NEW compensating transaction (never mutate the
-      // original).
-      this._negateCounterpartyDiscountProfit(
-        "partner_ledger",
-        discountEntry.id,
-        `Discount reversed by settlement void/refund #${original.id}`,
-        userId,
-      );
+      if (isDiscount) {
+        budget.set(row.currency, (budget.get(row.currency) ?? 0) + Math.abs(row.amount));
+        // Negate the discount's own COUNTERPARTY_DISCOUNT transaction's
+        // profit stamp via a NEW compensating transaction (never mutate the
+        // original).
+        this._negateCounterpartyDiscountProfit(
+          "partner_ledger",
+          row.id,
+          `Discount reversed by settlement void/refund #${original.id}`,
+          userId,
+        );
+      }
     }
 
-    // 3. Unwind the combined FIFO coverage both rows applied.
-    this._unwindPartnerSettlementCoverage(
-      entry.partner_id,
-      entry.currency,
-      entry.direction,
-      coverageBudget,
-      tenantId,
-    );
+    // 3. Give the coverage back. From v225 (LIRA-346) exactly, from the
+    //    coverage rows this settlement wrote (any order; a row a later
+    //    settlement also paid keeps it, and the account shows it); before
+    //    v225 the old newest-first give-back.
+    if (plan) {
+      settleRepo.applyReversal(plan, reversalTxnId);
+      return;
+    }
+    for (const [currency, amount] of budget) {
+      this._unwindPartnerSettlementCoverage(
+        entry.partner_id,
+        currency,
+        entry.direction,
+        amount,
+        tenantId,
+      );
+    }
   }
 
   /**
@@ -10007,6 +10453,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   private _reverseSupplierSettlement(
     original: TransactionEntity,
     userId: number,
+    relief: SettlementCoverageRelief | null = null,
   ): void {
     if (original.type !== "SUPPLIER_SETTLEMENT") {
       return;
@@ -10017,14 +10464,22 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // coverage rows stop counting (never deleted). A part-paid row has no
     // stamp, so this is its whole reversal; a closed row is also reopened
     // by the settlement_id un-stamp below.
+    // LIRA-343 (R12) — except the coverage a later settlement relies on
+    // (a row another settlement closed, or a row already voided): it stays
+    // active and its amount goes on the account instead
+    // (`_bookSettlementCoverageRelief`).
     if (this._hasSettlementCoverageTable()) {
+      const keep = relief?.keepCoverageIds ?? [];
       this.execute(
         `UPDATE supplier_settlement_coverage SET is_reversed = 1, updated_at = ?
-         WHERE transaction_id = ? AND tenant_id = ? AND is_reversed = 0`,
+         WHERE transaction_id = ? AND tenant_id = ? AND is_reversed = 0${
+           keep.length ? ` AND id NOT IN (${keep.map(() => "?").join(",")})` : ""
+         }`,
         // LIRA-306 FR-021: the event time on an offline replay.
         requestNow(),
         original.id,
         tenantId,
+        ...keep,
       );
     }
 
@@ -10783,7 +11238,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     const tenantId = getCurrentTenantId();
     this.execute(
       `UPDATE supplier_ledger SET is_refunded = 1, refunded_at = ?
-        WHERE transaction_id = ? AND entry_type = 'TOP_UP' AND COALESCE(is_refunded, 0) = 0 AND tenant_id = ?`,
+        WHERE ${LINKED_TOP_UP_LEDGER_WHERE} AND tenant_id = ?`,
       // LIRA-306 FR-021: the event time on an offline replay.
       requestNow(),
       original.id,

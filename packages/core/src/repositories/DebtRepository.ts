@@ -28,6 +28,16 @@ import {
   type DebtItemRef,
   type OpenDebtItem,
 } from "../utils/debtRepaymentAllocation.js";
+import { daysOfMonth } from "../utils/settleDays.js";
+import {
+  expectedOwedMatches,
+  ownTargetsOpen,
+  splitAccountGap,
+  type DebtAccountLines,
+  type DebtMonthRow,
+  type DebtMonthRows,
+} from "../utils/debtSettleDays.js";
+import { localDayExpr } from "./reportingTimeFragments.js";
 import { coverBasketMember } from "./basketMemberCoverage.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { resolveBackTimedDrawerMovement } from "./checkpointResolution.js";
@@ -43,6 +53,7 @@ import {
   coverageOutstandingSql,
   memberOpenSql,
   memberOutstandingSql,
+  refundReversedSql,
 } from "./sessionDebtCoverage.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import { getEffectiveRate } from "../utils/effectiveRate.js";
@@ -291,7 +302,36 @@ export interface CreateRepaymentData {
    *  items are paid first; the rest follows today's order. Re-checked
    *  server-side: every target must be this client's and still open. */
   targets?: DebtItemRef[];
+  /** LIRA-347 D1 — what the cashier's own ticks (not `auto`) owed when they
+   *  picked the days, per currency. When sent with `targets`, the repayment
+   *  is refused (`DEBT_DAYS_CHANGED`, nothing written) if they no longer
+   *  owe that — someone paid or changed one meanwhile. */
+  expected_owed?: { usd: number; lbp: number };
+  /** LIRA-347 D2 — the client's unapplied credit the cashier chose to use
+   *  ("Use credit"), per currency. It pays debt items exactly like the
+   *  money does (ticked items first, same currency only) but moves no
+   *  drawer and no ledger balance: the credit already lowered the balance
+   *  when it was deposited. Refused above the available credit
+   *  (`DEBT_CREDIT_NOT_AVAILABLE`). */
+  credit_use_usd?: number;
+  credit_use_lbp?: number;
 }
+
+/** LIRA-347 — an allocation item as `_loadAllocationItems` returns it:
+ *  plus what the item owed in all (closed or not), for the calendar. */
+type LoadedDebtItem = AllocationItem & { owedUsd?: number; owedLbp?: number };
+
+/** LIRA-347 (owner D1) — the stale check's refusal: the ticked items no
+ *  longer owe what the cashier saw when they picked the days. */
+export const DEBT_DAYS_CHANGED =
+  "These debts changed since you picked the days — reload and pick again.";
+
+/** LIRA-347 D2 — the history note on a repayment wholly from credit. */
+export const CREDIT_ONLY_REPAYMENT_NOTE = "Paid from the customer's credit";
+
+/** LIRA-347 (owner D2) — "Use credit" asked for more than is available. */
+export const DEBT_CREDIT_NOT_AVAILABLE =
+  "There is not that much credit left on this account — reload and try again.";
 
 // =============================================================================
 // Debt Repository Class
@@ -515,11 +555,22 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       `);
 
       // Store as negative values to signify a reduction in debt
+      // LIRA-347 D2 — the "Use credit" amounts (validated against the
+      // available credit further down, before anything commits).
+      const creditAskUsd =
+        Math.round(Math.max(0, data.credit_use_usd ?? 0) * 100) / 100;
+      const creditAskLbp = Math.round(Math.max(0, data.credit_use_lbp ?? 0));
+      const creditOnly =
+        (creditAskUsd > 0 || creditAskLbp > 0) &&
+        data.amount_usd <= 0 &&
+        data.amount_lbp <= 0;
       const result = stmt.run(
         data.client_id,
         -data.amount_usd,
         -data.amount_lbp,
-        data.note || null,
+        // A repayment wholly from credit moves no money: its (0 / 0) row
+        // says so in the client's history.
+        data.note || (creditOnly ? CREDIT_ONLY_REPAYMENT_NOTE : null),
         data.created_by,
         tenantId,
         // LIRA-306 FR-021: the event time on an offline replay.
@@ -573,8 +624,14 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
       // Derive primary method label for metadata (first leg, or SPLIT)
       const uniqueMethods = [...new Set(inLegs.map((l) => l.method))];
+      // LIRA-347 — wholly from credit: no leg; it was paid from the
+      // customer's account, not "SPLIT".
       const primaryMethod =
-        uniqueMethods.length === 1 ? uniqueMethods[0] : "SPLIT";
+        uniqueMethods.length === 1
+          ? uniqueMethods[0]
+          : uniqueMethods.length === 0 && creditOnly
+            ? "CUSTOMER_ACCOUNT"
+            : "SPLIT";
 
       // Owner decision (2026-08-08, repro: buy 89,000 vs. sell 90,000): the
       // `transactions.exchange_rate` stamp reflects what the operator
@@ -636,7 +693,16 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         client_id: data.client_id,
         // note 14 — thin-summary enrichment: client's name appended after
         // the existing "Debt Repayment: $X + Y LBP" prefix.
-        summary: `Debt Repayment: $${data.amount_usd} + ${data.amount_lbp} LBP — ${clientName}`,
+        summary: `Debt Repayment: $${data.amount_usd} + ${data.amount_lbp} LBP — ${clientName}${
+          creditAskUsd > 0 || creditAskLbp > 0
+            ? ` (credit used: ${[
+                creditAskUsd > 0 ? `$${creditAskUsd}` : "",
+                creditAskLbp > 0 ? `${creditAskLbp} LBP` : "",
+              ]
+                .filter(Boolean)
+                .join(" + ")})`
+            : ""
+        }`,
         exchange_rate: recordExchangeRate,
         metadata_json: {
           paid_by: primaryMethod,
@@ -762,6 +828,38 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       );
       if (balanceItem) openItems.push(balanceItem);
       this._assertTargetsOpen(data.targets ?? [], openItems);
+      // LIRA-347 D1 — stale check: the picked days' items still owe what
+      // the cashier saw (same figure the page computed, `ownTargetsOpen`).
+      if (
+        data.expected_owed &&
+        data.targets &&
+        data.targets.length > 0 &&
+        !expectedOwedMatches(
+          data.expected_owed,
+          ownTargetsOpen(openItems, data.targets),
+        )
+      ) {
+        throw new DatabaseError(DEBT_DAYS_CHANGED);
+      }
+      // LIRA-347 D2 — "Use credit": at most the credit not yet applied to
+      // any item (measured without this repayment's own row), per
+      // currency (a USD credit never pays an LBP item: the allocation is
+      // strictly same-currency).
+      const creditUseUsd = creditAskUsd;
+      const creditUseLbp = creditAskLbp;
+      if (creditUseUsd > 0 || creditUseLbp > 0) {
+        const lines = this._accountLines(
+          data.client_id,
+          openItems,
+          repaymentId,
+        );
+        if (
+          creditUseUsd > lines.credit_usd + 0.005 ||
+          creditUseLbp > lines.credit_lbp + 0.5
+        ) {
+          throw new DatabaseError(DEBT_CREDIT_NOT_AVAILABLE);
+        }
+      }
       const routableCash = (ccy: string): number =>
         inLegs
           .filter(
@@ -774,8 +872,10 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       const allocation = allocateRepayment({
         items: openItems,
         targets: data.targets,
-        reductionUsd: data.amount_usd,
-        reductionLbp: data.amount_lbp,
+        // LIRA-347 D2 — the credit used pays items too (coverage only);
+        // routing stays capped by the cash below.
+        reductionUsd: data.amount_usd + creditUseUsd,
+        reductionLbp: data.amount_lbp + creditUseLbp,
         appliedUsd: Math.max(0, appliedUSD),
         appliedLbp: Math.max(0, appliedLBP),
         cashUsd: Math.min(routableCash("USD"), Math.max(0, appliedUSD)),
@@ -910,6 +1010,13 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
             }),
         ...(data.targets && data.targets.length > 0
           ? { targets: data.targets }
+          : {}),
+        // LIRA-347 D2 — the part of the coverage above that the client's
+        // credit paid. Its reversal owner is the void's exact coverage
+        // give-back (`_restoreRepaymentDebt`): the credit comes back by
+        // itself because it is derived (balance − open items).
+        ...(creditUseUsd > 0 || creditUseLbp > 0
+          ? { credit_used: { usd: creditUseUsd, lbp: creditUseLbp } }
           : {}),
       });
 
@@ -1137,13 +1244,22 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    * routing cap: its amount minus what earlier, still-standing repayments
    * already routed for it, in its own currency (research D3/D5).
    * 'Manual Debt' and other non-coverable rows are never listed.
+   *
+   * LIRA-347 — every item also carries its `shopDay` (`localDayExpr`, rule
+   * 27). With `range` (a UTC window) the SAME queries return the window's
+   * items open OR closed, for the settle calendar (no second definition of
+   * "a debt item", rule 14): a sale only when it went on the account (a
+   * 'Sale Debt' row, or a basket that left debt), a charge or basket item
+   * unless wholly reversed. Range mode reads no routing (`routingCap` null)
+   * and fills `owedUsd`/`owedLbp` (what the item owed, closed or not).
    */
   private _loadAllocationItems(
     clientId: number,
     baseSystem: BaseSystem,
-  ): AllocationItem[] {
+    range?: { fromUtc: string; toUtc: string },
+  ): LoadedDebtItem[] {
     const tenantId = getCurrentTenantId();
-    const items: AllocationItem[] = [];
+    const items: LoadedDebtItem[] = [];
     // A database from before v209, or a hand-rolled test schema, may lack
     // the basket member shares or the financial_services table: baskets are
     // then coverable as a whole and no transfer is routed (pre-LIRA-304).
@@ -1157,21 +1273,42 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
            AND ${alias}.id = ${txn}.source_id AND ${alias}.tenant_id = ${txn}.tenant_id`
         : "";
     const fsProvider = hasFs ? "fs.provider" : "NULL";
+    const win = (col: string): string =>
+      range ? `AND ${col} >= ? AND ${col} < ?` : "";
+    const winArgs: string[] = range ? [range.fromUtc, range.toUtc] : [];
+    const saleOpenSql = `(s.paid_usd + COALESCE(s.paid_lbp, 0) / COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1)) < s.final_amount_usd - 0.05`;
+    // Range mode: a closed sale is a debt item only if it went on the
+    // account — otherwise every cash purchase would paint a settled day.
+    const saleOnAccountSql = this._hasTable("customer_session_transactions")
+      ? `(${saleOpenSql}
+          OR EXISTS (SELECT 1 FROM debt_ledger sdl WHERE sdl.transaction_id = t.id
+                       AND sdl.tenant_id = t.tenant_id AND sdl.transaction_type = 'Sale Debt')
+          OR EXISTS (SELECT 1 FROM customer_session_transactions scst
+                       JOIN debt_ledger ssd ON ssd.session_id = scst.session_id
+                         AND ssd.tenant_id = scst.tenant_id
+                         AND ssd.transaction_type = 'Session Debt' AND ssd.client_id = t.client_id
+                     WHERE scst.unified_transaction_id = t.id AND scst.tenant_id = t.tenant_id))`
+      : `(${saleOpenSql}
+          OR EXISTS (SELECT 1 FROM debt_ledger sdl WHERE sdl.transaction_id = t.id
+                       AND sdl.tenant_id = t.tenant_id AND sdl.transaction_type = 'Sale Debt'))`;
 
     const sales = this.db
       .prepare(
-        `SELECT DISTINCT s.id, s.created_at,
+        `SELECT DISTINCT s.id, s.created_at, ${localDayExpr("s.created_at")} AS shop_day,
+                s.final_amount_usd AS owed_usd,
                 s.final_amount_usd - (s.paid_usd + COALESCE(s.paid_lbp, 0) / COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1)) AS open_usd
          FROM sales s
          JOIN transactions t ON t.source_table = 'sales' AND t.source_id = s.id
            AND t.tenant_id = s.tenant_id
          WHERE t.client_id = ? AND s.status = 'completed'
-           AND (s.paid_usd + COALESCE(s.paid_lbp, 0) / COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1)) < s.final_amount_usd - 0.05
-           AND s.tenant_id = ?`,
+           AND ${range ? saleOnAccountSql : saleOpenSql}
+           AND s.tenant_id = ? ${win("s.created_at")}`,
       )
-      .all(clientId, tenantId) as Array<{
+      .all(clientId, tenantId, ...winArgs) as Array<{
       id: number;
       created_at: string;
+      shop_day: string;
+      owed_usd: number;
       open_usd: number;
     }>;
     for (const r of sales) {
@@ -1180,34 +1317,40 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         id: r.id,
         rowId: r.id,
         createdAt: r.created_at,
+        shopDay: r.shop_day,
         openUsd: Math.max(0, r.open_usd),
         openLbp: 0,
+        owedUsd: Math.max(0, r.owed_usd),
+        owedLbp: 0,
       });
     }
 
     const charges = this.db
       .prepare(
-        `SELECT dl.id, dl.created_at, dl.transaction_type, ${fsProvider} AS provider,
+        `SELECT dl.id, dl.created_at, ${localDayExpr("dl.created_at")} AS shop_day,
+                dl.transaction_type, ${fsProvider} AS provider,
                 t.status AS txn_status,
                 ${coverageOutstandingSql("dl", "usd")} AS open_usd,
                 ${coverageOutstandingSql("dl", "lbp")} AS open_lbp,
-                dl.amount_usd + COALESCE((SELECT SUM(rr.amount_usd) FROM debt_ledger rr
-                  WHERE rr.transaction_id = dl.transaction_id AND rr.tenant_id = dl.tenant_id
-                    AND rr.transaction_type = 'Refund Reversal'), 0) AS owed_usd,
-                dl.amount_lbp + COALESCE((SELECT SUM(rr.amount_lbp) FROM debt_ledger rr
-                  WHERE rr.transaction_id = dl.transaction_id AND rr.tenant_id = dl.tenant_id
-                    AND rr.transaction_type = 'Refund Reversal'), 0) AS owed_lbp
+                dl.amount_usd - ${refundReversedSql("dl", "usd")} AS owed_usd,
+                dl.amount_lbp - ${refundReversedSql("dl", "lbp")} AS owed_lbp
          FROM debt_ledger dl
          LEFT JOIN transactions t ON t.id = dl.transaction_id AND t.tenant_id = dl.tenant_id
          ${fsJoin("fs", "t")}
          WHERE dl.client_id = ? AND dl.tenant_id = ?
            AND dl.transaction_type <> 'Session Debt'
            AND ${coverableChargeSql("dl")}
-           AND ${coverageOpenSql("dl")}`,
+           AND ${
+             range
+               ? `(dl.amount_usd - ${refundReversedSql("dl", "usd")} > ${COVERAGE_EPSILON_USD}
+                   OR dl.amount_lbp - ${refundReversedSql("dl", "lbp")} > ${COVERAGE_EPSILON_LBP})`
+               : coverageOpenSql("dl")
+           } ${win("dl.created_at")}`,
       )
-      .all(clientId, tenantId) as Array<{
+      .all(clientId, tenantId, ...winArgs) as Array<{
       id: number;
       created_at: string;
+      shop_day: string;
       transaction_type: string;
       provider: string | null;
       txn_status: string | null;
@@ -1221,7 +1364,8 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       ? []
       : (this.db
           .prepare(
-            `SELECT cst.id, dl.id AS row_id, dl.created_at, ${fsProvider} AS provider,
+            `SELECT cst.id, dl.id AS row_id, dl.created_at,
+                ${localDayExpr("t.created_at")} AS shop_day, ${fsProvider} AS provider,
                 ${memberOutstandingSql("cst", "usd")} AS open_usd,
                 ${memberOutstandingSql("cst", "lbp")} AS open_lbp,
                 ${memberOutstandingSql("cst", "usd")} + cst.covered_usd AS owed_usd,
@@ -1236,12 +1380,18 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
            AND ${coverableChargeSql("dl")}
            AND cst.transaction_type <> 'session_item_refund'
            AND t.type <> 'SALE'
-           AND ${memberOpenSql("cst")}`,
+           AND ${
+             range
+               ? `(${memberOutstandingSql("cst", "usd")} + cst.covered_usd > ${COVERAGE_EPSILON_USD}
+                   OR ${memberOutstandingSql("cst", "lbp")} + cst.covered_lbp > ${COVERAGE_EPSILON_LBP})`
+               : memberOpenSql("cst")
+           } ${win("t.created_at")}`,
           )
-          .all(clientId, tenantId) as Array<{
+          .all(clientId, tenantId, ...winArgs) as Array<{
           id: number;
           row_id: number;
           created_at: string;
+          shop_day: string;
           provider: string | null;
           open_usd: number;
           open_lbp: number;
@@ -1251,25 +1401,35 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
     // A basket row whose outstanding its members do not account for (a
     // basket booked without member shares) stays coverable as a whole.
+    // Range mode lists the open gap only (a closed whole-basket row is
+    // legacy and has no per-item record to show).
+    const openMembers = range
+      ? members.filter(
+          (m) =>
+            m.open_usd > COVERAGE_EPSILON_USD ||
+            m.open_lbp > COVERAGE_EPSILON_LBP,
+        )
+      : members;
     const baskets = this.db
       .prepare(
-        `SELECT dl.id, dl.created_at,
+        `SELECT dl.id, dl.created_at, ${localDayExpr("dl.created_at")} AS shop_day,
                 ${coverageOutstandingSql("dl", "usd")} AS open_usd,
                 ${coverageOutstandingSql("dl", "lbp")} AS open_lbp
          FROM debt_ledger dl
          WHERE dl.client_id = ? AND dl.tenant_id = ?
            AND dl.transaction_type = 'Session Debt'
            AND ${coverableChargeSql("dl")}
-           AND ${coverageOpenSql("dl")}`,
+           AND ${coverageOpenSql("dl")} ${win("dl.created_at")}`,
       )
-      .all(clientId, tenantId) as Array<{
+      .all(clientId, tenantId, ...winArgs) as Array<{
       id: number;
       created_at: string;
+      shop_day: string;
       open_usd: number;
       open_lbp: number;
     }>;
     for (const b of baskets) {
-      const mine = members.filter((m) => m.row_id === b.id);
+      const mine = openMembers.filter((m) => m.row_id === b.id);
       const gapUsd = b.open_usd - mine.reduce((s2, m) => s2 + m.open_usd, 0);
       const gapLbp = b.open_lbp - mine.reduce((s2, m) => s2 + m.open_lbp, 0);
       if (gapUsd > COVERAGE_EPSILON_USD || gapLbp > COVERAGE_EPSILON_LBP) {
@@ -1278,15 +1438,21 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
           id: b.id,
           rowId: b.id,
           createdAt: b.created_at,
+          shopDay: b.shop_day,
           openUsd: Math.max(0, gapUsd),
           openLbp: Math.max(0, gapLbp),
+          owedUsd: Math.max(0, gapUsd),
+          owedLbp: Math.max(0, gapLbp),
         });
       }
     }
 
-    const routed = this._readRoutedByTransfer(clientId, baseSystem, charges);
+    const routed = range
+      ? new Map<string, { usd: number; lbp: number }>()
+      : this._readRoutedByTransfer(clientId, baseSystem, charges);
     for (const c of charges) {
       const isTransfer =
+        !range &&
         c.transaction_type === "Service Debt" &&
         c.txn_status === "ACTIVE" &&
         isPrimarySystemProvider(c.provider, baseSystem);
@@ -1296,8 +1462,11 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         id: c.id,
         rowId: c.id,
         createdAt: c.created_at,
+        shopDay: c.shop_day,
         openUsd: Math.max(0, c.open_usd),
         openLbp: Math.max(0, c.open_lbp),
+        owedUsd: Math.max(0, c.owed_usd),
+        owedLbp: Math.max(0, c.owed_lbp),
         routingCap: isTransfer
           ? {
               usd: Math.max(0, c.owed_usd - r.usd),
@@ -1307,15 +1476,19 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       });
     }
     for (const m of members) {
-      const isTransfer = isPrimarySystemProvider(m.provider, baseSystem);
+      const isTransfer =
+        !range && isPrimarySystemProvider(m.provider, baseSystem);
       const r = routed.get(`member:${m.id}`) ?? { usd: 0, lbp: 0 };
       items.push({
         kind: "member",
         id: m.id,
         rowId: m.row_id,
         createdAt: m.created_at,
+        shopDay: m.shop_day,
         openUsd: Math.max(0, m.open_usd),
         openLbp: Math.max(0, m.open_lbp),
+        owedUsd: Math.max(0, m.owed_usd),
+        owedLbp: Math.max(0, m.owed_lbp),
         routingCap: isTransfer
           ? {
               usd: Math.max(0, m.owed_usd - r.usd),
@@ -1464,6 +1637,185 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     const tenantId = getCurrentTenantId();
     const baseSystem = getSettingsRepository().getShopBaseSystem();
     const items = this._loadAllocationItems(clientId, baseSystem);
+    const info = this._itemInfoReader(tenantId);
+    // LIRA-308 answer 2 — the part of the balance no listed item accounts
+    // for, as its own line, so ticking everything = the whole balance. Only
+    // next to listed items: a client with nothing but such debt keeps the
+    // plain (no-picker) repayment.
+    const balanceItem =
+      items.length > 0 ? this._earlierBalanceItem(clientId, items) : null;
+    const balanceLine: OpenDebtItem[] = balanceItem
+      ? [
+          {
+            ...balanceItem,
+            label: EARLIER_BALANCE_LABEL,
+            type: null,
+            sessionId: null,
+            isPrimary: false,
+            primaryDrawer: null,
+          },
+        ]
+      : [];
+    return [
+      ...balanceLine,
+      ...items
+        .map(({ owedUsd: _ou, owedLbp: _ol, ...it }): OpenDebtItem => {
+          const i = info(it);
+          return {
+            ...it,
+            label: i?.summary ?? `${it.kind} #${it.id}`,
+            type: i?.type ?? null,
+            sessionId: i?.session_id ?? null,
+            isPrimary: isCashDrawerItem(it),
+            primaryDrawer: isCashDrawerItem(it)
+              ? primaryCashDrawerName(baseSystem)
+              : null,
+          };
+        })
+        .sort((a, b) =>
+          a.createdAt === b.createdAt
+            ? a.rowId - b.rowId || a.id - b.id
+            : a.createdAt < b.createdAt
+              ? -1
+              : 1,
+        ),
+    ];
+  }
+
+  /**
+   * LIRA-308 answer 2 (2026-10-11) — the client's balance that no open item
+   * accounts for (manual / imported / opening debt), as the
+   * "Earlier balance (no items)" allocation item, or null when there is
+   * none. Ledger balance minus the items' open amounts, per currency; a
+   * shortfall in one currency (e.g. an LBP credit) is netted against the
+   * other at the sell rate. `excludeLedgerId` leaves out a row the caller
+   * has just inserted (addRepayment's own Repayment row), so the gap is the
+   * one the cashier saw. Below 5¢ / 5,000 LBP it is rounding noise, not a
+   * line.
+   */
+  private _earlierBalanceItem(
+    clientId: number,
+    items: AllocationItem[],
+    excludeLedgerId?: number,
+  ): AllocationItem | null {
+    const lines = this._accountLines(clientId, items, excludeLedgerId);
+    const gapUsd = lines.earlier_usd;
+    const gapLbp = lines.earlier_lbp;
+    if (
+      gapUsd <= EARLIER_BALANCE_MIN_USD &&
+      gapLbp <= EARLIER_BALANCE_MIN_LBP
+    ) {
+      return null;
+    }
+    return earlierBalanceItem({
+      usd: gapUsd > EARLIER_BALANCE_MIN_USD ? gapUsd : 0,
+      lbp: gapLbp > EARLIER_BALANCE_MIN_LBP ? gapLbp : 0,
+    });
+  }
+
+  /**
+   * LIRA-347 — the client's two account lines (`splitAccountGap`, the ONE
+   * definition): debt no open item accounts for, and credit not yet
+   * applied to any item. `items` = the open items WITHOUT the
+   * earlier-balance line; `excludeLedgerId` as in `_earlierBalanceItem`.
+   */
+  private _accountLines(
+    clientId: number,
+    items: AllocationItem[],
+    excludeLedgerId?: number,
+  ): DebtAccountLines {
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(amount_usd), 0) AS usd, COALESCE(SUM(amount_lbp), 0) AS lbp
+         FROM debt_ledger
+         WHERE client_id = ? AND tenant_id = ? AND id <> ?`,
+      )
+      .get(clientId, getCurrentTenantId(), excludeLedgerId ?? -1) as {
+      usd: number;
+      lbp: number;
+    };
+    const own = items.filter((it) => it.kind !== "balance");
+    const lines = splitAccountGap(
+      { usd: row.usd, lbp: row.lbp },
+      {
+        usd: own.reduce((s, it) => s + it.openUsd, 0),
+        lbp: own.reduce((s, it) => s + it.openLbp, 0),
+      },
+      getUsdLbpSellRate(this.db) || 1,
+    );
+    // Same noise floor as the earlier-balance line: a few cents / LBP of
+    // smart-rounding residue is not credit to offer.
+    return {
+      ...lines,
+      credit_usd: lines.credit_usd > EARLIER_BALANCE_MIN_USD ? lines.credit_usd : 0,
+      credit_lbp: lines.credit_lbp > EARLIER_BALANCE_MIN_LBP ? lines.credit_lbp : 0,
+    };
+  }
+
+  /**
+   * LIRA-347 — one month of the client's debt items for the settle
+   * calendar (owner D1/D3): every coverable item booked in `month`
+   * (`YYYY-MM`, the shop's month), open or closed, one row each with its
+   * shop day, plus the two account lines (no-item debt, unapplied credit)
+   * that sit on no day. Read only. The window is the month ± 1 UTC day,
+   * kept by `shop_day`, so the zone offset never cuts a row off (rule 27).
+   */
+  getClientDebtMonthRows(clientId: number, month: string): DebtMonthRows {
+    const days = daysOfMonth(month); // throws on a malformed month
+    const [y, m] = month.split("-").map(Number);
+    const stamp = (ms: number): string =>
+      `${new Date(ms).toISOString().slice(0, 10)} 00:00:00`;
+    const baseSystem = getSettingsRepository().getShopBaseSystem();
+    const tenantId = getCurrentTenantId();
+    const loaded = this._loadAllocationItems(clientId, baseSystem, {
+      fromUtc: stamp(Date.UTC(y, m - 1, 0)),
+      toUtc: stamp(Date.UTC(y, m - 1, days.length + 2)),
+    }).filter((it) => !!it.shopDay && it.shopDay.startsWith(`${month}-`));
+    const info = this._itemInfoReader(tenantId);
+    const rows: DebtMonthRow[] = loaded.map((it) => {
+      const i = info(it);
+      const owedUsd = it.owedUsd ?? it.openUsd;
+      const owedLbp = it.owedLbp ?? it.openLbp;
+      return {
+        shop_day: it.shopDay as string,
+        kind: it.kind as DebtMonthRow["kind"],
+        id: it.id,
+        amount_usd: owedUsd,
+        amount_lbp: owedLbp,
+        covered_usd: Math.max(0, owedUsd - it.openUsd),
+        covered_lbp: Math.max(0, owedLbp - it.openLbp),
+        remaining_usd: it.openUsd,
+        remaining_lbp: it.openLbp,
+        row_scope: "DAY",
+        label: i?.summary ?? `${it.kind} #${it.id}`,
+        type: i?.type ?? null,
+        session_id: i?.session_id ?? null,
+      };
+    });
+    rows.sort((a, b) =>
+      a.shop_day === b.shop_day
+        ? a.kind === b.kind
+          ? a.id - b.id
+          : a.kind < b.kind
+            ? -1
+            : 1
+        : a.shop_day < b.shop_day
+          ? -1
+          : 1,
+    );
+    const open = this._loadAllocationItems(clientId, baseSystem);
+    return { month, rows, account: this._accountLines(clientId, open) };
+  }
+
+  /** The label / type / basket of a debt item (shared by the open-items
+   *  list and the calendar's month rows). */
+  private _itemInfoReader(
+    tenantId: number,
+  ): (
+    it: Pick<AllocationItem, "kind" | "id">,
+  ) =>
+    | { summary: string | null; type: string | null; session_id: number | null }
+    | undefined {
     const hasCst = this._hasTable("customer_session_transactions");
     const saleInfo = this.db.prepare(
       `SELECT t.summary, t.type${
@@ -1499,104 +1851,14 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       type: string | null;
       session_id: number | null;
     };
-    // LIRA-308 answer 2 — the part of the balance no listed item accounts
-    // for, as its own line, so ticking everything = the whole balance. Only
-    // next to listed items: a client with nothing but such debt keeps the
-    // plain (no-picker) repayment.
-    const balanceItem =
-      items.length > 0 ? this._earlierBalanceItem(clientId, items) : null;
-    const balanceLine: OpenDebtItem[] = balanceItem
-      ? [
-          {
-            ...balanceItem,
-            label: EARLIER_BALANCE_LABEL,
-            type: null,
-            sessionId: null,
-            isPrimary: false,
-            primaryDrawer: null,
-          },
-        ]
-      : [];
-    return [
-      ...balanceLine,
-      ...items
-        .map((it): OpenDebtItem => {
-          const info = (
-            it.kind === "sale"
-              ? saleInfo.get(it.id, tenantId)
-              : it.kind === "charge"
-                ? chargeInfo.get(it.id, tenantId)
-                : memberInfo?.get(it.id, tenantId)
-          ) as Info | undefined;
-          return {
-            ...it,
-            label: info?.summary ?? `${it.kind} #${it.id}`,
-            type: info?.type ?? null,
-            sessionId: info?.session_id ?? null,
-            isPrimary: isCashDrawerItem(it),
-            primaryDrawer: isCashDrawerItem(it)
-              ? primaryCashDrawerName(baseSystem)
-              : null,
-          };
-        })
-        .sort((a, b) =>
-          a.createdAt === b.createdAt
-            ? a.rowId - b.rowId || a.id - b.id
-            : a.createdAt < b.createdAt
-              ? -1
-              : 1,
-        ),
-    ];
-  }
-
-  /**
-   * LIRA-308 answer 2 (2026-10-11) — the client's balance that no open item
-   * accounts for (manual / imported / opening debt), as the
-   * "Earlier balance (no items)" allocation item, or null when there is
-   * none. Ledger balance minus the items' open amounts, per currency; a
-   * shortfall in one currency (e.g. an LBP credit) is netted against the
-   * other at the sell rate. `excludeLedgerId` leaves out a row the caller
-   * has just inserted (addRepayment's own Repayment row), so the gap is the
-   * one the cashier saw. Below 5¢ / 5,000 LBP it is rounding noise, not a
-   * line.
-   */
-  private _earlierBalanceItem(
-    clientId: number,
-    items: AllocationItem[],
-    excludeLedgerId?: number,
-  ): AllocationItem | null {
-    const row = this.db
-      .prepare(
-        `SELECT COALESCE(SUM(amount_usd), 0) AS usd, COALESCE(SUM(amount_lbp), 0) AS lbp
-         FROM debt_ledger
-         WHERE client_id = ? AND tenant_id = ? AND id <> ?`,
-      )
-      .get(clientId, getCurrentTenantId(), excludeLedgerId ?? -1) as {
-      usd: number;
-      lbp: number;
-    };
-    let gapUsd = row.usd - items.reduce((s, it) => s + it.openUsd, 0);
-    let gapLbp = row.lbp - items.reduce((s, it) => s + it.openLbp, 0);
-    const rate = getUsdLbpSellRate(this.db) || 1;
-    if (gapUsd < 0 && gapLbp > 0) {
-      gapLbp = Math.max(0, gapLbp + gapUsd * rate);
-      gapUsd = 0;
-    } else if (gapLbp < 0 && gapUsd > 0) {
-      gapUsd = Math.max(0, gapUsd + gapLbp / rate);
-      gapLbp = 0;
-    }
-    gapUsd = Math.round(Math.max(0, gapUsd) * 100) / 100;
-    gapLbp = Math.round(Math.max(0, gapLbp));
-    if (
-      gapUsd <= EARLIER_BALANCE_MIN_USD &&
-      gapLbp <= EARLIER_BALANCE_MIN_LBP
-    ) {
-      return null;
-    }
-    return earlierBalanceItem({
-      usd: gapUsd > EARLIER_BALANCE_MIN_USD ? gapUsd : 0,
-      lbp: gapLbp > EARLIER_BALANCE_MIN_LBP ? gapLbp : 0,
-    });
+    return (it) =>
+      (it.kind === "sale"
+        ? saleInfo.get(it.id, tenantId)
+        : it.kind === "charge"
+          ? chargeInfo.get(it.id, tenantId)
+          : it.kind === "member"
+            ? memberInfo?.get(it.id, tenantId)
+            : undefined) as Info | undefined;
   }
 
   /** LIRA-304 — refuse (before any write) a ticked item that is not one of

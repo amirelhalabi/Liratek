@@ -122,6 +122,9 @@ export const OFFLINE_ID_TABLES: readonly string[] = [
   // by a checkpoint (replayable) and by back-timed entries that resolve one.
   "checkpoint_differences",
   "checkpoint_difference_resolutions",
+  // LIRA-346 v225 — appended (positions are baked into offline ids). A void
+  // of a partner settlement (replayable) reverses / writes coverage rows.
+  "partner_settlement_coverage",
 ];
 
 /** The offline feature's own bookkeeping tables — never written by a

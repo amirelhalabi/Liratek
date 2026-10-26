@@ -109,6 +109,11 @@ On the Partners page, open a partner and tap "Transactions" or "Payments", the s
 When a sale was paid in dollars and the change was given in Lebanese pounds (or the other way round), the refund window now offers what the customer really paid. Example: paid $55, got 250,000 LBP change at 90,000 — the refund window fills in $52.22 cash. If the customer brings the 250,000 LBP back, tap **+ Customer gives change**, enter it, and the window asks you to hand back the full $55. This works on Audit & Transactions, on the POS Refund Sale button and when refunding an item from a customer session.
 ![Refund window: the customer gives back 250,000 LBP, the shop hands back $55](whats-new/1.35.0/refund-customer-gives-change.png)
 
+### Settle OMT by day
+
+Settle Account on the OMT card now opens on a calendar of the month. Settled days are green; open days show what is still owed in $ and LBP. Every open day before today is already picked: add or remove days, choose how much OMT credit to use, and only the picked days are settled. Tap a day to see its transfers and untick one.
+![Settle Account: the month calendar with settled days in green and open days with what is left](whats-new/1.35.0/omt-settle-calendar.png)
+
 ## 🛒 POS
 
 - After a sale, and from any past sale's details, you can now send the receipt to the customer on WhatsApp. WhatsApp opens on their chat with the receipt already written; you press Send. Works on the desktop app and the web app.
@@ -178,7 +183,20 @@ When a sale was paid in dollars and the change was given in Lebanese pounds (or 
 - Settle Account: pay OMT the full amount owed. The commission you type no longer lowers the payment or closes transfers. Once the settlement is saved, the commission goes on OMT's account as money OMT owes you, and the next settlement uses it first. Undoing the settlement removes it again.
 - A commission from a settlement made before this update no longer shows up a second time as a credit in Settle Account.
 - "Which OMT shares does this statement include?" on Settle Account and on the OMT statement check is now a drop-down list with tick boxes. Nothing ticked means all types.
-- Undoing OMT settlements goes newest first: if a later settlement also paid some of the same transfers, void that later one first.
+- Settle Account on the OMT card now opens on a calendar of the month. Settled days are green; open days show what is still owed on them in $ and LBP.
+- Every day still open before today is already picked when Settle Account opens. Add or remove days, and only the picked days are settled; days you leave out stay open and are marked.
+- Settle Account: you choose how much of your OMT credit the settlement uses. It is filled in with what the picked days need, and you can lower it, down to nothing.
+- Settle Account: tap a day to see its transfers, what was paid on each and by which settlement, and untick a transfer to leave it out.
+- Settle Account: a **See transactions** button under "… left this month" opens a table of the picked days' transactions next to the calendar: each one's number, type, part (OMT, OMT App, iPick), name or reference, amount and what is left, with a total per day. Paid ones are greyed. Untick a line to leave it out of the settlement, or search by reference, name or number to check OMT's statement line by line. On a phone the table opens full screen; close it to go back with your picks kept.
+- Suppliers: the Transactions window can now be filtered by date (from and to, or Today, Yesterday, This month). From a day on the Settle Account calendar, "See in Transactions" opens that day.
+- Suppliers: on the OMT card, the Payments window can now be filtered by date too (from and to, or Today, Yesterday, This month). Other suppliers' Payments windows are unchanged.
+- Any OMT settlement can now be undone, in any order, and a transfer already paid to OMT can be voided. Later settlements stay as they are; any difference shows on the OMT account as owed to OMT or as OMT credit.
+- Settle Account: a one-time "Settle old history up to…" uses old OMT credit to close old days, with no new money. Anything the old credit doesn't cover stays open.
+- Settle Account (admins): an OMT credit that OMT will never accept (for example a miscalculation, or really the shop's own cost) can now be removed with **Remove credit**, next to that credit. You type a reason, the credit is closed, and its amount is recorded on the Expenses page as "OMT credit not accepted". No money leaves a drawer. To undo it, void it in Transactions: the credit comes back and the expense is removed.
+- Suppliers: Katsh, product suppliers and Whish (when it is turned on) now have a **Settle Account** button that opens the same day calendar as OMT. Pick the days you are paying for and how much to pay; each currency is settled on its own, so a $ payment never pays an LBP debt.
+- Suppliers: Katsh, product suppliers and Whish no longer have a Pay / Receive tab; pay them from Settle Account. Money paid to them before (and any discount given with it) stays on their account as credit that Settle Account can use, and "Settle old history up to…" closes old days with it. Katsh bill commission is still settled from the "Settle" list, which now shows bills only.
+- Suppliers, Whish: the commission you type in Settle Account goes on Whish's account as money Whish owes you, and the next settlement uses it first.
+- Suppliers, Katsh and Whish: "Paid" and "Partial" in the Transactions window now follow real settlements, like OMT. A transfer that showed "Paid" only because of an old Pay / Receive payment shows as owed until a settlement uses that payment.
 - OMT/Whish and Mobile Recharge (OMT App, Whish App, Binance, iPick, Katsh) History: from now on, when you correct a name or phone, the transaction in Transactions shows the new client name, phone and summary too. On OMT, Whish, OMT App and Whish App transfers, its Details also show the corrected sender, receiver or customer and note. On iPick and Katsh, correcting the note also changes the item text shown in Transactions. Before, Transactions kept showing the old name.
 
 ## 🎨 Look & feel
@@ -232,6 +250,18 @@ When a sale was paid in dollars and the change was given in Lebanese pounds (or 
 - Mobile Recharge, iPick / Katsh / Whish App: "Charge to shop line" now opens a window where you pick the line: any of your active MTC or Alfa shop lines (your main line is picked for you) or a line you hold for sale. Whish App MTC and Alfa cards have the button too, paid from your Whish App balance. Lines that are turned off are no longer offered or accepted.
 - Phone Lines → Recharge → Card: Whish App MTC and Alfa cards are in the list too.
 
+## 🤝 Partners
+
+- Partners: Settle now opens a calendar of the month. Settled days are green, open days show what is still owed in $ and LBP, and the open days before today are already picked. Tap a day to add or skip it, or open it to leave single entries out. Only the picked days are settled, and what the partner owes you and what you owe the partner on those days count against each other.
+- Partners / Profits: a sale made for a partner now counts its profit as soon as a settlement clears it against what you owe that partner, not only when the partner pays cash. Undoing the settlement moves that profit back to pending.
+- Partners: when the partner pays more than the picked days need, the extra stays on the partner's account as credit. Next time, "Use partner credit" takes it off what the partner pays.
+- Partners: when you void a sale the partner already settled, the calendar shows what the partner paid for it as partner credit, ready for the next settlement, with a small ↺ mark on the day of the void.
+- Partners: any settlement can be undone, in any order. Days a later settlement also paid stay as they are, and the difference shows on the partner's account.
+- Partners: "Settle old history up to…" (admins) closes old days with the payments already on the account, without moving any money.
+- Partners: the old way of settling, by amount (including a settlement on paper with no cash moved), is still there: "Settle by amount (old way)" at the bottom of the calendar.
+- Partners: in a partner's Transactions and Payments windows, the From / To dates now include the whole "To" day and follow your shop's own day.
+- Partners: on the settle calendar, "See transactions" opens a table of the picked days' entries next to the calendar (For / Through, notes, amount, what is left). Untick an entry there to leave it out of this settlement.
+
 ## 📒 Accounts
 
 - Accounts: new "Export Excel" button. It saves every client who has account history into one Excel file laid out like the import sheet: a list of names and phones, then one page per client with purchases on the left, payments and refunds on the right, totals, and the remaining balance in USD and LBP. Rows keep their real dates.
@@ -241,6 +271,11 @@ When a sale was paid in dollars and the change was given in Lebanese pounds (or 
 - Accounts: the Excel and PDF buttons on a client's purchases and payments lists now include the Date column and select all columns by default. The note's label (for example "Imported Debt") is kept apart from the note text.
 - Accounts: in a session basket's details window, tap a paid line (for example a Whish transfer or a sale) to open its full details, the same ones the Transactions page shows: items, client, payment, fees and more.
 - Accounts: when you click another client, their account shows "Loading..." until it has loaded. Before, the previous client's charges and their Cash Out button stayed on screen for a moment under the new client's name.
+- Accounts: in Settle Debt, "Pick days on a calendar" shows the client's month. Paid days are green, unpaid days show what is left in $ and LBP. Tap the days the customer is paying for: their items are ticked and the amount fills in. If something on those days was paid meanwhile, the payment is refused so you can reload and pick again.
+- Accounts: when the customer has credit on the account, the calendar offers "Use credit" (filled in with what the picked days need, and you can change it). The credit pays those days and the amount to collect drops by the same figure. Voiding the payment gives the credit back.
+- Accounts: debts that belong to no sale or service (manual debt, imported or opening balance) show under the calendar as "Earlier balance", not on a day.
+- Accounts: in Settle Debt, the calendar's **See transactions** button opens a table of the picked days' items under the calendar, paid ones greyed, with what is left on each and a total per day. Untick an item there to leave it out of the payment, or search by name or number.
+- Accounts: a charge that was refunded or voided no longer counts as unpaid, so a later payment goes to the customer's real debts instead.
 
 ## ⚙️ Settings
 
@@ -264,6 +299,7 @@ When a sale was paid in dollars and the change was given in Lebanese pounds (or 
 
 ## 🧾 Transactions
 
+- Audit & Transactions: both tabs now open on today's entries and show 50 at a time. Scroll down and the next 50 load on their own (there is also a "Load more" button). The day filter sits above the table, with Today, Yesterday, This week, This month and All. The Rows box is gone.
 - Transactions: a new Vouchers filter group shows gift card sales, gift card cancellations, and sales paid with a gift card.
 - Transactions: the Method column now shows how the main money moved: what the customer paid with on a sale, how they were paid on a payout (for example an OMT or Whish receive). Change handed back and fees no longer count. Items paid in a customer session show the session (for example "Session #42").
 - Transactions: exports are now easy to read (before, they could come out with empty cells). The Excel file opens on a Summary sheet: the period, your filters, who exported it and when, money in, out and net for each currency, and a count per type. The Transactions sheet has one row per transaction, with In and Out columns for each currency that Excel can add up, a totals row, the status and a few key details. The header stays in view when you scroll, and every column can be filtered. Two more sheets list every payment line (paid, change returned or received, change kept, refunds) and every saved detail. The PDF is a report grouped by day with each day's totals: each transaction on a bold line with its key details under it, money in green and money out red, voided ones struck through. In and Out add up the cash and wallet payments of the exported transactions, so a $823 sale paid with $700 and Lebanese pounds shows the $700 and the pounds. Money in other currencies, such as the euros of an exchange or USDT, is listed on the Payments sheet but not in these columns. Costs are included for admins only. Other pages' exports are unchanged.

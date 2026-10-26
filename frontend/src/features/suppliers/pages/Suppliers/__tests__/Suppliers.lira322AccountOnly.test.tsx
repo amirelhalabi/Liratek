@@ -30,6 +30,9 @@ const mockGetSuppliers = jest.fn();
 const mockGetAllSupplierTransactions = jest.fn();
 const mockGetSupplierAccountBalances = jest.fn();
 const mockGetSupplierAccountUnsettled = jest.fn();
+// LIRA-343 T033a — the account parent's Transactions window reads every
+// member's rows through this (not getAllSupplierTransactions("OMT")).
+const mockGetSupplierAccountTransactions = jest.fn();
 
 const mockApi = {
   getSuppliers: mockGetSuppliers,
@@ -48,6 +51,7 @@ const mockApi = {
   getSupplierAccountBalances: mockGetSupplierAccountBalances,
   getSupplierAccountLedger: jest.fn().mockResolvedValue([]),
   getSupplierAccountUnsettled: mockGetSupplierAccountUnsettled,
+  getSupplierAccountTransactions: mockGetSupplierAccountTransactions,
   getSupplierAccountExpectedStatement: jest.fn().mockResolvedValue(null),
   settleSupplierAccount: jest.fn(),
 };
@@ -121,7 +125,7 @@ const KATSH = {
   ...BASE_SUPPLIER,
   id: 4,
   name: "Katsh",
-  provider: "KATSH",
+  provider: "Katsh",
   account_supplier_id: null,
 };
 
@@ -222,6 +226,10 @@ describe("Suppliers page — OMT account members pay only through Settle Account
     mockGetAllSupplierTransactions.mockImplementation((provider: string) =>
       Promise.resolve(provider === "OMT" ? [USD_PARTIAL, LBP_PARTIAL] : []),
     );
+    mockGetSupplierAccountTransactions.mockResolvedValue([
+      USD_PARTIAL,
+      LBP_PARTIAL,
+    ]);
   });
 
   it("the OMT counter (account parent): no Pay / Receive, no Commission Settlement, history shown; Settle Account on the card", async () => {
@@ -259,14 +267,16 @@ describe("Suppliers page — OMT account members pay only through Settle Account
     },
   );
 
-  it("Katsh (outside any account) keeps Pay / Receive and Commission Settlement", async () => {
+  // LIRA-345 (owner S1/S3, 2026-10-26) — Katsh now settles its top-ups on
+  // the day calendar too (no Pay / Receive); its bills keep the tick list.
+  it("Katsh (outside any account) keeps Commission Settlement for its bills, without Pay / Receive", async () => {
     renderPage();
-    fireEvent.click(await screen.findByTestId("supplier-tile-KATSH"));
+    fireEvent.click(await screen.findByTestId("supplier-tile-Katsh"));
 
-    expect(await screen.findByText("Pay / Receive")).toBeInTheDocument();
     expect(
       await screen.findByText("Commission Settlement"),
     ).toBeInTheDocument();
+    expect(screen.queryByText("Pay / Receive")).toBeNull();
   });
 });
 
@@ -279,6 +289,10 @@ describe("Suppliers page — coverage labels for an account member (LIRA-322 US2
     mockGetAllSupplierTransactions.mockImplementation((provider: string) =>
       Promise.resolve(provider === "OMT" ? [USD_PARTIAL, LBP_PARTIAL] : []),
     );
+    mockGetSupplierAccountTransactions.mockResolvedValue([
+      USD_PARTIAL,
+      LBP_PARTIAL,
+    ]);
   });
 
   it("a part-paid transfer reads 'Partial · <paid>' in its own currency", async () => {

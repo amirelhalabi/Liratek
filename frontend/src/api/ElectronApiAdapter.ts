@@ -133,6 +133,7 @@ import type {
   SupplierPurchaseCreatePayload,
   SupplierRecordDebtPayload,
   SupplierSettleAccountPayload,
+  RemoveAccountCreditPayload,
   UpdateCustomServiceFulfillmentPayload,
   UpdateCustomServiceWorkStatusPayload,
   UpdateServiceProviderPayload,
@@ -166,8 +167,14 @@ import type {
   CompleteSetupInput,
 } from "@liratek/core";
 import type { PartnerSettleInput, SupplierSettleInput } from "@liratek/core";
+import type { PartnerSettleDaysPayload } from "@liratek/core";
 // LIRA-256 — OMT statement covered commission types (rule 21).
-import type { OmtCoveredTypesInput } from "@liratek/core";
+import type {
+  OmtCoveredTypesInput,
+  AccountMonthInput,
+  AccountDayInput,
+} from "@liratek/core";
+import type { SupplierDayRangeInput } from "@liratek/core";
 // LIRA-297 (rule 21) — currency / payment-method / supplier-create / drawer
 // top-up payloads, derived from the core schemas.
 import type {
@@ -392,6 +399,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   getClientDebtTotal = (clientId: number) => api.getClientDebtTotal(clientId);
   addRepayment = (payload: AddRepaymentPayload) => api.addRepayment(payload);
   getOpenDebtItems = (clientId: number) => api.getOpenDebtItems(clientId);
+  getDebtMonthRows = (clientId: number, month: string) =>
+    api.getDebtMonthRows(clientId, month);
   debtWriteOff = (payload: DebtWriteOffPayload) => api.debtWriteOff(payload);
   getClientBalance = (clientId: number) => api.getClientBalance(clientId);
   cashOut = (payload: DebtCashOutPayload) => api.debtCashOut(payload);
@@ -606,10 +615,23 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.getSupplierLedger(supplierId, limit);
   /** OMT open-credit account (LIRA-188) — account parent + children rollup. */
   getSupplierAccountBalances = () => api.getSupplierAccountBalances();
-  getSupplierAccountLedger = (accountSupplierId: number, limit?: number) =>
-    api.getSupplierAccountLedger(accountSupplierId, limit);
+  getSupplierAccountLedger = (
+    accountSupplierId: number,
+    limit?: number,
+    range?: SupplierDayRangeInput,
+  ) => api.getSupplierAccountLedger(accountSupplierId, limit, range);
   getSupplierAccountUnsettled = (accountSupplierId: number) =>
     api.getSupplierAccountUnsettled(accountSupplierId);
+  /** LIRA-343 — every account row whose shop day is in `month` (calendar). */
+  getSupplierAccountMonthRows = (
+    accountSupplierId: number,
+    month: AccountMonthInput["month"],
+  ) => api.getSupplierAccountMonthRows(accountSupplierId, month);
+  /** LIRA-343 — what is behind one shop day (rows, payers, R7 tag). */
+  getSupplierAccountDayDetail = (
+    accountSupplierId: number,
+    day: AccountDayInput["day"],
+  ) => api.getSupplierAccountDayDetail(accountSupplierId, day);
   /** LIRA-255 — gross owed minus unsettled commission, in OMT's own sign. */
   getSupplierAccountExpectedStatement = (
     accountSupplierId: number,
@@ -637,11 +659,25 @@ export class ElectronApiAdapter implements ApiAdapter {
     accountSupplierId: number,
     data: Omit<SupplierSettleAccountPayload, "account_supplier_id">,
   ) => api.settleSupplierAccount(accountSupplierId, data);
+  /** LIRA-344 — Remove credit on the OMT account (admin). */
+  removeSupplierAccountCredit = (
+    accountSupplierId: number,
+    data: Omit<RemoveAccountCreditPayload, "account_supplier_id">,
+  ) => api.removeSupplierAccountCredit(accountSupplierId, data);
   // supplierWriteOff REMOVED (supplier stock-intake, D8) — the standalone
   // write-off is gone; the bundled pay-form discount in
   // recordSupplierCashflow above is the only surviving forgive-debt path.
-  getAllSupplierTransactions = (provider: string, limit?: number) =>
-    api.getAllSupplierTransactions(provider, limit);
+  getAllSupplierTransactions = (
+    provider: string,
+    limit?: number,
+    range?: SupplierDayRangeInput,
+  ) => api.getAllSupplierTransactions(provider, limit, range);
+  /** LIRA-343 T033a — an account parent's Transactions window (every member). */
+  getSupplierAccountTransactions = (
+    accountSupplierId: number,
+    limit?: number,
+    range?: SupplierDayRangeInput,
+  ) => api.getSupplierAccountTransactions(accountSupplierId, limit, range);
   getUnsettledSummary = () => api.getUnsettledSummary();
   getSupplierProductBalances = () => api.getSupplierProductBalances();
   getSupplierProductStockValue = () => api.getSupplierProductStockValue();
@@ -996,17 +1032,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   // Nested namespace mirroring window.api.audit (dual-mode, read-only).
   audit = {
     getRecent: (limit?: number) => api.auditGetRecent(limit),
-    search: (filters: {
-      userId?: number;
-      action?: string;
-      entityType?: string;
-      entityId?: string;
-      from?: string;
-      to?: string;
-      search?: string;
-      limit?: number;
-      offset?: number;
-    }) => api.auditSearch(filters),
+    search: (filters: Parameters<typeof api.auditSearch>[0]) =>
+      api.auditSearch(filters),
     getByEntity: (entityType: string, entityId: string) =>
       api.auditGetByEntity(entityType, entityId),
   };
@@ -1033,6 +1060,14 @@ export class ElectronApiAdapter implements ApiAdapter {
     // Payload derived from the core partnerSettleSchema (rule 21).
     settle: (data: PartnerSettleInput) => api.partnersSettle(data),
     writeOff: (data: PartnerWriteOffPayload) => api.partnerWriteOff(data),
+    // LIRA-346 — settle by day (reads raw, write envelope).
+    getSettleOpenRows: (partnerId: number) =>
+      api.partnersGetSettleOpenRows(partnerId),
+    getSettleMonthRows: (partnerId: number, month: string) =>
+      api.partnersGetSettleMonthRows(partnerId, month),
+    getSettleDayDetail: (partnerId: number, day: string) =>
+      api.partnersGetSettleDayDetail(partnerId, day),
+    settleDays: (data: PartnerSettleDaysPayload) => api.partnersSettleDays(data),
   };
 
   // Nested namespace mirroring window.api.vouchers (dual-mode IPC/REST).

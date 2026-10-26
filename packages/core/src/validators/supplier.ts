@@ -2,6 +2,11 @@ import { z } from "zod";
 import { counterpartyDiscountInputSchema } from "./counterparty.js";
 import { isWithinShortfallMax, SHORTFALL_MAX } from "./exchange.js";
 import { OMT_COVERED_TYPE_VALUES } from "../utils/omtCoveredTypes.js";
+import { clientDayInputSchema } from "./common.js";
+import {
+  ACCOUNT_CREDIT_REASON_MAX,
+  ACCOUNT_CREDIT_REASON_MIN,
+} from "../constants/accountCreditWriteOff.js";
 
 /**
  * LIRA-256 — which OMT commission types one statement (balance SMS) covers.
@@ -318,6 +323,19 @@ const supplierSettleAccountBaseSchema = z.object({
   expected_owed: z
     .object({ usd: z.number(), lbp: z.number() })
     .optional(),
+  // LIRA-343 (contracts/settle-account-days.md) — amount-first only. `true`
+  // adds every open account row (row_scope 'ACCOUNT', either sign) to the
+  // scope. `credit_used` is how much of that account credit to use, per
+  // currency, as the user set it; it requires `include_account_credits`.
+  // Both are refused on the legacy whole-row path (refineSettleAccount).
+  // Read by SupplierRepository._amountFirstScope / _settleAccountAmountFirst.
+  include_account_credits: z.boolean().optional(),
+  credit_used: z
+    .object({
+      usd: z.number().min(0).optional(),
+      lbp: z.number().min(0).optional(),
+    })
+    .optional(),
 });
 
 /** Keys of the legacy whole-row payload that are refused next to `per_currency`. */
@@ -332,6 +350,13 @@ const LEGACY_ONLY_SETTLE_ACCOUNT_KEYS = [
   // per_currency.*.commission — the legacy flat figure is refused next to it.
   "commission_usd",
   "commission_lbp",
+] as const;
+
+/** LIRA-343 — amount-first-only keys, refused on the legacy whole-row path
+ *  (the inverse of {@link LEGACY_ONLY_SETTLE_ACCOUNT_KEYS}). */
+const AMOUNT_FIRST_ONLY_SETTLE_ACCOUNT_KEYS = [
+  "include_account_credits",
+  "credit_used",
 ] as const;
 
 /** Keys the legacy whole-row payload has always required. */
@@ -366,7 +391,24 @@ function refineSettleAccount(
         path: ["expected_owed"],
       });
     }
+    // LIRA-343 — account credit can only be used when it is in the scope.
+    if (d.credit_used !== undefined && d.include_account_credits !== true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "credit_used needs include_account_credits",
+        path: ["credit_used"],
+      });
+    }
     return;
+  }
+  for (const key of AMOUNT_FIRST_ONLY_SETTLE_ACCOUNT_KEYS) {
+    if (d[key] !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${key} is only used when settling by amount (per_currency)`,
+        path: [key],
+      });
+    }
   }
   for (const key of LEGACY_REQUIRED_SETTLE_ACCOUNT_KEYS) {
     if (d[key] === undefined) {
@@ -388,6 +430,72 @@ export const supplierSettleAccountSchema = Object.assign(
   supplierSettleAccountBaseSchema.superRefine(refineSettleAccount),
   { shape: supplierSettleAccountBaseSchema.shape },
 );
+
+// LIRA-344 — "Remove credit": close one open account credit OMT will not
+// accept and book it as an expense (no drawer). Shared by the IPC handler
+// and the REST route (rule 14). `account_supplier_id` is the account parent
+// (the REST route takes it from the URL); `expected_remaining` is the
+// credit as the sheet showed it (signed, ledger sign: negative = OMT owes
+// the shop) — the server refuses when it has changed. `client_day` dates
+// the expense by the shop's own day (rule 27). Every key is read by
+// SupplierRepository.removeAccountCredit (rule 23 reverse). `created_by` is
+// injected from the session / JWT, never sent (rule 19c).
+export const removeAccountCreditSchema = z.object({
+  account_supplier_id: z.number().int().positive(),
+  ledger_row_id: z.number().int().positive(),
+  reason: z
+    .string()
+    .trim()
+    .min(ACCOUNT_CREDIT_REASON_MIN, "Enter a reason (at least 3 characters)")
+    .max(ACCOUNT_CREDIT_REASON_MAX, "The reason is too long (200 characters at most)"),
+  expected_remaining: z.object({ usd: z.number(), lbp: z.number() }),
+  client_day: clientDayInputSchema,
+});
+/** What a caller sends (adapters, preload). */
+export type RemoveAccountCreditPayload = z.input<typeof removeAccountCreditSchema>;
+/** What the service / repository receive (after parsing). */
+export type RemoveAccountCreditInput = z.output<typeof removeAccountCreditSchema>;
+
+// LIRA-343 (contracts/calendar-reads.md) — the calendar reads. One month
+// (`YYYY-MM`) of account rows, and one shop day (`YYYY-MM-DD`) of details.
+// Shared by the IPC handler and the REST route (rule 14).
+export const accountMonthSchema = z.object({
+  month: z
+    .string()
+    .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "month must be YYYY-MM"),
+});
+export type AccountMonthInput = z.infer<typeof accountMonthSchema>;
+
+export const accountDaySchema = z.object({
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "day must be YYYY-MM-DD"),
+});
+export type AccountDayInput = z.infer<typeof accountDaySchema>;
+
+// LIRA-343 T033a (FR-016c) — the supplier Transactions window's optional
+// from–to filter, by the SHOP's day (`YYYY-MM-DD`, rule 27: the repository
+// buckets rows with `localDayExpr`). Shared by every read that takes it —
+// IPC handlers and REST routes alike (rules 14, 23). Each bound is optional;
+// an empty string is the window's cleared date field and means "no bound"
+// (the repository ignores falsy bounds), so the input type stays
+// `string | undefined` for the adapters (rule 21). from <= to when both set.
+const shopDayBoundSchema = z
+  .union([
+    z.literal(""),
+    z
+      .string()
+      .regex(
+        /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/,
+        "day must be YYYY-MM-DD",
+      ),
+  ])
+  .optional();
+export const supplierDayRangeSchema = z
+  .object({ from: shopDayBoundSchema, to: shopDayBoundSchema })
+  .refine((r) => !r.from || !r.to || r.from <= r.to, {
+    message: "from must be on or before to",
+  });
+/** What a caller sends (adapters, preload, the service signatures). */
+export type SupplierDayRangeInput = z.input<typeof supplierDayRangeSchema>;
 
 // LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — set or clear a supplier's
 // account parent (`suppliers.account_supplier_id`, migration v176). `null`

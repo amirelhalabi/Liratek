@@ -218,6 +218,7 @@ export {
 } from "./FinancialServiceRepository.js";
 export type {
   FinancialServiceEntity,
+  FifoPrefixRow,
   CreateFinancialServiceData,
   TelecomCreditReturnLine,
   SelfChargeTelecomItemData,
@@ -323,8 +324,11 @@ export type {
   AccountExpectedStatement,
   AccountLedgerEntry,
   AccountUnsettledRow,
+  AccountDayDetailRow,
+  AccountDaySettlement,
   SettleAccountData,
   SettleAccountRequest,
+  RemoveAccountCreditData,
   SettleAccountCurrencySectionData,
 } from "./SupplierRepository.js";
 
@@ -802,6 +806,22 @@ export type {
   UpdatePartnerData,
   CreateLedgerEntryData,
 } from "./PartnerRepository.js";
+
+// LIRA-346 — partner settlement by day (partner_settlement_coverage, v225)
+export {
+  PartnerSettlementRepository,
+  getPartnerSettlementRepository,
+  resetPartnerSettlementRepository,
+  PARTNER_PROFIT_COVERAGE_SOURCES,
+} from "./PartnerSettlementRepository.js";
+export type {
+  PartnerSettleRow,
+  PartnerDayDetailRow,
+  PartnerDaySettlement,
+  PartnerCoverageWrite,
+  PartnerCoverageSource,
+  PartnerReversalPlan,
+} from "./PartnerSettlementRepository.js";
 
 // Tenant Repository (control plane — plan §5, WP5/WP6)
 export {

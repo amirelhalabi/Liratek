@@ -9,10 +9,17 @@ import type {
   DesktopUnpairInput,
   // LIRA-256 — OMT statement covered commission types (core schema input).
   OmtCoveredTypesInput,
+  // LIRA-343 — the calendar's month read (core schema input).
+  AccountMonthInput,
+  // LIRA-343 — one shop day's details (core schema input + row).
+  AccountDayInput,
+  AccountDayDetailRow,
+  SupplierDayRangeInput,
   // LIRA-313 — supplier Pay/Receive payload incl. change legs (rule 21).
   SupplierCashflowPayload,
   // LIRA-322 — account settlement payload (rule 21).
   SupplierSettleAccountPayload,
+  RemoveAccountCreditPayload,
   // LIRA-322 (rule 14) — the OMT account queue row, core's own type. Not
   // from @liratek/ui: tsconfig.playwright.json includes this file and has
   // no JSX, which the @liratek/ui barrel needs.
@@ -108,6 +115,12 @@ import type {
 } from "@liratek/core";
 // LIRA-339 — voucher sale / cancel payloads (rule 21).
 import type { VoucherCreatePayload, VoucherCancelPayload } from "@liratek/core";
+import type {
+  PartnerDayDetailRow,
+  PartnerSettleDaysPayload,
+  PartnerSettleRow,
+} from "@liratek/core";
+import type { AuditPageFiltersInput } from "@liratek/core";
 
 /**
  * LIRA-143 Phase 5 — one `product_units` row (per-IMEI phone unit
@@ -651,7 +664,8 @@ export interface AuditLogEntry {
 }
 
 /** Filters for searching audit logs */
-export interface AuditSearchFilters {
+/** LIRA-348 — `dayFrom`/`dayTo`/`beforeId` come from the core schema. */
+export interface AuditSearchFilters extends AuditPageFiltersInput {
   userId?: number;
   action?: string;
   entityType?: string;
@@ -1400,6 +1414,11 @@ export interface ElectronAPI {
         id: number;
         auto?: boolean;
       }>;
+      /** LIRA-347 — stale check for picked days. */
+      expectedOwed?: { usd: number; lbp: number };
+      /** LIRA-347 — "Use credit", per currency. */
+      creditUseUSD?: number;
+      creditUseLBP?: number;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     /** CQ-10: standalone debt write-off (admin-only) — pure forgiveness, no
      *  cash movement. Capped server-side at the client's outstanding balance
@@ -1457,6 +1476,8 @@ export interface ElectronAPI {
     getClientTotal: (clientId: number) => Promise<number>;
     /** LIRA-304 — open debt items (repayment picker / preview). */
     getOpenItems: (clientId: number) => Promise<unknown[]>;
+    /** LIRA-347 — one month of debt items for the settle calendar. */
+    getMonthRows: (data: { clientId: number; month: string }) => Promise<unknown>;
     updateMetadata: (data: {
       id: number;
       note?: string;
@@ -1937,10 +1958,27 @@ export interface ElectronAPI {
     getAccountLedger: (
       accountSupplierId: number,
       limit?: number,
+      range?: SupplierDayRangeInput,
     ) => Promise<AccountLedgerEntry[]>;
+    /** LIRA-343 T033a — an account parent's Transactions window. */
+    getAccountTransactions: (
+      accountSupplierId: number,
+      limit?: number,
+      range?: SupplierDayRangeInput,
+    ) => Promise<SupplierTransaction[]>;
     getAccountUnsettled: (
       accountSupplierId: number,
     ) => Promise<AccountUnsettledRow[]>;
+    /** LIRA-343 — every account row whose shop day is in `month`. */
+    getAccountMonthRows: (
+      accountSupplierId: number,
+      month: AccountMonthInput["month"],
+    ) => Promise<AccountUnsettledRow[]>;
+    /** LIRA-343 — what is behind one shop day (rows, payers, R7 tag). */
+    getAccountDayDetail: (
+      accountSupplierId: number,
+      shopDay: AccountDayInput["day"],
+    ) => Promise<AccountDayDetailRow[]>;
     getAccountExpectedStatement: (
       accountSupplierId: number,
       coveredTypes?: OmtCoveredTypesInput,
@@ -1988,6 +2026,7 @@ export interface ElectronAPI {
     getAllTransactions: (
       provider: string,
       limit?: number,
+      range?: SupplierDayRangeInput,
     ) => Promise<SupplierTransaction[]>;
     getUnsettledSummary: () => Promise<UnsettledSummary[]>;
     settleTransactions: (data: {
@@ -2038,6 +2077,15 @@ export interface ElectronAPI {
     settleAccount: (
       data: SupplierSettleAccountPayload,
     ) => Promise<{ success: boolean; id?: number; error?: string }>;
+    // LIRA-344 — Remove credit on the OMT account (admin). Rule 21: the core
+    // schema's input type.
+    removeAccountCredit: (data: RemoveAccountCreditPayload) => Promise<{
+      success: boolean;
+      id?: number;
+      transaction_id?: number;
+      expense_id?: number;
+      error?: string;
+    }>;
     // LIRA-313 (rule 21) — the core schema's input type: per-leg
     // `direction` (change legs) and the PAY-only bundled `discount`.
     recordCashflow: (
@@ -4272,6 +4320,19 @@ export interface ElectronAPI {
       amount_lbp: number;
       reason?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    /** LIRA-346 — settle partners by day (reads raw, write envelope). */
+    getSettleOpenRows: (partnerId: number) => Promise<PartnerSettleRow[]>;
+    getSettleMonthRows: (
+      partnerId: number,
+      month: string,
+    ) => Promise<PartnerSettleRow[]>;
+    getSettleDayDetail: (
+      partnerId: number,
+      day: string,
+    ) => Promise<PartnerDayDetailRow[]>;
+    settleDays: (
+      data: PartnerSettleDaysPayload,
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
   };
 
   // Service Providers (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phases 4a + 5)
