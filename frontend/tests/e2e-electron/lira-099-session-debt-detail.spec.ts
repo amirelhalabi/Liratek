@@ -209,8 +209,9 @@ test.describe("Session Debt — itemized basket detail on the Debts page", () =>
     await expect(card).toBeVisible({ timeout: 10_000 });
     await card.click();
 
-    // The "Session Debt" badge should render on the basket's debt row.
-    const sessionBadge = appPage.getByText("Session Debt", { exact: true });
+    // The basket's debt row carries its badge (LIRA-350: in words,
+    // "Session basket", no longer the ledger code "Session Debt").
+    const sessionBadge = appPage.getByText("Session basket", { exact: true });
     await expect(sessionBadge).toBeVisible({ timeout: 10_000 });
 
     const eyeButton = appPage.getByTitle("View Basket Items");

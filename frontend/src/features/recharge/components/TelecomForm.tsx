@@ -57,7 +57,11 @@ import { PriceChangeWarning } from "@/shared/components/PriceChangeWarning";
 import type { ResaleLineRow } from "@liratek/core";
 import { ResaleLineRechargePanel } from "@/features/phoneLines/components/ResaleLineRechargePanel";
 import { PROVIDER_BRANDS } from "@/shared/brand/providerBrands";
-import { daysTypedUsdField } from "../utils/rechargeDetailFields";
+import {
+  daysTypedUsdField,
+  rechargePhoneNumber,
+  rechargeTakesPhone,
+} from "../utils/rechargeDetailFields";
 
 /** CARRIER_LINES_VALIDITY_PLAN.md Phase 6 — Days/Alfa Gift block + redirect
  *  shown when the typed phone number is this carrier's own shop line.
@@ -67,9 +71,13 @@ import { daysTypedUsdField } from "../utils/rechargeDetailFields";
 function ShopLineRedirectNotice({
   carrierLabel,
   target,
+  onClearNumber,
 }: {
   carrierLabel: string;
   target: "Days" | "Alfa Gift";
+  /** LIRA-350 — Days has its own number field now: the number typed there
+   *  can be cleared from the notice (no dead end). */
+  onClearNumber?: () => void;
 }) {
   const { t } = useTranslation("recharge");
   return (
@@ -94,6 +102,16 @@ function ShopLineRedirectNotice({
             components={{ bold: <span className="font-semibold text-white" /> }}
           />
         </p>
+        {onClearNumber && (
+          <button
+            type="button"
+            data-testid="shop-line-clear-number"
+            onClick={onClearNumber}
+            className="mt-4 px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm text-white transition-colors"
+          >
+            {t("telecom.clearNumber")}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -608,8 +626,7 @@ export function TelecomForm({
         // `RechargeType` also lists the internal TOP_UP, which this form's
         // tabs never produce (rule 21: payload checked against the schema).
         type: rechargeType as CreateRechargePayload["type"],
-        phoneNumber:
-          rechargeType === "CREDIT_TRANSFER" ? phoneNumber : undefined,
+        phoneNumber: rechargePhoneNumber(rechargeType, phoneNumber),
         amount,
         cost,
         price,
@@ -746,13 +763,17 @@ export function TelecomForm({
         /* CARRIER_LINES_VALIDITY_PLAN.md Phase 6: same block + redirect as
          * Alfa Gift above — a DAYS sale adds validity, which a shop-line
          * number can never receive via this form. */
-        <ShopLineRedirectNotice carrierLabel={carrierLabel} target="Days" />
+        <ShopLineRedirectNotice
+          carrierLabel={carrierLabel}
+          target="Days"
+          onClearNumber={() => setPhoneNumber("")}
+        />
       ) : (
         /* Recharge Form */
         <div className="flex flex-col gap-3 flex-1">
           <div className="grid grid-cols-12 gap-5 flex-1">
             <div className="col-span-7 bg-slate-800 rounded-2xl border border-slate-700/50 p-6 flex flex-col gap-6">
-              {rechargeType === "CREDIT_TRANSFER" && (
+              {rechargeTakesPhone(rechargeType) && (
                 <div>
                   <label
                     htmlFor="telecom-phone"

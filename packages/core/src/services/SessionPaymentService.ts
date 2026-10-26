@@ -853,7 +853,12 @@ export class SessionPaymentService {
     // see `allocateBasketAccountDebt`), shared by the debt row's
     // pre-coverage and the sale back-fill below (rule 14).
     const saleRows = this.paymentRepo.getSessionSaleRows(sessionId);
-    const allocation = this.allocateBasketAccountDebt(saleRows, result, rate);
+    const allocation = this.allocateBasketAccountDebt(
+      saleRows,
+      result,
+      rate,
+      this.paymentRepo.getBasketOnAccountLbpCapacity(sessionId),
+    );
 
     // ONE debt-ledger entry for the whole CUSTOMER_ACCOUNT (+ GIFT_CARD) portion.
     if (debtUsd > 0 || debtLbp > 0) {
@@ -933,15 +938,31 @@ export class SessionPaymentService {
    * rate) — so the row's uncovered remainder is exactly the non-sale share,
    * and a repayment that pays the sales (via `sales.paid_usd`) is never
    * counted a second time on the row.
+   *
+   * LIRA-349 — same currency first. Sales are priced in USD, so an LBP
+   * account leg is first absorbed by the basket's LBP-priced non-sale items
+   * (`nonSaleChargeLbp`, e.g. an MTC recharge) and only its leftover
+   * crosses to the sales at the rate. Before this a $12 case paid cash plus
+   * a 600,000 LBP recharge on account booked the debt on the CASE ($6.74
+   * open, no LBP item owed) — the Settle Debt screen then could not pay it
+   * with LBP. A USD account leg still goes to the sales first (G17).
    */
   private allocateBasketAccountDebt(
     saleRows: SessionSaleRow[],
     drawer: RecordBasketPaymentResult,
     rate: number,
+    nonSaleChargeLbp: number,
   ): BasketAccountDebtAllocation {
     const safeRate = rate > 0 ? rate : 1;
     const accountUsd = Math.max(0, drawer.debtUsd - drawer.giftCardUsd);
-    const accountLbp = Math.max(0, drawer.debtLbp - drawer.giftCardLbp);
+    const accountLbpTotal = Math.max(0, drawer.debtLbp - drawer.giftCardLbp);
+    // LBP account debt that stays on LBP-priced non-sale items (never
+    // pre-covered, never attributed to a sale).
+    const nonSaleOnLbp = Math.min(
+      accountLbpTotal,
+      Math.max(0, nonSaleChargeLbp),
+    );
+    const accountLbp = accountLbpTotal - nonSaleOnLbp;
     const accountDebtUsdEquiv = accountUsd + accountLbp / safeRate;
 
     // Total goods value of the session's sales (USD-equivalent).

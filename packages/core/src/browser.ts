@@ -19,6 +19,7 @@ export * from "./utils/currencyConverter.js";
 // exported HERE, not only from index.ts — see the telecomCredit.js note
 // below for the exact failure mode this avoids.
 export * from "./utils/formatMoney.js";
+export * from "./utils/splitCheckoutItems.js";
 // LIRA-331: UI language (pure leaves, also exported from index.ts).
 export * from "./constants/languages.js";
 export * from "./utils/effectiveLanguage.js";
@@ -492,6 +493,8 @@ export * from "./utils/cashFlow.js";
 export * from "./utils/transactionRowDisplay.js";
 // LIRA-302 — catalog cart payload (web + phone) and the USD/LBP rate reader (pure).
 export * from "./utils/catalogSale.js";
+// LIRA-350 — the client-facing line + detail of an account row.
+export * from "./utils/clientDebtDetails.js";
 export * from "./utils/exchangeRates.js";
 // LIRA-289: local day of a stored UTC timestamp (Transactions date filter).
 export { localDayOfUtcTimestamp } from "./utils/localDate.js";

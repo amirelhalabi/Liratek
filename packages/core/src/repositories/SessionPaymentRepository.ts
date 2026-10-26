@@ -258,25 +258,7 @@ export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
       | { out_usd: number; out_lbp: number }
       | undefined;
     if (!row) return;
-    const members = this.db
-      .prepare(
-        `SELECT cst.id, cst.amount_usd, cst.amount_lbp, fs.provider
-         FROM customer_session_transactions cst
-         JOIN transactions t ON t.id = cst.unified_transaction_id AND t.tenant_id = cst.tenant_id
-         LEFT JOIN financial_services fs ON t.source_table = 'financial_services'
-           AND fs.id = t.source_id AND fs.tenant_id = t.tenant_id
-         WHERE cst.session_id = ? AND cst.tenant_id = ?
-           AND cst.transaction_type <> 'session_item_refund'
-           AND t.type <> 'SALE'
-           AND (cst.amount_usd > 0 OR cst.amount_lbp > 0)
-         ORDER BY cst.id ASC`,
-      )
-      .all(sessionId, tenantId) as Array<{
-      id: number;
-      amount_usd: number;
-      amount_lbp: number;
-      provider: string | null;
-    }>;
+    const members = this.getBasketNonSaleChargeMembers(sessionId);
     if (members.length === 0) return;
     const baseSystem = this.resolveBaseSystem();
     const owed = allocateBasketMemberOwed({
@@ -296,6 +278,56 @@ export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
        WHERE id = ? AND tenant_id = ?`,
     );
     for (const o of owed) upd.run(o.owedUsd, o.owedLbp, o.id, tenantId);
+  }
+
+  /**
+   * The basket's non-sale CHARGE members (positive linked amount), oldest
+   * first — the ONE definition (rule 14) of "the items a basket's non-sale
+   * on-account share can belong to", read both by `writeBasketMemberOwed`
+   * and by the checkout's currency-first attribution
+   * (`SessionPaymentService.allocateBasketAccountDebt`, LIRA-349).
+   */
+  getBasketNonSaleChargeMembers(sessionId: number): Array<{
+    id: number;
+    amount_usd: number;
+    amount_lbp: number;
+    provider: string | null;
+  }> {
+    if (!this.hasMemberShareColumns()) return [];
+    return this.db
+      .prepare(
+        `SELECT cst.id, cst.amount_usd, cst.amount_lbp, fs.provider
+         FROM customer_session_transactions cst
+         JOIN transactions t ON t.id = cst.unified_transaction_id AND t.tenant_id = cst.tenant_id
+         LEFT JOIN financial_services fs ON t.source_table = 'financial_services'
+           AND fs.id = t.source_id AND fs.tenant_id = t.tenant_id
+         WHERE cst.session_id = ? AND cst.tenant_id = ?
+           AND cst.transaction_type <> 'session_item_refund'
+           AND t.type <> 'SALE'
+           AND (cst.amount_usd > 0 OR cst.amount_lbp > 0)
+         ORDER BY cst.id ASC`,
+      )
+      .all(sessionId, getCurrentTenantId()) as Array<{
+      id: number;
+      amount_usd: number;
+      amount_lbp: number;
+      provider: string | null;
+    }>;
+  }
+
+  /**
+   * LIRA-349 — the LBP a basket's LBP account leg is attributed to before
+   * the sales: Σ the LBP charge of its non-sale members, EXCEPT the shop's
+   * primary-system transfers. "OMT first" already pays those from the
+   * checkout's cash (it lands in the OMT/Whish system drawer), so putting
+   * account debt on them too would route a later repayment into that
+   * drawer a second time.
+   */
+  getBasketOnAccountLbpCapacity(sessionId: number): number {
+    const baseSystem = this.resolveBaseSystem();
+    return this.getBasketNonSaleChargeMembers(sessionId)
+      .filter((m) => !isPrimarySystemProvider(m.provider, baseSystem))
+      .reduce((sum, m) => sum + Math.max(0, m.amount_lbp), 0);
   }
 
   private hasMemberShareColumns(): boolean {

@@ -64,7 +64,12 @@
     "clientInfo": "معلومات الزبون",
     "name": "الاسم",
     "phone": "الهاتف",
-    "reference": "المرجع"
+    "reference": "المرجع",
+    "itemsTitle": "عدد الأصناف: {{n}}",
+    "billsTitle": "عدد الفواتير: {{n}}",
+    "billTitle": "فاتورة",
+    "itemTitle": "صنف",
+    "price": "السعر"
   },
   "importValidation": {
     "section": {
@@ -323,5 +328,74 @@
     "kindSale": "بيع",
     "kindCharge": "دين خدمة",
     "kindMember": "بند سلّة"
+  },
+  "clientDebt": {
+    "seeDetails": "عرض التفاصيل",
+    "close": "إغلاق",
+    "items": "الأصناف",
+    "basketItems": "أصناف السلة",
+    "howPaid": "طريقة الدفع",
+    "paid": "مدفوع",
+    "givenToClient": "أُعطي للزبون",
+    "onAccount": "على الحساب",
+    "offAccount": "خُصم من الحساب",
+    "onAccountAmount": "{{amount}} على الحساب",
+    "paidAtCheckout": "مدفوع",
+    "note": "ملاحظة",
+    "kind": {
+      "pos_sale": "بيع",
+      "recharge": "تعبئة",
+      "transfer": "تحويل أموال",
+      "bill": "دفع فاتورة",
+      "custom_service": "خدمة",
+      "maintenance": "صيانة",
+      "loto": "ورقة لوتو",
+      "exchange": "صرف",
+      "voucher": "قسيمة",
+      "session": "سلة الجلسة",
+      "manual": "قيد حساب",
+      "other": "معاملة"
+    },
+    "field": {
+      "service": "الخدمة",
+      "carrier": "الشبكة",
+      "phone": "الرقم",
+      "credits": "الرصيد",
+      "days": "الأيام",
+      "gift": "الهدية",
+      "price": "السعر",
+      "amount": "المبلغ",
+      "fee": "الرسوم",
+      "total": "المجموع",
+      "discount": "الخصم",
+      "reference": "المرجع",
+      "sender": "المرسل",
+      "receiver": "المستلم",
+      "description": "الوصف",
+      "device": "الجهاز",
+      "issue": "التصليح",
+      "labour": "اليد العاملة",
+      "warrantyUntil": "الكفالة حتى",
+      "status": "الحالة",
+      "ticket": "رقم الورقة",
+      "date": "التاريخ",
+      "gave": "أعطى الزبون",
+      "received": "استلم الزبون",
+      "rate": "السعر",
+      "code": "الرمز",
+      "value": "القيمة",
+      "expiry": "ينتهي في"
+    }
+  },
+  "statement": {
+    "title": "كشف حساب",
+    "client": "الزبون",
+    "phone": "الهاتف",
+    "printed": "تاريخ الطباعة",
+    "balance": "الرصيد",
+    "payments": "الدفعات",
+    "time": "الوقت",
+    "description": "الوصف",
+    "total": "المجموع"
   }
 }

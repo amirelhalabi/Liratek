@@ -47,3 +47,26 @@ export function daysTypedUsdField(
     },
   };
 }
+
+/**
+ * LIRA-350 — the telecom tabs whose sale is FOR a phone line and therefore
+ * show a number field and send it: Credit and Days (Alfa Gift has none).
+ * One definition for the field's visibility and every payload (walk-in,
+ * session basket, For Partner — rule 22).
+ */
+export function rechargeTakesPhone(rechargeType: string): boolean {
+  return rechargeType === "CREDIT_TRANSFER" || rechargeType === "DAYS";
+}
+
+/** The `phoneNumber` a telecom payload sends for this tab: undefined on a
+ *  tab with no number field, and on Days when none was typed (the number
+ *  is optional there). Credit sends the field as typed, as before. */
+export function rechargePhoneNumber(
+  rechargeType: string,
+  phoneNumber: string,
+): string | undefined {
+  if (!rechargeTakesPhone(rechargeType)) return undefined;
+  if (rechargeType !== "CREDIT_TRANSFER" && phoneNumber.trim() === "")
+    return undefined;
+  return phoneNumber;
+}

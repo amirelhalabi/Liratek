@@ -118,6 +118,7 @@ Settle Account on the OMT card now opens on a calendar of the month. Settled day
 
 - After a sale, and from any past sale's details, you can now send the receipt to the customer on WhatsApp. WhatsApp opens on their chat with the receipt already written; you press Send. Works on the desktop app and the web app.
 - A reprinted sale receipt now shows the part put on the customer's account and any gift card on their own lines, and its "Paid" amount stays what the customer paid at the counter, even after they pay off the account later.
+- From now on, when you put part of a sale on the customer's account in LBP, the customer owes it in LBP. Their LBP balance on the Accounts page goes up, not their $ balance. Paying it back in LBP closes that sale.
 
 ## 💳 Payment window
 
@@ -160,6 +161,7 @@ Settle Account on the OMT card now opens on a calendar of the month. Settled day
 - OMT/Whish page: from now on each OMT or Whish send and receive keeps everything you enter on the transaction itself — service type, reference number, the customer's name and phone, OMT or Whish fee, whether the fee was included, the partner, the fee for paying by wallet, the note, and how the customer paid.
 - OMT/Whish page: an OMT send paid by OMT Wallet or Whish Wallet with the wallet fee is no longer refused. The payment box now asks for the amount, the OMT fee and the wallet fee together (for example $102 on a $100 send), so the customer pays the right total.
 - OMT/Whish page: when the sender's name and phone are filled in, picking OMT Wallet or Whish Wallet no longer puts the wallet fee on the customer's account. The wallet line now shows the full total (for example $102 on a $100 Intra send), and the send is recorded instead of refused.
+- OMT/Whish page: from now on, an OMT or Whish send put on the customer's account shows on Accounts what is owed, fee included, for example "OMT send $20 + $1 fee = $21, ref OMT-REF-2610". Before, the line read "$20" while $21 was owed. These sends also now record how the customer really paid (the customer's account, or several methods) instead of "Cash".
 - Partners page: from now on, a settlement paid in more than one way (for example $200 cash + $100 Whish) shows "via SPLIT" in the partner's history instead of only the first method.
 - On the Suppliers page, the Payments list is easier to read: notes show in full (up to two lines), dates fit on one line, and the LBP amount no longer runs into the note.
 - Suppliers: the Transactions and Payments lists open in their own window from two buttons, so the supplier page stays short. The tab for picking transactions to settle is now called "Settle".
@@ -249,6 +251,7 @@ Settle Account on the OMT card now opens on a calendar of the month. Settled day
 - Phone Lines → For sale: a new "Give credit back" button. Use it when a buyer wants a line for sale with less credit than it has. Type the credit the buyer keeps and pick the shop line that gets the rest. The credit price per $1 starts at your Shop Config price and can be changed. Before you save, you see what is sent, the SMS fee, and the line's new price and cost. Example: a $15 line where the buyer keeps $9 sends $5.68 plus a $0.32 SMS fee to your shop line, and its price drops by $6.70 at 100,000 LBP per $1. To undo, void it on the Transactions page; this works only before the line is sold.
 - Mobile Recharge, iPick / Katsh / Whish App: "Charge to shop line" now opens a window where you pick the line: any of your active MTC or Alfa shop lines (your main line is picked for you) or a line you hold for sale. Whish App MTC and Alfa cards have the button too, paid from your Whish App balance. Lines that are turned off are no longer offered or accepted.
 - Phone Lines → Recharge → Card: Whish App MTC and Alfa cards are in the list too.
+- MTC / Alfa: the Days tab now has a phone number field. From now on the number is saved with the sale and shown on the customer's account. If you type one of your own shop lines there, a "Clear the number" button lets you start again.
 
 ## 🤝 Partners
 
@@ -269,13 +272,20 @@ Settle Account on the OMT card now opens on a calendar of the month. Settled day
 - Accounts: in the exported Excel file, each name on the first sheet is a link — click it to jump to that client's page, and "Back to list" at the top of each page takes you back.
 - Accounts: the exported Excel file now works like your own debt sheet, so you can keep writing in it: each client page has 20 empty rows inside the totals (a line you add is counted in the totals and the remaining balance), the same look (grey headings, yellow totals, $ and LBP amounts, borders), and the first sheet shows each client's remaining balance, which updates when you change their page.
 - Accounts: the Excel and PDF buttons on a client's purchases and payments lists now include the Date column and select all columns by default. The note's label (for example "Imported Debt") is kept apart from the note text.
-- Accounts: in a session basket's details window, tap a paid line (for example a Whish transfer or a sale) to open its full details, the same ones the Transactions page shows: items, client, payment, fees and more.
+- Accounts: in a session basket's details window, tap a paid line (for example a Whish transfer or a sale) to open its details: what it was, its items and how it was paid. Cost prices, product numbers and other internal data are not shown there, and lines are named in words ("Recharge") instead of codes like "recharge_mtc".
 - Accounts: when you click another client, their account shows "Loading..." until it has loaded. Before, the previous client's charges and their Cash Out button stayed on screen for a moment under the new client's name.
 - Accounts: in Settle Debt, "Pick days on a calendar" shows the client's month. Paid days are green, unpaid days show what is left in $ and LBP. Tap the days the customer is paying for: their items are ticked and the amount fills in. If something on those days was paid meanwhile, the payment is refused so you can reload and pick again.
 - Accounts: when the customer has credit on the account, the calendar offers "Use credit" (filled in with what the picked days need, and you can change it). The credit pays those days and the amount to collect drops by the same figure. Voiding the payment gives the credit back.
 - Accounts: debts that belong to no sale or service (manual debt, imported or opening balance) show under the calendar as "Earlier balance", not on a day.
 - Accounts: in Settle Debt, the calendar's **See transactions** button opens a table of the picked days' items under the calendar, paid ones greyed, with what is left on each and a total per day. Untick an item there to leave it out of the payment, or search by name or number.
 - Accounts: a charge that was refunded or voided no longer counts as unpaid, so a later payment goes to the customer's real debts instead.
+- Accounts: several Whish App items (or several iPick / Katsh bills) sold together and put on the account now show every item. The account row lists each one with its price, Settle Debt names them all with the full total, and the details window lists each item and its title names the app and what was sold (for example "Whish App 2 items" or "Katsh Bill") instead of "WHISH_APP SEND". Amounts in that window now show as 355,000 LBP instead of 355000.00 LBP.
+
+- Accounts: every row on a client's account now says what it was, in words the client understands, from what was saved with the sale. A repair shows the job number, device, repair, total, what was paid and what is on the account. An exchange shows both amounts and the rate. A voucher shows its code, value, status, expiry and your note. A loto ticket shows its amount (no more "CUSTOMER ACCOUNT"). A recharge shows the number, a custom service your note, and a basket each item and whether it was paid or put on the account. Settle Debt names the items the same way.
+- Accounts: every row now has a details button (the eye). The window shows what was sold, the items, how each part was paid (method and currency) and what went on the account. It never shows cost prices, so you can turn the screen to the client.
+- Accounts: the "All" filter now also lists clients who have never had anything on their account, so you can open a new client to start an account or check a zero balance.
+- Accounts: the Excel and PDF buttons on a client's lists now save a statement for that client: name and phone at the top, the balance, purchases and payments with totals in $ and LBP, the date and the time in separate columns, and amounts Excel can add up. The file is named after the client, and arrows print correctly in the PDF.
+- Accounts: in a money transfer's details window, amounts in other currencies (for example USDT) now show with their own currency ("20.00 USDT") instead of a dollar sign.
 
 ## ⚙️ Settings
 
@@ -331,6 +341,7 @@ Settle Account on the OMT card now opens on a calendar of the month. Settled day
 - A Binance send or cash-out, an OMT App or Whish App transfer, and iPick, Katsh or Whish App items added to a customer session now keep the custom time you set on them. Before, that time was ignored and they were saved at checkout time.
 - The session window under the top-bar session button now opens only when you click the button, and closes when you click it again, click anywhere else, or press Escape. Moving the pointer over the top bar no longer opens it, so it can't cover the page by accident (for example the MTC / Alfa / iPick tabs on Mobile Recharge). To start a new session or switch to another one, use the small arrow next to the session button.
 - Mobile Recharge, MTC and Alfa Credit: in a customer session, the phone number now starts filled with the session customer's phone. A number you type is never replaced.
+- From now on, when part of a session basket goes on the customer's account in Lebanese pounds, Accounts and Settle Debt show it on the item that is priced in pounds (for example an MTC recharge of 600,000 LBP), in pounds. Before, it could show on an item the customer had already paid in cash, as a dollar amount, and Settle Debt did not pick it when the customer paid in pounds. Baskets checked out before this update keep the old split.
 
 ## 🎁 Vouchers
 

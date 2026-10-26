@@ -19,6 +19,7 @@ import { useFormat } from "@/i18n/useFormat";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { formatPaidAmount } from "../utils/salePaidFormat";
+import { providerDisplayLabel, type SplitCheckoutItem } from "@liratek/core";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -46,7 +47,13 @@ export interface FinancialServiceData {
   phone_number: string | null;
   reference_number: string | null;
   note: string | null;
+  /** Set on a catalog item sale (iPick / Katsh / Whish App grid). */
+  item_key?: string | null;
   created_at: string;
+  /** LIRA-349 A3 — every unit of the split checkout this row belongs to
+   *  (core `findWithCheckoutItems`); its ONE account charge covers them all.
+   *  Absent on a single-unit sale or a transfer. */
+  checkout_items?: SplitCheckoutItem[];
 }
 
 interface Props {
@@ -117,7 +124,31 @@ export function ServiceDebtDetailModal({
     ? (fs.omt_fee ?? 0)
     : (fs.whish_fee ?? 0);
   const pmFee = fs.payment_method_fee ?? 0;
-  const totalCharged = fs.amount + providerFee;
+  // LIRA-349 A3: a multi-unit checkout lists each unit and charges their sum.
+  const checkoutItems =
+    fs.checkout_items && fs.checkout_items.length > 1
+      ? fs.checkout_items
+      : null;
+  const checkoutSameCurrency =
+    checkoutItems !== null &&
+    checkoutItems.every((i) => i.currency === fs.currency);
+  const totalCharged =
+    checkoutItems && checkoutSameCurrency
+      ? checkoutItems.reduce((s, i) => s + i.amount, 0) + providerFee
+      : fs.amount + providerFee;
+  // The title says what was sold: a bill, an item (catalog sale) or N of
+  // them — the raw service type ("SEND") only for a real transfer.
+  const isBill = fs.service_type === "BILL";
+  const isItemSale = !!fs.item_key;
+  const kindLabel = checkoutItems
+    ? checkoutItems.every((i) => i.serviceType === "BILL")
+      ? t("serviceModal.billsTitle", { n: checkoutItems.length })
+      : t("serviceModal.itemsTitle", { n: checkoutItems.length })
+    : isBill
+      ? t("serviceModal.billTitle")
+      : isItemSale
+        ? t("serviceModal.itemTitle")
+        : fs.service_type;
 
   /**
    * Format an amount in an EXPLICIT currency. Never infer the currency from
@@ -130,6 +161,9 @@ export function ServiceDebtDetailModal({
   const fmtCurrency = (amount: number, currencyCode: string): string => {
     if (currencyCode === "LBP") {
       return `${formatNumber(Math.abs(amount))} LBP`;
+    }
+    if (currencyCode !== "USD") {
+      return `${Math.abs(amount).toFixed(2)} ${currencyCode}`;
     }
     return `$${Math.abs(amount).toFixed(2)}`;
   };
@@ -171,10 +205,8 @@ export function ServiceDebtDetailModal({
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700/60">
           <div>
             <h2 className="text-base font-bold text-white">
-              {fs.provider}{" "}
-              <span className="text-slate-400 font-normal">
-                {fs.service_type}
-              </span>
+              {providerDisplayLabel(fs.provider)}{" "}
+              <span className="text-slate-400 font-normal">{kindLabel}</span>
               {fs.omt_service_type && (
                 <span className="ms-2 text-xs bg-slate-700 text-slate-300 px-2 py-0.5 rounded-full">
                   {fs.omt_service_type}
@@ -203,14 +235,31 @@ export function ServiceDebtDetailModal({
         <div className="p-5 space-y-4">
           {/* Transaction summary */}
           <div className="bg-slate-800/60 rounded-xl p-3 space-y-1.5 border border-slate-700/40">
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-400">
-                {t("serviceModal.sendAmount")}
-              </span>
-              <span className="font-mono text-white font-semibold">
-                <Ltr>{fmtCurrency(fs.amount, fs.currency)}</Ltr>
-              </span>
-            </div>
+            {checkoutItems ? (
+              checkoutItems.map((item, idx) => (
+                <div
+                  key={idx}
+                  data-testid="service-debt-item"
+                  className="flex justify-between gap-3 text-sm"
+                >
+                  <span className="text-slate-300">{item.name}</span>
+                  <span className="font-mono text-white font-semibold shrink-0">
+                    <Ltr>{fmtCurrency(item.amount, item.currency)}</Ltr>
+                  </span>
+                </div>
+              ))
+            ) : (
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-400">
+                  {isBill || isItemSale
+                    ? t("serviceModal.price")
+                    : t("serviceModal.sendAmount")}
+                </span>
+                <span className="font-mono text-white font-semibold">
+                  <Ltr>{fmtCurrency(fs.amount, fs.currency)}</Ltr>
+                </span>
+              </div>
+            )}
             {providerFee > 0 && (
               <div className="flex justify-between text-sm">
                 <span className="text-amber-400">
@@ -225,8 +274,22 @@ export function ServiceDebtDetailModal({
               <span className="text-slate-300 font-medium">
                 {t("serviceModal.totalCharged")}
               </span>
-              <span className="font-mono text-white font-bold">
-                <Ltr>{fmtCurrency(totalCharged, fs.currency)}</Ltr>
+              <span
+                className="font-mono text-white font-bold"
+                data-testid="service-debt-total-charged"
+              >
+                <Ltr>
+                  {checkoutItems && !checkoutSameCurrency
+                    ? formatPaidAmount(
+                        checkoutItems
+                          .filter((i) => i.currency === "USD")
+                          .reduce((s, i) => s + i.amount, 0),
+                        checkoutItems
+                          .filter((i) => i.currency === "LBP")
+                          .reduce((s, i) => s + i.amount, 0),
+                      )
+                    : fmtCurrency(totalCharged, fs.currency)}
+                </Ltr>
               </span>
             </div>
             {pmFee > 0 && (
@@ -311,11 +374,7 @@ export function ServiceDebtDetailModal({
                             : "text-emerald-400"
                       }`}
                     >
-                      <Ltr>
-                        {p.currency_code === "USD" ? "$" : ""}
-                        {Math.abs(p.amount).toFixed(2)}
-                        {p.currency_code !== "USD" ? ` ${p.currency_code}` : ""}
-                      </Ltr>
+                      <Ltr>{fmtCurrency(p.amount, p.currency_code)}</Ltr>
                     </span>
                   </div>
                 );

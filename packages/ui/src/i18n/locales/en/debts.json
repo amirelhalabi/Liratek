@@ -64,7 +64,12 @@
     "clientInfo": "Client Info",
     "name": "Name",
     "phone": "Phone",
-    "reference": "Reference"
+    "reference": "Reference",
+    "itemsTitle": "{{n}} items",
+    "billsTitle": "{{n}} bills",
+    "billTitle": "Bill",
+    "itemTitle": "Item",
+    "price": "Price"
   },
   "importValidation": {
     "section": {
@@ -323,5 +328,74 @@
     "kindSale": "Sale",
     "kindCharge": "Charge",
     "kindMember": "Basket item"
+  },
+  "clientDebt": {
+    "seeDetails": "See details",
+    "close": "Close",
+    "items": "Items",
+    "basketItems": "Basket items",
+    "howPaid": "How it was paid",
+    "paid": "Paid",
+    "givenToClient": "Given to the client",
+    "onAccount": "On the account",
+    "offAccount": "Taken off the account",
+    "onAccountAmount": "{{amount}} on account",
+    "paidAtCheckout": "Paid",
+    "note": "Note",
+    "kind": {
+      "pos_sale": "Sale",
+      "recharge": "Recharge",
+      "transfer": "Money transfer",
+      "bill": "Bill payment",
+      "custom_service": "Service",
+      "maintenance": "Maintenance job",
+      "loto": "Loto ticket",
+      "exchange": "Exchange",
+      "voucher": "Voucher",
+      "session": "Session basket",
+      "manual": "Account entry",
+      "other": "Transaction"
+    },
+    "field": {
+      "service": "Service",
+      "carrier": "Carrier",
+      "phone": "Number",
+      "credits": "Credits",
+      "days": "Days",
+      "gift": "Gift",
+      "price": "Price",
+      "amount": "Amount",
+      "fee": "Fee",
+      "total": "Total",
+      "discount": "Discount",
+      "reference": "Reference",
+      "sender": "Sender",
+      "receiver": "Receiver",
+      "description": "Description",
+      "device": "Device",
+      "issue": "Repair",
+      "labour": "Labour",
+      "warrantyUntil": "Warranty until",
+      "status": "Status",
+      "ticket": "Ticket number",
+      "date": "Date",
+      "gave": "Client gave",
+      "received": "Client received",
+      "rate": "Rate",
+      "code": "Code",
+      "value": "Value",
+      "expiry": "Expires"
+    }
+  },
+  "statement": {
+    "title": "Account statement",
+    "client": "Client",
+    "phone": "Phone",
+    "printed": "Printed",
+    "balance": "Balance",
+    "payments": "Payments",
+    "time": "Time",
+    "description": "Description",
+    "total": "Total"
   }
 }

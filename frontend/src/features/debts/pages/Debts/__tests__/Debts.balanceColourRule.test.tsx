@@ -59,6 +59,8 @@ jest.mock("@liratek/ui", () => {
       getClientDebtHistory: mockGetClientDebtHistory,
       // LIRA-304 — open items (basket breakdown / repayment picker): none.
       getOpenDebtItems: mockGetOpenDebtItems,
+      // LIRA-350 — "All" also lists clients with no account rows.
+      getClients: jest.fn().mockResolvedValue([]),
       getTransactionById: mockGetTransactionById,
       getSaleItems: mockGetSaleItems,
       getClientBalance: mockGetClientBalance,

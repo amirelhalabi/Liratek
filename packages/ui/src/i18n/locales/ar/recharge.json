@@ -158,7 +158,8 @@
     "submitToPartner": "إرسال إلى الشريك",
     "proceedToPayOut": "متابعة للدفع للزبون",
     "proceedToPay": "متابعة للدفع",
-    "credits": "الرصيد"
+    "credits": "الرصيد",
+    "clearNumber": "امسح الرقم"
   },
   "katsh": {
     "cost": "الكلفة:",

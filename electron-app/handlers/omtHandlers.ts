@@ -87,7 +87,8 @@ export function registerOMTHandlers(): void {
 
   // Get a single financial service record by ID (for debt detail eye button)
   ipcMain.handle("omt:get-by-id", (_event, id: number) => {
-    return getFinancialServiceRepository().findById(id);
+    // LIRA-349 A3: plus every unit of its split checkout (`checkout_items`).
+    return getFinancialServiceRepository().findWithCheckoutItems(id);
   });
 
   // Get all payment rows for a transaction (for debt detail eye button)

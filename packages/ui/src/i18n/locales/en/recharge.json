@@ -158,7 +158,8 @@
     "submitToPartner": "Submit to Partner",
     "proceedToPayOut": "Proceed to Pay Out",
     "proceedToPay": "Proceed to Pay",
-    "credits": "Credits"
+    "credits": "Credits",
+    "clearNumber": "Clear the number"
   },
   "katsh": {
     "cost": "Cost:",

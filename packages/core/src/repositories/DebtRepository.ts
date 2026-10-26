@@ -40,6 +40,17 @@ import {
 import { localDayExpr } from "./reportingTimeFragments.js";
 import { coverBasketMember } from "./basketMemberCoverage.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
+import {
+  buildSplitCheckoutLabel,
+  splitCheckoutItemLine,
+} from "../utils/splitCheckoutItems.js";
+import {
+  buildClientDebtDetails,
+  clientDebtItemLine,
+  type ClientDebtDetails,
+  type ClientDebtSource,
+  type ClientDebtTxSource,
+} from "../utils/clientDebtDetails.js";
 import { resolveBackTimedDrawerMovement } from "./checkpointResolution.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
@@ -113,6 +124,16 @@ const EARLIER_BALANCE_LABEL = "Earlier balance (no items)";
 const EARLIER_BALANCE_MIN_USD = 0.05;
 const EARLIER_BALANCE_MIN_LBP = 5000;
 
+/** LIRA-349 — 1 when sale `s` is owed in LBP: its 'Sale Debt' row was booked
+ *  in LBP (`saleDebtOwed`, SalesRepository — the ONE writer rule). Keyed on
+ *  the sale, not one transaction row, so a voided sale's second row cannot
+ *  split a DISTINCT. No binds. */
+const SALE_OWED_IN_LBP_SQL = `EXISTS (
+  SELECT 1 FROM transactions st
+    JOIN debt_ledger sdl ON sdl.transaction_id = st.id AND sdl.tenant_id = st.tenant_id
+   WHERE st.source_table = 'sales' AND st.source_id = s.id AND st.tenant_id = s.tenant_id
+     AND sdl.transaction_type = 'Sale Debt' AND sdl.amount_lbp > 0)`;
+
 /**
  * Exactly which rows a repayment's FIFO coverage landed on, recorded on the
  * DEBT_REPAYMENT transaction's `metadata_json[REPAYMENT_COVERAGE_KEY]` so a
@@ -125,8 +146,9 @@ const EARLIER_BALANCE_MIN_LBP = 5000;
 export const REPAYMENT_COVERAGE_KEY = "coverage_applied";
 
 export interface RepaymentCoverageRecord {
-  /** `sales.paid_usd` bumped by `_markSalesPaidFIFO`. */
-  sales: Array<{ id: number; usd: number }>;
+  /** `sales.paid_usd` bumped by `_markSalesPaidFIFO`; LIRA-349: `lbp` is
+   *  `sales.paid_lbp` bumped for a sale owed in LBP (absent otherwise). */
+  sales: Array<{ id: number; usd: number; lbp?: number }>;
   /** `debt_ledger.covered_usd/covered_lbp` bumped by `_coverServiceDebtsFIFO`. */
   charges: Array<{ id: number; usd: number; lbp: number }>;
   /** LIRA-304 — basket members paid: the member's `covered_*` and its basket
@@ -157,7 +179,7 @@ export function readRepaymentCoverage(
   return {
     sales: sales
       .filter((s): s is Record<string, unknown> => !!s && typeof s === "object")
-      .map((s) => ({ id: num(s.id), usd: num(s.usd) }))
+      .map((s) => ({ id: num(s.id), usd: num(s.usd), lbp: num(s.lbp) }))
       .filter((s) => s.id > 0),
     charges: charges
       .filter((c): c is Record<string, unknown> => !!c && typeof c === "object")
@@ -234,6 +256,15 @@ export interface DebtLedgerEntity {
    *  deleted. Only `findClientHistory()` joins `users` and populates this;
    *  `findById()`/`findAll()` (sharing `getColumns()`) leave it undefined. */
   created_by_username?: string | null;
+  /** LIRA-349 A3 — set by `findClientHistory()` on the ONE 'Service Debt'
+   *  row of a multi-unit split checkout: one "name — price" line per unit it
+   *  covers (`splitCheckoutItemLine`). Undefined on every other row. */
+  itemNames?: string[];
+  /** LIRA-350 — the row in the client's words: one line plus the details
+   *  window (fields, items, payment legs, note), built at read time from
+   *  the transaction's saved data (`buildClientDebtDetails`). Set by
+   *  `findClientHistory()` only. */
+  client_details?: ClientDebtDetails;
 }
 
 export interface DebtorSummary {
@@ -441,7 +472,224 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    * exact `= 0` silently let through as a visible "−$0.00" row).
    */
   findClientHistory(clientId: number): DebtLedgerEntity[] {
-    return this.selectHistory("dl.client_id = ?", [clientId]);
+    // LIRA-349 A3: a split checkout's ONE 'Service Debt' row lists every
+    // unit it covers (the note keeps naming the first unit only).
+    return this._withClientDetails(
+      this.selectHistory("dl.client_id = ?", [clientId]),
+    );
+  }
+
+  /**
+   * The display fields both history reads add (so the export's rows stay
+   * exactly the per-client rows): LIRA-349 A3's unit list on a split
+   * checkout's ONE 'Service Debt' row (the note keeps naming the first unit
+   * only), and LIRA-350's `client_details` on every row (read time,
+   * nothing stored).
+   */
+  private _withClientDetails(rows: DebtLedgerEntity[]): DebtLedgerEntity[] {
+    const tenantId = getCurrentTenantId();
+    const readTx = this._clientTxSourceReader(tenantId);
+    const readSession = this._clientSessionReader(tenantId, readTx);
+    return rows.map((row) => {
+      let out = row;
+      if (
+        row.transaction_type === "Service Debt" &&
+        row.transaction_id != null
+      ) {
+        const units = getTransactionRepository().getSplitCheckoutItems(
+          row.transaction_id,
+        );
+        if (units)
+          out = { ...out, itemNames: units.map(splitCheckoutItemLine) };
+      }
+      return {
+        ...out,
+        client_details: buildClientDebtDetails(
+          this._clientDebtSource(row, readTx, readSession),
+        ),
+      };
+    });
+  }
+
+  /** LIRA-350 — what `buildClientDebtDetails` reads for one ledger row. */
+  private _clientDebtSource(
+    row: DebtLedgerEntity,
+    readTx: (txId: number) => ClientDebtTxSource | undefined,
+    readSession: (
+      sessionId: number,
+      sign: 1 | -1,
+    ) => NonNullable<ClientDebtSource["session"]>,
+  ): ClientDebtSource {
+    const ledger = {
+      transaction_type: row.transaction_type,
+      amount_usd: row.amount_usd,
+      amount_lbp: row.amount_lbp,
+      note: row.note,
+      session_id: row.session_id,
+    };
+    if (row.transaction_id != null) {
+      return { ledger, tx: readTx(row.transaction_id) ?? null };
+    }
+    if (row.session_id != null) {
+      const sign = row.amount_usd < 0 || row.amount_lbp < 0 ? -1 : 1;
+      return { ledger, tx: null, session: readSession(row.session_id, sign) };
+    }
+    return { ledger, tx: null };
+  }
+
+  /**
+   * LIRA-350 — a transaction as the client-facing builder reads it: its
+   * saved data, the live voucher / loto record (the voucher's note, status
+   * and expiry, the ticket number live only there) and, for a multi-unit
+   * split checkout, every unit (LIRA-349 `getSplitCheckoutItems`).
+   */
+  private _clientTxSourceReader(
+    tenantId: number,
+  ): (txId: number) => ClientDebtTxSource | undefined {
+    // A hand-rolled test schema may hold only the ledger (or older shapes
+    // of these tables): read what exists, never fail the history read.
+    if (!this._hasTable("transactions")) return () => undefined;
+    const optional = (table: string, column: string, fallback: string) =>
+      this._hasColumn(table, column)
+        ? `t.${column}`
+        : `${fallback} AS ${column}`;
+    const txStmt = this.db.prepare(
+      `SELECT t.id, t.type, ${optional("transactions", "summary", "NULL")},
+              ${optional("transactions", "metadata_json", "NULL")},
+              t.amount_usd, t.amount_lbp,
+              ${optional("transactions", "extra_usd", "0")},
+              ${optional("transactions", "extra_lbp", "0")},
+              t.source_table, t.source_id
+       FROM transactions t
+       WHERE t.id = ? AND t.tenant_id = ?`,
+    );
+    const hasAll = (table: string, cols: string[]) =>
+      this._hasTable(table) && cols.every((c) => this._hasColumn(table, c));
+    const voucherStmt = hasAll("vouchers", [
+      "code",
+      "amount",
+      "currency_code",
+      "expiry_date",
+      "status",
+      "note",
+    ])
+      ? this.db.prepare(
+          `SELECT code, amount, currency_code, expiry_date, status, note
+           FROM vouchers WHERE id = ? AND tenant_id = ?`,
+        )
+      : null;
+    const lotoStmt = hasAll("loto_tickets", [
+      "ticket_number",
+      "sale_date",
+      "note",
+    ])
+      ? this.db.prepare(
+          `SELECT ticket_number, sale_date, note
+           FROM loto_tickets WHERE id = ? AND tenant_id = ?`,
+        )
+      : null;
+    return (txId) => {
+      const t = txStmt.get(txId, tenantId) as
+        | (Omit<ClientDebtTxSource, "voucher" | "loto" | "splitItems"> & {
+            source_table: string;
+          })
+        | undefined;
+      if (!t) return undefined;
+      const { source_table, ...tx } = t;
+      const isSplit = (t.metadata_json ?? "").includes('"split_group"');
+      return {
+        ...tx,
+        voucher:
+          source_table === "vouchers" && voucherStmt && t.source_id != null
+            ? ((voucherStmt.get(t.source_id, tenantId) as
+                | ClientDebtTxSource["voucher"]
+                | undefined) ?? null)
+            : null,
+        loto:
+          source_table === "loto_tickets" && lotoStmt && t.source_id != null
+            ? ((lotoStmt.get(t.source_id, tenantId) as
+                | ClientDebtTxSource["loto"]
+                | undefined) ?? null)
+            : null,
+        splitItems: isSplit
+          ? getTransactionRepository().getSplitCheckoutItems(t.id)
+          : null,
+      };
+    };
+  }
+
+  /**
+   * LIRA-350 — a session basket's items (charges for a debt row, payouts
+   * for a credit row — `sign`) with each item's share of the basket's
+   * debt as stored (`customer_session_transactions.owed_*`), and the
+   * basket's checkout payment legs (`payments.session_id`).
+   */
+  private _clientSessionReader(
+    tenantId: number,
+    readTx: (txId: number) => ClientDebtTxSource | undefined,
+  ): (
+    sessionId: number,
+    sign: 1 | -1,
+  ) => NonNullable<ClientDebtSource["session"]> {
+    const hasCst = this._hasTable("customer_session_transactions");
+    const hasPaymentCols = () =>
+      this._hasTable("payments") &&
+      [
+        "session_id",
+        "transaction_id",
+        "method",
+        "currency_code",
+        "amount",
+      ].every((c) => this._hasColumn("payments", c));
+    const owedCols =
+      hasCst && this._hasColumn("customer_session_transactions", "owed_usd")
+        ? "cst.owed_usd, cst.owed_lbp"
+        : "0 AS owed_usd, 0 AS owed_lbp";
+    const membersStmt = hasCst
+      ? this.db.prepare(
+          `SELECT cst.unified_transaction_id AS txn_id, cst.amount_usd, cst.amount_lbp, ${owedCols}
+           FROM customer_session_transactions cst
+           WHERE cst.session_id = ? AND cst.tenant_id = ?
+             AND cst.unified_transaction_id IS NOT NULL
+             AND cst.transaction_type <> 'session_item_refund'
+           ORDER BY cst.id ASC`,
+        )
+      : null;
+    const paymentsStmt = hasPaymentCols()
+      ? this.db.prepare(
+          `SELECT method, currency_code AS currency, amount
+       FROM payments
+       WHERE session_id = ? AND transaction_id IS NULL AND tenant_id = ?
+       ORDER BY id ASC`,
+        )
+      : null;
+    return (sessionId, sign) => {
+      const rows = (membersStmt?.all(sessionId, tenantId) ?? []) as Array<{
+        txn_id: number;
+        amount_usd: number;
+        amount_lbp: number;
+        owed_usd: number;
+        owed_lbp: number;
+      }>;
+      const members = rows
+        .filter((m) =>
+          sign > 0
+            ? m.amount_usd > 0 || m.amount_lbp > 0
+            : m.amount_usd < 0 || m.amount_lbp < 0,
+        )
+        .flatMap((m) => {
+          const tx = readTx(m.txn_id);
+          return tx
+            ? [{ tx, owed_usd: m.owed_usd || 0, owed_lbp: m.owed_lbp || 0 }]
+            : [];
+        });
+      const payments = (paymentsStmt?.all(sessionId, tenantId) ?? []) as Array<{
+        method: string;
+        currency: string;
+        amount: number;
+      }>;
+      return { members, payments };
+    };
   }
 
   /**
@@ -452,7 +700,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    * first.
    */
   findAllHistory(): DebtLedgerEntity[] {
-    return this.selectHistory(null, []);
+    return this._withClientDetails(this.selectHistory(null, []));
   }
 
   /**
@@ -1296,7 +1544,9 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       .prepare(
         `SELECT DISTINCT s.id, s.created_at, ${localDayExpr("s.created_at")} AS shop_day,
                 s.final_amount_usd AS owed_usd,
-                s.final_amount_usd - (s.paid_usd + COALESCE(s.paid_lbp, 0) / COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1)) AS open_usd
+                s.final_amount_usd - (s.paid_usd + COALESCE(s.paid_lbp, 0) / COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1)) AS open_usd,
+                COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1) AS rate,
+                ${SALE_OWED_IN_LBP_SQL} AS owed_in_lbp
          FROM sales s
          JOIN transactions t ON t.source_table = 'sales' AND t.source_id = s.id
            AND t.tenant_id = s.tenant_id
@@ -1310,18 +1560,25 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       shop_day: string;
       owed_usd: number;
       open_usd: number;
+      rate: number;
+      owed_in_lbp: number;
     }>;
     for (const r of sales) {
+      // LIRA-349 — a sale owed in LBP is open in LBP (at its saved rate),
+      // so an LBP repayment covers it (on `sales.paid_lbp`, _applyCoverage).
+      const lbp = r.owed_in_lbp === 1;
+      const open = Math.max(0, r.open_usd);
+      const owed = Math.max(0, r.owed_usd);
       items.push({
         kind: "sale",
         id: r.id,
         rowId: r.id,
         createdAt: r.created_at,
         shopDay: r.shop_day,
-        openUsd: Math.max(0, r.open_usd),
-        openLbp: 0,
-        owedUsd: Math.max(0, r.owed_usd),
-        owedLbp: 0,
+        openUsd: lbp ? 0 : open,
+        openLbp: lbp ? Math.round(open * r.rate) : 0,
+        owedUsd: lbp ? 0 : owed,
+        owedLbp: lbp ? Math.round(owed * r.rate) : 0,
       });
     }
 
@@ -1747,8 +2004,10 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     // smart-rounding residue is not credit to offer.
     return {
       ...lines,
-      credit_usd: lines.credit_usd > EARLIER_BALANCE_MIN_USD ? lines.credit_usd : 0,
-      credit_lbp: lines.credit_lbp > EARLIER_BALANCE_MIN_LBP ? lines.credit_lbp : 0,
+      credit_usd:
+        lines.credit_usd > EARLIER_BALANCE_MIN_USD ? lines.credit_usd : 0,
+      credit_lbp:
+        lines.credit_lbp > EARLIER_BALANCE_MIN_LBP ? lines.credit_lbp : 0,
     };
   }
 
@@ -1818,7 +2077,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     | undefined {
     const hasCst = this._hasTable("customer_session_transactions");
     const saleInfo = this.db.prepare(
-      `SELECT t.summary, t.type${
+      `SELECT t.summary, t.type, t.id AS txn_id${
         hasCst
           ? `,
               (SELECT cst.session_id FROM customer_session_transactions cst
@@ -1833,14 +2092,15 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     );
     const chargeInfo = this.db.prepare(
       `SELECT COALESCE(t.summary, dl.note, dl.transaction_type) AS summary,
-              t.type, dl.session_id
+              t.type, dl.session_id, t.id AS txn_id,
+              json_extract(t.metadata_json, '$.split_group') IS NOT NULL AS is_split
        FROM debt_ledger dl
        LEFT JOIN transactions t ON t.id = dl.transaction_id AND t.tenant_id = dl.tenant_id
        WHERE dl.id = ? AND dl.tenant_id = ?`,
     );
     const memberInfo = hasCst
       ? this.db.prepare(
-          `SELECT t.summary, t.type, cst.session_id
+          `SELECT t.summary, t.type, cst.session_id, t.id AS txn_id
            FROM customer_session_transactions cst
            JOIN transactions t ON t.id = cst.unified_transaction_id AND t.tenant_id = cst.tenant_id
            WHERE cst.id = ? AND cst.tenant_id = ?`,
@@ -1851,14 +2111,47 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       type: string | null;
       session_id: number | null;
     };
+    // LIRA-349 A3: a split checkout's ONE charge names every unit it covers.
+    const charge = (id: number): Info | undefined => {
+      const row = chargeInfo.get(id, tenantId) as
+        | (Info & { txn_id: number | null; is_split: number })
+        | undefined;
+      if (!row) return undefined;
+      const { txn_id, is_split, ...info } = row;
+      // LIRA-350 — the client's line (it carries the split label itself).
+      const line = txn_id != null ? clientLine(txn_id) : null;
+      if (line) return { ...info, summary: line };
+      const units =
+        is_split && txn_id != null
+          ? getTransactionRepository().getSplitCheckoutItems(txn_id)
+          : null;
+      return units
+        ? { ...info, summary: buildSplitCheckoutLabel(units) }
+        : info;
+    };
+    // LIRA-350 — an item reads like its Accounts row (rule 14: the same
+    // builder), falling back to the stored summary.
+    const readTx = this._clientTxSourceReader(tenantId);
+    const clientLine = (txId: number): string | null => {
+      const src = readTx(txId);
+      return src ? clientDebtItemLine(src) : null;
+    };
+    const withLine = (
+      row: (Info & { txn_id?: number | null }) | undefined,
+    ): Info | undefined => {
+      if (!row) return undefined;
+      const { txn_id, ...info } = row;
+      const line = txn_id != null ? clientLine(txn_id) : null;
+      return line ? { ...info, summary: line } : info;
+    };
     return (it) =>
-      (it.kind === "sale"
-        ? saleInfo.get(it.id, tenantId)
+      it.kind === "sale"
+        ? withLine(saleInfo.get(it.id, tenantId) as Info | undefined)
         : it.kind === "charge"
-          ? chargeInfo.get(it.id, tenantId)
+          ? charge(it.id)
           : it.kind === "member"
-            ? memberInfo?.get(it.id, tenantId)
-            : undefined) as Info | undefined;
+            ? withLine(memberInfo?.get(it.id, tenantId) as Info | undefined)
+            : undefined;
   }
 
   /** LIRA-304 — refuse (before any write) a ticked item that is not one of
@@ -1894,8 +2187,10 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       charges: [],
       members: [],
     };
+    // LIRA-349 — a sale owed in LBP is covered in LBP, on `paid_lbp`.
     const updSale = this.db.prepare(
-      `UPDATE sales SET paid_usd = paid_usd + ? WHERE id = ? AND tenant_id = ?`,
+      `UPDATE sales SET paid_usd = paid_usd + ?, paid_lbp = COALESCE(paid_lbp, 0) + ?
+       WHERE id = ? AND tenant_id = ?`,
     );
     const updCharge = this.db.prepare(
       `UPDATE debt_ledger SET covered_usd = covered_usd + ?, covered_lbp = covered_lbp + ?
@@ -1908,8 +2203,12 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       // the reversal owner).
       if (t.kind === "balance") continue;
       if (t.kind === "sale") {
-        updSale.run(t.usd, t.id, tenantId);
-        record.sales.push({ id: t.id, usd: t.usd });
+        updSale.run(t.usd, t.lbp, t.id, tenantId);
+        record.sales.push(
+          t.lbp > 0
+            ? { id: t.id, usd: t.usd, lbp: t.lbp }
+            : { id: t.id, usd: t.usd },
+        );
       } else if (t.kind === "charge") {
         updCharge.run(t.usd, t.lbp, t.id, tenantId);
         record.charges.push({ id: t.id, usd: t.usd, lbp: t.lbp });

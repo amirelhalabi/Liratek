@@ -21,6 +21,7 @@ import type {
 } from "@liratek/core";
 // LIRA-333 — open a WhatsApp link outside LiraTek (rule 21).
 import type { OpenExternalUrlInput } from "@liratek/core";
+import type { ClientDebtDetails } from "@liratek/core";
 // LIRA-331 — a user's own UI language (schema-derived, rule 21).
 import type { MyPreferences, SetMyLanguageInput } from "@liratek/core";
 // LIRA-309 — phone lines held for sale (schema-derived payload types, rule 21).
@@ -489,6 +490,11 @@ export type DebtLedgerEntity = {
    *  column. Null/absent when `created_by` is null (system-authored row) or
    *  the user was deleted — render as "—". */
   created_by_username?: string | null;
+  /** LIRA-349 A3 — a split checkout's ONE row: one line per unit. */
+  itemNames?: string[];
+  /** LIRA-350 — the row in the client's words (line + details window),
+   *  built by core's `buildClientDebtDetails` at read time. */
+  client_details?: ClientDebtDetails;
 };
 
 export type DashboardStats = {

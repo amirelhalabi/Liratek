@@ -43,3 +43,20 @@ export function partitionLegs<T extends DirectionedLeg>(
   }
   return { inLegs, outLegs };
 }
+
+/**
+ * The display `paid_by` label for a flow, derived from the legs the
+ * customer ACTUALLY used: one leg's method, "MULTI" for two or more,
+ * `fallback` when there are none. Same rule as the frontend's
+ * `derivePaidByMethod` (frontend/src/utils/paymentUtils.ts) — one definition
+ * per layer (rule 14). Callers pass IN legs only: an OUT (change) leg is not
+ * a way the customer paid (rule 16). Display only — never a money input.
+ */
+export function derivePaidByLabel(
+  legs: ReadonlyArray<{ method: string }>,
+  fallback = "CASH",
+): string {
+  if (legs.length > 1) return "MULTI";
+  if (legs.length === 1) return legs[0].method;
+  return fallback;
+}

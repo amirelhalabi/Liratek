@@ -154,8 +154,9 @@ test.describe("Session Debt modal — signed amounts + payout visibility", () =>
     await search.fill(CLIENT);
     await appPage.locator("button").filter({ hasText: CLIENT }).first().click();
 
+    // LIRA-350: the row badge names the row in words ("Session basket").
     await expect(
-      appPage.getByText("Session Debt", { exact: true }),
+      appPage.getByText("Session basket", { exact: true }),
     ).toBeVisible({ timeout: 10_000 });
 
     const eyeButton = appPage.getByTitle("View Basket Items");

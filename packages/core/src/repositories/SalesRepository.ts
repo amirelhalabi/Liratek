@@ -174,6 +174,40 @@ export interface PaymentLine {
   direction?: PaymentDirection;
 }
 
+/**
+ * LIRA-349 — the ONE rule for the currency a sale's 'Sale Debt' is owed in.
+ * The on-account part is owed in the currency of the CUSTOMER_ACCOUNT leg,
+ * as in every other module: when every account leg is LBP, the whole
+ * remainder is booked in LBP — the leg's own amount (what the client was
+ * told) when it matches the remainder within 5¢, else the remainder at the
+ * sale's rate. Anything else (a USD or mixed account leg, a gift-card leg
+ * whose USD credit offsets the debt, a short payment with no account leg,
+ * no usable rate) stays in USD exactly as before.
+ *
+ * Readers find an LBP sale debt by its row (`amount_lbp > 0`), never by
+ * re-running this rule.
+ */
+export function saleDebtOwed(
+  inLegs: readonly PaymentLine[],
+  remainderUsd: number,
+  exchangeRate: number,
+): { usd: number; lbp: number | null } {
+  const accountLegs = inLegs.filter(
+    (p) => p.method === "CUSTOMER_ACCOUNT" && p.amount > 0,
+  );
+  const owedInLbp =
+    exchangeRate > 0 &&
+    accountLegs.length > 0 &&
+    accountLegs.every((p) => p.currency_code === "LBP") &&
+    !inLegs.some((p) => p.method === "GIFT_CARD");
+  if (!owedInLbp) return { usd: remainderUsd, lbp: null };
+  const legsLbp = accountLegs.reduce((s, p) => s + p.amount, 0);
+  const byRate = Math.round(remainderUsd * exchangeRate);
+  const lbp =
+    Math.abs(legsLbp - byRate) / exchangeRate <= 0.05 ? legsLbp : byRate;
+  return { usd: 0, lbp };
+}
+
 export interface SaleRequest {
   client_id: number | null;
   client_name?: string;
@@ -506,13 +540,16 @@ const receiptTenderSql = (currency: "USD" | "LBP") => `COALESCE((
 const RECEIPT_TENDER_USD_SQL = receiptTenderSql("USD");
 const RECEIPT_TENDER_LBP_SQL = receiptTenderSql("LBP");
 
-/** The ORIGINAL 'Sale Debt' charge (USD — POS debt is always booked in USD,
- *  `bookClientDebtCharge` with amountLbp null). Item-refund reversals and
- *  repayments never edit this positive row. */
+/** The ORIGINAL 'Sale Debt' charge, in USD. LIRA-349: a sale owed in LBP
+ *  (`saleDebtOwed`) books its row in LBP; it converts at the sale's saved
+ *  rate. Item-refund reversals and repayments never edit this positive row. */
 const RECEIPT_SALE_DEBT_CHARGE_SQL = `COALESCE((
-  SELECT SUM(dl.amount_usd) FROM debt_ledger dl
+  SELECT SUM(COALESCE(dl.amount_usd, 0)
+             + COALESCE(dl.amount_lbp, 0) / COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1))
+    FROM debt_ledger dl
    WHERE dl.transaction_id = t.id AND dl.tenant_id = t.tenant_id
-     AND dl.transaction_type = 'Sale Debt' AND dl.amount_usd > 0), 0)`;
+     AND dl.transaction_type = 'Sale Debt'
+     AND (dl.amount_usd > 0 OR dl.amount_lbp > 0)), 0)`;
 
 /** Face value of the gift cards redeemed on this sale, in USD (an LBP
  *  voucher converts at the sale's saved rate). */
@@ -1885,11 +1922,21 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
                 // branch (`user_id: createdBy`); the original hand-rolled
                 // INSERT just never threaded it through, leaving every Sale
                 // Debt row unattributed on the Debts page's User column.
+                //
+                // LIRA-349 — the on-account part is owed in the currency of
+                // the CUSTOMER_ACCOUNT leg, like every other module: an
+                // LBP-only account leg books the remainder in LBP (the
+                // client's LBP balance rises, USD stays as it was).
+                const owed = saleDebtOwed(
+                  inLegs,
+                  remainder,
+                  sale.exchange_rate,
+                );
                 bookClientDebtCharge(db, {
                   clientId: finalClientId,
                   transactionType: "Sale Debt",
-                  amountUsd: remainder,
-                  amountLbp: null,
+                  amountUsd: owed.usd,
+                  amountLbp: owed.lbp,
                   transactionId: txnId,
                   note: saleLabel,
                   createdBy,
@@ -3372,13 +3419,14 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       );
       const allReversalRows = db
         .prepare(
-          `SELECT id, client_id, amount_usd FROM debt_ledger
+          `SELECT id, client_id, amount_usd, amount_lbp FROM debt_ledger
            WHERE transaction_id = ? AND transaction_type = 'Refund Reversal' AND tenant_id = ?`,
         )
         .all(params.refundTransactionId, tenantId) as {
         id: number;
         client_id: number;
-        amount_usd: number;
+        amount_usd: number | null;
+        amount_lbp: number | null;
       }[];
       const reversalRows = allReversalRows.filter(
         (r) => !creditReversalIds.has(r.id),
@@ -3413,14 +3461,16 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           );
         }
       }
+      // LIRA-349 — per currency: an LBP sale debt is re-charged in LBP.
       const insertRecharge = db.prepare(`
-        INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, transaction_id, note, created_by, tenant_id, created_at)
-        VALUES (?, 'Sale Debt', ?, ?, 'Debt re-charged by undo refund', ?, ?, ?)
+        INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, tenant_id, created_at)
+        VALUES (?, 'Sale Debt', ?, ?, ?, 'Debt re-charged by undo refund', ?, ?, ?)
       `);
       for (const r of reversalRows) {
         insertRecharge.run(
           r.client_id,
-          -r.amount_usd,
+          -(r.amount_usd ?? 0),
+          r.amount_lbp ? -r.amount_lbp : null,
           undoTxnId,
           params.userId,
           tenantId,
@@ -3678,23 +3728,27 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     if (params.clientId) {
       const debts = db
         .prepare(
-          `SELECT id, client_id, amount_usd FROM debt_ledger WHERE transaction_id = ? AND transaction_type = 'Sale Debt' AND tenant_id = ?`,
+          `SELECT id, client_id, amount_usd, amount_lbp FROM debt_ledger WHERE transaction_id = ? AND transaction_type = 'Sale Debt' AND tenant_id = ?`,
         )
         .all(params.originalSaleTxnId, tenantId) as {
         id: number;
         client_id: number;
-        amount_usd: number;
+        amount_usd: number | null;
+        amount_lbp: number | null;
       }[];
 
+      // LIRA-349 — per currency: a sale owed in LBP cancels its LBP share.
       const insertReversal = db.prepare(`
-        INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, transaction_id, note, created_by, tenant_id, created_at)
-        VALUES (?, 'Refund Reversal', ?, ?, 'Debt cancelled by item refund', ?, ?, ?)
+        INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, tenant_id, created_at)
+        VALUES (?, 'Refund Reversal', ?, ?, ?, 'Debt cancelled by item refund', ?, ?, ?)
       `);
 
       for (const debt of debts) {
         insertReversal.run(
           debt.client_id,
-          -(debt.amount_usd * params.lineShareOfSale),
+          -((debt.amount_usd ?? 0) * params.lineShareOfSale),
+          // NULL when the sale owed no LBP — the row's shape before LIRA-349.
+          debt.amount_lbp ? -(debt.amount_lbp * params.lineShareOfSale) : null,
           params.refundTxnId,
           params.userId,
           tenantId,

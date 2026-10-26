@@ -41,6 +41,7 @@ export * from "./utils/barcode.js";
 export * from "./utils/payments.js";
 export * from "./utils/saleMargin.js";
 export * from "./utils/formatMoney.js";
+export * from "./utils/splitCheckoutItems.js";
 // LIRA-331: UI language (pure leaves, also exported from browser.ts).
 export * from "./constants/languages.js";
 export * from "./utils/effectiveLanguage.js";
@@ -97,6 +98,8 @@ export * from "./utils/whatsappPhone.js";
 export * from "./utils/transactionRowDisplay.js";
 // LIRA-302 — catalog cart payload (web + phone) and the USD/LBP rate reader (pure).
 export * from "./utils/catalogSale.js";
+// LIRA-350 — the client-facing line + detail of an account row.
+export * from "./utils/clientDebtDetails.js";
 export * from "./utils/exchangeRates.js";
 // Generic calendar-date arithmetic (rule 14 — the one definition, moved out
 // of carrierLineValidity.js so date-neutral callers don't import a

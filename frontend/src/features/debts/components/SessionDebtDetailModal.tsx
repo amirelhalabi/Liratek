@@ -11,17 +11,16 @@
  * opens in place to show the same details as the Transactions page.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X, ShoppingCart, ChevronDown, ChevronRight } from "lucide-react";
 import { useApi } from "@liratek/ui";
 import { useTranslation } from "react-i18next";
 import { formatNumber } from "@liratek/ui/i18n/format";
 import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { buildClientDebtDetails } from "@liratek/core";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
-import { useAuth } from "@/features/auth/context/AuthContext";
-import { usePaymentMethods } from "@/hooks/usePaymentMethods";
-import { TransactionDetailsBody } from "@/features/audit/components/TransactionDetailsPanel";
 import type { TransactionRow } from "@/features/audit/hooks/useTransactionRows";
+import { ClientDebtDetailsBody } from "./ClientDebtDetailModal";
 
 // ─── Types (mirror electron.d.ts session.cartGet / session.getTransactions) ──
 
@@ -67,6 +66,13 @@ interface Props {
 const isPayoutAmount = (usd: number, lbp: number): boolean =>
   usd < 0 || lbp < 0;
 
+/** "recharge_mtc" → "Recharge mtc" — a saved module code shown as words
+ *  when the item has no saved transaction to name it (LIRA-350, B11). */
+const readableCode = (code: string): string => {
+  const s = code.replace(/_/g, " ").trim().toLowerCase();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function SessionDebtDetailModal({
@@ -83,14 +89,6 @@ export function SessionDebtDetailModal({
   apiRef.current = api;
   const { t } = useTranslation("debts");
   useModalFocusFix(true);
-  const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
-  const { methods: paymentMethods } = usePaymentMethods();
-  const methodLabelByCode = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const m of paymentMethods) map.set(m.code, m.label);
-    return map;
-  }, [paymentMethods]);
   const [cartItems, setCartItems] = useState<SessionCartItem[]>([]);
   const [transactions, setTransactions] = useState<SessionTransactionRow[]>([]);
   // Full rows (as the Transactions page loads them), by transaction id.
@@ -239,7 +237,7 @@ export function SessionDebtDetailModal({
                       >
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="text-[10px] uppercase text-slate-500 font-medium shrink-0">
-                            {item.module}
+                            {readableCode(item.module)}
                           </span>
                           <span className="text-sm text-slate-200 truncate">
                             {item.label}
@@ -258,6 +256,20 @@ export function SessionDebtDetailModal({
                           ? fullRows.get(tx.unified_transaction_id)
                           : undefined;
                       const isOpen = full !== undefined && openId === tx.id;
+                      // LIRA-350 — the item in the client's words (C13: no
+                      // cost, product id or saved-data dump; B11: no raw
+                      // "recharge_mtc" keys).
+                      const clientView = full
+                        ? buildClientDebtDetails({
+                            ledger: {
+                              transaction_type: "",
+                              amount_usd: 0,
+                              amount_lbp: 0,
+                              note: null,
+                            },
+                            tx: full,
+                          })
+                        : null;
                       return (
                         <div
                           key={tx.id}
@@ -284,12 +296,14 @@ export function SessionDebtDetailModal({
                                     className="text-slate-500 shrink-0 rtl:rotate-180"
                                   />
                                 ))}
-                              <span className="text-sm text-slate-300 capitalize truncate">
-                                {tx.transaction_type}
+                              <span className="text-sm text-slate-300 truncate">
+                                {clientView
+                                  ? t(`clientDebt.kind.${clientView.kind}`)
+                                  : readableCode(tx.transaction_type)}
                               </span>
-                              {full?.summary && (
+                              {clientView?.line && (
                                 <span className="text-xs text-slate-500 truncate">
-                                  {full.summary}
+                                  {clientView.line}
                                 </span>
                               )}
                             </span>
@@ -313,12 +327,11 @@ export function SessionDebtDetailModal({
                               )}
                             </span>
                           </button>
-                          {isOpen && full && (
+                          {isOpen && clientView && (
                             <div className="border-t border-slate-700/50 px-3 py-3">
-                              <TransactionDetailsBody
-                                row={full}
-                                isAdmin={isAdmin}
-                                methodLabelByCode={methodLabelByCode}
+                              <ClientDebtDetailsBody
+                                details={clientView}
+                                showLine={false}
                               />
                             </div>
                           )}

@@ -40,7 +40,11 @@ import {
   ADDED_CHANGE_NOT_ALLOWED_MESSAGE,
   hasRoundingGiven,
 } from "../validators/common.js";
-import { paymentMethodToDrawerName, partitionLegs } from "../utils/payments.js";
+import {
+  derivePaidByLabel,
+  paymentMethodToDrawerName,
+  partitionLegs,
+} from "../utils/payments.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import type {
   HoldMoneyCreateInput,
@@ -124,25 +128,10 @@ const HOLD_MONEY_CATEGORY = "hold_money";
 const USD_EPSILON = HOLD_PICKUP_EPSILON.USD;
 const LBP_EPSILON = HOLD_PICKUP_EPSILON.LBP;
 
-/**
- * Derive a display-only `paid_by` label from a flow's ACTUAL legs (scout
- * finding — the pre-fix Hold Money history row hardcoded 'CASH' regardless
- * of what was really tendered). Same rule as the established frontend
- * helper `derivePaidByMethod` (frontend/src/utils/paymentUtils.ts) — one
- * leg's method, "MULTI" for 2+, `fallback` for zero — reimplemented here
- * (not imported: that module is frontend-only) because this repository is
- * the ONE place that needs the server-side echo of the same rule (rule 14
- * — one definition per LAYER, not a cross-layer import that would pull a
- * frontend module into `@liratek/core`).
- */
-function derivePaidByLabel(
-  legs: Array<{ method: string }>,
-  fallback = "CASH",
-): string {
-  if (legs.length > 1) return "MULTI";
-  if (legs.length === 1) return legs[0].method;
-  return fallback;
-}
+// The display `paid_by` label from a flow's ACTUAL legs (scout finding —
+// the pre-fix Hold Money history row hardcoded 'CASH' regardless of what
+// was really tendered) is `derivePaidByLabel` (utils/paymentLegs.ts), now
+// shared with FinancialServiceRepository (rule 14, LIRA-349).
 
 /**
  * LIRA-329 — the `hold_money` details on each of this module's transactions:

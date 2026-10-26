@@ -220,6 +220,7 @@ export function resolveServiceCashDrawer(
 // Leg direction rules live in the pure leaf `paymentLegs.ts` (LIRA-329,
 // rule 29); re-exported here so every existing import is unchanged.
 export {
+  derivePaidByLabel,
   isReturnLeg,
   partitionLegs,
   type PaymentDirection,

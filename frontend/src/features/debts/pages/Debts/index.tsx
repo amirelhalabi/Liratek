@@ -59,22 +59,24 @@ import {
   resolveKeptChangeForReduction,
 } from "../../utils/repaymentReduction";
 import {
-  formatPaidAmount,
-  saleOutstandingUsd,
-} from "../../utils/salePaidFormat";
-import {
   ServiceDebtDetailModal,
   type FinancialServiceData,
   type PaymentRowData,
 } from "../../components/ServiceDebtDetailModal";
 import { SessionDebtDetailModal } from "../../components/SessionDebtDetailModal";
+import { ClientDebtDetailModal } from "../../components/ClientDebtDetailModal";
 import DebtItemPicker from "../../components/DebtItemPicker";
+import {
+  buildClientStatementTemplate,
+  statementFilename,
+} from "../../utils/clientStatementTemplate";
 import DebtDayCalendar from "../../components/DebtDayCalendar";
 import {
   allocateRepayment,
   ownTargetsOpen,
   planRepaymentTargets,
   type DebtDayTargets,
+  type ClientDebtDetails,
   type DebtItemRef,
   type OpenDebtItem,
 } from "@liratek/core";
@@ -139,6 +141,22 @@ function ledgerTypeLabel(type: string, t: TFunction<"debts">): string {
     : type;
 }
 
+/** The row badge's colour per ledger type (every row has a badge now,
+ *  sales included — LIRA-350). */
+const LEDGER_BADGE_CLASS: Record<string, string> = {
+  "Sale Debt": "bg-violet-400/10 text-violet-400",
+  "Service Debt": "bg-sky-400/10 text-sky-400",
+  "Recharge Debt": "bg-cyan-400/10 text-cyan-400",
+  "Custom Service Debt": "bg-teal-400/10 text-teal-400",
+  "Session Debt": "bg-indigo-400/10 text-indigo-400",
+  CREDIT_DEPOSIT: "bg-emerald-400/10 text-emerald-400",
+  CREDIT_USED: "bg-orange-400/10 text-orange-400",
+  "Manual Debt": "bg-rose-400/10 text-rose-400",
+};
+function ledgerBadgeClass(type: string): string {
+  return LEDGER_BADGE_CLASS[type] ?? "bg-slate-700 text-slate-400";
+}
+
 /** en-US `toLocaleDateString()` / `toLocaleTimeString()` shapes. */
 const SHORT_DATE: Intl.DateTimeFormatOptions = {
   year: "numeric",
@@ -156,7 +174,7 @@ export default function Debts() {
   const api = useApi();
   const { t } = useTranslation("debts");
   const { t: tc } = useTranslation("common");
-  const { formatDate, formatTime, formatDateTime } = useFormat();
+  const { formatDate, formatTime } = useFormat();
   const { user } = useAuth();
   // CQ-10: standalone write-off is admin-only (D4) — bundled repayment
   // discounts stay admin+staff, same as the flow they're attached to.
@@ -187,23 +205,6 @@ export default function Debts() {
     refunded_at?: string | null;
   };
 
-  type SaleDetail = {
-    id: number;
-    final_amount_usd?: number;
-    total_amount_usd?: number;
-    discount_usd?: number;
-    paid_usd?: number;
-    paid_lbp?: number;
-    exchange_rate_snapshot?: number;
-    status: string;
-    created_at: string;
-    items: Array<{
-      product_name: string;
-      quantity: number;
-      price_per_unit: number;
-      subtotal: number;
-    }>;
-  };
   const [debtors, setDebtors] = useState<DebtorSummary[]>([]);
   const [selectedClient, setSelectedClient] = useState<DebtorSummary | null>(
     null,
@@ -244,8 +245,11 @@ export default function Debts() {
   const [creditMoveCash, setCreditMoveCash] = useState(true);
 
   const [debtFilter, setDebtFilter] = useState<DebtFilter>("ongoing");
-  const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null);
-  const [showSaleDetails, setShowSaleDetails] = useState(false); // New state for filter
+  // LIRA-350 — the details window of a row (built by core: client_details).
+  const [clientDetail, setClientDetail] = useState<{
+    details: ClientDebtDetails;
+    createdAt: string;
+  } | null>(null);
   const [dateSortOrder, setDateSortOrder] = useState<SortOrder>("desc"); // Default: most recent first
   const [aging, setAging] = useState<DebtAgingBuckets | null>(null);
 
@@ -289,9 +293,7 @@ export default function Debts() {
   // not, and its last plan (picked days → ticks, expected owed, "Use
   // credit"). null = the calendar was not used: today's repayment exactly.
   const [repayCalendarOpen, setRepayCalendarOpen] = useState(false);
-  const [repayDayPlan, setRepayDayPlan] = useState<DebtDayTargets | null>(
-    null,
-  );
+  const [repayDayPlan, setRepayDayPlan] = useState<DebtDayTargets | null>(null);
   // T3 keep-change: change the operator chose to KEEP as shop profit rather
   // than return. Excluded from the debt reduction (it is NOT the client's
   // credit) and stamped on the DEBT_REPAYMENT transaction as profit.
@@ -373,71 +375,12 @@ export default function Debts() {
       // written out separately even when they agree today.
       const data = await api.getClientDebtHistory(clientId);
 
-      // Fetch item names for each debt entry with a transaction_id
-      const enrichedData = await Promise.all(
-        data.map(async (item: DebtHistoryItem) => {
-          if (
-            item.transaction_id &&
-            item.transaction_type === "Sale Debt" &&
-            // Enriched notes ("Sale #5: 1× Case — $4 (discounted …)") already
-            // name the items and carry the discount — show them verbatim so
-            // the row matches the transaction summary. The per-row item fetch
-            // below is only a fallback for legacy bare notes ("Balance from
-            // Sale").
-            !item.note?.startsWith("Sale #") &&
-            (item.amount_usd > 0 || item.amount_lbp > 0)
-          ) {
-            try {
-              // item.transaction_id is a unified transactions.id, NOT a
-              // sales.id — resolve through getTransactionById first (same
-              // pattern as loadSaleDetails below) before calling getSaleItems.
-              const transaction = await api.getTransactionById(
-                item.transaction_id,
-              );
-              if (!transaction || transaction.source_table !== "sales") {
-                return item;
-              }
-              const saleId = transaction.source_id;
-              const items = await api.getSaleItems(saleId);
-              const itemNames = items
-                .slice(0, 3)
-                .map((saleItem: any) => saleItem.name || "Unknown Product");
-              return { ...item, itemNames };
-            } catch (error) {
-              logger.error(
-                `Failed to load items for sale ${item.transaction_id}:`,
-                error,
-              );
-              return item;
-            }
-          }
-          // Fetch custom service description for Custom Service Debt entries
-          if (
-            item.transaction_id &&
-            item.transaction_type === "Custom Service Debt" &&
-            (item.amount_usd > 0 || item.amount_lbp > 0)
-          ) {
-            try {
-              const service = await api.getCustomServiceById(
-                item.transaction_id,
-              );
-              if (service?.description) {
-                return { ...item, itemNames: [service.description] };
-              }
-            } catch (error) {
-              logger.error(
-                `Failed to load custom service ${item.transaction_id}:`,
-                error,
-              );
-            }
-          }
-          return item;
-        }),
-      );
-
+      // LIRA-350 — each row arrives with its line and details already
+      // built by core (`client_details`); the per-row item fetches that used
+      // to run here (one or two requests per row) are gone.
       // A late answer for a client the user already left is dropped.
       if (selectedClientIdRef.current !== clientId) return;
-      setHistory(enrichedData);
+      setHistory(data);
       // Reset sort to default (desc) when loading new client
       setDateSortOrder("desc");
     } catch (error) {
@@ -532,6 +475,52 @@ export default function Debts() {
   // sums remain only as a fallback while the ledger balance loads (web mode).
   const netUsd = ledgerBalance?.usd ?? debtTotals.usd - paymentTotals.usd;
   const netLbp = ledgerBalance?.lbp ?? debtTotals.lbp - paymentTotals.lbp;
+
+  // LIRA-350 (C14) — both tables export the client's statement: name and
+  // phone, balance and totals per currency, purchases AND payments, date
+  // and time apart, real numbers, each row's client line.
+  const statementTemplate = useMemo(
+    () =>
+      selectedClient
+        ? buildClientStatementTemplate({
+            client: {
+              full_name: selectedClient.full_name,
+              phone_number: selectedClient.phone_number || null,
+            },
+            purchases: debtEntries,
+            payments: paymentEntries,
+            balance: { usd: netUsd, lbp: netLbp },
+            labels: {
+              title: t("statement.title"),
+              client: t("statement.client"),
+              phone: t("statement.phone"),
+              printed: t("statement.printed"),
+              balance: t("statement.balance"),
+              purchases: t("history.purchasesAndCharges"),
+              payments: t("statement.payments"),
+              date: t("history.date"),
+              time: t("statement.time"),
+              description: t("statement.description"),
+              total: t("statement.total"),
+              totalCharged: t("history.totalCharged"),
+              totalPaid: t("history.totalPaid"),
+            },
+            formatDate: (d) => formatDate(d, SHORT_DATE),
+            formatTime: (d) => formatTime(d, LONG_TIME),
+          })
+        : undefined,
+    [
+      selectedClient,
+      debtEntries,
+      paymentEntries,
+      netUsd,
+      netLbp,
+      t,
+      formatDate,
+      formatTime,
+    ],
+  );
+  const statementFile = statementFilename(selectedClient?.full_name ?? "");
   const dueUsd = Math.max(0, netUsd);
   const dueLbp = Math.max(0, netLbp);
   const creditUsd = Math.max(0, -netUsd);
@@ -614,52 +603,6 @@ export default function Debts() {
     }
   };
 
-  const loadSaleDetails = async (transactionId: number) => {
-    try {
-      logger.debug("Loading sale details for transaction ID:", {
-        transactionId,
-      });
-
-      // First, get the transaction to find the actual sale ID
-      const transaction = await api.getTransactionById(transactionId);
-      logger.debug("Transaction data received:", { transaction });
-
-      if (!transaction || transaction.source_table !== "sales") {
-        alert(t("saleDetails.notASale", { id: transactionId }));
-        return;
-      }
-
-      const saleId = transaction.source_id;
-      logger.debug("Sale ID from transaction:", { saleId });
-
-      const sale = await api.getSale(saleId);
-      logger.debug("Sale data received:", { sale });
-
-      if (!sale) {
-        alert(t("saleDetails.notFound", { id: saleId }));
-        return;
-      }
-
-      const items = await api.getSaleItems(saleId);
-      logger.debug("Sale items received:", { items });
-
-      setSelectedSale({
-        ...sale,
-        items: items.map((item: any) => ({
-          product_name: item.name || t("saleDetails.unknownProduct"),
-          quantity: item.quantity || 0,
-          price_per_unit: item.sold_price_usd || 0,
-          subtotal: (item.sold_price_usd || 0) * (item.quantity || 0),
-        })),
-      });
-      setShowSaleDetails(true);
-    } catch (error) {
-      logger.error("Failed to load sale details:", error);
-      console.error("Sale details error:", error);
-      alert(t("saleDetails.loadFailed"));
-    }
-  };
-
   const loadServiceDebtDetails = async (
     transactionId: number,
     debtAmountUsd: number,
@@ -706,6 +649,41 @@ export default function Debts() {
   // mode). `api` is read through a ref (rule 25).
   const apiRef = useRef(api);
   apiRef.current = api;
+
+  // LIRA-350 (review C16) — "All" also lists the clients who never had an
+  // account row, so a new client can be opened (to start an account, or to
+  // check a zero balance). Read through the dual-mode clients list; the
+  // debtors read itself stays "clients with ledger rows" (the dashboard,
+  // the client picker and the Excel round-trip rely on that).
+  const [zeroBalanceClients, setZeroBalanceClients] = useState<DebtorSummary[]>(
+    [],
+  );
+  useEffect(() => {
+    if (debtFilter !== "all") return;
+    let cancelled = false;
+    apiRef.current
+      .getClients("")
+      .then((rows) => {
+        if (cancelled) return;
+        setZeroBalanceClients(
+          (rows ?? []).map((c) => ({
+            id: c.id,
+            full_name: c.full_name,
+            phone_number: c.phone_number ?? "",
+            total_debt: 0,
+            total_debt_usd: 0,
+            total_debt_lbp: 0,
+          })),
+        );
+      })
+      .catch((error: unknown) => {
+        logger.error("Failed to load clients for the All filter:", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [debtFilter]);
+
   const repayClientId = selectedClient?.id ?? null;
   useEffect(() => {
     setRepayTargets([]);
@@ -1801,7 +1779,12 @@ export default function Debts() {
     [executeImport, t],
   );
 
-  const filteredDebtors = debtors.filter((d) => {
+  const debtorIds = new Set(debtors.map((d) => d.id));
+  const listedClients =
+    debtFilter === "all"
+      ? [...debtors, ...zeroBalanceClients.filter((c) => !debtorIds.has(c.id))]
+      : debtors;
+  const filteredDebtors = listedClients.filter((d) => {
     const matchesSearch =
       d.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       d.phone_number?.includes(searchTerm);
@@ -2273,7 +2256,10 @@ export default function Debts() {
                           "USD",
                           "LBP",
                         ]}
-                        exportFilename="debt-purchases"
+                        exportFilename={statementFile}
+                        {...(statementTemplate
+                          ? { exportTemplate: statementTemplate }
+                          : {})}
                         className="w-full"
                         theadClassName="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-start text-slate-400 border-b border-slate-700/50"
                         tbodyClassName="divide-y divide-slate-700/30"
@@ -2308,55 +2294,42 @@ export default function Debts() {
                                         {t("history.refunded")}
                                       </span>
                                     )}
-                                    {item.transaction_type &&
-                                      item.transaction_type !== "Sale Debt" && (
-                                        <span
-                                          className={`inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                            item.transaction_type ===
-                                            "Service Debt"
-                                              ? "bg-sky-400/10 text-sky-400"
-                                              : item.transaction_type ===
-                                                  "Recharge Debt"
-                                                ? "bg-cyan-400/10 text-cyan-400"
-                                                : item.transaction_type ===
-                                                    "Custom Service Debt"
-                                                  ? "bg-teal-400/10 text-teal-400"
-                                                  : item.transaction_type ===
-                                                      "Session Debt"
-                                                    ? "bg-indigo-400/10 text-indigo-400"
-                                                    : item.transaction_type ===
-                                                        "CREDIT_DEPOSIT"
-                                                      ? "bg-emerald-400/10 text-emerald-400"
-                                                      : item.transaction_type ===
-                                                          "CREDIT_USED"
-                                                        ? "bg-orange-400/10 text-orange-400"
-                                                        : item.transaction_type ===
-                                                            "Manual Debt"
-                                                          ? "bg-rose-400/10 text-rose-400"
-                                                          : "bg-slate-700 text-slate-400"
-                                          }`}
-                                        >
-                                          {item.transaction_type ===
-                                            "Custom Service Debt" && (
-                                            <Briefcase
-                                              size={10}
-                                              className="me-1"
-                                            />
-                                          )}
-                                          {ledgerTypeLabel(
-                                            item.transaction_type,
-                                            t,
-                                          )}
-                                        </span>
-                                      )}
+                                    {item.transaction_type && (
+                                      <span
+                                        className={`inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-medium ${ledgerBadgeClass(item.transaction_type)}`}
+                                      >
+                                        {item.transaction_type ===
+                                          "Custom Service Debt" && (
+                                          <Briefcase
+                                            size={10}
+                                            className="me-1"
+                                          />
+                                        )}
+                                        {item.client_details
+                                          ? t(
+                                              `clientDebt.kind.${item.client_details.kind}`,
+                                            )
+                                          : ledgerTypeLabel(
+                                              item.transaction_type,
+                                              t,
+                                            )}
+                                      </span>
+                                    )}
                                     <div className="flex items-center gap-1.5">
-                                      {item.itemNames &&
-                                      item.itemNames.length > 0 ? (
-                                        <div className="flex flex-col gap-0.5 text-xs leading-tight max-w-[140px]">
+                                      {item.client_details?.line ? (
+                                        <span
+                                          data-testid={`debt-line-${item.id}`}
+                                          className="whitespace-normal break-words"
+                                        >
+                                          {item.client_details.line}
+                                        </span>
+                                      ) : item.itemNames &&
+                                        item.itemNames.length > 0 ? (
+                                        <div className="flex flex-col gap-0.5 text-xs leading-tight">
                                           {item.itemNames.map((name) => (
                                             <div
                                               key={name}
-                                              className="truncate"
+                                              className="whitespace-normal break-words"
                                             >
                                               • {name}
                                             </div>
@@ -2367,68 +2340,71 @@ export default function Debts() {
                                           {item.note || "-"}
                                         </span>
                                       )}
+                                      {/* LIRA-350 — a details window on
+                                          every row. OMT/Whish services keep
+                                          their own window (it lists each
+                                          drawer leg), a session basket its
+                                          basket window; every other row
+                                          opens the client details. */}
                                       {item.transaction_id &&
+                                      item.transaction_type ===
+                                        "Service Debt" ? (
+                                        <button
+                                          onClick={() =>
+                                            loadServiceDebtDetails(
+                                              item.transaction_id!,
+                                              item.amount_usd,
+                                              item.amount_lbp,
+                                            )
+                                          }
+                                          className="shrink-0 p-1 rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 transition-all"
+                                          title={t("history.viewTransaction")}
+                                        >
+                                          <Eye size={13} />
+                                        </button>
+                                      ) : item.session_id &&
                                         item.transaction_type ===
-                                          "Sale Debt" && (
-                                          <button
-                                            onClick={() =>
-                                              loadSaleDetails(
-                                                item.transaction_id!,
+                                          "Session Debt" ? (
+                                        <button
+                                          onClick={() =>
+                                            loadSessionDebtDetails(
+                                              item.session_id!,
+                                              item.amount_usd,
+                                              item.amount_lbp,
+                                              // On-account cash-out → its payout
+                                              // shows on the Payments side, so
+                                              // the basket eye shows CHARGES
+                                              // only. A cash payout has no such
+                                              // credit row, so show the FULL
+                                              // basket (both signs). See
+                                              // lira-session-cashout-credit /
+                                              // lira-session-debt-payout-signs.
+                                              sessionsWithOnAccountCredit.has(
+                                                item.session_id,
                                               )
-                                            }
-                                            className="shrink-0 p-1 rounded bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 transition-all"
-                                            title={t("history.viewSale")}
-                                          >
-                                            <Eye size={13} />
-                                          </button>
-                                        )}
-                                      {item.transaction_id &&
-                                        item.transaction_type ===
-                                          "Service Debt" && (
-                                          <button
-                                            onClick={() =>
-                                              loadServiceDebtDetails(
-                                                item.transaction_id!,
-                                                item.amount_usd,
-                                                item.amount_lbp,
-                                              )
-                                            }
-                                            className="shrink-0 p-1 rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 transition-all"
-                                            title={t("history.viewTransaction")}
-                                          >
-                                            <Eye size={13} />
-                                          </button>
-                                        )}
-                                      {item.session_id &&
-                                        item.transaction_type ===
-                                          "Session Debt" && (
-                                          <button
-                                            onClick={() =>
-                                              loadSessionDebtDetails(
-                                                item.session_id!,
-                                                item.amount_usd,
-                                                item.amount_lbp,
-                                                // On-account cash-out → its payout
-                                                // shows on the Payments side, so
-                                                // the basket eye shows CHARGES
-                                                // only. A cash payout has no such
-                                                // credit row, so show the FULL
-                                                // basket (both signs). See
-                                                // lira-session-cashout-credit /
-                                                // lira-session-debt-payout-signs.
-                                                sessionsWithOnAccountCredit.has(
-                                                  item.session_id,
-                                                )
-                                                  ? "charges"
-                                                  : "all",
-                                              )
-                                            }
-                                            className="shrink-0 p-1 rounded bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 transition-all"
-                                            title={t("history.viewBasket")}
-                                          >
-                                            <Eye size={13} />
-                                          </button>
-                                        )}
+                                                ? "charges"
+                                                : "all",
+                                            )
+                                          }
+                                          className="shrink-0 p-1 rounded bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 transition-all"
+                                          title={t("history.viewBasket")}
+                                        >
+                                          <Eye size={13} />
+                                        </button>
+                                      ) : item.client_details ? (
+                                        <button
+                                          onClick={() =>
+                                            setClientDetail({
+                                              details: item.client_details!,
+                                              createdAt: item.created_at,
+                                            })
+                                          }
+                                          className="shrink-0 p-1 rounded bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 transition-all"
+                                          title={t("clientDebt.seeDetails")}
+                                        >
+                                          <Eye size={13} />
+                                        </button>
+                                      ) : null}
                                     </div>
                                     {item.session_id &&
                                       item.transaction_type ===
@@ -2596,7 +2572,10 @@ export default function Debts() {
                           "USD",
                           "LBP",
                         ]}
-                        exportFilename="debt-payments"
+                        exportFilename={statementFile}
+                        {...(statementTemplate
+                          ? { exportTemplate: statementTemplate }
+                          : {})}
                         className="w-full"
                         theadClassName="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-start text-slate-400 border-b border-slate-700/50"
                         tbodyClassName="divide-y divide-slate-700/30"
@@ -2653,6 +2632,26 @@ export default function Debts() {
                                             }
                                             className="shrink-0 p-1 rounded bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 transition-all"
                                             title={t("history.viewBasket")}
+                                          >
+                                            <Eye size={13} />
+                                          </button>
+                                        )}
+                                      {!(
+                                        item.session_id &&
+                                        item.transaction_type ===
+                                          "CREDIT_DEPOSIT"
+                                      ) &&
+                                        item.transaction_id &&
+                                        item.client_details && (
+                                          <button
+                                            onClick={() =>
+                                              setClientDetail({
+                                                details: item.client_details!,
+                                                createdAt: item.created_at,
+                                              })
+                                            }
+                                            className="shrink-0 p-1 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 transition-all"
+                                            title={t("clientDebt.seeDetails")}
                                           >
                                             <Eye size={13} />
                                           </button>
@@ -3591,156 +3590,12 @@ export default function Debts() {
         )}
       </div>
 
-      {/* Sale Details Modal */}
-      {showSaleDetails && selectedSale && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-slate-700">
-            {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b border-slate-700">
-              <h2 className="text-xl font-bold text-white">
-                {t("saleDetails.title", { id: selectedSale.id })}
-              </h2>
-              <button
-                onClick={() => {
-                  setShowSaleDetails(false);
-                  setSelectedSale(null);
-                }}
-                className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
-              >
-                <CloseIcon size={20} className="text-slate-400" />
-              </button>
-            </div>
-
-            {/* Content */}
-            <div className="p-6 space-y-6">
-              {/* Sale Info */}
-              <div className="flex gap-4 p-4 bg-slate-900 rounded-lg">
-                <div className="flex-[2]">
-                  <p className="text-slate-500 text-sm">
-                    {t("saleDetails.date")}
-                  </p>
-                  <p className="text-white font-medium">
-                    {formatDateTime(parseDbDate(selectedSale.created_at), {
-                      ...SHORT_DATE,
-                      ...LONG_TIME,
-                    })}
-                  </p>
-                </div>
-                <div className="flex-1">
-                  <p className="text-slate-500 text-sm">
-                    {t("saleDetails.totalAmount")}
-                  </p>
-                  <p dir="ltr" className="text-white font-medium">
-                    $
-                    {(
-                      selectedSale.final_amount_usd ||
-                      selectedSale.total_amount_usd ||
-                      0
-                    ).toFixed(2)}
-                  </p>
-                </div>
-                <div className="flex-1">
-                  <p className="text-slate-500 text-sm">
-                    {t("saleDetails.amountPaid")}
-                  </p>
-                  <p dir="ltr" className="text-emerald-400 font-medium">
-                    {formatPaidAmount(
-                      selectedSale.paid_usd || 0,
-                      selectedSale.paid_lbp || 0,
-                    )}
-                  </p>
-                </div>
-              </div>
-
-              {/* Items Table */}
-              <div>
-                <h3 className="text-lg font-semibold text-white mb-3">
-                  {t("saleDetails.items")}
-                </h3>
-                <div className="overflow-x-auto">
-                  <DataTable
-                    columns={[
-                      {
-                        header: t("saleDetails.product"),
-                        className: "pb-3 text-sm font-medium",
-                      },
-                      {
-                        header: t("saleDetails.qty"),
-                        className: "pb-3 text-sm font-medium text-center",
-                      },
-                      {
-                        header: t("saleDetails.price"),
-                        className: "pb-3 text-sm font-medium text-end",
-                      },
-                      {
-                        header: t("saleDetails.subtotal"),
-                        className: "pb-3 text-sm font-medium text-end",
-                      },
-                    ]}
-                    data={selectedSale.items}
-                    className="w-full"
-                    theadClassName="border-b border-slate-700"
-                    tbodyClassName="divide-y divide-slate-700"
-                    renderRow={(item) => (
-                      <tr key={`${item.product_name}-${item.price_per_unit}`}>
-                        <td className="py-3 text-white">{item.product_name}</td>
-                        <td className="py-3 text-slate-300 text-center">
-                          {item.quantity}
-                        </td>
-                        <td className="py-3 text-slate-300 text-end">
-                          ${item.price_per_unit.toFixed(2)}
-                        </td>
-                        <td className="py-3 text-white font-medium text-end">
-                          ${item.subtotal.toFixed(2)}
-                        </td>
-                      </tr>
-                    )}
-                  />
-                </div>
-              </div>
-
-              {/* Summary */}
-              <div className="border-t border-slate-700 pt-4 space-y-2">
-                {(selectedSale.discount_usd || 0) > 0 && (
-                  <div className="flex justify-between text-slate-400">
-                    <span>{t("saleDetails.discount")}</span>
-                    <span dir="ltr" className="text-amber-400 font-medium">
-                      -${(selectedSale.discount_usd || 0).toFixed(2)}
-                    </span>
-                  </div>
-                )}
-                <div className="flex justify-between text-slate-400">
-                  <span>{t("saleDetails.totalAmountColon")}</span>
-                  <span dir="ltr" className="text-white font-medium">
-                    $
-                    {(
-                      selectedSale.final_amount_usd ||
-                      selectedSale.total_amount_usd ||
-                      0
-                    ).toFixed(2)}
-                  </span>
-                </div>
-                <div className="flex justify-between text-slate-400">
-                  <span>{t("saleDetails.amountPaidColon")}</span>
-                  <span dir="ltr" className="text-emerald-400 font-medium">
-                    {formatPaidAmount(
-                      selectedSale.paid_usd || 0,
-                      selectedSale.paid_lbp || 0,
-                    )}
-                  </span>
-                </div>
-                <div className="flex justify-between text-lg font-bold border-t border-slate-700 pt-2">
-                  <span className="text-white">
-                    {t("saleDetails.outstandingDebt")}
-                  </span>
-                  <span dir="ltr" className="text-red-400">
-                    ${saleOutstandingUsd(selectedSale).toFixed(2)}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+      {clientDetail && (
+        <ClientDebtDetailModal
+          details={clientDetail.details}
+          createdAt={clientDetail.createdAt}
+          onClose={() => setClientDetail(null)}
+        />
       )}
     </div>
   );

@@ -41,6 +41,7 @@ import { ensureRechargeClient } from "../../utils/ensureClient";
 import {
   clientPhoneField,
   daysTypedUsdField,
+  rechargePhoneNumber,
   giftTierField,
 } from "../../utils/rechargeDetailFields";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
@@ -1000,8 +1001,7 @@ export default function MobileRecharge() {
           provider: activeProvider,
           type: submittedRechargeType,
           ...carrierLineField,
-          phoneNumber:
-            rechargeType === "CREDIT_TRANSFER" ? phoneNumber : undefined,
+          phoneNumber: rechargePhoneNumber(rechargeType, phoneNumber),
           amount,
           cost,
           price,
@@ -1045,8 +1045,7 @@ export default function MobileRecharge() {
         // `deriveSubmittedRechargeType` returns `string`; its inputs are the
         // telecom tab types, so the result is always a schema type.
         type: submittedRechargeType as CreateRechargePayload["type"],
-        phoneNumber:
-          rechargeType === "CREDIT_TRANSFER" ? phoneNumber : undefined,
+        phoneNumber: rechargePhoneNumber(rechargeType, phoneNumber),
         amount,
         cost,
         price,

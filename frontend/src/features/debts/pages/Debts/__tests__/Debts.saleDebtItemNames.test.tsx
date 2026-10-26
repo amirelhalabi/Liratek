@@ -1,28 +1,22 @@
 /** @jest-environment jsdom */
 
 /**
- * Regression test for the Sale Debt item-name resolution bug.
+ * Sale Debt rows — item names (rewritten for LIRA-350, rule 24).
  *
- * `debt_ledger.transaction_id` is a unified `transactions.id`, NOT a
- * `sales.id`. `loadHistory` (Debts/index.tsx) used to pass that id directly
- * into `getSaleItems(saleId)`, which queries `sale_items WHERE sale_id = ?`.
- * Because both tables autoincrement from 1, this either returned nothing or
- * the WRONG sale's items — either way the UI silently fell back to the raw
- * `note` text instead of showing item names.
- *
- * The fix resolves through `getTransactionById` first (the same pattern
- * `loadSaleDetails` already used) to get the real `sales.id` via
- * `transaction.source_id`, then calls `getSaleItems` with THAT id.
- *
- * This test uses two DISTINCT ids — the debt ledger's `transaction_id` (55)
- * vs. the resolved `sales.id` (999) — so it only passes if the code
- * actually resolves through `getTransactionById` before calling
- * `getSaleItems`. Passing the raw `transaction_id` straight into
- * `getSaleItems` (the old, buggy behavior) yields an empty item list here,
- * which is exactly what was confirmed by temporarily reverting the fix.
+ * The page used to resolve every Sale Debt row's items itself:
+ * `getTransactionById(row.transaction_id)` then `getSaleItems(source_id)` —
+ * one or two requests per row (the original bug here was passing the
+ * transactions.id straight into getSaleItems). Since LIRA-350 the history
+ * read carries `client_details`, built by core from the sale's saved
+ * details, so this file now guards that:
+ *   - the row shows the core-built line (items, quantities, discount);
+ *   - the page makes NO per-row transaction / sale-item request;
+ *   - a legacy row without details shows its stored note as-is;
+ *   - the row's details window lists the items and the discount.
  */
 
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { buildClientDebtDetails } from "@liratek/core";
 import Debts from "../index";
 
 const DEBT_LEDGER_TRANSACTION_ID = 55; // transactions.id stored on the debt row
@@ -43,25 +37,28 @@ const mockGetSale = jest.fn();
 // object-literal mock like the old one here would silently turn into
 // `undefined` (a `TypeError` at render). Only the pieces below need
 // stubbing — everything else stays real.
+// Rule 25: ONE stable object for the whole file.
+const mockApi = {
+  getDebtors: mockGetDebtors,
+  getClientDebtHistory: mockGetClientDebtHistory,
+  // LIRA-304 — open items (basket breakdown / repayment picker): none.
+  getOpenDebtItems: mockGetOpenDebtItems,
+  getTransactionById: mockGetTransactionById,
+  getSaleItems: mockGetSaleItems,
+  getClientBalance: mockGetClientBalance,
+  getCustomServiceById: jest.fn(),
+  getSale: mockGetSale,
+  cashOut: jest.fn(),
+  addRepayment: jest.fn(),
+  addAccountEntry: jest.fn(),
+  getClientDebtTotal: jest.fn(),
+  getClients: jest.fn().mockResolvedValue([]),
+};
 jest.mock("@liratek/ui", () => {
   const actual = jest.requireActual("@liratek/ui");
   return {
     ...actual,
-    useApi: () => ({
-      getDebtors: mockGetDebtors,
-      getClientDebtHistory: mockGetClientDebtHistory,
-      // LIRA-304 — open items (basket breakdown / repayment picker): none.
-      getOpenDebtItems: mockGetOpenDebtItems,
-      getTransactionById: mockGetTransactionById,
-      getSaleItems: mockGetSaleItems,
-      getClientBalance: mockGetClientBalance,
-      getCustomServiceById: jest.fn(),
-      getSale: mockGetSale,
-      cashOut: jest.fn(),
-      addRepayment: jest.fn(),
-      addAccountEntry: jest.fn(),
-      getClientDebtTotal: jest.fn(),
-    }),
+    useApi: () => mockApi,
     PageHeader: ({
       title,
       actions,
@@ -163,150 +160,123 @@ jest.mock("@/utils/logger", () => ({
   },
 }));
 
-describe("Debts page — Sale Debt item name resolution (loadHistory)", () => {
+const SALE_META = JSON.stringify({
+  details: {
+    v: 1,
+    kind: "pos_sale",
+    discount: { amount: 1, currency: "USD" },
+    items: [
+      {
+        productId: 7,
+        name: "iPhone 13 Screen",
+        quantity: 1,
+        unitPrice: 4,
+        unitCost: 2,
+      },
+      {
+        productId: 8,
+        name: "Charger",
+        quantity: 1,
+        unitPrice: 1,
+        unitCost: 0.5,
+      },
+    ],
+  },
+  payment_snapshot: {
+    lines: [
+      {
+        method: "CUSTOMER_ACCOUNT",
+        currency: "USD",
+        amount: 4,
+        direction: "IN",
+      },
+    ],
+  },
+});
+
+const saleDebtRow = {
+  id: 200,
+  client_id: 1,
+  transaction_id: DEBT_LEDGER_TRANSACTION_ID,
+  transaction_type: "Sale Debt",
+  amount_usd: 4,
+  amount_lbp: 0,
+  note: "Balance from Sale",
+  created_at: "2026-07-01 10:00:00",
+  created_by: null,
+  session_id: null,
+  client_details: buildClientDebtDetails({
+    ledger: {
+      transaction_type: "Sale Debt",
+      amount_usd: 4,
+      amount_lbp: 0,
+      note: "x",
+    },
+    tx: {
+      id: DEBT_LEDGER_TRANSACTION_ID,
+      type: "SALE",
+      summary: `Sale #${RESOLVED_SALE_ID}: …`,
+      metadata_json: SALE_META,
+      amount_usd: 4,
+      amount_lbp: 0,
+    },
+  }),
+};
+
+describe("Debts page — Sale Debt rows read core's line (LIRA-350)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-
     mockGetDebtors.mockResolvedValue([
       {
         id: 1,
         full_name: "Jane Doe",
         phone_number: "71234567",
-        total_debt: 10,
-        total_debt_usd: 10,
+        total_debt: 4,
+        total_debt_usd: 4,
         total_debt_lbp: 0,
       },
     ]);
-
-    mockGetClientDebtHistory.mockResolvedValue([
-      {
-        id: 200,
-        client_id: 1,
-        transaction_id: DEBT_LEDGER_TRANSACTION_ID,
-        transaction_type: "Sale Debt",
-        amount_usd: 10,
-        amount_lbp: 0,
-        note: "Balance from Sale",
-        created_at: "2026-07-01 10:00:00",
-        created_by: null,
-        session_id: null,
-      },
-    ]);
-
-    // getTransactionById(55) resolves to the sales row's real id (999).
-    mockGetTransactionById.mockImplementation(async (id: number) => {
-      if (id === DEBT_LEDGER_TRANSACTION_ID) {
-        return { id, source_table: "sales", source_id: RESOLVED_SALE_ID };
-      }
-      return null;
-    });
-
-    // Only returns items when called with the RESOLVED sale id (999) — the
-    // raw transaction_id (55) must yield nothing, mirroring how a real
-    // sales table would either 404 or (worse) collide with an unrelated row.
-    mockGetSaleItems.mockImplementation(async (saleId: number) => {
-      if (saleId === RESOLVED_SALE_ID) {
-        return [{ name: "iPhone 13 Screen" }, { name: "Charger" }];
-      }
-      return [];
-    });
-
+    mockGetClientDebtHistory.mockResolvedValue([saleDebtRow]);
     mockGetClientBalance.mockResolvedValue({
       success: true,
-      data: { balance_usd: 10, balance_lbp: 0 },
+      data: { balance_usd: 4, balance_lbp: 0 },
     });
   });
 
-  it("resolves the sale via getTransactionById before calling getSaleItems, and shows item names instead of the raw note", async () => {
+  it("shows the items from the saved sale, with no per-row request", async () => {
     render(<Debts />);
-
-    // Item names should appear once history loads and resolution completes.
-    await waitFor(() => {
-      expect(screen.getByText("• iPhone 13 Screen")).toBeInTheDocument();
-    });
-    expect(screen.getByText("• Charger")).toBeInTheDocument();
-
-    // The raw note text must NOT be the fallback shown for this row — the
-    // resolved item names take its place.
+    expect(
+      await screen.findByText(
+        `Sale #${RESOLVED_SALE_ID}: 1× iPhone 13 Screen, 1× Charger — $4 (discount $1)`,
+      ),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Balance from Sale")).not.toBeInTheDocument();
-
-    // Prove the resolution order: getTransactionById is called with the
-    // debt ledger's raw transaction_id, and getSaleItems is called with the
-    // RESOLVED sale id — never with the raw transaction_id.
-    expect(mockGetTransactionById).toHaveBeenCalledWith(
-      DEBT_LEDGER_TRANSACTION_ID,
-    );
-    expect(mockGetSaleItems).toHaveBeenCalledWith(RESOLVED_SALE_ID);
-    expect(mockGetSaleItems).not.toHaveBeenCalledWith(
-      DEBT_LEDGER_TRANSACTION_ID,
-    );
+    expect(mockGetTransactionById).not.toHaveBeenCalled();
+    expect(mockGetSaleItems).not.toHaveBeenCalled();
+    expect(mockGetSale).not.toHaveBeenCalled();
   });
 
-  it("shows an enriched stored note verbatim (matches the transaction summary) and skips the item fetch", async () => {
+  it("a legacy row without details shows its stored note verbatim", async () => {
     const enrichedNote = "Sale #5: 1× 123 — $4 (discounted 90,000 LBP)";
     mockGetClientDebtHistory.mockResolvedValue([
-      {
-        id: 201,
-        client_id: 1,
-        transaction_id: DEBT_LEDGER_TRANSACTION_ID,
-        transaction_type: "Sale Debt",
-        amount_usd: 4,
-        amount_lbp: 0,
-        note: enrichedNote,
-        created_at: "2026-07-12 04:08:08",
-        created_by: null,
-        session_id: null,
-      },
+      { ...saleDebtRow, note: enrichedNote, client_details: undefined },
     ]);
-
     render(<Debts />);
-
-    // The stored note already names the items and carries the discount —
-    // it must be shown as-is, not replaced by re-derived "• item" bullets.
     await waitFor(() => {
       expect(screen.getByText(enrichedNote)).toBeInTheDocument();
     });
-
-    // No per-row sale lookup for enriched notes (the fetch is the fallback
-    // for legacy bare notes only).
     expect(mockGetSaleItems).not.toHaveBeenCalled();
   });
 
-  const saleRow = (discountUsd: number) => ({
-    id: RESOLVED_SALE_ID,
-    total_amount_usd: 5,
-    discount_usd: discountUsd,
-    final_amount_usd: 5 - discountUsd,
-    paid_usd: 0,
-    paid_lbp: (5 - discountUsd) * 90_000,
-    exchange_rate_snapshot: 90_000,
-    status: "completed",
-    created_at: "2026-07-12 04:36:48",
-  });
-
-  it("Sale Details modal shows a Discount row above Total Amount when the sale was discounted", async () => {
-    mockGetSale.mockResolvedValue(saleRow(1));
-
+  it("the row's details window lists the items and the discount", async () => {
     render(<Debts />);
-    fireEvent.click(await screen.findByTitle("View Sale Details"));
-
-    await waitFor(() => {
-      expect(screen.getByText("Discount:")).toBeInTheDocument();
-    });
-    expect(screen.getByText("-$1.00")).toBeInTheDocument();
-    // Zero USD paid + LBP tender renders without the "$0.00 +" prefix.
-    expect(screen.getAllByText("360,000 LBP").length).toBeGreaterThan(0);
-  });
-
-  it("Sale Details modal hides the Discount row when there is no discount", async () => {
-    mockGetSale.mockResolvedValue(saleRow(0));
-
-    render(<Debts />);
-    fireEvent.click(await screen.findByTitle("View Sale Details"));
-
-    await waitFor(() => {
-      expect(screen.getByText("Total Amount:")).toBeInTheDocument();
-    });
-    expect(screen.queryByText("Discount:")).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByTitle("See details"));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent(`Sale #${RESOLVED_SALE_ID}`);
+    expect(dialog).toHaveTextContent("iPhone 13 Screen");
+    expect(dialog).toHaveTextContent("Charger");
+    expect(dialog).toHaveTextContent("Discount");
+    expect(dialog).toHaveTextContent("$1");
+    expect(dialog.textContent).not.toMatch(/cost/i);
   });
 });

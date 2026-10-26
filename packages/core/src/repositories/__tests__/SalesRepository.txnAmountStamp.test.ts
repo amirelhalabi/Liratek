@@ -518,12 +518,15 @@ describe("SalesRepository — sales.paid_* store what was PAID, excluding on-acc
       .get(res.id) as { paid_usd: number; paid_lbp: number };
     expect(sale).toEqual({ paid_usd: 0, paid_lbp: 0 });
 
+    // LIRA-349: the account leg is LBP, so the debt is owed in LBP (it was
+    // booked as $4 before — the bug this ticket fixed).
     const debt = db
       .prepare(
-        `SELECT amount_usd FROM debt_ledger WHERE transaction_type = 'Sale Debt' ORDER BY id DESC LIMIT 1`,
+        `SELECT amount_usd, amount_lbp FROM debt_ledger WHERE transaction_type = 'Sale Debt' ORDER BY id DESC LIMIT 1`,
       )
-      .get() as { amount_usd: number } | undefined;
-    expect(debt?.amount_usd).toBeCloseTo(4, 2);
+      .get() as { amount_usd: number; amount_lbp: number } | undefined;
+    expect(debt?.amount_usd ?? 0).toBe(0);
+    expect(debt?.amount_lbp).toBe(360_000);
   });
 
   it("cash-paid sale keeps its real paid totals (derived == raw)", () => {

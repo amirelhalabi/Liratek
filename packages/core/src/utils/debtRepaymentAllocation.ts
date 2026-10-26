@@ -234,7 +234,7 @@ export function allocateRepayment(
     }
   }
 
-  // ── Coverage, step 2: today's order — sales first (USD), then charges and
+  // ── Coverage, step 2: today's order — sales first, then charges and
   //    basket members oldest first, per currency ────────────────────────
   //    The earlier-balance line (LIRA-308 answer 2) is paid only when
   //    ticked; unticked it stays today's implicit remainder after every
@@ -242,13 +242,19 @@ export function allocateRepayment(
   const rest = input.items
     .filter((it) => it.kind !== "balance" && open.get(key(it)))
     .sort(byAge);
+  //    LIRA-349: a sale owed in LBP (openLbp, openUsd 0) takes the LBP
+  //    budget the same way; a USD sale has no LBP open, so it is unchanged.
   for (const it of rest.filter((i) => i.kind === "sale")) {
-    if (budgetUsd <= EPS_SALE) break;
+    if (budgetUsd <= EPS_SALE && budgetLbp <= EPS_LBP) break;
     const o = open.get(key(it))!;
-    const u = roundUsd(Math.min(budgetUsd, o.usd));
-    if (u > EPS_SALE) {
-      addTake(it, u, 0);
-      budgetUsd -= u;
+    const u = budgetUsd > EPS_SALE ? roundUsd(Math.min(budgetUsd, o.usd)) : 0;
+    const l = budgetLbp > EPS_LBP ? roundLbp(Math.min(budgetLbp, o.lbp)) : 0;
+    const uu = u > EPS_SALE ? u : 0;
+    const ll = l > EPS_LBP ? l : 0;
+    if (uu > 0 || ll > 0) {
+      addTake(it, uu, ll);
+      budgetUsd -= uu;
+      budgetLbp -= ll;
     }
   }
   for (const it of rest.filter((i) => i.kind !== "sale")) {

@@ -85,7 +85,7 @@ describe("SessionDebtDetailModal — item refund row + reduced Basket Debt (LIRA
 
     await waitFor(() => expect(mockGetTransactions).toHaveBeenCalledWith(1));
 
-    expect(await screen.findByText("refund")).toBeInTheDocument();
+    expect(await screen.findByText("Refund")).toBeInTheDocument();
     expect(screen.getByText("-$1500.00")).toBeInTheDocument();
   });
 
@@ -153,8 +153,8 @@ describe("SessionDebtDetailModal — item refund row + reduced Basket Debt (LIRA
     await waitFor(() => expect(mockGetTransactions).toHaveBeenCalledWith(1));
 
     // The 0/0 row never renders at all...
-    expect(screen.queryByText("refund reversal")).not.toBeInTheDocument();
+    expect(screen.queryByText("Refund reversal")).not.toBeInTheDocument();
     // ...while a real, non-zero row in the same list still does.
-    expect(await screen.findByText("sale")).toBeInTheDocument();
+    expect(await screen.findByText("Sale")).toBeInTheDocument();
   });
 });

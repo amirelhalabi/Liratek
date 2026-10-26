@@ -69,6 +69,10 @@ import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
 import { getRateRepository } from "./RateRepository.js";
 import { requestNow } from "../utils/requestNow.js";
 import {
+  splitCheckoutItemName,
+  type SplitCheckoutItem,
+} from "../utils/splitCheckoutItems.js";
+import {
   BusinessRuleError,
   DatabaseError,
   NotFoundError,
@@ -2057,9 +2061,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           }
           // LIRA-339 — Vouchers options also match rows paid with a voucher.
           if (tuple.paid_via_voucher) {
-            extra.push(
-              buildPaidViaVoucherCondition(tenantId, params),
-            );
+            extra.push(buildPaidViaVoucherCondition(tenantId, params));
           }
           if (extra.length === 0) return own;
           return `(${[own, ...extra].join(" OR ")})`;
@@ -2707,26 +2709,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     if (!groupId || groupId.trim() === "") {
       throw new DatabaseError("groupId is required");
     }
-    const tenantId = getCurrentTenantId();
-    // json_extract (not a `metadata_json LIKE '%"split_group":"<id>"%'` scan)
-    // — already the established pattern for querying this exact column in
-    // this exact file (see the provider/service_type filters in getRecent
-    // below), exact-match rather than substring, and safe: metadata_json is
-    // always either NULL or `JSON.stringify`-produced (createTransaction),
-    // so json_extract never sees malformed JSON, and `groupId` is a bound
-    // parameter, never concatenated.
-    const members = this.query<{
-      id: number;
-      status: TransactionStatus;
-      metadata_json: string | null;
-    }>(
-      `SELECT id, status, metadata_json FROM transactions
-       WHERE tenant_id = ? AND reverses_id IS NULL
-         AND json_extract(metadata_json, '$.split_group') = ?
-       ORDER BY id ASC`,
-      tenantId,
-      groupId,
-    );
+    const members = this._splitGroupMembers(groupId);
     if (members.length === 0) {
       throw new NotFoundError("split checkout group", groupId);
     }
@@ -6800,9 +6783,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       isForPartner: this._isForPartnerTransaction(original),
       entityId: id,
     });
-    const refundRate = addedResolved
-      ? addedResolved.rate
-      : opts.exchangeRate;
+    const refundRate = addedResolved ? addedResolved.rate : opts.exchangeRate;
     if (refundLegs && refundLegs.length > 0) {
       if (isSwapTransactionType(original.type)) {
         throw new DatabaseError(
@@ -7427,6 +7408,75 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * ordinary rows and for legacy pre-fix split rows that predate this
    * marker (undetectable by design — see the doc).
    */
+  /**
+   * Every original (non-reversal) row of one split checkout, oldest first,
+   * with its financial_services unit when it has one — the ONE group query,
+   * shared by `voidCheckoutGroup` and `getSplitCheckoutItems` (rule 14).
+   *
+   * json_extract (not a `metadata_json LIKE '%"split_group":"<id>"%'` scan)
+   * — exact-match rather than substring, and safe: metadata_json is always
+   * either NULL or `JSON.stringify`-produced (createTransaction), so
+   * json_extract never sees malformed JSON, and `groupId` is a bound
+   * parameter, never concatenated.
+   */
+  private _splitGroupMembers(groupId: string): Array<{
+    id: number;
+    status: TransactionStatus;
+    metadata_json: string | null;
+    fs_provider: string | null;
+    fs_service_type: string | null;
+    fs_amount: number | null;
+    fs_currency: string | null;
+    fs_note: string | null;
+  }> {
+    return this.query(
+      `SELECT t.id, t.status, t.metadata_json,
+              fs.provider AS fs_provider, fs.service_type AS fs_service_type,
+              fs.amount AS fs_amount, fs.currency AS fs_currency,
+              fs.note AS fs_note
+       FROM transactions t
+       LEFT JOIN financial_services fs
+         ON t.source_table = 'financial_services' AND fs.id = t.source_id
+        AND fs.tenant_id = t.tenant_id
+       WHERE t.tenant_id = ? AND t.reverses_id IS NULL
+         AND json_extract(t.metadata_json, '$.split_group') = ?
+       ORDER BY t.id ASC`,
+      getCurrentTenantId(),
+      groupId,
+    );
+  }
+
+  /**
+   * LIRA-349 A3 — the units of the split checkout a transaction belongs to,
+   * for the account screens (the carrier's ONE debt row covers them all).
+   * Null when the row is not part of a multi-unit split checkout.
+   */
+  getSplitCheckoutItems(transactionId: number): SplitCheckoutItem[] | null {
+    const row = this.query<{ metadata_json: string | null }>(
+      `SELECT metadata_json FROM transactions WHERE id = ? AND tenant_id = ?`,
+      transactionId,
+      getCurrentTenantId(),
+    )[0];
+    const group = row ? this._getSplitGroup(row.metadata_json) : null;
+    if (!group) return null;
+    const items = this._splitGroupMembers(group.id)
+      .filter((m) => m.fs_provider != null && m.fs_amount != null)
+      .map(
+        (m): SplitCheckoutItem => ({
+          provider: m.fs_provider!,
+          serviceType: m.fs_service_type ?? "",
+          name: splitCheckoutItemName({
+            provider: m.fs_provider!,
+            serviceType: m.fs_service_type ?? "",
+            note: m.fs_note,
+          }),
+          amount: m.fs_amount!,
+          currency: m.fs_currency ?? "USD",
+        }),
+      );
+    return items.length > 1 ? items : null;
+  }
+
   private _getSplitGroup(metadataJson: string | null): {
     id: string;
     role: "carrier" | "sibling" | null;
@@ -7986,7 +8036,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       }
     }
     const removedFs =
-      original.source_table === "financial_services" ? original.source_id : null;
+      original.source_table === "financial_services"
+        ? original.source_id
+        : null;
 
     const sums = new Map<string, SettlementCoverageReliefEntry>();
     const add = (
@@ -7998,9 +8050,15 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       const key = `${member}:${currency}`;
       const cur =
         sums.get(key) ??
-        ({ member, currency, amount: 0, usedBy: [] } as SettlementCoverageReliefEntry);
+        ({
+          member,
+          currency,
+          amount: 0,
+          usedBy: [],
+        } as SettlementCoverageReliefEntry);
       cur.amount += amount;
-      for (const id of usedBy) if (!cur.usedBy.includes(id)) cur.usedBy.push(id);
+      for (const id of usedBy)
+        if (!cur.usedBy.includes(id)) cur.usedBy.push(id);
       sums.set(key, cur);
     };
 
@@ -8037,7 +8095,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         ...params,
       )) {
         const sign = this._coveredRowSign(c.row_kind, c.row_id, c.currency);
-        add(c.member_supplier_id, c.currency, -sign * c.amount, [c.transaction_id]);
+        add(c.member_supplier_id, c.currency, -sign * c.amount, [
+          c.transaction_id,
+        ]);
       }
     }
 
@@ -8051,7 +8111,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         tenantId,
         original.id,
       )) {
-        const state = this.queryOne<{ refunded: number; settlement_id: number | null }>(
+        const state = this.queryOne<{
+          refunded: number;
+          settlement_id: number | null;
+        }>(
           c.row_kind === "FINANCIAL_SERVICE"
             ? `SELECT COALESCE(is_refunded, 0) AS refunded, settlement_id
                  FROM financial_services WHERE id = ? AND tenant_id = ?`
@@ -8062,7 +8125,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         );
         if (!state) continue;
         const closedByOther =
-          state.settlement_id != null && !removedLedger.has(state.settlement_id);
+          state.settlement_id != null &&
+          !removedLedger.has(state.settlement_id);
         if (state.refunded !== 1 && !closedByOther) continue; // reopens as today
         keepCoverageIds.push(c.id);
         const others = this.query<{ transaction_id: number }>(
@@ -8214,7 +8278,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         )
         .run(carryId, carryId, tenantId);
       if (stamped.changes !== 1) {
-        throw new DatabaseError(`${action} aborted: failed to stamp the carry row ${carryId}`);
+        throw new DatabaseError(
+          `${action} aborted: failed to stamp the carry row ${carryId}`,
+        );
       }
     }
   }
@@ -8309,7 +8375,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       hasSettlementIdColumn &&
       sibling.settlement_id != null &&
       !ownSettlementCredit &&
-      !this._isClosedByAmountFirstCoverage("LEDGER", sibling.id, sibling.settlement_id)
+      !this._isClosedByAmountFirstCoverage(
+        "LEDGER",
+        sibling.id,
+        sibling.settlement_id,
+      )
     ) {
       throw new DatabaseError(
         `Cannot void/refund — its auto supplier-ledger entry has already been included in settlement #${sibling.settlement_id}; correct the supplier balance with a manual adjustment instead.`,
@@ -8773,7 +8843,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       return;
     }
     if (!this._expensesHasSourceRefColumns()) return;
-    const row = this.queryOne<{ source_ref_table: string | null; category: string }>(
+    const row = this.queryOne<{
+      source_ref_table: string | null;
+      category: string;
+    }>(
       `SELECT source_ref_table, category FROM expenses WHERE id = ? AND tenant_id = ?`,
       original.source_id,
       getCurrentTenantId(),
@@ -8970,11 +9043,14 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       const updSale = this.db.prepare(
         // status = 'completed' mirrors the legacy unwind (and the forward
         // _markSalesPaidFIFO): a sale refunded since keeps its paid_usd.
-        `UPDATE sales SET paid_usd = MAX(0, paid_usd - ?)
+        // LIRA-349: `lbp` gives back the `paid_lbp` a sale owed in LBP got.
+        `UPDATE sales SET paid_usd = MAX(0, paid_usd - ?),
+                          paid_lbp = MAX(0, COALESCE(paid_lbp, 0) - ?)
          WHERE id = ? AND tenant_id = ? AND status = 'completed'`,
       );
       for (const s of recorded.sales) {
-        if (s.usd > 0) updSale.run(s.usd, s.id, tenantId);
+        const lbp = s.lbp ?? 0;
+        if (s.usd > 0 || lbp > 0) updSale.run(s.usd, lbp, s.id, tenantId);
       }
       const updCharge = this.db.prepare(
         `UPDATE debt_ledger
@@ -9213,10 +9289,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   ): { usd: number; lbp: number } | undefined {
     const originalRows = this.getPaymentsByTransactionId(transactionId);
     const originalNet = added
-      ? this._netPlusAdded(
-          this._overridableNetByCurrency(originalRows),
-          added,
-        )
+      ? this._netPlusAdded(this._overridableNetByCurrency(originalRows), added)
       : this._overridableNetByCurrency(originalRows);
     const resolved = keptCtx
       ? this._resolveRefundKeptChange({
@@ -10239,7 +10312,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         requestNow(),
       );
       if (isDiscount) {
-        budget.set(row.currency, (budget.get(row.currency) ?? 0) + Math.abs(row.amount));
+        budget.set(
+          row.currency,
+          (budget.get(row.currency) ?? 0) + Math.abs(row.amount),
+        );
         // Negate the discount's own COUNTERPARTY_DISCOUNT transaction's
         // profit stamp via a NEW compensating transaction (never mutate the
         // original).
@@ -10473,7 +10549,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       this.execute(
         `UPDATE supplier_settlement_coverage SET is_reversed = 1, updated_at = ?
          WHERE transaction_id = ? AND tenant_id = ? AND is_reversed = 0${
-           keep.length ? ` AND id NOT IN (${keep.map(() => "?").join(",")})` : ""
+           keep.length
+             ? ` AND id NOT IN (${keep.map(() => "?").join(",")})`
+             : ""
          }`,
         // LIRA-306 FR-021: the event time on an offline replay.
         requestNow(),

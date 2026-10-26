@@ -307,7 +307,9 @@ router.get("/:id", (req, res): void => {
     return;
   }
   try {
-    const record = getFinancialServiceRepository().findById(id);
+    // LIRA-349 A3: plus every unit of its split checkout (`checkout_items`)
+    // — the same core read as IPC `omt:get-by-id`.
+    const record = getFinancialServiceRepository().findWithCheckoutItems(id);
     res.json({ success: true, record });
   } catch (error) {
     logger.error({ error }, "Get financial service by id error");

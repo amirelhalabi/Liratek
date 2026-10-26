@@ -4,6 +4,7 @@
  * Handles all financial_services table operations (OMT, WHISH, BOB, etc.).
  * Uses BaseRepository for common functionality.
  */
+import { transferSendLine } from "../utils/clientDebtDetails.js";
 import {
   isLineChargeProvider,
   LINE_CHARGE_PROVIDER_ERROR,
@@ -40,6 +41,7 @@ import {
   hasSettlementAllocationsTable,
 } from "./ProfitRepository.js";
 import {
+  derivePaidByLabel,
   paymentMethodToDrawerName,
   isDrawerAffectingMethod,
   isNonCashDrawerMethod,
@@ -55,6 +57,7 @@ import {
   type CreateLedgerEntryData,
 } from "./PartnerRepository.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
+import type { SplitCheckoutItem } from "../utils/splitCheckoutItems.js";
 import { resolveBackTimedDrawerMovement } from "./checkpointResolution.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
 import { getMobileServiceItemRepository } from "./MobileServiceItemRepository.js";
@@ -1166,6 +1169,33 @@ function walletSendDebtNote(
     : `${provider} SEND — ${fmt(amount)}`;
 }
 
+/**
+ * LIRA-349 — debt-ledger note for an OMT/WHISH system SEND charged (wholly or
+ * partly) to the customer's account. The client reads this line on the
+ * Accounts page, so it states what is OWED and that it includes the fee:
+ * "OMT send $20 + $1 fee = $21, ref OMT-REF-2610". The old note
+ * "OMT SEND (INTRA) — $20" showed the transfer only while $21 was owed, and
+ * hardcoded "$" even on an LBP send. A LIRA-319 extra the customer also owes
+ * is named too, so the "=" total always matches the charge. When the account
+ * leg covers only part of the charge (a split), the line ends with what went
+ * on account. The ONE builder for both on-account SEND sites (multi-leg and
+ * single-method) — rule 14.
+ */
+export function transferSendDebtNote(i: {
+  provider: string;
+  amount: number;
+  fee: number;
+  extra: number;
+  currency: string;
+  reference?: string | null;
+  /** The account leg, when it may be only part of the charge. */
+  onAccount?: { amount: number; currency: string };
+}): string {
+  // LIRA-350 — the same wording the Accounts page line reads at display
+  // time (rule 14: one definition, in the browser-safe leaf).
+  return transferSendLine(i);
+}
+
 // =============================================================================
 // Financial Service Repository Class
 // =============================================================================
@@ -1696,6 +1726,25 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     return `id, provider, service_type, amount, currency, commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode, commission_model, receive_fee_model, is_refunded, refunded_at, ${SUPPLIER_OWED_EXPR} AS supplier_owed`;
   }
 
+  /**
+   * LIRA-349 A3 — one record for the debt-detail popup (IPC `omt:get-by-id`
+   * and REST `GET /api/services/:id` both read this): the row itself, plus
+   * `checkout_items` — every unit of its split checkout — when it is one
+   * unit of a multi-unit checkout whose ONE account charge covers them all.
+   */
+  findWithCheckoutItems(
+    id: number,
+  ):
+    | (FinancialServiceEntity & { checkout_items?: SplitCheckoutItem[] })
+    | null {
+    const record = this.findById(id);
+    if (!record) return null;
+    const txnRepo = getTransactionRepository();
+    const txn = txnRepo.getBySourceId("financial_services", id);
+    const items = txn ? txnRepo.getSplitCheckoutItems(txn.id) : null;
+    return items ? { ...record, checkout_items: items } : record;
+  }
+
   // ---------------------------------------------------------------------------
   // Transaction Operations
   // ---------------------------------------------------------------------------
@@ -1904,6 +1953,20 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         data.serviceType === "RECEIVE" && data.cashoutMethod
           ? data.cashoutMethod
           : data.paidByMethod || "CASH";
+      // LIRA-349: the STORED `paid_by` (financial_services.paid_by and
+      // metadata_json.paid_by) follows the legs the customer actually used —
+      // one leg's method, "MULTI" for two or more — and falls back to the
+      // single-method `paidBy` only when no leg was sent. The walk-in
+      // Services screen sends `payments[]` and no `paidByMethod`, so an OMT
+      // SEND fully on account was stored as "CASH" (tx 13105). Display only:
+      // `paidBy` above keeps driving the single-method money fallbacks
+      // unchanged. IN legs only — `data.payments` is not partitioned yet at
+      // this point, and an OUT change leg is not a way the customer paid
+      // (rule 16).
+      const paidByLabel = derivePaidByLabel(
+        partitionLegs(data.payments).inLegs,
+        paidBy,
+      );
 
       // Trusting the client-sent `data.partnerMode` here — instead of
       // re-deriving THROUGH-vs-FOR from
@@ -2774,7 +2837,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         commission,
         cost,
         price,
-        paidBy,
+        paidByLabel,
         paidAmount,
         paidCurrency,
         primaryClientId || null,
@@ -3102,7 +3165,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           commission,
           cost,
           price,
-          paid_by: paidBy,
+          paid_by: paidByLabel,
           paid_amount: paidAmount,
           paid_currency: paidCurrency,
           item_key: data.itemKey,
@@ -5062,7 +5125,18 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   debtLeg.currencyCode === "USD" ? Math.abs(debtLeg.amount) : 0;
                 const debtAmtLbp =
                   debtLeg.currencyCode === "LBP" ? Math.abs(debtLeg.amount) : 0;
-                const debtNote = `${data.provider} ${data.serviceType}${data.omtServiceType ? ` (${data.omtServiceType})` : ""} — $${data.amount}`;
+                const debtNote = transferSendDebtNote({
+                  provider: data.provider,
+                  amount: sentAmount,
+                  fee: providerFeeAmt,
+                  extra: extraIn(currency),
+                  currency,
+                  reference: data.referenceNumber,
+                  onAccount: {
+                    amount: Math.abs(debtLeg.amount),
+                    currency: debtLeg.currencyCode,
+                  },
+                });
                 bookClientDebtCharge(this.db, {
                   clientId: resolvedClientId,
                   transactionType: "Service Debt",
@@ -5125,7 +5199,14 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 amountUsd: currency === "USD" ? totalCollected + extraUsd : 0,
                 amountLbp: currency === "LBP" ? totalCollected + extraLbp : 0,
                 transactionId: txnId,
-                note: `${data.provider} ${data.serviceType}${data.omtServiceType ? ` (${data.omtServiceType})` : ""} — $${data.amount}`,
+                note: transferSendDebtNote({
+                  provider: data.provider,
+                  amount: sentAmount,
+                  fee: providerFeeAmt,
+                  extra: extraIn(currency),
+                  currency,
+                  reference: data.referenceNumber,
+                }),
                 createdBy,
                 tenantId,
               });
@@ -6365,7 +6446,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
              WHERE provider = ? AND tenant_id = ? AND ${NOT_REFUNDED_SQL} AND settlement_id IS NULL AND ${SALE_COST_SETTLE_BRANCH_SQL}
            ORDER BY created_at ASC`,
         )
-        .all(provider, tenantId, provider, tenantId) as FinancialServiceAccountRow[];
+        .all(
+          provider,
+          tenantId,
+          provider,
+          tenantId,
+        ) as FinancialServiceAccountRow[];
     }
     const inWindow = `created_at >= ? AND created_at < ?`;
     return this.db
@@ -6386,9 +6472,18 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
          ORDER BY created_at ASC`,
       )
       .all(
-        provider, tenantId, window.fromUtc, window.toUtc,
-        provider, tenantId, window.fromUtc, window.toUtc,
-        provider, tenantId, window.fromUtc, window.toUtc,
+        provider,
+        tenantId,
+        window.fromUtc,
+        window.toUtc,
+        provider,
+        tenantId,
+        window.fromUtc,
+        window.toUtc,
+        provider,
+        tenantId,
+        window.fromUtc,
+        window.toUtc,
       ) as FinancialServiceAccountRow[];
   }
 
@@ -6529,10 +6624,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    * share of the pool to today's row and relabel it "paid". Same row set and
    * projection as {@link getAllByProvider} ({@link _providerHistoryUnion}).
    */
-  getFifoPrefixByProvider(
-    provider: string,
-    fromDay: string,
-  ): FifoPrefixRow[] {
+  getFifoPrefixByProvider(provider: string, fromDay: string): FifoPrefixRow[] {
     const tenantId = getCurrentTenantId();
     return this.db
       .prepare(

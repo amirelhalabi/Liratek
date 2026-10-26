@@ -297,7 +297,10 @@ export type BasketItem =
       profitUsd?: number;
     }
   | { kind: "sale"; usd: number; profitUsd?: number }
-  | { kind: "loto"; lbp: number; profitLbp?: number };
+  | { kind: "loto"; lbp: number; profitLbp?: number }
+  /** LIRA-349 — an MTC/Alfa recharge priced in LBP (the session cart links
+   *  recharges in LBP). */
+  | { kind: "recharge"; lbp: number; profitLbp?: number };
 
 export interface SeededBasket {
   sessionId: number;
@@ -378,6 +381,20 @@ export function seedBasketMembers(
         createdAt,
       });
       cstType = "sale";
+    } else if (item.kind === "recharge") {
+      lbp = item.lbp;
+      sourceId = 1;
+      txnId = insertTxn(db, {
+        type: "RECHARGE",
+        sourceTable: "recharges",
+        sourceId,
+        clientId,
+        usd: 0,
+        lbp,
+        profitLbp: item.profitLbp ?? 0,
+        createdAt,
+      });
+      cstType = "recharge_mtc";
     } else {
       lbp = item.lbp;
       sourceId = 1;
