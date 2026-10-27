@@ -154,6 +154,42 @@ test("offline work replays once, on its own day, through the web's rules", async
 
   const schemaVersion = pc.serverSchemaVersion;
 
+  // LIRA-335 (checkpoint open differences): money saved back-timed — custom
+  // time OR an offline event replayed with its event time — before a
+  // checkpoint that counted an Over on its drawer is ALREADY inside that
+  // count, so the engine offsets it (a CHECKPOINT_RESOLUTION leg on the same
+  // transaction) instead of moving the drawer twice. The suite shares one DB
+  // (rule 15c): lira-web-010 leaves a +10 General/USD Over open and
+  // lira-web-050's back-timed $7 sale resolves 7 of it, so here the replayed
+  // $15 repayment (timed before that checkpoint) resolves whatever is still
+  // open. Snapshot exactly what the engine can absorb at our event time — the
+  // same `open-after` the Transaction-time hint uses — and prove the drawer
+  // moved by 12 minus what OUR transactions resolved, by identity.
+  interface OpenDiff {
+    id: number;
+    closing_id: number;
+    drawer_name: string;
+    currency_code: string;
+    direction: "OVER" | "SHORT";
+    open: number;
+    resolutions?: Array<{ transaction_id: number; amount: number }>;
+  }
+  const openOverAt = async (): Promise<Map<number, number>> => {
+    const r = (await (
+      await api.get(
+        `${BACKEND_URL}/api/closing/differences/open-after?at=${encodeURIComponent(occurredAt)}`,
+        { headers: auth },
+      )
+    ).json()) as { success: boolean; data?: OpenDiff[] };
+    expect(r.success, JSON.stringify(r)).toBeTruthy();
+    return new Map(
+      (r.data ?? [])
+        .filter((d) => d.drawer_name === "General" && d.currency_code === "USD" && d.direction === "OVER")
+        .map((d) => [d.id, d.open]),
+    );
+  };
+  const openBefore = await openOverAt();
+
   const drawerBefore = await generalUsd();
   const up = await uploadEvents(api, pc, events, schemaVersion);
   expect(up.success, JSON.stringify(up)).toBeTruthy();
@@ -186,12 +222,39 @@ test("offline work replays once, on its own day, through the web's rules", async
   }
 
   // Deltas: the client owes nothing (charged 15, repaid 15); the drawer got
-  // +15 (repayment) −10 (refund of the online sale) +7 (the web sale).
+  // +15 (repayment) −10 (refund of the online sale) +7 (the web sale), less
+  // whatever of the back-timed +15 an open checkpoint Over had already
+  // counted (LIRA-335, see `openBefore`). Refunds never resolve (FR-009) and
+  // the web sale is timed now (no checkpoint after it), so only the
+  // repayment can — and never more than its own 15.
   const owed = await json(api.get(`${BACKEND_URL}/api/debts/clients/${clientId}/total`, { headers: auth }));
   expect(owed.success, JSON.stringify(owed)).toBeTruthy();
   expect(Number(owed.total)).toBeCloseTo(0, 2);
+  const openAfter = await openOverAt();
+  let absorbed = 0;
+  for (const [id, open] of openBefore) absorbed += open - (openAfter.get(id) ?? 0);
+  const expectedAbsorbed = Math.min(15, [...openBefore.values()].reduce((a, b) => a + b, 0));
+  expect(absorbed, "the repayment resolves min(15, open Over) — no more, no less").toBeCloseTo(expectedAbsorbed, 2);
+  // Identity: what was resolved was resolved by OUR repayment transaction.
+  const repaymentTx = outcomes[2].serverIds!.transactions[0];
+  const shopToday = shopNow.toISOString().slice(0, 10);
+  const timeline = (await (
+    await api.get(
+      `${BACKEND_URL}/api/closing/checkpoint-timeline?date_from=${yesterday}&date_to=${shopToday}&type=ALL`,
+      { headers: auth },
+    )
+  ).json()) as { success: boolean; checkpoints?: Array<{ differences?: OpenDiff[] }> };
+  expect(timeline.success, JSON.stringify(timeline)).toBeTruthy();
+  const replayTxIds = new Set(outcomes.flatMap((o) => o.serverIds!.transactions));
+  const resolvedByReplay = (timeline.checkpoints ?? [])
+    .flatMap((c) => c.differences ?? [])
+    .filter((d) => d.drawer_name === "General" && d.currency_code === "USD")
+    .flatMap((d) => d.resolutions ?? [])
+    .filter((r) => replayTxIds.has(r.transaction_id));
+  expect(resolvedByReplay.every((r) => r.transaction_id === repaymentTx)).toBe(true);
+  expect(resolvedByReplay.reduce((a, r) => a + Math.abs(r.amount), 0)).toBeCloseTo(absorbed, 2);
   const drawerAfter = await generalUsd();
-  expect(drawerAfter - drawerBefore).toBeCloseTo(15 - 10 + 7, 2);
+  expect(drawerAfter - drawerBefore).toBeCloseTo(15 - 10 + 7 - absorbed, 2);
 
   // Re-upload: acked again, nothing booked twice.
   const again = await uploadEvents(api, pc, events, schemaVersion);

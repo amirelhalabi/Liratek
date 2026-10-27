@@ -19,14 +19,18 @@
  *     would fail.
  *
  * Method / safety (rule 15 — shared accumulating DB):
- *   The checkpoint is seeded through the same IPC the app uses. The COUNTED
- *   (physical) amount is set to each currency's CURRENT balance so the
- *   reconciliation delta is zero — the shared General drawer is NOT disturbed.
- *   The variance is created purely via the EXPECTED (opening) amount: $5 below
- *   the count for USD (a +$5.00 overage) and 10,000 above the count for LBP (a
- *   −10,000 shortage). The row is matched by a UNIQUE notes marker (never by
- *   position), and assertions are on the presence/style of the badge, never on
- *   absolute totals.
+ *   The checkpoint is seeded through the same IPC the app uses. LIRA-335
+ *   FR-023 made the server IGNORE the client's `expected_amount` (it stores
+ *   and reconciles against its own balance), so the variance can no longer be
+ *   faked via the expected figure — the COUNTED amount carries it: $5 above
+ *   the current USD balance (+$5.00 overage) and 10,000 below the current LBP
+ *   balance (−10,000 shortage). That posts a real reconciliation (+$5 /
+ *   −10,000 LBP) to the shared General drawer and records two OPEN
+ *   differences, which the timeline row shows as one amber line each
+ *   (`DifferenceStatusLine`). Later specs assert deltas, so the small drawer
+ *   move is harmless. The row is matched by a UNIQUE notes marker (never by
+ *   position), and assertions are on the presence/style of the badges, never
+ *   on absolute totals.
  */
 
 import { test, expect } from "./fixtures";
@@ -128,17 +132,17 @@ test.describe("LIRA-091 — checkpoint timeline variance (no tolerance)", () => 
           {
             drawer_name: "General",
             currency_code: "USD",
-            // counted == current balance → reconciliation delta 0 (no disturbance)
-            physical_amount: currentUsd,
-            // system expected $5 LESS than counted → +$5.00 OVERAGE in the timeline
-            expected_amount: currentUsd - 5,
+            // counted $5 MORE than the server balance → +$5.00 OVERAGE.
+            // (expected_amount is ignored by the server since LIRA-335 FR-023.)
+            physical_amount: currentUsd + 5,
+            expected_amount: currentUsd,
           },
           {
             drawer_name: "General",
             currency_code: "LBP",
-            physical_amount: currentLbp,
-            // system expected 10,000 MORE than counted → −10,000 SHORTAGE
-            expected_amount: currentLbp + 10_000,
+            // counted 10,000 LESS than the server balance → −10,000 SHORTAGE
+            physical_amount: currentLbp - 10_000,
+            expected_amount: currentLbp,
           },
         ],
       });
@@ -169,11 +173,14 @@ test.describe("LIRA-091 — checkpoint timeline variance (no tolerance)", () => 
     const row = appPage.locator("tbody tr").filter({ hasText: NOTE }).first();
     await expect(row).toBeVisible();
 
-    // ── AC1 + AC3 on the ROW: one amber attention badge carrying BOTH deltas ──
-    const rowBadge = row.locator("span.text-amber-400");
-    await expect(rowBadge).toBeVisible();
-    await expect(rowBadge).toContainText("Over $5.00"); // overage, amber
-    await expect(rowBadge).toContainText("Short 10,000 LBP"); // shortage, amber
+    // ── AC1 + AC3 on the ROW: an amber attention badge for EACH delta ──
+    // LIRA-335: a checkpoint with recorded differences shows one
+    // DifferenceStatusLine per currency (Open → amber), not one combined badge.
+    const rowBadges = row.locator("span.text-amber-400");
+    await expect(rowBadges.filter({ hasText: "Over $5.00" })).toBeVisible(); // overage, amber
+    await expect(
+      rowBadges.filter({ hasText: "Short 10,000 LBP" }),
+    ).toBeVisible(); // shortage, amber
     // The row must NOT use the old sign-based green/red colouring.
     await expect(row.locator("span.text-green-400")).toHaveCount(0);
     await expect(row.locator("span.text-red-400")).toHaveCount(0);

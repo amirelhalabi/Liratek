@@ -283,6 +283,12 @@ test.describe("LIRA-094 — session client propagation (full matrix)", () => {
     await appPage.locator("#product-retail-price").fill("9");
     await appPage.locator("#product-stock").fill("50");
     await appPage.getByRole("button", { name: /Save Product/i }).click();
+    // The product list is name-sorted and paged 20 at a time: on the shared
+    // accumulating DB more than 20 earlier products sort before "L094…", so
+    // the new row is not on page 1. Search for it instead of assuming it is.
+    const invSearch = appPage.getByPlaceholder("Search by name, barcode...");
+    await expect(invSearch).toBeVisible({ timeout: 10_000 });
+    await invSearch.fill(PRODUCT_NAME);
     await expect(appPage.locator(`text=${PRODUCT_NAME}`).first()).toBeVisible({
       timeout: 10_000,
     });
@@ -520,6 +526,18 @@ test.describe("LIRA-094 — session client propagation (full matrix)", () => {
     await expectCartCount(appPage, 19);
   });
 
+  /** On the shared accumulating DB other specs (e.g. the shop day) add
+   *  WHISH partners too, so the single-partner auto-select does not fire:
+   *  pick this spec's own partner when the form asks for one. */
+  async function pickWhishPartnerIfAsked(page: Page): Promise<void> {
+    await expect(page.locator("#service-amount")).toBeVisible();
+    const pick = page.getByRole("button", { name: /Select partner/ });
+    if ((await pick.count()) === 0) return;
+    await pick.first().click();
+    await page.getByRole("option", { name: "L094 Whish Partner" }).click();
+    await expect(pick).toHaveCount(0);
+  }
+
   test("group 5: system services — OMT (primary) + WHISH (secondary/partner) SEND+RECEIVE", async ({
     appPage,
   }) => {
@@ -560,6 +578,7 @@ test.describe("LIRA-094 — session client propagation (full matrix)", () => {
       .filter({ hasText: /↑/ })
       .first()
       .click();
+    await pickWhishPartnerIfAsked(appPage);
     await appPage.locator("#service-amount").fill("20");
     await appPage
       .getByRole("button", { name: /Record (Send|Receive)/i })
@@ -574,6 +593,7 @@ test.describe("LIRA-094 — session client propagation (full matrix)", () => {
       .filter({ hasText: /↓/ })
       .first()
       .click();
+    await pickWhishPartnerIfAsked(appPage);
     await appPage.locator("#service-amount").fill("18");
     await appPage
       .getByRole("button", { name: /Record (Send|Receive)/i })

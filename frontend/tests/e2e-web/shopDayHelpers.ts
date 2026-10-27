@@ -614,11 +614,26 @@ export async function pickClientOption(
   await input.pressSequentially(name, { delay: 20 });
   // ClientAutocompleteInput renders `client-option-<id>` (selects on
   // mousedown — a click fires it); other pickers render a plain button/li.
-  const option = page
-    .locator('[data-testid^="client-option-"], [role="option"], li, button', {
+  // A real option first: the loose `li, button` fallback also matches page
+  // content under a modal that carries the name (e.g. the POS "Today's
+  // Sales" card of an earlier sale to the same client), which comes first in
+  // the DOM and cannot be clicked through the modal.
+  const real = page
+    .locator('[data-testid^="client-option-"], [role="option"]', {
       hasText: name,
     })
     .first();
+  const hasReal = await real
+    .waitFor({ state: "visible", timeout: 5_000 })
+    .then(() => true)
+    .catch(() => false);
+  const option = hasReal
+    ? real
+    : page
+        .locator("li, button", {
+          hasText: name,
+        })
+        .first();
   await expect(option).toBeVisible({ timeout: 10_000 });
   await option.click();
 }

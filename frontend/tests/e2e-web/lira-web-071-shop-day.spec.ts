@@ -322,13 +322,38 @@ test.describe.serial("lira-web-071 Shop Day", () => {
       await page.getByTestId("page-alerts-row-initial-balances").click();
       await expect(page.getByText("Initial Drawer Amounts")).toBeVisible();
       const modal = topModal(page);
-      const inputs = modal.locator('input[placeholder="0"]:visible');
-      // An all-zero save is accepted and leaves the warning (SHOP_DAY 0.1).
-      await expect(inputs).toHaveCount(6);
-      // Order on screen: General USD, General LBP, OMT LBP, OMT USD, Whish LBP, Whish USD.
-      const values = [500, 20_000_000, 10_000_000, 300, 5_000_000, 200];
-      for (let i = 0; i < values.length; i++) {
-        await inputs.nth(i).fill(String(values[i]));
+      // Fill each drawer by its label + currency, never by position: the set
+      // of drawers offered depends on the shop (03ada6c3, 2026-10-25: an OMT
+      // shop is no longer offered the empty Whish cash drawer; the OMT App and
+      // Whish App wallets are listed too). The Whish float goes to the Whish
+      // App wallet. An all-zero save is accepted and leaves the warning
+      // (SHOP_DAY 0.1), so every field below must be found and filled.
+      await expect(modal.getByText("General", { exact: true })).toBeVisible();
+      await expect(
+        modal.getByText("Whish Cash Drawer", { exact: true }),
+      ).toHaveCount(0);
+      const drawerInput = (label: string, currency: string): Locator =>
+        modal
+          .locator("div")
+          .filter({ has: page.getByText(label, { exact: true }) })
+          .filter({ has: page.locator('input[placeholder="0"]') })
+          .last()
+          .locator("div")
+          .filter({ has: page.locator("label", { hasText: currency }) })
+          .last()
+          .locator('input[placeholder="0"]');
+      const opening: Array<[string, string, number]> = [
+        ["General", "USD", 500],
+        ["General", "LBP", 20_000_000],
+        ["OMT Cash Drawer", "LBP", 10_000_000],
+        ["OMT Cash Drawer", "USD", 300],
+        ["Whish App", "LBP", 5_000_000],
+        ["Whish App", "USD", 200],
+      ];
+      for (const [label, currency, value] of opening) {
+        const input = drawerInput(label, currency);
+        await expect(input, `${label} ${currency}`).toHaveCount(1);
+        await input.fill(String(value));
       }
       const cp = waitPost(page, "/api/closing/checkpoint");
       await modal.getByRole("button", { name: "Save Amounts" }).click();
@@ -1119,6 +1144,12 @@ test.describe.serial("lira-web-071 Shop Day", () => {
     await payAmount(page, 0).fill("10");
     // LIRA-334: $4 over a $6 price is within the $5 round-up — clear it.
     await clearRoundUpExtra(page);
+    // The telecom sheet totals in LBP, so the change fields start full in
+    // LBP (356,000 — owner decision 2026-10-12: change fields start full).
+    // Hand the change back in dollars first ("$" one-tap: $4, LBP 0), then
+    // lower it to $3 so $1 is kept.
+    await page.getByTestId("return-all-usd").click();
+    await expect(page.getByTestId("return-lbp")).toHaveValue("0");
     await page.getByTestId("return-usd").fill("3");
     await expect(page.getByTestId("keep-change-summary")).toContainText("$1");
     await rechargePay();
@@ -1178,10 +1209,20 @@ test.describe.serial("lira-web-071 Shop Day", () => {
       .getByRole("button", { name: "iPick", exact: true })
       .first()
       .click();
+    // Wait for the iPick catalog before picking: a click that lands while
+    // the Katsh grid is still on screen books a Katsh "30d validity" item,
+    // the basket stays one provider and no basket session is made.
+    await expect(page.getByPlaceholder(/Search iPick items/i)).toBeVisible();
+    await expect(page.getByPlaceholder(/Search Katsh items/i)).toHaveCount(0);
     await page.getByText("30d validity").first().click();
     await page.getByRole("button", { name: /Proceed to Pay/ }).click();
     await expect(page.getByTestId("payment-sheet-items")).toBeVisible();
-    await page.getByPlaceholder("Search client by name...").fill(S.joe);
+    await expect(page.getByTestId("payment-sheet-items")).toContainText(
+      "iPick",
+    );
+    // The basket sheet's client field is a plain "Client name (optional)"
+    // (KatshForm / CardGridPayView), not the telecom sheet's search box.
+    await page.getByPlaceholder("Client name (optional)").fill(S.joe);
     await page
       .getByPlaceholder("Phone number (registers a new client)")
       .fill(phoneOf(day, 7));
@@ -1514,7 +1555,9 @@ test.describe.serial("lira-web-071 Shop Day", () => {
       .selectOption("LBP")
       .catch(() => undefined);
     await modal.getByTestId("discount-mode-discount").click();
-    await modal.getByLabel("Discount", { exact: true }).fill("345000");
+    // The checkout's discount field has no "Discount" label (only its Extra
+    // twin has one) — reach it by its test id.
+    await modal.getByTestId("checkout-discount-input").fill("345000");
     await payAmount(modal, 0).fill("6000000");
     await modal.getByTestId("return-lbp").fill("450000");
     const res = waitPost(page, "/api/maintenance");
@@ -1699,11 +1742,13 @@ test.describe.serial("lira-web-071 Shop Day", () => {
   // ══ Part 7 — Custom Services and Hold Money ════════════════════════════
 
   async function csCategory(name: string): Promise<void> {
+    // `.first()`: with Hold Money already picked, its submit button is also
+    // named "Hold Money" — the category button comes first on the page.
     await go(
       "/custom-services",
-      page.getByRole("button", { name, exact: true }),
+      page.getByRole("button", { name, exact: true }).first(),
     );
-    await page.getByRole("button", { name, exact: true }).click();
+    await page.getByRole("button", { name, exact: true }).first().click();
   }
 
   test("7.1 Custom Service Repair typed WITHOUT Enter, $8/$25, Rami, split $15 + 900,000 LBP [bug 11]", async () => {
@@ -1725,6 +1770,10 @@ test.describe.serial("lira-web-071 Shop Day", () => {
     // LIRA-334: 10,000 LBP (≈ $0.11) over the $25 price is within the $5
     // round-up — clear it to give the change.
     await clearRoundUpExtra(page);
+    // The change fields start full in the TOTAL's currency ($0.11 in USD on
+    // a dollar price). Empty the USD field before giving the change in LBP,
+    // or both are sent and the server refuses the double change.
+    await page.getByTestId("return-usd").fill("");
     await page.getByTestId("return-lbp").fill("10000");
     const res = waitPost(page, "/api/custom-services");
     await page.getByRole("button", { name: "Submit Service" }).click();
@@ -1792,12 +1841,20 @@ test.describe.serial("lira-web-071 Shop Day", () => {
     const search = page.getByTestId("custom-service-item-search");
     await search.fill(desc);
     await search.press("Enter");
+    // The form keeps the LBP entry chosen in 7.2 after submit (only the
+    // amounts reset), so pick USD for this dollar-priced service.
+    await page
+      .getByRole("button", { name: "USD", exact: true })
+      .first()
+      .click();
     await page.getByTestId("custom-service-via-partner-toggle").click();
     const pick = page.getByRole("button", { name: /Select partner/ });
+    await expect(page.getByText("Partner:", { exact: true })).toBeVisible();
     if ((await pick.count()) > 0) {
       await pick.first().click();
       await page.getByRole("option", { name: S.flow }).click();
     }
+    await expect(pick).toHaveCount(0);
     await page.locator("#svc-cost").fill("30");
     await page.locator("#svc-price").fill("45");
     await pickClientOption(page, page.locator("#svc-client"), S.hassan);
@@ -1939,6 +1996,11 @@ test.describe.serial("lira-web-071 Shop Day", () => {
       .getByRole("button", { name: /New Customer/ })
       .first()
       .click();
+    // "New Customer" opens a small menu; "New Session" opens the form.
+    await page
+      .getByRole("button", { name: /^New Session/ })
+      .first()
+      .click();
     await page.locator("#customer-name").fill(S.sessionCustomer);
     await page.locator("#customer-notes").fill("Walk-in, phone + recharge");
     const started = waitPost(page, "/api/sessions/start");
@@ -2011,7 +2073,9 @@ test.describe.serial("lira-web-071 Shop Day", () => {
     const done = waitPost(page, "/api/sessions/checkout");
     await page.getByRole("button", { name: "Confirm Checkout" }).click();
     expect((await done).body.success).toBeTruthy();
-    await expect(page.getByText("Checkout Complete")).toBeVisible({
+    await expect(
+      page.getByRole("heading", { name: "Checkout Complete" }),
+    ).toBeVisible({
       timeout: 15_000,
     });
 
@@ -2037,8 +2101,14 @@ test.describe.serial("lira-web-071 Shop Day", () => {
       "/api/sessions/active-list",
     );
     expect(active.sessions ?? []).toHaveLength(0);
-    // The $40 cash went into the drawer its leg names, by exactly the legs.
-    await expectLegMovedDrawer(day, sess.before, sess.d0, "CASH", "USD", 40, 1);
+    // A session checkout books its legs on the BASKET (payments rows with no
+    // transaction id, "Basket payment"), not on the item rows, so the
+    // per-transaction leg lookup finds none. Check the drawers instead: the
+    // $40 cash into General, the $10 Whish into the Whish App wallet (the
+    // session's items moved no General/Whish USD before checkout).
+    const dEnd = await drawers(day);
+    expectMoved(dEnd, sess.d0, "General", "USD", 40);
+    expectMoved(dEnd, sess.d0, "Whish_App", "USD", 10);
   });
 
   // ══ Part 9 — Money and accounts ════════════════════════════════════════
@@ -2171,13 +2241,34 @@ test.describe.serial("lira-web-071 Shop Day", () => {
     const s0 = await supplierBalance(day, "Katsh");
     const note = `Partial settlement of Katsh float, handed to rep Georges SD${day.stamp}`;
     await page.getByTestId("supplier-tile-Katsh").click();
-    await page.getByRole("button", { name: "Pay / Receive" }).click();
-    await page.getByRole("button", { name: "Pay Supplier" }).click();
-    await payLine(page, 0, "CASH", 80, "USD");
-    await page.getByPlaceholder("Payment to supplier…").fill(note);
-    const res = waitPost(page, `/api/suppliers/${s0.id}/cashflow`);
-    await page.getByRole("button", { name: "Record Payment" }).click();
+    // LIRA-345: Katsh has no Pay / Receive any more — it is paid from the
+    // Settle Account calendar. Today (the $200 credit top-up of 0.6) is never
+    // picked by default: pick it, then pay $80 of it in cash (amount-driven,
+    // the rest stays owed).
+    await expect(
+      page.getByRole("button", { name: "Pay / Receive" }),
+    ).toHaveCount(0);
+    await page.getByTestId("supplier-settle-by-day-button").click();
+    const sheet = page.getByTestId("supplier-account-settle-sheet");
+    await expect(sheet).toBeVisible({ timeout: 10_000 });
+    const today = await page.evaluate(() => {
+      const d = new Date();
+      const p = (n: number) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    });
+    const todayBtn = sheet.locator(`[data-day="${today}"] button`);
+    await expect(todayBtn).toBeVisible({ timeout: 15_000 });
+    await expect(todayBtn).toHaveAttribute("aria-pressed", "false");
+    await todayBtn.click();
+    await expect(todayBtn).toHaveAttribute("aria-pressed", "true");
+    const usd = sheet.getByTestId("supplier-account-settle-section-usd");
+    await expect(usd).toBeVisible({ timeout: 15_000 });
+    await payLine(usd, 0, "CASH", 80, "USD");
+    await sheet.getByTestId("supplier-account-settle-note").fill(note);
+    const res = waitPost(page, `/api/suppliers/${s0.id}/settle-account`);
+    await sheet.getByTestId("supplier-account-settle-submit").click();
     expect((await res).body.success).toBeTruthy();
+    await expect(sheet).toBeHidden({ timeout: 15_000 });
     const t = await findTxn(
       day,
       before,
@@ -2187,7 +2278,7 @@ test.describe.serial("lira-web-071 Shop Day", () => {
     expectDetails(t, {
       kind: "supplier_entry",
       supplierId: s0.id,
-      action: "PAY",
+      action: "ACCOUNT_SETTLE",
       note,
     });
     expectPayoutLine(t, "CASH", "USD", 80); // bug 1
@@ -2219,6 +2310,9 @@ test.describe.serial("lira-web-071 Shop Day", () => {
       .first()
       .click();
     await page.getByRole("button", { name: "Settle", exact: true }).click();
+    // LIRA-346: Settle opens the by-day calendar; this step settles by an
+    // amount, which stays reachable as "Settle by amount (old way)".
+    await page.getByTestId("partner-settle-by-amount").click();
     const modal = page.getByTestId("counterparty-settle-modal");
     await expect(modal).toBeVisible();
     await splitOn(modal);
@@ -2351,6 +2445,8 @@ test.describe.serial("lira-web-071 Shop Day", () => {
     const row = page
       .getByTestId("data-table")
       .locator("tbody tr", { hasText: S.karim })
+      // Karim also has a newer Binance send (3.8): pick his SALE row.
+      .filter({ hasText: /Sale #\d+/ })
       .filter({ has: page.getByRole("button", { name: "Void", exact: true }) })
       .first();
     const res = waitPost(page, `/api/transactions/${ids.walkinSaleTxn}/void`);
@@ -2505,6 +2601,11 @@ test.describe.serial("lira-web-071 Shop Day", () => {
     );
     expect(orig?.status).toBe("ACTIVE");
     ids.wrongNumberTxn = t.id;
+    // The Wrong number window stays open on the recorded case (credits can
+    // be logged there): close it so it does not cover the next steps.
+    const wn = page.getByRole("dialog", { name: "Wrong number" });
+    await wn.getByRole("button", { name: "Close" }).click();
+    await expect(wn).toHaveCount(0);
   });
 
   // ══ Part 12 — Export ═══════════════════════════════════════════════════

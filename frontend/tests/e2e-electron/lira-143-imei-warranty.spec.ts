@@ -252,8 +252,17 @@ function addMonthsIso(dateIso: string, months: number): string {
   return `${targetYear}-${pad(targetMonth)}-${pad(clampedDay)}`;
 }
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+// The warranty clock starts on the SHOP's day (`client_day ?? clientDay()` in
+// SalesRepository), i.e. the browser's LOCAL calendar day — never the UTC day
+// `toISOString()` returns, which lags Beirut by a full day between 00:00 and
+// 03:00 local and made this spec fail in that window (rule 27). Read it in the
+// page so it is the same clock the app itself sends.
+async function todayIso(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  });
 }
 
 function escapeRegExp(s: string): string {
@@ -901,7 +910,7 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
     await expect(posSearch).toBeVisible({ timeout: 10_000 });
 
     const drawerBeforeFirstSale = await generalUsd(appPage);
-    const saleDateBeforeCheckout = todayIso();
+    const saleDateBeforeCheckout = await todayIso(appPage);
 
     await posSearch.fill(IMEI_1);
     // Auto-add fires ~800ms after the debounced search resolves
@@ -941,13 +950,13 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
       saleDateBeforeCheckout,
       WARRANTY_MONTHS,
     );
-    // Accept either side of a UTC-midnight boundary crossed between
+    // Accept either side of a local (shop-day) midnight crossed between
     // capturing saleDateBeforeCheckout and the main process's own "now" —
     // documented, same tolerance class other date-boundary specs (lira-100/
     // 102/103) call out explicitly, never silently widened further.
     const expectedWarrantyToleratingMidnight = [
       expectedWarranty1,
-      addMonthsIso(todayIso(), WARRANTY_MONTHS),
+      addMonthsIso(await todayIso(appPage), WARRANTY_MONTHS),
     ];
     expect(expectedWarrantyToleratingMidnight).toContain(
       sale1Item.warranty_until,
@@ -1072,7 +1081,7 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
     );
     await expect(posSearch2).toBeVisible({ timeout: 10_000 });
 
-    const saleDateBeforeResale = todayIso();
+    const saleDateBeforeResale = await todayIso(appPage);
     await posSearch2.fill(IMEI_1);
     // LIRA-231 (owner decision 2026-09-26): scanning a unit marked defective
     // (it was refunded with the checkbox checked in step (e)) now pauses the
@@ -1110,7 +1119,7 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
     if (!sale2Item) throw new Error("Sale item for re-sale not found");
     const expectedWarranty2 = [
       addMonthsIso(saleDateBeforeResale, WARRANTY_MONTHS),
-      addMonthsIso(todayIso(), WARRANTY_MONTHS),
+      addMonthsIso(await todayIso(appPage), WARRANTY_MONTHS),
     ];
     expect(expectedWarranty2).toContain(sale2Item.warranty_until);
 

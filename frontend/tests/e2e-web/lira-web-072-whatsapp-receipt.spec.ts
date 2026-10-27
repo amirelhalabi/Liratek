@@ -199,7 +199,16 @@ test.describe.serial("lira-web-072 LIRA-333 WhatsApp receipt", () => {
 
     // ── 2. details Send = strip Send (SC-003) ────────────────────────────
     await strip(page).getByRole("button", { name: "Close" }).click();
-    await page.getByText(client).first().click();
+    // Open the sale from its card in Today's Sales. Click the card BUTTON,
+    // not the name span: at the 1280px test viewport the 44rem cart leaves
+    // the sales grid ~220px for 4 cards, and the name's `truncate` span
+    // shrinks to 0px wide (measured), so Playwright never sees it visible.
+    await page
+      .getByRole("button", {
+        name: new RegExp(`${client}.*\\$${PRICE.toFixed(2)}`),
+      })
+      .first()
+      .click();
     const details = page.getByRole("button", { name: /send on whatsapp/i });
     await expect(details).toBeEnabled({ timeout: 10_000 });
     await details.click();

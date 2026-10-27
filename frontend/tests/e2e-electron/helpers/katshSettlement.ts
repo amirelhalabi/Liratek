@@ -199,9 +199,13 @@ export async function captureModalState(page: Page, label: string) {
     .getAttribute("class")
     .catch(() => null);
 
-  const computedLine = before.locator("div.text-slate-500.text-right");
+  // LIRA-331 (Arabic/RTL) moved physical `text-right` to logical `text-end`
+  // in Suppliers/index.tsx; the stale class made `.innerText()` poll until
+  // the test's own timeout (web-shared e2e triage, 2026-10-27). Bounded
+  // timeout so a future markup change fails fast instead of hanging.
+  const computedLine = before.locator("div.text-slate-500.text-end");
   const computedLineText = await computedLine
-    .innerText()
+    .innerText({ timeout: 5_000 })
     .catch(() => "<not found>");
 
   // "Total owed to Katsh (fee-net)" -- gone entirely for a bills-only batch

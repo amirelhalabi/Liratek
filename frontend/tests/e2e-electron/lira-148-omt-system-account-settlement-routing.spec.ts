@@ -114,10 +114,38 @@ async function cashOnHand(
     return parsed;
   };
 
-  return {
+  const shown = {
     general: await read("General"),
     omtSystem: await read("OMT_System"),
   };
+
+  // The strip shows each balance ROUNDED to the cent, and the shared DB can
+  // leave a sub-cent balance behind (lira-web-032 books a $12.345 payment
+  // into OMT_System). Two rounded reads then differ by ±0.01 from the real
+  // movement — 2006.075 shows as 2006.07 but 2111.075 as 2111.08, so an
+  // exact +105 read as +105.01. Take the DELTA from the exact balances (the
+  // same figures the strip renders: generalDrawer = General, omtDrawer = the
+  // active primary cash drawer, OMT_System here) and keep the dashboard as
+  // the check that the owner sees those figures to the cent.
+  const exact = await page.evaluate(async () => {
+    const w = window as unknown as {
+      api: {
+        dashboard: {
+          getDrawerBalances: () => Promise<{
+            generalDrawer: { usd: number };
+            omtDrawer: { usd: number };
+          }>;
+        };
+      };
+    };
+    const b = await w.api.dashboard.getDrawerBalances();
+    return { general: b.generalDrawer.usd, omtSystem: b.omtDrawer.usd };
+  });
+  expect(Math.abs(shown.general - exact.general)).toBeLessThanOrEqual(0.0051);
+  expect(Math.abs(shown.omtSystem - exact.omtSystem)).toBeLessThanOrEqual(
+    0.0051,
+  );
+  return exact;
 }
 
 /** This client's outstanding debt, by identity — never by row position. */
