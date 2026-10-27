@@ -171,6 +171,7 @@ import type { PartnerSettleDaysPayload } from "@liratek/core";
 // LIRA-256 — OMT statement covered commission types (rule 21).
 import type {
   OmtCoveredTypesInput,
+  AccountExpectedStatementParamsInput,
   AccountMonthInput,
   AccountDayInput,
 } from "@liratek/core";
@@ -636,7 +637,13 @@ export class ElectronApiAdapter implements ApiAdapter {
   getSupplierAccountExpectedStatement = (
     accountSupplierId: number,
     coveredTypes?: OmtCoveredTypesInput,
-  ) => api.getSupplierAccountExpectedStatement(accountSupplierId, coveredTypes);
+    upToDay?: AccountExpectedStatementParamsInput["up_to_day"],
+  ) =>
+    api.getSupplierAccountExpectedStatement(
+      accountSupplierId,
+      coveredTypes,
+      upToDay,
+    );
   updateSupplierAccountLink = (data: SupplierAccountLinkInput) =>
     api.updateSupplierAccountLink(data);
   createSupplier = (data: SupplierCreatePayload) => api.createSupplier(data);

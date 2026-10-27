@@ -1,18 +1,25 @@
 /** @jest-environment jsdom */
 
 /**
- * LIRA-343 T033 (US4, FR-016 / FR-016a / FR-016c) and T037 (US5, FR-016b)
- * — the settle sheet's day details and the ↺ account marks.
+ * LIRA-343 T033 / T037 — what a calendar day does on the settle sheet, and
+ * the ↺ account marks.
  *
- * - Tapping a day opens what is behind it (`getSupplierAccountDayDetail`).
- * - On a picked day, unticking an open transfer leaves it out of the
- *   settlement: totals, pre-fill and payload follow (`buildDaySelections`
- *   with `untickedRows`), and the day reads "Partly picked".
- * - "See in Transactions ›" calls the sheet's `onSeeInTransactions(day)`.
+ * Owner decision 2026-10-27: the inline day-details panel is gone. Tapping a
+ * day ONLY picks / unpicks it; the day's transfers are checked and unticked
+ * in the "See transactions" table, which shares the sheet's `untickedRows`.
+ *
+ * - Tapping a day never renders `settle-day-details` and never reads
+ *   `getSupplierAccountDayDetail` (guard; failing-first against the sheet
+ *   that still opened the panel).
+ * - No "See in Transactions ›" link is offered anywhere (that link lived in
+ *   the panel only).
+ * - Unticking an open transfer of a picked day IN THE TABLE leaves it out:
+ *   totals, pre-fill and payload follow (`buildDaySelections` with
+ *   `untickedRows`), and the day's circle reads "partly picked".
  * - An open account row an undo / void wrote marks its day with ↺, and the
- *   sheet lists it as an account line that links to that day.
+ *   sheet lists it as an account line whose day link switches the calendar
+ *   to that day's month (no details).
  *
- * Failing-first (rule 17): written before the sheet wired the details.
  * Fixture (today = Monday 26 Oct 2026) as `lira343Calendar`. ONE stable
  * `useApi` object (rule 25). Payloads are parsed through the core schema and
  * compared with `buildDaySelections` on the same rows (rule 24).
@@ -30,7 +37,6 @@ import { buildDaySelections, supplierSettleAccountSchema } from "@liratek/core";
 import { AccountSettleSheet } from "../AccountSettleSheet";
 import type {
   AccountBalance,
-  AccountDayDetailRow,
   AccountUnsettledRow,
 } from "../../hooks/useSuppliers";
 
@@ -161,42 +167,14 @@ const UNDO_RELIEF = row({
 const OPEN_ROWS = [SEP30, ACCOUNT_CREDIT, OCT23, OCT24, OCT25, OCT25_LBP];
 const DEFAULT_DAYS = ["2026-09-30", "2026-10-23", "2026-10-24", "2026-10-25"];
 
-function detail(
-  r: AccountUnsettledRow,
-  over: Partial<AccountDayDetailRow> = {},
-): AccountDayDetailRow {
-  return { ...r, settlements: [], added_after_settlement: false, ...over };
-}
-
-function renderSheet(
-  openRows: AccountUnsettledRow[] = OPEN_ROWS,
-  props: { onSeeInTransactions?: (day: string) => void } = {},
-) {
+function renderSheet(openRows: AccountUnsettledRow[] = OPEN_ROWS) {
   mockGetSupplierAccountUnsettled.mockResolvedValue(openRows);
   mockGetSupplierAccountMonthRows.mockImplementation(
     async (_id: number, month: string) =>
       openRows.filter((r) => r.shop_day.startsWith(`${month}-`)),
   );
-  mockGetSupplierAccountDayDetail.mockImplementation(
-    async (_id: number, day: string) =>
-      openRows
-        .filter((r) => r.shop_day === day)
-        .map((r) =>
-          r.id === OCT25.id
-            ? detail(r, {
-                settlements: [
-                  {
-                    transaction_id: 10057,
-                    settled_at: "2026-10-25 21:30:00",
-                    currency: "USD",
-                    amount: 50,
-                    source: "PAYMENT",
-                  },
-                ],
-              })
-            : detail(r),
-        ),
-  );
+  // Still mocked (the read exists on the API) so a stray call is visible.
+  mockGetSupplierAccountDayDetail.mockResolvedValue([]);
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -206,7 +184,6 @@ function renderSheet(
         account={ACCOUNT}
         onClose={jest.fn()}
         onSettled={jest.fn()}
-        {...props}
       />
     </QueryClientProvider>,
   );
@@ -224,14 +201,20 @@ async function dayButton(day: string): Promise<HTMLButtonElement> {
   return within(await dayCell(day)).getByRole("button") as HTMLButtonElement;
 }
 
-/** Tap a picked day twice: it ends picked, with its details open. */
-async function openPickedDay(day: string): Promise<HTMLElement> {
-  const btn = await dayButton(day);
-  await waitFor(() => expect(btn).toHaveAttribute("aria-pressed", "true"));
+/** Open "See transactions": the picked days' rows (5 open by default). */
+async function openTable(): Promise<HTMLElement> {
+  const btn = await screen.findByTestId("settle-see-transactions");
+  await waitFor(() => expect(btn).toHaveTextContent("5"));
   fireEvent.click(btn);
-  fireEvent.click(await dayButton(day));
-  expect(await dayButton(day)).toHaveAttribute("aria-pressed", "true");
-  return screen.findByTestId("settle-day-details");
+  return screen.findByTestId("settle-transactions-panel");
+}
+
+async function includeBox(
+  panel: HTMLElement,
+  key: string,
+): Promise<HTMLInputElement> {
+  const tr = await within(panel).findByTestId(`settle-tx-row-${key}`);
+  return within(tr).getByRole("checkbox") as HTMLInputElement;
 }
 
 async function confirmAndGetPayload(): Promise<Record<string, unknown>> {
@@ -244,53 +227,79 @@ async function confirmAndGetPayload(): Promise<Record<string, unknown>> {
   return mockSettleSupplierAccount.mock.calls[0][1] as Record<string, unknown>;
 }
 
-describe("AccountSettleSheet — LIRA-343 day details and ↺ marks", () => {
+describe("AccountSettleSheet — LIRA-343 day taps, unticks in the table, ↺ marks", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSettleSupplierAccount.mockResolvedValue({ success: true, id: 900 });
   });
 
-  it("tapping a day opens its details: rows, member tag, who paid and what is left", async () => {
+  // Owner decision 2026-10-27 — failing-first guard (rule 17): run against
+  // the sheet that still opened the inline day details on a tap.
+  it("tapping a day only picks / unpicks it: no day details, no day-detail read", async () => {
     renderSheet();
 
-    fireEvent.click(await dayButton("2026-10-25"));
-    const panel = await screen.findByTestId("settle-day-details");
-    await waitFor(() =>
-      expect(mockGetSupplierAccountDayDetail).toHaveBeenCalledWith(
-        1,
-        "2026-10-25",
+    const btn = await dayButton("2026-10-25");
+    await waitFor(() => expect(btn).toHaveAttribute("aria-pressed", "true"));
+    fireEvent.click(btn);
+    await waitFor(async () =>
+      expect(await dayButton("2026-10-25")).toHaveAttribute(
+        "aria-pressed",
+        "false",
       ),
     );
+    expect(screen.queryByTestId("settle-day-details")).not.toBeInTheDocument();
+
+    fireEvent.click(await dayButton("2026-10-25"));
+    await waitFor(async () =>
+      expect(await dayButton("2026-10-25")).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      ),
+    );
+    expect(screen.queryByTestId("settle-day-details")).not.toBeInTheDocument();
+    expect(mockGetSupplierAccountDayDetail).not.toHaveBeenCalled();
+  });
+
+  // Was: '"See in Transactions ›" calls onSeeInTransactions' — the link lived
+  // in the removed day details; now a guard that it is not offered.
+  it('offers no "See in Transactions ›" link after tapping a day', async () => {
+    renderSheet();
+
+    fireEvent.click(await dayButton("2026-10-24"));
+    expect(
+      screen.queryByRole("button", { name: "See in Transactions ›" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("settle-day-details")).not.toBeInTheDocument();
+  });
+
+  it("the table lists a picked day's transfers: member tag and what is left", async () => {
+    renderSheet();
+
+    const panel = await openTable();
     const transfer = await within(panel).findByTestId(
-      "settle-day-row-FINANCIAL_SERVICE:5",
+      "settle-tx-row-FINANCIAL_SERVICE:5",
     );
     expect(transfer.textContent).toContain("#5");
     expect(transfer.textContent).toContain("OMT");
-    expect(transfer.textContent).toContain("$50.00 paid by #10057");
-    expect(transfer.textContent).toContain("$150.00 left");
+    expect(transfer.textContent).toContain("$150.00");
     expect(
-      within(panel).getByTestId("settle-day-row-FINANCIAL_SERVICE:6"),
+      within(panel).getByTestId("settle-tx-row-FINANCIAL_SERVICE:6"),
     ).toBeInTheDocument();
   });
 
-  it("unticking an open transfer of a picked day leaves it out: totals, pre-fill and payload follow", async () => {
+  it("unticking an open transfer of a picked day in the table leaves it out: totals, pre-fill and payload follow", async () => {
     renderSheet();
 
-    const panel = await openPickedDay("2026-10-25");
+    const panel = await openTable();
     const bar = screen.getByTestId("settle-selection-bar");
     await waitFor(() => expect(bar.textContent).toContain("990,000 LBP"));
 
-    const box = (await within(panel).findByRole("checkbox", {
-      name: "Include #6 in this settlement",
-    })) as HTMLInputElement;
+    const box = await includeBox(panel, "FINANCIAL_SERVICE:6");
+    expect(box).toHaveAccessibleName("Include #6 in this settlement");
     expect(box.checked).toBe(true);
     fireEvent.click(box);
 
-    expect(
-      within(screen.getByTestId("settle-day-details")).getByText(
-        "Partly picked",
-      ),
-    ).toBeInTheDocument();
+    expect(await dayButton("2026-10-25")).toHaveAccessibleName(/partly picked/);
     await waitFor(() =>
       expect(screen.getByTestId("settle-selection-bar").textContent).not.toContain(
         "LBP",
@@ -317,42 +326,39 @@ describe("AccountSettleSheet — LIRA-343 day details and ↺ marks", () => {
     expect(Object.keys(parsed.per_currency ?? {})).toEqual(["USD"]);
   });
 
-  it("re-ticking puts the transfer back", async () => {
+  it("re-ticking in the table puts the transfer back", async () => {
     renderSheet();
 
-    const panel = await openPickedDay("2026-10-25");
-    const box = (await within(panel).findByRole("checkbox", {
-      name: "Include #6 in this settlement",
-    })) as HTMLInputElement;
+    const panel = await openTable();
+    const box = await includeBox(panel, "FINANCIAL_SERVICE:6");
     fireEvent.click(box);
     await waitFor(() =>
       expect(screen.getByTestId("settle-selection-bar").textContent).not.toContain(
         "LBP",
       ),
     );
-    fireEvent.click(box);
+    fireEvent.click(await includeBox(panel, "FINANCIAL_SERVICE:6"));
     await waitFor(() =>
       expect(screen.getByTestId("settle-selection-bar").textContent).toContain(
         "990,000 LBP",
       ),
     );
-    expect(screen.queryByText("Partly picked")).not.toBeInTheDocument();
+    expect(await dayButton("2026-10-25")).not.toHaveAccessibleName(
+      /partly picked/,
+    );
   });
 
   // LIRA-343 follow-up — failing-first: written before the sheet passed
-  // `partlyPicked` to the calendar.
+  // `partlyPicked` to the calendar (then driven from the day details; now
+  // from the table, the only place a transfer is unticked).
   it("a picked day with an unticked transfer shows the partly-picked mark on its circle; unpicking clears it", async () => {
     renderSheet();
 
-    const panel = await openPickedDay("2026-10-25");
+    const panel = await openTable();
     expect(
       (await dayCell("2026-10-25")).querySelector('[data-corner="picked"]'),
     ).not.toBeNull();
-    fireEvent.click(
-      await within(panel).findByRole("checkbox", {
-        name: "Include #6 in this settlement",
-      }),
-    );
+    fireEvent.click(await includeBox(panel, "FINANCIAL_SERVICE:6"));
 
     let cell = await dayCell("2026-10-25");
     await waitFor(() =>
@@ -380,28 +386,6 @@ describe("AccountSettleSheet — LIRA-343 day details and ↺ marks", () => {
     );
   });
 
-  it('"See in Transactions ›" calls onSeeInTransactions with the day', async () => {
-    const onSeeInTransactions = jest.fn();
-    renderSheet(OPEN_ROWS, { onSeeInTransactions });
-
-    fireEvent.click(await dayButton("2026-10-24"));
-    const panel = await screen.findByTestId("settle-day-details");
-    fireEvent.click(
-      within(panel).getByRole("button", { name: "See in Transactions ›" }),
-    );
-    expect(onSeeInTransactions).toHaveBeenCalledWith("2026-10-24");
-  });
-
-  it("without onSeeInTransactions the link is not offered", async () => {
-    renderSheet();
-
-    fireEvent.click(await dayButton("2026-10-24"));
-    const panel = await screen.findByTestId("settle-day-details");
-    expect(
-      within(panel).queryByRole("button", { name: "See in Transactions ›" }),
-    ).not.toBeInTheDocument();
-  });
-
   it("an open undo account row puts ↺ on its day with its origin, and an account line links to that day", async () => {
     renderSheet([...OPEN_ROWS, UNDO_RELIEF]);
 
@@ -421,13 +405,17 @@ describe("AccountSettleSheet — LIRA-343 day details and ↺ marks", () => {
       "supplier-account-settle-relief-line",
     );
     expect(line.textContent).toContain("Owed to OMT added: $8.70 (undo of #12)");
-    fireEvent.click(within(line).getByRole("button"));
+    // Go back a month, then the line's day link brings October back: it
+    // switches the calendar to that day's month and opens nothing.
+    fireEvent.click(screen.getByRole("button", { name: "Previous month" }));
     await waitFor(() =>
-      expect(mockGetSupplierAccountDayDetail).toHaveBeenCalledWith(
-        1,
-        "2026-10-26",
-      ),
+      expect(document.querySelector('[data-day="2026-10-26"]')).toBeNull(),
     );
-    expect(await screen.findByTestId("settle-day-details")).toBeInTheDocument();
+    expect(await dayCell("2026-09-30")).toBeInTheDocument();
+    fireEvent.click(within(line).getByRole("button"));
+    expect(await dayCell("2026-10-26")).toBeInTheDocument();
+    expect(document.querySelector('[data-day="2026-09-30"]')).toBeNull();
+    expect(screen.queryByTestId("settle-day-details")).not.toBeInTheDocument();
+    expect(mockGetSupplierAccountDayDetail).not.toHaveBeenCalled();
   });
 });

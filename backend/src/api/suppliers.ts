@@ -19,7 +19,7 @@ import {
   supplierAccountLinkSchema,
   supplierRecordDebtSchema,
   supplierCreateSchema,
-  omtCoveredTypesSchema,
+  accountExpectedStatementParamsSchema,
   accountMonthSchema,
   type AccountMonthInput,
   accountDaySchema,
@@ -437,30 +437,44 @@ router.get("/:id/account-expected-statement", requireAuth, async (req, res) => {
 
     // LIRA-256 — `?covered=INTRA,WESTERN_UNION` (or repeated `covered=`):
     // the OMT commission types the statement covers. Absent = all types.
-    // Parsed with the SAME core schema the IPC handler uses (rule 14);
-    // invalid → HTTP 200 { success: false } (rule 6 envelope parity).
-    let covered: OmtCoveredTypesInput | undefined;
+    // 2026-10-27 (owner option B) — `?up_to_day=YYYY-MM-DD`: the shop's day
+    // (the CLIENT's, rule 27) the statement covers, inclusive; absent = all
+    // open rows. Both parsed with the SAME core schema the IPC handler uses
+    // (rule 14); invalid → HTTP 200 { success: false } (rule 6 envelope
+    // parity).
     const rawCovered = req.query.covered;
-    if (rawCovered !== undefined) {
-      const parts = (Array.isArray(rawCovered) ? rawCovered : [rawCovered])
-        .flatMap((v) => String(v).split(","))
-        .map((v) => v.trim())
-        .filter((v) => v !== "");
-      const parsed = omtCoveredTypesSchema.safeParse(parts);
-      if (!parsed.success) {
-        res.json({
-          success: false,
-          error: "Invalid covered OMT commission types",
-        });
-        return;
-      }
-      covered = parsed.data;
+    const rawDay = req.query.up_to_day;
+    const parsed = accountExpectedStatementParamsSchema.safeParse({
+      covered:
+        rawCovered === undefined
+          ? undefined
+          : (Array.isArray(rawCovered) ? rawCovered : [rawCovered])
+              .flatMap((v) => String(v).split(","))
+              .map((v) => v.trim())
+              .filter((v) => v !== ""),
+      up_to_day: rawDay,
+    });
+    if (!parsed.success) {
+      const badDay = parsed.error.issues.some((i) => i.path[0] === "up_to_day");
+      res.json({
+        success: false,
+        error: badDay
+          ? "Invalid up_to_day (YYYY-MM-DD)"
+          : "Invalid covered OMT commission types",
+      });
+      return;
     }
+    const covered: OmtCoveredTypesInput | undefined = parsed.data.covered;
+    const upToDay = parsed.data.up_to_day;
 
-    const statement = supplierService.getAccountExpectedStatement(
-      accountSupplierId,
-      covered,
-    );
+    const statement =
+      upToDay === undefined
+        ? supplierService.getAccountExpectedStatement(accountSupplierId, covered)
+        : supplierService.getAccountExpectedStatement(
+            accountSupplierId,
+            covered,
+            upToDay,
+          );
     res.json({ success: true, statement });
   } catch (error) {
     logger.error({ error }, "Get supplier account expected statement error");

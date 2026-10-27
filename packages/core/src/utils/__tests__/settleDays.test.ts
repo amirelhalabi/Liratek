@@ -364,3 +364,57 @@ describe("account_marks (T037, FR-016b)", () => {
     expect(at("2026-10-20").account_marks).toEqual([]);
   });
 });
+
+/**
+ * Owner scenario 2026-10-27 (artifact "OMT Pays the Shop"): OMT owes the
+ * shop, pays a little less, and the leftover stays on Mon 26. The $ / L
+ * badges and the % must measure the day in the direction its money goes,
+ * net of the day's own sends and receives: a day OMT still owes on is
+ * partly paid, not "PAID", and a day nobody paid is "OWED" even when a
+ * receive nets against a send. Written before the change; the first run
+ * failed (26 read PAID / PAID, 27 read PAID / null, 24 read PART).
+ */
+describe("buildSettleDays — currency badges follow the day's direction", () => {
+  const rows: SettleDayRow[] = [
+    // Mon 26: send $50 closed by netting, receive $350 got 262.80, receive
+    // 10,550,032 LBP got 10,000,000 → OMT still owes $87.20 + 550,032 LBP
+    row("2026-10-26", 50, 0, { usd: 50 }),
+    row("2026-10-26", -350, 0, { usd: 262.8 }),
+    row("2026-10-26", 0, -10_550_032, { lbp: 10_000_000 }),
+    // Tue 27 (today): untouched, OMT owes $300 net + 3,000,000 LBP
+    row("2026-10-27", 100, 0),
+    row("2026-10-27", -400, 0),
+    row("2026-10-27", 0, -3_000_000),
+    // Sat 24: shop owes $55 net (send 95, receive 40), nothing paid
+    row("2026-10-24", 95, 0),
+    row("2026-10-24", -40, 0),
+  ];
+  const days = buildSettleDays(rows, { today: "2026-10-27", month: "2026-10" });
+
+  it("26 Oct: OMT still owes part → PART in both currencies", () => {
+    const d = dayOf(days, "2026-10-26");
+    expect(d.state).toBe("PARTIAL");
+    expect(d.left_usd).toBe(-87.2);
+    expect(d.left_lbp).toBe(-550032);
+    expect(d.currency_state_usd).toBe("PART");
+    expect(d.currency_state_lbp).toBe("PART");
+    expect(d.paid_pct_usd).toBeCloseTo(212.8 / 300, 6);
+    expect(d.paid_pct_lbp).toBeCloseTo(10_000_000 / 10_550_032, 6);
+  });
+
+  it("27 Oct: nothing paid → OWED in both currencies, 0%", () => {
+    const d = dayOf(days, "2026-10-27");
+    expect(d.state).toBe("UNPAID");
+    expect(d.currency_state_usd).toBe("OWED");
+    expect(d.currency_state_lbp).toBe("OWED");
+    expect(d.paid_pct_usd).toBe(0);
+    expect(d.paid_pct_lbp).toBe(0);
+  });
+
+  it("24 Oct: a receive netting a send is not a payment → OWED, 0%", () => {
+    const d = dayOf(days, "2026-10-24");
+    expect(d.state).toBe("UNPAID");
+    expect(d.currency_state_usd).toBe("OWED");
+    expect(d.paid_pct_usd).toBe(0);
+  });
+});

@@ -8,7 +8,9 @@
  * - Two-currency open day: a ring showing the day's state only (red unpaid,
  *   amber partly paid) plus "$" (bottom start) and "L" (bottom end) badges,
  *   each coloured by its own currency (OWED red, PART amber, PAID green).
- * - Under an open circle: one line per open currency ("$200", "990k LBP").
+ * - Under an open circle: one line per open currency, short and unsigned
+ *   ("$391", "1.17B LBP"), red while still owed and green when it is a
+ *   credit; hovering shows the exact amounts (owner pick 2026-10-27).
  * - NONE and future days: a faint number, disabled.
  * - Top-end badge: picked ✓ > left-out "!" > "+" on hover/focus. A picked
  *   day with some transfers left out of it (`partlyPicked`) shows a
@@ -21,12 +23,19 @@
  */
 import { useId, type CSSProperties, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
-import type { SettleAccountMark, SettleCurrencyState, SettleDay, SettleFormatters } from "./types";
+import { isDayEnabled } from "./dayEnabled";
+import type {
+  SettleAccountMark,
+  SettleCurrencyState,
+  SettleDay,
+  SettleFormatters,
+} from "./types";
 
 const EMERALD = "#10b981";
 const ROSE = "rgba(251,113,133,.92)";
 const AMBER = "#fbbf24";
-const RING_MASK = "radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3.5px))";
+const RING_MASK =
+  "radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3.5px))";
 
 function ringStyle(background: string): CSSProperties {
   return { background, WebkitMask: RING_MASK, mask: RING_MASK };
@@ -40,6 +49,18 @@ const BADGE_CLASS: Record<SettleCurrencyState, string> = {
   OWED: "bg-rose-400",
   PART: "bg-amber-400",
   PAID: "bg-emerald-500",
+};
+
+type AmountTone = "owed" | "credit";
+
+/** Positive = still owed (red, like the ring); negative = a credit (green). */
+function tone(amount: number): AmountTone {
+  return amount < 0 ? "credit" : "owed";
+}
+
+const TONE_CLASS: Record<AmountTone, string> = {
+  owed: "text-rose-300",
+  credit: "text-emerald-400",
 };
 
 const CORNER =
@@ -86,7 +107,7 @@ export function DayCircle({
   const state = day.state;
   const isOpen = !isFuture && (state === "UNPAID" || state === "PARTIAL");
   const isSettled = !isFuture && state === "SETTLED";
-  const enabled = !isFuture && state !== "NONE";
+  const enabled = isDayEnabled(day, isFuture);
   const pickable = enabled && day.selectable;
 
   const pu = day.paid_pct_usd;
@@ -111,9 +132,14 @@ export function DayCircle({
           style={ringStyle(state === "PARTIAL" ? AMBER : ROSE)}
         />
       );
-      pctTitles.push(t("accountSettle.calendar.pctPaid", { currency: "$", pct: toPct(pu) }));
       pctTitles.push(
-        t("accountSettle.calendar.pctPaid", { currency: t("accountSettle.calendar.lbp"), pct: toPct(pl) }),
+        t("accountSettle.calendar.pctPaid", { currency: "$", pct: toPct(pu) }),
+      );
+      pctTitles.push(
+        t("accountSettle.calendar.pctPaid", {
+          currency: t("accountSettle.calendar.lbp"),
+          pct: toPct(pl),
+        }),
       );
     } else if (pu !== null || pl !== null) {
       const pct = toPct((pu ?? pl) as number);
@@ -122,7 +148,9 @@ export function DayCircle({
           data-ring="pct"
           aria-hidden="true"
           className="absolute inset-0 rounded-full"
-          style={ringStyle(`conic-gradient(from 0deg, ${EMERALD} 0 ${pct}%, ${ROSE} ${pct}% 100%)`)}
+          style={ringStyle(
+            `conic-gradient(from 0deg, ${EMERALD} 0 ${pct}%, ${ROSE} ${pct}% 100%)`,
+          )}
         />
       );
       if (state === "PARTIAL" && pct > 0 && pct < 100) pctText = `${pct}%`;
@@ -158,13 +186,40 @@ export function DayCircle({
   const leftParts: string[] = [];
   if (showUsd) leftParts.push(formatters.formatUsd(day.left_usd));
   if (showLbp) leftParts.push(formatters.formatLbp(day.left_lbp));
+  const exactLines: string[] = [];
+  if (showUsd)
+    exactLines.push(
+      t(
+        tone(day.left_usd) === "credit"
+          ? "accountSettle.calendar.amount_credit"
+          : "accountSettle.calendar.amount_owed",
+        {
+          amount: formatters.formatUsd(Math.abs(day.left_usd)),
+        },
+      ),
+    );
+  if (showLbp)
+    exactLines.push(
+      t(
+        tone(day.left_lbp) === "credit"
+          ? "accountSettle.calendar.amount_credit"
+          : "accountSettle.calendar.amount_owed",
+        {
+          amount: formatters.formatLbp(Math.abs(day.left_lbp)),
+        },
+      ),
+    );
+  const exactTitle = exactLines.join("\n");
   const baseAriaLabel = leftParts.length
     ? t("accountSettle.calendar.dayAriaLeft", {
         date: dateLabel,
         state: stateWord,
         amounts: leftParts.join(" + "),
       })
-    : t("accountSettle.calendar.dayAria", { date: dateLabel, state: stateWord });
+    : t("accountSettle.calendar.dayAria", {
+        date: dateLabel,
+        state: stateWord,
+      });
   const isPartlyPicked = picked && partlyPicked;
   const ariaLabel = isPartlyPicked
     ? t("accountSettle.calendar.dayAriaPartlyPicked", { label: baseAriaLabel })
@@ -175,7 +230,9 @@ export function DayCircle({
   const markText = (m: SettleAccountMark): string => {
     if (formatMark) return formatMark(m);
     const amount =
-      m.currency === "USD" ? formatters.formatUsd(Math.abs(m.amount)) : formatters.formatLbp(Math.abs(m.amount));
+      m.currency === "USD"
+        ? formatters.formatUsd(Math.abs(m.amount))
+        : formatters.formatLbp(Math.abs(m.amount));
     const ref = m.ref.startsWith("#") ? m.ref : `#${m.ref}`;
     return m.origin === "UNDO"
       ? t("accountSettle.calendar.markOwed", { amount, ref })
@@ -261,7 +318,11 @@ export function DayCircle({
     >
       <span
         className={`relative grid size-[42px] place-items-center rounded-full motion-safe:transition-[transform,background-color] motion-safe:duration-150 ${enabled ? "motion-safe:group-hover:scale-[1.06]" : ""} ${discClass}`}
-        style={focused ? { boxShadow: "0 0 0 2px #0f172a, 0 0 0 3.5px #94a3b8" } : undefined}
+        style={
+          focused
+            ? { boxShadow: "0 0 0 2px #0f172a, 0 0 0 3.5px #94a3b8" }
+            : undefined
+        }
       >
         {isToday && (
           <span
@@ -271,8 +332,13 @@ export function DayCircle({
           />
         )}
         {ring}
-        <span className="relative flex flex-col items-center gap-0.5 leading-none" aria-hidden="true">
-          <span className={`text-[13px] tabular-nums ${numberClass}`}>{dayNumber}</span>
+        <span
+          className="relative flex flex-col items-center gap-0.5 leading-none"
+          aria-hidden="true"
+        >
+          <span className={`text-[13px] tabular-nums ${numberClass}`}>
+            {dayNumber}
+          </span>
           {isSettled && (
             <svg
               data-settled-check
@@ -282,7 +348,11 @@ export function DayCircle({
               <path d="M2.5 6.3l2.3 2.3 4.7-5" />
             </svg>
           )}
-          {pctText && <span className="font-mono text-[8.5px] font-semibold text-amber-400">{pctText}</span>}
+          {pctText && (
+            <span className="font-mono text-[8.5px] font-semibold text-amber-400">
+              {pctText}
+            </span>
+          )}
         </span>
         {isOpen && twoCurrency && day.currency_state_usd && (
           <span
@@ -320,7 +390,10 @@ export function DayCircle({
               className="pointer-events-none absolute bottom-full start-0 z-20 mb-2 hidden w-max max-w-[220px] flex-col gap-0.5 rounded-lg border border-slate-600 bg-slate-800 px-2 py-1 text-start text-[11px] font-medium leading-snug whitespace-normal text-slate-200 shadow-lg group-hover:flex group-focus-visible:flex"
             >
               {marks.map((m, i) => (
-                <span key={`${m.origin}-${m.ref}-${m.currency}-${i}`} className="block">
+                <span
+                  key={`${m.origin}-${m.ref}-${m.currency}-${i}`}
+                  className="block"
+                >
                   {markText(m)}
                 </span>
               ))}
@@ -337,10 +410,24 @@ export function DayCircle({
             </span>
           )}
           {(showUsd || showLbp) && (
-            <span data-amounts className={`flex flex-col items-center gap-px ${picked ? "text-white" : "text-slate-400"}`}>
-              {showUsd && <span>{formatters.formatUsdShort(day.left_usd)}</span>}
+            <span
+              data-amounts
+              title={exactTitle}
+              className="flex flex-col items-center gap-px"
+            >
+              {showUsd && (
+                <span
+                  data-tone={tone(day.left_usd)}
+                  className={TONE_CLASS[tone(day.left_usd)]}
+                >
+                  {formatters.formatUsdShort(day.left_usd)}
+                </span>
+              )}
               {showLbp && (
-                <span>
+                <span
+                  data-tone={tone(day.left_lbp)}
+                  className={TONE_CLASS[tone(day.left_lbp)]}
+                >
                   {formatters.formatLbpShort(day.left_lbp)}{" "}
                   <i className="ms-px text-[8px] font-bold tracking-wide text-slate-400 not-italic">
                     {t("accountSettle.calendar.lbp")}

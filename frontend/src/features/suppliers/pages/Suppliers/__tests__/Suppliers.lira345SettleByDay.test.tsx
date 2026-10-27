@@ -102,7 +102,13 @@ const BASE = {
 };
 const KATSH = { ...BASE, id: 4, name: "Katsh", provider: "Katsh" };
 const LOTO = { ...BASE, id: 5, name: "Loto Liban", provider: "LOTO" };
-const ACME = { ...BASE, id: 9, name: "Acme Phones", provider: null, is_system: 0 };
+const ACME = {
+  ...BASE,
+  id: 9,
+  name: "Acme Phones",
+  provider: null,
+  is_system: 0,
+};
 
 const BILL = {
   id: 801,
@@ -120,7 +126,12 @@ const BILL = {
   supplier_owed: 0,
   created_at: "2026-10-03T10:00:00Z",
 };
-const SALE = { ...BILL, id: 802, service_type: "SEND" as const, supplier_owed: 9 };
+const SALE = {
+  ...BILL,
+  id: 802,
+  service_type: "SEND" as const,
+  supplier_owed: 9,
+};
 
 function renderPage() {
   const queryClient = new QueryClient({
@@ -162,10 +173,16 @@ describe("Suppliers page — settle by day for suppliers outside the OMT account
     renderPage();
     fireEvent.click(await screen.findByTestId("supplier-tile-Katsh"));
 
-    expect(await screen.findByText("Commission Settlement")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Commission Settlement"),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Pay / Receive")).toBeNull();
     await waitFor(() =>
-      expect(screen.getByText("Bills only. Top-ups and transfers are settled with Settle Account.")).toBeInTheDocument(),
+      expect(
+        screen.getByText(
+          "Bills only. Top-ups and transfers are settled with Settle Account.",
+        ),
+      ).toBeInTheDocument(),
     );
     // The bill is on the tick list; the sale is not (it is a calendar row).
     expect(await screen.findByTestId("settle-row-801")).toBeInTheDocument();
@@ -182,12 +199,17 @@ describe("Suppliers page — settle by day for suppliers outside the OMT account
     expect(screen.queryByText(/Remove credit/)).toBeNull();
   });
 
-  it("a product supplier: Purchases stays, Pay / Receive goes, Settle Account is offered", async () => {
+  // Owner request 2026-10-27: with Pay / Receive gone, Purchases would be
+  // the only tab, so the tab strip is not shown; the purchase history shows
+  // straight under the header. Updated before the change; the first run
+  // failed on the strip's "supplier-tab-items" button still being there.
+  it("a product supplier: purchase history with no one-tab strip, Pay / Receive goes, Settle Account is offered", async () => {
     renderPage();
     fireEvent.click(await screen.findByTestId("supplier-category-products"));
     fireEvent.click(await screen.findByTestId("supplier-tile-9"));
 
-    expect(await screen.findByText("Purchases")).toBeInTheDocument();
+    expect(await screen.findByText("Purchase History")).toBeInTheDocument();
+    expect(screen.queryByTestId("supplier-tab-items")).toBeNull();
     expect(screen.queryByText("Pay / Receive")).toBeNull();
     fireEvent.click(screen.getByTestId("supplier-settle-by-day-button"));
     const title = await screen.findByText("Settle Acme Phones account");
@@ -200,6 +222,8 @@ describe("Suppliers page — settle by day for suppliers outside the OMT account
     expect(await screen.findByText("Pay / Receive")).toBeInTheDocument();
     expect(screen.queryByTestId("supplier-settle-by-day-button")).toBeNull();
     // Sanity: the header rendered for Loto.
-    expect(within(document.body).getAllByText("Loto Liban").length).toBeGreaterThan(0);
+    expect(
+      within(document.body).getAllByText("Loto Liban").length,
+    ).toBeGreaterThan(0);
   });
 });

@@ -12,8 +12,8 @@
  *     DAY_NEW the one-currency paid-share ring; today is never picked by
  *     default; a future day cannot be picked.
  *  2. The operator clears the pick, picks both days, then unpicks DAY_OLD:
- *     it gets the amber "!" (older open day left out). Tapping DAY_NEW also
- *     opens its day details, listing its two transfers ticked. The OMT
+ *     it gets the amber "!" (older open day left out). "See transactions"
+ *     lists DAY_NEW's two transfers ticked (a day tap only picks). The OMT
  *     credit is set to 0 (other specs leave credit on the account).
  *  3. The payment box is pre-filled with what DAY_NEW nets to (the receive
  *     nets inside the picked day): SEND owed − R. Nothing in LBP is owed.
@@ -341,7 +341,12 @@ test("lira-web-081 OMT settle by day: open days on the calendar, unpick one, set
     "true",
   );
   const tomorrow = shiftDay(today, 1);
-  if (tomorrow.slice(0, 7) === today.slice(0, 7)) {
+  // A week with no tappable day is hidden (owner 2026-10-27): when today is
+  // the last day of its week, tomorrow's week may not be shown at all.
+  if (
+    tomorrow.slice(0, 7) === today.slice(0, 7) &&
+    (await sheet.locator(`[data-day="${tomorrow}"]`).count()) > 0
+  ) {
     await expect(dayButton(sheet, tomorrow)).toBeDisabled();
     await expect(dayButton(sheet, tomorrow)).toHaveAttribute(
       "aria-label",
@@ -393,17 +398,27 @@ test("lira-web-081 OMT settle by day: open days on the calendar, unpick one, set
   await newButton.click();
   await expect(newButton).toHaveAttribute("aria-pressed", "true");
   await expect(bar).toContainText("2 days picked");
-  // Tapping a day also opens its details (FR-016): DAY_NEW's two transfers,
-  // each with a ticked box (the day is picked, both are open).
-  const details = sheet.getByTestId("settle-day-details");
-  await expect(details).toBeVisible();
+  // Owner 2026-10-27 — a day tap only picks it (no inline day details).
+  // DAY_NEW's two transfers are in "See transactions", each with a ticked
+  // box (the day is picked, both are open).
+  await expect(sheet.getByTestId("settle-day-details")).toHaveCount(0);
+  await sheet.getByTestId("settle-see-transactions").click();
+  const table = sheet.getByTestId("settle-transactions-panel");
+  await expect(table).toBeVisible();
   for (const ref of newRefs) {
     await expect(
-      details
-        .getByTestId(`settle-day-row-${ref.kind}:${ref.id}`)
+      table
+        .getByTestId(`settle-tx-row-${ref.kind}:${ref.id}`)
         .getByRole("checkbox"),
     ).toBeChecked({ timeout: 15_000 });
   }
+  // Close it (× wide, ← below 900px where it covers the sheet).
+  await table
+    .getByRole("button", {
+      name: /^(Close transactions|Back to the calendar)$/,
+    })
+    .click();
+  await expect(table).toHaveCount(0);
 
   shown = await showMonthOf(sheet, shown, DAY_OLD);
   await oldButton.click();
@@ -461,11 +476,9 @@ test("lira-web-081 OMT settle by day: open days on the calendar, unpick one, set
   ).toHaveText("$0.00");
 
   // What's new (rule 30): the sheet with the calendar, on DAY_NEW's month.
-  // The details panel still shows DAY_OLD (the last day tapped): close it
-  // by ITS Close button (the sheet has its own "Close") so the shot shows
-  // the calendar alone.
-  await details.getByRole("button", { name: "Close", exact: true }).click();
-  await expect(details).toHaveCount(0);
+  // No day details to close (owner 2026-10-27): the shot shows the
+  // calendar alone.
+  await expect(sheet.getByTestId("settle-day-details")).toHaveCount(0);
   shown = await showMonthOf(sheet, shown, DAY_NEW);
   await sheet
     .getByTestId("supplier-account-settle-calendar")

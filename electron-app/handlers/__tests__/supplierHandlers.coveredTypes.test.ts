@@ -78,6 +78,28 @@ describe("supplierHandlers — LIRA-256 covered types", () => {
       );
     });
 
+    // 2026-10-27 (owner option B) — optional 3rd argument: the shop's day
+    // the statement covers. Not proven failing-first (written after the
+    // handler change).
+    it("forwards (id, covered, upToDay) when a day is given", async () => {
+      await call("suppliers:account-expected-statement", 7, undefined, "2026-10-26");
+      expect(service.getAccountExpectedStatement).toHaveBeenCalledWith(
+        7,
+        undefined,
+        "2026-10-26",
+      );
+    });
+
+    it.each([["2026-13-01"], ["2026-02-30"], ["26-10-2026"], [20261026]])(
+      "rejects the day %j without calling the service",
+      async (bad) => {
+        await expect(
+          call("suppliers:account-expected-statement", 7, undefined, bad),
+        ).rejects.toThrow();
+        expect(service.getAccountExpectedStatement).not.toHaveBeenCalled();
+      },
+    );
+
     it.each([[["BOGUS"]], [[]]])(
       "rejects %j without calling the service",
       async (bad) => {

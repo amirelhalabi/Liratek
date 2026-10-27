@@ -56,6 +56,7 @@ import type {
   SaleProcessPayload,
   // LIRA-256 — OMT statement covered commission types (core schema input).
   OmtCoveredTypesInput,
+  AccountExpectedStatementParamsInput,
   // LIRA-343 — the calendar's month read (core schema input).
   AccountMonthInput,
   // LIRA-343 — one shop day's details (core schema input).
@@ -782,14 +783,17 @@ contextBridge.exposeInMainWorld("api", {
         shopDay,
       ),
     // LIRA-256 — optional covered OMT commission types (undefined = all).
+    // 2026-10-27 — optional shop day (YYYY-MM-DD) the statement covers.
     getAccountExpectedStatement: (
       accountSupplierId: number,
       coveredTypes?: OmtCoveredTypesInput,
+      upToDay?: AccountExpectedStatementParamsInput["up_to_day"],
     ) =>
       ipcRenderer.invoke(
         "suppliers:account-expected-statement",
         accountSupplierId,
         coveredTypes,
+        upToDay,
       ),
     create: (data: {
       name: string;

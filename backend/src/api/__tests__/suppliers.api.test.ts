@@ -685,6 +685,39 @@ describe("Suppliers REST routes", () => {
           expect(spy).not.toHaveBeenCalled();
         },
       );
+
+      // 2026-10-27 (owner option B) — `?up_to_day=YYYY-MM-DD`: the shop's
+      // day OMT's SMS covers, same core schema as the IPC handler.
+      it("up_to_day is forwarded as the 3rd argument", async () => {
+        const spy = jest
+          .spyOn(supplierService, "getAccountExpectedStatement")
+          .mockReturnValue(statement as any);
+        const res = await request(app)
+          .get(
+            "/api/suppliers/3/account-expected-statement?covered=INTRA&up_to_day=2026-10-26",
+          )
+          .set("x-test-role", "staff");
+        expect(res.body).toEqual({ success: true, statement });
+        expect(spy).toHaveBeenCalledWith(3, ["INTRA"], "2026-10-26");
+      });
+
+      it.each([["2026-13-01"], ["2026-02-30"], ["26-10-2026"], [""]])(
+        "up_to_day=%s → 200 { success: false } and the service is not called",
+        async (value) => {
+          const spy = jest
+            .spyOn(supplierService, "getAccountExpectedStatement")
+            .mockReturnValue(statement as any);
+          const res = await request(app)
+            .get(
+              `/api/suppliers/3/account-expected-statement?up_to_day=${value}`,
+            )
+            .set("x-test-role", "staff");
+          expect(res.status).toBe(200);
+          expect(res.body.success).toBe(false);
+          expect(typeof res.body.error).toBe("string");
+          expect(spy).not.toHaveBeenCalled();
+        },
+      );
     });
 
     // Not proven failing-first: forwarding is automatic once the schema key

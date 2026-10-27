@@ -2,7 +2,7 @@ import { z } from "zod";
 import { counterpartyDiscountInputSchema } from "./counterparty.js";
 import { isWithinShortfallMax, SHORTFALL_MAX } from "./exchange.js";
 import { OMT_COVERED_TYPE_VALUES } from "../utils/omtCoveredTypes.js";
-import { clientDayInputSchema } from "./common.js";
+import { clientDayInputSchema, localDayFormatSchema } from "./common.js";
 import {
   ACCOUNT_CREDIT_REASON_MAX,
   ACCOUNT_CREDIT_REASON_MIN,
@@ -470,6 +470,31 @@ export const accountDaySchema = z.object({
   day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "day must be YYYY-MM-DD"),
 });
 export type AccountDayInput = z.infer<typeof accountDaySchema>;
+
+// 2026-10-27 (owner option B) — the params of the "Check against OMT's
+// statement" read (`suppliers:account-expected-statement` and
+// `GET /api/suppliers/:id/account-expected-statement`, rule 14): the
+// covered OMT commission types (LIRA-256) and the shop's day the statement
+// covers, inclusive. The day is the CLIENT's (rule 27) and must be a real
+// calendar date; both are optional, absent = the old read.
+export const accountExpectedStatementParamsSchema = z.object({
+  covered: omtCoveredTypesSchema.optional(),
+  up_to_day: localDayFormatSchema
+    .refine((d) => {
+      const [y, m, day] = d.split("-").map(Number);
+      const t = new Date(Date.UTC(y, m - 1, day));
+      return (
+        t.getUTCFullYear() === y &&
+        t.getUTCMonth() === m - 1 &&
+        t.getUTCDate() === day
+      );
+    }, "up_to_day must be a real YYYY-MM-DD day")
+    .optional(),
+});
+/** What a caller sends (adapters, preload). */
+export type AccountExpectedStatementParamsInput = z.input<
+  typeof accountExpectedStatementParamsSchema
+>;
 
 // LIRA-343 T033a (FR-016c) — the supplier Transactions window's optional
 // from–to filter, by the SHOP's day (`YYYY-MM-DD`, rule 27: the repository

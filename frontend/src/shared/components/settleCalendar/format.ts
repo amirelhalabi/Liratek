@@ -24,22 +24,49 @@ export function defaultFormatLbp(amount: number): string {
   return `${sign(amount)}${formatNumber(Math.round(Math.abs(amount)))} LBP`; // i18n-exempt: currency code
 }
 
-export function defaultFormatUsdShort(amount: number): string {
+/**
+ * Owner pick 2026-10-27 ("short numbers in colour"): the amount under a day
+ * is short and UNSIGNED — the calendar colours it (red owed, green credit).
+ * Each step is [unit size, suffix, decimals]; a value that rounds up to 1,000
+ * of its unit moves to the next one ("999.96k" is "1m", not "1,000k").
+ */
+type ShortStep = readonly [size: number, suffix: string, decimals: number];
+
+function compact(amount: number, steps: readonly ShortStep[]): string {
   const abs = Math.abs(amount);
-  const whole = Math.abs(abs - Math.round(abs)) < 0.005;
-  const n = whole
-    ? formatNumber(Math.round(abs))
-    : formatNumber(abs, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return `${sign(amount)}$${n}`;
+  for (let i = 0; i < steps.length; i++) {
+    const [size, suffix, decimals] = steps[i]!;
+    const next = steps[i + 1];
+    const factor = 10 ** decimals;
+    const value = Math.round((abs / size) * factor) / factor;
+    if (next && value * size >= next[0]) continue;
+    return `${formatNumber(value, { maximumFractionDigits: decimals })}${suffix}`;
+  }
+  return "";
 }
 
+const USD_SHORT: readonly ShortStep[] = [
+  [1, "", 0],
+  [1_000, "k", 1],
+  [1_000_000, "m", 1],
+  [1_000_000_000, "B", 2],
+];
+
+const LBP_SHORT: readonly ShortStep[] = [
+  [1, "", 0],
+  [1_000, "k", 0],
+  [1_000_000, "m", 1],
+  [1_000_000_000, "B", 2],
+];
+
+/** Under a circle, unsigned: `$391`, `$6.5k`. */
+export function defaultFormatUsdShort(amount: number): string {
+  return `$${compact(amount, USD_SHORT)}`;
+}
+
+/** Under a circle, unsigned, number part only: `990k`, `153.2m`, `1.17B`. */
 export function defaultFormatLbpShort(amount: number): string {
-  const abs = Math.round(Math.abs(amount));
-  let body: string;
-  if (abs < 1000) body = formatNumber(abs);
-  else if (abs < 1_000_000) body = `${formatNumber(Math.round(abs / 1000))}k`;
-  else body = `${formatNumber(abs / 1_000_000, { maximumFractionDigits: 2 })}m`;
-  return `${sign(amount)}${body}`;
+  return compact(amount, LBP_SHORT);
 }
 
 export const DEFAULT_SETTLE_FORMATTERS: SettleFormatters = {

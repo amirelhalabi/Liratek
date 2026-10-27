@@ -335,6 +335,9 @@ export function useSupplierAccountExpectedStatementQuery(
   accountSupplierId: number | null,
   /** LIRA-256 — covered OMT commission types; undefined = all types. */
   coveredTypes?: OmtCoveredType[],
+  /** 2026-10-27 — the shop's day (YYYY-MM-DD, the browser's, rule 27) OMT's
+   *  SMS covers, inclusive; undefined = every open row. */
+  upToDay?: string,
 ) {
   const api = useApi();
   return useQuery({
@@ -343,14 +346,14 @@ export function useSupplierAccountExpectedStatementQuery(
     queryKey: [
       ...SUPPLIER_KEYS.accountExpectedStatement(accountSupplierId ?? 0),
       coveredTypes ? normaliseCoveredTypes(coveredTypes).join(",") : "ALL",
+      upToDay ?? "ALL_DAYS",
     ],
     queryFn: () =>
-      (coveredTypes === undefined
-        ? api.getSupplierAccountExpectedStatement(accountSupplierId!)
-        : api.getSupplierAccountExpectedStatement(
-            accountSupplierId!,
-            coveredTypes,
-          )) as Promise<AccountExpectedStatement>,
+      api.getSupplierAccountExpectedStatement(
+        accountSupplierId!,
+        coveredTypes,
+        upToDay,
+      ) as Promise<AccountExpectedStatement>,
     enabled: !!accountSupplierId,
   });
 }

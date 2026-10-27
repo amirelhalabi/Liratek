@@ -265,17 +265,8 @@ async function pickOnlyDay(sheet: Locator, today: string, day: string) {
   await button.click();
   await expect(button).toHaveAttribute("aria-pressed", "true");
   await expect(bar).toContainText("1 day picked");
-  await closeDayDetails(sheet);
-}
-
-/** LIRA-343 — tapping a day also opens its details panel (inline, under the
- *  calendar; it grows once its rows load). Close it — by ITS Close button,
- *  not the sheet's own "Close" — so the payment box below stays put. */
-async function closeDayDetails(sheet: Locator) {
-  const details = sheet.getByTestId("settle-day-details");
-  await expect(details).toBeVisible();
-  await details.getByRole("button", { name: "Close", exact: true }).click();
-  await expect(details).toHaveCount(0);
+  // Owner 2026-10-27 — a day tap only picks it: no inline day details.
+  await expect(sheet.getByTestId("settle-day-details")).toHaveCount(0);
 }
 
 /** The OMT credit line pre-fills min(owed, credit); other specs leave

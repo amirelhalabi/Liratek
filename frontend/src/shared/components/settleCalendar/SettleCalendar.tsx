@@ -17,6 +17,7 @@ import { DirIcon } from "@liratek/ui/components/ui/DirIcon";
 import { formatNumber } from "@liratek/ui/i18n/format";
 import { useFormat } from "@/i18n/useFormat";
 import { DayCircle } from "./DayCircle";
+import { isDayEnabled } from "./dayEnabled";
 import { SettleLegend } from "./SettleLegend";
 import { DEFAULT_SETTLE_FORMATTERS, joinCurrencyAmounts } from "./format";
 import type { SettleAccountMark, SettleDay, SettleFormatters } from "./types";
@@ -41,7 +42,9 @@ export interface SettleCalendarProps {
   /** The day whose details are shown (outlined). */
   focusedDay?: string | null;
   monthLeft: { usd: number; lbp: number };
-  olderUnselected?: { count: number; monthLabel: string; onOpen: () => void } | undefined;
+  olderUnselected?:
+    | { count: number; monthLabel: string; onOpen: () => void }
+    | undefined;
   formatters?: Partial<SettleFormatters> | undefined;
   /** Overrides the default ↺ tooltip wording. */
   formatMark?: ((mark: SettleAccountMark) => string) | undefined;
@@ -54,7 +57,12 @@ export interface SettleCalendarProps {
    * (`SettleSheetLayout`'s `panelId`). Hidden when omitted.
    */
   seeTransactions?:
-    | { count: number; expanded: boolean; controlsId: string; onToggle: () => void }
+    | {
+        count: number;
+        expanded: boolean;
+        controlsId: string;
+        onToggle: () => void;
+      }
     | undefined;
 }
 
@@ -103,7 +111,10 @@ export function SettleCalendar({
 }: SettleCalendarProps) {
   const { t } = useTranslation("suppliers");
   const fmt = useFormat();
-  const formatters: SettleFormatters = { ...DEFAULT_SETTLE_FORMATTERS, ...formatterOverrides };
+  const formatters: SettleFormatters = {
+    ...DEFAULT_SETTLE_FORMATTERS,
+    ...formatterOverrides,
+  };
 
   const [yStr, mStr] = month.split("-");
   const year = Number(yStr);
@@ -122,15 +133,46 @@ export function SettleCalendar({
   while (slots.length % 7 !== 0) slots.push(null);
 
   const keyOf = (d: number) => `${month}-${pad2(d)}`;
+  const dayData = (key: string) => byDay.get(key) ?? emptyDay(key);
 
-  // Labels: local-midnight Date objects for display only (no day bucketing).
-  const monthName = fmt.formatDate(new Date(year, monthIndex, 1), { month: "long", year: "numeric" });
-  // 1 Jan 2024 was a Monday, 7 Jan 2024 a Sunday.
-  const weekdays = Array.from({ length: 7 }, (_, i) =>
-    fmt.formatDate(new Date(2024, 0, (weekStartsOn === 1 ? 1 : 7) + i), { weekday: "short" }),
+  // Owner request 2026-10-27: hide a week in which no day can be tapped. A
+  // week whose day carries a ↺ account mark stays, so the mark is never lost.
+  // A month with no such week keeps every week (never an empty grid).
+  const keepsWeek = (d: number) => {
+    const data = dayData(keyOf(d));
+    return (
+      isDayEnabled(data, keyOf(d) > today) || data.account_marks.length > 0
+    );
+  };
+  const weekHasTappable = (w: number) =>
+    slots.slice(w * 7, w * 7 + 7).some((d) => d !== null && keepsWeek(d));
+  const weekCount = slots.length / 7;
+  const shownWeeks = Array.from({ length: weekCount }, (_, w) => w).filter(
+    weekHasTappable,
+  );
+  const visibleWeeks = new Set(
+    shownWeeks.length
+      ? shownWeeks
+      : Array.from({ length: weekCount }, (_, w) => w),
   );
 
-  const monthAmounts = joinCurrencyAmounts(monthLeft.usd, monthLeft.lbp, formatters);
+  // Labels: local-midnight Date objects for display only (no day bucketing).
+  const monthName = fmt.formatDate(new Date(year, monthIndex, 1), {
+    month: "long",
+    year: "numeric",
+  });
+  // 1 Jan 2024 was a Monday, 7 Jan 2024 a Sunday.
+  const weekdays = Array.from({ length: 7 }, (_, i) =>
+    fmt.formatDate(new Date(2024, 0, (weekStartsOn === 1 ? 1 : 7) + i), {
+      weekday: "short",
+    }),
+  );
+
+  const monthAmounts = joinCurrencyAmounts(
+    monthLeft.usd,
+    monthLeft.lbp,
+    formatters,
+  );
 
   const navClass =
     "grid size-[30px] place-items-center rounded-full border border-slate-700 bg-transparent text-slate-300 enabled:hover:bg-slate-800 enabled:hover:text-white disabled:cursor-default disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 motion-safe:transition-colors";
@@ -147,7 +189,10 @@ export function SettleCalendar({
         >
           <DirIcon icon={ChevronLeft} className="size-3.5" aria-hidden="true" />
         </button>
-        <span className="text-base font-bold tracking-tight text-white" aria-live="polite">
+        <span
+          className="text-base font-bold tracking-tight text-white"
+          aria-live="polite"
+        >
           {monthName}
         </span>
         <button
@@ -157,7 +202,11 @@ export function SettleCalendar({
           disabled={!onNextMonth}
           aria-label={t("accountSettle.calendar.nextMonth")}
         >
-          <DirIcon icon={ChevronRight} className="size-3.5" aria-hidden="true" />
+          <DirIcon
+            icon={ChevronRight}
+            className="size-3.5"
+            aria-hidden="true"
+          />
         </button>
       </div>
 
@@ -171,37 +220,71 @@ export function SettleCalendar({
           </div>
         ))}
         {slots.map((d, i) => {
+          if (!visibleWeeks.has(Math.floor(i / 7))) return null;
           if (d === null) {
             return <div key={`blank-${i}`} data-blank aria-hidden="true" />;
           }
           const key = keyOf(d);
           const col = i % 7;
-          const data = byDay.get(key) ?? emptyDay(key);
+          const data = dayData(key);
           const isFuture = key > today;
           const isPicked = picked.has(key);
-          const prevPicked = col > 0 && slots[i - 1] !== null && picked.has(keyOf(slots[i - 1] as number));
-          const nextPicked = col < 6 && slots[i + 1] != null && picked.has(keyOf(slots[i + 1] as number));
-          const bandEdge = !prevPicked && !nextPicked ? "both" : !prevPicked ? "start" : !nextPicked ? "end" : "mid";
+          const prevPicked =
+            col > 0 &&
+            slots[i - 1] !== null &&
+            picked.has(keyOf(slots[i - 1] as number));
+          const nextPicked =
+            col < 6 &&
+            slots[i + 1] != null &&
+            picked.has(keyOf(slots[i + 1] as number));
+          const bandEdge =
+            !prevPicked && !nextPicked
+              ? "both"
+              : !prevPicked
+                ? "start"
+                : !nextPicked
+                  ? "end"
+                  : "mid";
           return (
-            <div key={key} data-day={key} className="relative flex items-start justify-center px-0.5 py-px">
+            <div
+              key={key}
+              data-day={key}
+              className="relative flex items-start justify-center px-0.5 py-px"
+            >
               {isPicked && (
                 <span
                   data-band={bandEdge}
                   aria-hidden="true"
                   className={`pointer-events-none absolute top-px h-[46px] bg-slate-200/10 ${
-                    bandEdge === "both" ? "rounded-full" : bandEdge === "start" ? "rounded-s-full" : bandEdge === "end" ? "rounded-e-full" : ""
+                    bandEdge === "both"
+                      ? "rounded-full"
+                      : bandEdge === "start"
+                        ? "rounded-s-full"
+                        : bandEdge === "end"
+                          ? "rounded-e-full"
+                          : ""
                   }`}
                   style={{
-                    insetInlineStart: bandEdge === "start" || bandEdge === "both" ? "calc(50% - 25px)" : 0,
-                    insetInlineEnd: bandEdge === "end" || bandEdge === "both" ? "calc(50% - 25px)" : 0,
-                    boxShadow: "inset 0 1px 0 rgba(226,232,240,.14), inset 0 -1px 0 rgba(226,232,240,.14)",
+                    insetInlineStart:
+                      bandEdge === "start" || bandEdge === "both"
+                        ? "calc(50% - 25px)"
+                        : 0,
+                    insetInlineEnd:
+                      bandEdge === "end" || bandEdge === "both"
+                        ? "calc(50% - 25px)"
+                        : 0,
+                    boxShadow:
+                      "inset 0 1px 0 rgba(226,232,240,.14), inset 0 -1px 0 rgba(226,232,240,.14)",
                   }}
                 />
               )}
               <DayCircle
                 day={data}
                 dayNumber={d}
-                dateLabel={fmt.formatDate(new Date(year, monthIndex, d), { day: "numeric", month: "long" })}
+                dateLabel={fmt.formatDate(new Date(year, monthIndex, d), {
+                  day: "numeric",
+                  month: "long",
+                })}
                 isToday={key === today}
                 isFuture={isFuture}
                 picked={isPicked}
@@ -220,7 +303,10 @@ export function SettleCalendar({
 
       <SettleLegend />
 
-      <div data-testid="settle-month-left" className="text-center text-xs text-slate-400">
+      <div
+        data-testid="settle-month-left"
+        className="text-center text-xs text-slate-400"
+      >
         {monthAmounts ? (
           <Trans
             t={t}
@@ -242,7 +328,9 @@ export function SettleCalendar({
             aria-controls={seeTransactions.controlsId}
             data-testid="settle-see-transactions"
             className={`inline-flex items-center gap-2 rounded-full border bg-slate-800 px-3.5 py-1.5 text-[13px] font-semibold text-white hover:bg-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 motion-safe:transition-colors ${
-              seeTransactions.expanded ? "border-emerald-500" : "border-slate-600"
+              seeTransactions.expanded
+                ? "border-emerald-500"
+                : "border-slate-600"
             }`}
           >
             <List className="size-[15px]" aria-hidden="true" />
@@ -272,12 +360,19 @@ export function SettleCalendar({
             onClick={olderUnselected.onOpen}
             className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/20 px-2.5 py-0.5 text-[11.5px] font-semibold text-amber-400 hover:bg-amber-500/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 motion-safe:transition-colors"
           >
-            <span aria-hidden="true" className="size-1.5 rounded-full bg-amber-400" />
+            <span
+              aria-hidden="true"
+              className="size-1.5 rounded-full bg-amber-400"
+            />
             {t("accountSettle.calendar.olderUnselected", {
               count: olderUnselected.count,
               month: olderUnselected.monthLabel,
             })}
-            <DirIcon icon={ChevronRight} className="size-3" aria-hidden="true" />
+            <DirIcon
+              icon={ChevronRight}
+              className="size-3"
+              aria-hidden="true"
+            />
           </button>
         </div>
       )}

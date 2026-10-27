@@ -115,10 +115,14 @@ export class SupplierService {
   getAccountExpectedStatement(
     accountSupplierId: number,
     coveredTypes?: OmtCoveredType[],
+    /** 2026-10-27 — the shop's day OMT's SMS covers (inclusive); absent =
+     *  everything open (unchanged). */
+    upToDay?: string,
   ): AccountExpectedStatement {
     return this.repo.getAccountExpectedStatement(
       accountSupplierId,
       coveredTypes,
+      upToDay,
     );
   }
 

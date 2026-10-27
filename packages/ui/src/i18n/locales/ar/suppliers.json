@@ -107,7 +107,9 @@
       "monthLoading": "جارٍ تحميل الأيام…",
       "monthFailed": "تعذّر تحميل أيام هذا الشهر. أغلق وحاول مجدداً.",
       "reliefGoToDay": "{{day}} ‹",
-      "dayAriaPartlyPicked": "{{label}}، مختار جزئياً"
+      "dayAriaPartlyPicked": "{{label}}، مختار جزئياً",
+      "amount_owed": "{{amount}} مستحق",
+      "amount_credit": "{{amount}} رصيد دائن"
     },
     "dayDetails": {
       "close": "إغلاق",
@@ -340,7 +342,10 @@
     "smsLbp": "رسالة OMT تقول (LBP)",
     "typeSmsFigure": "اكتب الرقم من الرسالة",
     "matches": "مطابق",
-    "offBy": "فرق <ltr>{{money}}</ltr>"
+    "offBy": "فرق <ltr>{{money}}</ltr>",
+    "upTo": "حتى: {{day}}",
+    "upToPick": "الكشف حتى (نهاية اليوم)",
+    "afterDay": "بعد {{day}}، غير محتسب: <ltr>{{amounts}}</ltr>"
   },
   "status": {
     "partial": "جزئي",

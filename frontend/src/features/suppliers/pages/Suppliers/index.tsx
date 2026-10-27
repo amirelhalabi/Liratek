@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { formatNumber } from "@liratek/ui/i18n/format";
@@ -1261,8 +1254,7 @@ export default function SuppliersPage() {
   // single day). Keyed by supplier like `txnsRange`. Only the OMT account
   // parent's merged ledger takes a range on the server; a plain supplier's
   // ledger read (`getSupplierLedger`) has none, so its window shows no filter.
-  const [paymentsRange, setPaymentsRange] =
-    useState<TxnsRange>(NO_TXNS_RANGE);
+  const [paymentsRange, setPaymentsRange] = useState<TxnsRange>(NO_TXNS_RANGE);
   const activePaymentsRange =
     paymentsRange.supplierId === selectedSupplierId
       ? paymentsRange
@@ -1311,13 +1303,8 @@ export default function SuppliersPage() {
   >(null);
   const closeTable = useCallback(() => setOpenTable(null), []);
   useModalFocusFix(openTable !== null);
-  // LIRA-343 (FR-016c) — `openTransactionsForDay` may switch the selected
-  // supplier AND open its window in one go; the reset below would close it
-  // again, so it leaves the window to open here instead.
-  const pendingOpenTableRef = useRef<"transactions" | null>(null);
   useEffect(() => {
-    setOpenTable(pendingOpenTableRef.current);
-    pendingOpenTableRef.current = null;
+    setOpenTable(null);
   }, [selectedSupplierId]);
 
   /** Shared by every left-list click target (plain tile, account card
@@ -1327,24 +1314,6 @@ export default function SuppliersPage() {
   const selectSupplierFromList = (supplierId: number) => {
     setSelectedSupplierId(supplierId);
     setActiveTab(viewCategory === "products" ? "items" : "settle");
-  };
-
-  /** LIRA-343 (FR-016c) — "See in Transactions ›" from a calendar day: open
-   *  the Transactions window filtered to that one shop day (from = to =
-   *  `day`). Defaults to the selected supplier; pass the account parent's id
-   *  when the settle sheet was opened without selecting it first. */
-  const openTransactionsForDay = (
-    day: string,
-    supplierId: number | null = selectedSupplierId,
-  ) => {
-    if (supplierId == null) return;
-    setTxnsRange({ supplierId, from: day, to: day });
-    if (supplierId === selectedSupplierId) {
-      setOpenTable("transactions");
-    } else {
-      pendingOpenTableRef.current = "transactions";
-      selectSupplierFromList(supplierId);
-    }
   };
 
   const sortedSuppliers = useMemo(
@@ -2239,6 +2208,15 @@ export default function SuppliersPage() {
           : [{ id: "manual" as const, label: t("tabs.payReceive") }]),
       ];
 
+  // With one tab there is no strip to switch with (owner request
+  // 2026-10-27), so that tab becomes the active one, whatever `activeTab`
+  // was left at. Through `activeTab` itself, so the effects keyed on it
+  // (the Pay / Receive default direction) still run.
+  const onlyTab = selectedTabs.length === 1 ? selectedTabs[0]!.id : null;
+  useEffect(() => {
+    if (onlyTab && activeTab !== onlyTab) setActiveTab(onlyTab);
+  }, [onlyTab, activeTab]);
+
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-auto animate-in fade-in duration-500">
       <PageHeader title={t("page.title")} subtitle={t("page.subtitle")} />
@@ -2480,23 +2458,22 @@ export default function SuppliersPage() {
                       Admin-only: it reuses the addLedgerEntry / cashflow
                       plumbing, both of which are requireRole(["admin"]) on IPC
                       AND REST — a staff user would only hit an auth rejection.
-                      Active company suppliers only. */}
-                  {isAdmin &&
-                    selectedSupplier.is_active !== 0 &&
-                    !isProductSupplier && (
-                      <button
-                        data-testid="supplier-adjust-open"
-                        onClick={() => {
-                          resetAdjustForm();
-                          setShowAdjustModal(true);
-                        }}
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm"
-                        title={t("adjust.openTitle")}
-                      >
-                        <Plus className="w-4 h-4" />
-                        {t("adjust.open")}
-                      </button>
-                    )}
+                      Every active supplier: product suppliers have it too,
+                      next to "Record Debt" (owner decision 2026-10-27). */}
+                  {isAdmin && selectedSupplier.is_active !== 0 && (
+                    <button
+                      data-testid="supplier-adjust-open"
+                      onClick={() => {
+                        resetAdjustForm();
+                        setShowAdjustModal(true);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm"
+                      title={t("adjust.openTitle")}
+                    >
+                      <Plus className="w-4 h-4" />
+                      {t("adjust.open")}
+                    </button>
+                  )}
                   {/* LIRA-087 (migration v189): "Record Debt" — a product
                       supplier's mirror of "Add Credit / Debt" above. Books a
                       supplier debt WITHOUT any product line yet, so
@@ -2602,8 +2579,11 @@ export default function SuppliersPage() {
                 />
               )}
 
-              {/* Tabs */}
-              {selectedSupplier.is_active !== 0 && selectedTabs.length > 0 && (
+              {/* Tabs — only when there is something to switch to: a
+                  single tab (a product supplier on Settle Account has only
+                  Purchases) shows its content with no strip (owner request
+                  2026-10-27). */}
+              {selectedSupplier.is_active !== 0 && selectedTabs.length > 1 && (
                 <div className="flex gap-1 mb-4 border-b border-slate-700">
                   {selectedTabs.map((tab) => (
                     <button
@@ -3125,10 +3105,10 @@ export default function SuppliersPage() {
         selectedSupplier &&
         selectedSupplier.is_active !== 0 &&
         !isProductSupplier && (
-          // LIRA-343 T033 — a z-[60] stacking wrapper: opened from the settle
-          // sheet's day details ("See in Transactions ›"), the window must
-          // sit ABOVE the sheet (also z-50, rendered later) so the sheet,
-          // and its picks, stay open underneath.
+          // LIRA-343 T033 — a z-[60] stacking wrapper so the window sits
+          // ABOVE the settle sheet (also z-50, rendered later) if both are
+          // ever open together. (Its "See in Transactions ›" opener went
+          // with the day details, owner 2026-10-27.)
           <div className="relative z-[60]" data-testid="supplier-txns-layer">
             <TableModal
               title={t("txns.title", { name: selectedSupplier.name })}
@@ -4182,21 +4162,6 @@ export default function SuppliersPage() {
           showCommission={settlingAccount.takesCommission}
           onClose={() => setSettlingAccount(null)}
           onSettled={() => setSettlingAccount(null)}
-          // LIRA-343 T033 (FR-016c) — "See in Transactions ›" from a day's
-          // details: the window opens ABOVE the sheet (z-[60] wrapper on
-          // the Transactions modal), so the sheet's picks are kept.
-          // LIRA-345 — OMT account only: a Katsh calendar day is a top-up
-          // (in Payments, which has no day filter outside OMT) and a product
-          // supplier has no Transactions window.
-          onSeeInTransactions={
-            settlingAccount.omtAccount
-              ? (day) =>
-                  openTransactionsForDay(
-                    day,
-                    settlingAccount.account_supplier_id,
-                  )
-              : undefined
-          }
           canSettleOldHistory={isAdmin}
           // LIRA-344 books a removed credit as "OMT credit not accepted":
           // OMT account only (LIRA-345 leaves other suppliers out).

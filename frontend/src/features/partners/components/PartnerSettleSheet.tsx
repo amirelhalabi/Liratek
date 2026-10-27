@@ -23,19 +23,15 @@ import {
 import { useFormat } from "@/i18n/useFormat";
 import { useSellRate } from "@/hooks/useSellRate";
 import { localDay } from "@/shared/utils/localDay";
-import { parseDbDate } from "@/shared/utils/parseDbDate";
 import {
   countOpenSettleTransactions,
   SettleCalendar,
-  SettleDayDetails,
   SettleSelectionBar,
   SettleSheetLayout,
   SettleTransactionsPanel,
-  type SettleDayDetailsRow,
   type SettleTransactionRow,
 } from "@/shared/components/settleCalendar";
 import {
-  usePartnerSettleDayDetailQuery,
   usePartnerSettleDaysMutation,
   usePartnerSettleMonthRowsQuery,
   usePartnerSettleMonthsRowsQueries,
@@ -178,11 +174,11 @@ export function PartnerSettleSheet({
   );
   const defaultPicked = useMemo(() => new Set(openDays), [openDays]);
   const picked: ReadonlySet<string> = pickedState ?? defaultPicked;
-  const [focusedDay, setFocusedDay] = useState<string | null>(null);
+  // Entries of picked days unticked in the "See transactions" table (owner
+  // 2026-10-27: a day tap only picks / unpicks; no inline day details).
   const [untickedRows, setUntickedRows] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
-  const dayDetailQuery = usePartnerSettleDayDetailQuery(partner.id, focusedDay);
 
   const handleToggleDay = (day: string) => {
     const next = new Set(picked);
@@ -455,49 +451,12 @@ export function PartnerSettleSheet({
     }
   };
 
-  // ── Day details ─────────────────────────────────────────────────────────
-  const detailRows: SettleDayDetailsRow[] = useMemo(
-    () =>
-      (dayDetailQuery.data ?? [])
-        .filter((r) => r.row_scope === "DAY")
-        .map((r) => {
-          const signed = r.currency === "USD" ? r.amount_usd : r.amount_lbp;
-          return {
-            key: partnerSettleRowKey(r),
-            id: r.id,
-            label: `${typeLabel(r.transaction_type)} · ${
-              signed >= 0
-                ? t("settleDays.rowPartnerOwes", { name })
-                : t("settleDays.rowYouOwe", { name })
-            }`,
-            memberTag: null,
-            // The panel reads magnitudes; the side is in the label.
-            amount_usd: Math.abs(r.amount_usd),
-            amount_lbp: Math.abs(r.amount_lbp),
-            covered_usd: Math.abs(r.covered_usd),
-            covered_lbp: Math.abs(r.covered_lbp),
-            remaining_usd: Math.abs(r.remaining_usd),
-            remaining_lbp: Math.abs(r.remaining_lbp),
-            settlements: r.settlements.map((x) => ({
-              transaction_id: x.transaction_id,
-              // Stored UTC → the shop's day on this device (rule 27).
-              settled_at: localDay(parseDbDate(x.settled_at)),
-              currency: x.currency,
-              amount: x.amount,
-            })),
-            addedAfterSettlement: r.added_after_settlement,
-            waitingForStatement: false,
-          };
-        }),
-    [dayDetailQuery.data, name, t],
-  );
-
   // ── See transactions (owner mock 2026-10-26 §7) ─────────────────────────
   // The picked days' entries, paid ones too, beside the calendar. Full
   // amounts and paid entries come from the month reads; open status, what
   // is left and the tick come from the open queue and the plan's own
   // selection (rule 14), so the table never disagrees with the payload.
-  // Unticking here is the day details' own `untickedRows`.
+  // Unticking here writes the sheet's `untickedRows`.
   const [txOpen, setTxOpen] = useState(false);
   const [txScroll, setTxScroll] = useState<{ day: string; seq: number } | null>(
     null,
@@ -572,11 +531,10 @@ export function PartnerSettleSheet({
       });
   })();
   const txCount = countOpenSettleTransactions(txRows, picked);
-  const handleOpenDay = (day: string) => {
-    // While the table is open a tap picks the day and scrolls the table to
-    // it; the day details stay closed.
+  /** Scroll the open table to `day`; nothing while it is closed (owner
+   *  2026-10-27: a day tap only picks / unpicks). */
+  const scrollTableTo = (day: string) => {
     if (txOpen) setTxScroll((prev) => ({ day, seq: (prev?.seq ?? 0) + 1 }));
-    else setFocusedDay(day);
   };
 
   // ── ↺ account lines an undo / void left (either side) ──────────────────
@@ -690,7 +648,7 @@ export function PartnerSettleSheet({
                 picked={picked}
                 partlyPicked={partlyPickedDays}
                 onToggleDay={handleToggleDay}
-                onOpenDay={handleOpenDay}
+                onOpenDay={scrollTableTo}
                 onPrevMonth={() => setMonth((m) => shiftMonth(m, -1))}
                 onNextMonth={
                   month < currentMonth
@@ -698,7 +656,6 @@ export function PartnerSettleSheet({
                     : undefined
                 }
                 leftOutDays={leftOutDays}
-                focusedDay={focusedDay}
                 monthLeft={monthLeftTotals}
                 olderUnselected={olderUnselected}
                 formatMark={formatMark}
@@ -706,11 +663,7 @@ export function PartnerSettleSheet({
                   count: txCount,
                   expanded: txOpen,
                   controlsId: txPanelId,
-                  onToggle: () => {
-                    // The table takes over from the day details.
-                    if (!txOpen) setFocusedDay(null);
-                    setTxOpen(!txOpen);
-                  },
+                  onToggle: () => setTxOpen(!txOpen),
                 }}
               />
             )}
@@ -723,21 +676,6 @@ export function PartnerSettleSheet({
                 leftOutCount={leftOutDays.size}
                 onClear={() => setPickedState(new Set())}
                 onPickAllOpen={() => setPickedState(new Set(openDays))}
-              />
-            )}
-            {focusedDay !== null && (
-              <SettleDayDetails
-                day={focusedDay}
-                dayLabel={fmt.formatDate(dayDate(focusedDay), {
-                  weekday: "short",
-                  day: "numeric",
-                  month: "short",
-                })}
-                rows={detailRows}
-                picked={picked.has(focusedDay)}
-                unticked={untickedRows}
-                onToggleRow={handleToggleRow}
-                onClose={() => setFocusedDay(null)}
               />
             )}
           </div>
@@ -792,9 +730,11 @@ export function PartnerSettleSheet({
                 </span>
                 <button
                   type="button"
+                  // Show that day's month (and its rows, when the table is
+                  // open); no day details (owner 2026-10-27).
                   onClick={() => {
                     setMonth(r.shop_day.slice(0, 7));
-                    setFocusedDay(r.shop_day);
+                    scrollTableTo(r.shop_day);
                   }}
                   className="font-semibold underline underline-offset-[3px] hover:text-white"
                 >

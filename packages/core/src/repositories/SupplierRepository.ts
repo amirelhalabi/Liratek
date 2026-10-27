@@ -896,6 +896,12 @@ export interface AccountExpectedStatement {
    *  counter row in the queue (covered or not, both models), in
    *  {@link OMT_COVERED_TYPE_VALUES} order: what ticking that type changes. */
   commission_by_type: AccountCommissionByType[];
+  /** 2026-10-27 (owner option B) — present only when the read was cut at
+   *  an `upToDay` (the shop's day, inclusive): the signed net still open
+   *  on rows whose shop day is AFTER it (same sign as the gross), i.e.
+   *  what the cut left out of every figure above. */
+  after_day_usd?: number;
+  after_day_lbp?: number;
 }
 
 /** One entry of {@link AccountExpectedStatement.commission_by_type}. */
@@ -2912,6 +2918,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   getAccountExpectedStatement(
     accountSupplierId: number,
     coveredTypes?: OmtCoveredType[],
+    // 2026-10-27 (owner option B) — the shop's day (`YYYY-MM-DD`,
+    // inclusive) OMT's SMS covers: the end of yesterday. Absent → no cut,
+    // output unchanged.
+    upToDay?: string,
   ): AccountExpectedStatement {
     try {
       const tenantId = getCurrentTenantId();
@@ -2919,8 +2929,27 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       const account = balances.find(
         (a) => a.account_supplier_id === accountSupplierId,
       );
-      const grossUsd = account?.total_usd ?? 0;
-      const grossLbp = account?.total_lbp ?? 0;
+      let grossUsd = account?.total_usd ?? 0;
+      let grossLbp = account?.total_lbp ?? 0;
+
+      // The cut reads the open settle queue (`_accountRows`), whose
+      // `shop_day` is the ONE shop-day rule (`localDayExpr`, rule 14/27).
+      // What is still open on a later day is taken off the gross (so the
+      // cut + `after_day_*` = the uncut gross), and those days' transfers
+      // are skipped in the commission sum below.
+      let afterDay: { usd: number; lbp: number } | null = null;
+      const laterFsIds = new Set<number>();
+      if (upToDay !== undefined) {
+        afterDay = { usd: 0, lbp: 0 };
+        for (const row of this._accountRows(accountSupplierId, null)) {
+          if (row.shop_day <= upToDay) continue;
+          afterDay.usd += row.remaining_usd;
+          afterDay.lbp += row.remaining_lbp;
+          if (row.kind === "FINANCIAL_SERVICE") laterFsIds.add(row.id);
+        }
+        grossUsd -= afterDay.usd;
+        grossLbp -= afterDay.lbp;
+      }
 
       let commissionUsd = 0;
       let commissionLbp = 0;
@@ -2940,6 +2969,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             member.provider,
           );
           for (const row of rows) {
+            // The cut (above): a transfer of a later shop day is not in
+            // OMT's message yet, so neither is its commission.
+            if (laterFsIds.has(row.id)) continue;
             const c = row.commission ?? 0;
             const isLbp = row.currency === "LBP";
             let toSubtract = c;
@@ -2994,6 +3026,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           ? normaliseCoveredTypes(coveredTypes)
           : null,
         commission_by_type,
+        // Only when cut — without `upToDay` the shape is unchanged.
+        ...(afterDay
+          ? { after_day_usd: afterDay.usd, after_day_lbp: afterDay.lbp }
+          : {}),
       };
     } catch (e) {
       throw new DatabaseError("Failed to get account expected statement", {

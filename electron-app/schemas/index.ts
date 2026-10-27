@@ -52,6 +52,7 @@ import {
   omtCoveredTypesSchema,
   accountMonthSchema,
   accountDaySchema,
+  accountExpectedStatementParamsSchema,
   supplierDayRangeSchema,
   supplierCashflowSchema,
   supplierPurchaseCreateSchema,
@@ -171,6 +172,7 @@ import {
   type OmtCoveredTypesInput,
   type AccountMonthInput,
   type AccountDayInput,
+  type AccountExpectedStatementParamsInput,
   type SupplierDayRangeInput,
   type SupplierCashflowInput,
   type SupplierPurchaseCreateInput,
@@ -1081,6 +1083,9 @@ export const AccountMonthSchema =
 // LIRA-343 — one shop day's details (`suppliers:account-day-detail`).
 export const AccountDaySchema =
   accountDaySchema as unknown as z.ZodSchema<AccountDayInput>;
+// 2026-10-27 — the statement check's params (`suppliers:account-expected-statement`).
+export const AccountExpectedStatementParamsSchema =
+  accountExpectedStatementParamsSchema as unknown as z.ZodSchema<AccountExpectedStatementParamsInput>;
 // LIRA-343 T033a — the supplier Transactions window's optional shop-day
 // range (`suppliers:all-transactions` / `:account-transactions` /
 // `:account-ledger`, optional last argument).

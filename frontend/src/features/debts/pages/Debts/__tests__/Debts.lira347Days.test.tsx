@@ -288,6 +288,17 @@ const amountValue = (i = 0) =>
 const confirm = () => screen.getByText("Confirm Payment") as HTMLButtonElement;
 const sent = () => addRepaymentSchema.parse(mockAddRepayment.mock.calls[0][0]);
 
+// Owner decision 2026-10-27 — failing-first guard (rule 17): a day tap only
+// picks / unpicks; the day's items are checked in "See transactions".
+it("tapping a day only picks it: no day details panel", async () => {
+  await openCalendar();
+  fireEvent.click(dayButton("2026-10-22"));
+  await waitFor(() =>
+    expect(dayButton("2026-10-22")).toHaveAttribute("aria-pressed", "true"),
+  );
+  expect(screen.queryByTestId("settle-day-details")).not.toBeInTheDocument();
+});
+
 it("D1 — pick 22 Oct: only its item is ticked, the amount is what it owes, the payload carries the stale figure", async () => {
   await openCalendar();
   fireEvent.click(dayButton("2026-10-22"));

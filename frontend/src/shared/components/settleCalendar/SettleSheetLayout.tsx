@@ -5,8 +5,8 @@
  * - Closed: exactly the sheet as before (`max-w-2xl`, its own scroll).
  * - Open (≥ 900px): the box grows to the right (max-width and the second
  *   grid column animate; `motion-reduce` turns the motion off) and the panel
- *   shows beside the sheet. The sheet column keeps its width, so the
- *   calendar and the payment do not reflow.
+ *   shows beside the sheet. Sheet and panel get equal widths (owner request
+ *   2026-10-27), so the sheet column is a little narrower than when closed.
  * - Open (< 900px): the panel replaces the sheet content as a full panel;
  *   the sheet stays MOUNTED (only hidden), so picks and typed payments are
  *   kept when the panel closes.
@@ -61,8 +61,8 @@ export function SettleSheetLayout({
       <div
         className={`grid min-h-0 flex-1 grid-rows-1 transition-[grid-template-columns] duration-[350ms] ${EASE} motion-reduce:transition-none ${
           open
-            ? "grid-cols-1 min-[900px]:grid-cols-[minmax(0,42rem)_minmax(0,1fr)]"
-            : "grid-cols-[minmax(0,42rem)_0fr]"
+            ? "grid-cols-1 min-[900px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
+            : "grid-cols-[minmax(0,1fr)_0fr]"
         }`}
       >
         <div

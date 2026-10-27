@@ -47,7 +47,9 @@ export interface SettleTransactionsPanelProps {
   /** Heading; default "Transactions · picked days". */
   title?: string | undefined;
   /** Money wording; the defaults show the sign ("−$40.00"). */
-  formatters?: Partial<Pick<SettleFormatters, "formatUsd" | "formatLbp">> | undefined;
+  formatters?:
+    | Partial<Pick<SettleFormatters, "formatUsd" | "formatLbp">>
+    | undefined;
 }
 
 function rowMoney(
@@ -116,9 +118,12 @@ export function SettleTransactionsPanel({
     // Only the table's own scroll box moves (never `scrollIntoView`, which
     // would also scroll the sheet / modal and move the calendar): the day
     // row lands just under the sticky header.
-    const header = box.querySelector("thead")?.getBoundingClientRect().height ?? 0;
+    const header =
+      box.querySelector("thead")?.getBoundingClientRect().height ?? 0;
     box.scrollTop +=
-      row.getBoundingClientRect().top - box.getBoundingClientRect().top - header;
+      row.getBoundingClientRect().top -
+      box.getBoundingClientRect().top -
+      header;
   }, [scrollDay, scrollSeq]);
 
   const visible = groups
@@ -144,7 +149,10 @@ export function SettleTransactionsPanel({
         >
           <DirIcon icon={ArrowLeft} className="size-4" aria-hidden="true" />
         </button>
-        <h3 id={headingId} className="me-auto truncate text-[15px] font-bold text-white">
+        <h3
+          id={headingId}
+          className="me-auto truncate text-[15px] font-bold text-white"
+        >
           {title ?? t("accountSettle.transactions.title")}
         </h3>
         <input
@@ -170,7 +178,9 @@ export function SettleTransactionsPanel({
           className={`px-4 pt-2 text-xs ${error ? "text-red-400" : "text-slate-400"}`}
           role={error ? "alert" : undefined}
         >
-          {error ? t("accountSettle.transactions.failed") : t("accountSettle.transactions.loading")}
+          {error
+            ? t("accountSettle.transactions.failed")
+            : t("accountSettle.transactions.loading")}
         </p>
       )}
 
@@ -184,23 +194,37 @@ export function SettleTransactionsPanel({
             <tr>
               <th className={th} />
               <th className={th}>{t("accountSettle.transactions.colId")}</th>
-              <th className={th}>{t("accountSettle.transactions.colTransaction")}</th>
+              <th className={th}>
+                {t("accountSettle.transactions.colTransaction")}
+              </th>
               <th className={th}>{t("accountSettle.transactions.colPart")}</th>
-              <th className={th}>{t("accountSettle.transactions.colNameRef")}</th>
-              <th className={thEnd}>{t("accountSettle.transactions.colAmount")}</th>
-              <th className={thEnd}>{t("accountSettle.transactions.colLeft")}</th>
+              <th className={th}>
+                {t("accountSettle.transactions.colNameRef")}
+              </th>
+              <th className={thEnd}>
+                {t("accountSettle.transactions.colAmount")}
+              </th>
+              <th className={thEnd}>
+                {t("accountSettle.transactions.colLeft")}
+              </th>
             </tr>
           </thead>
           <tbody>
             {pickedDays.size === 0 ? (
               <tr>
-                <td colSpan={7} className="px-2.5 py-4 text-center text-xs text-slate-400">
+                <td
+                  colSpan={7}
+                  className="px-2.5 py-4 text-center text-xs text-slate-400"
+                >
                   {t("accountSettle.transactions.noDays")}
                 </td>
               </tr>
             ) : visible.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-2.5 py-4 text-center text-xs text-slate-400">
+                <td
+                  colSpan={7}
+                  className="px-2.5 py-4 text-center text-xs text-slate-400"
+                >
                   {loading ? "" : t("accountSettle.transactions.noMatch")}
                 </td>
               </tr>
@@ -217,7 +241,10 @@ export function SettleTransactionsPanel({
                     data-testid={`settle-tx-day-${g.day}`}
                     className="bg-slate-400/10"
                   >
-                    <td colSpan={5} className="border-t border-slate-800 px-2.5 py-2 text-xs font-bold text-slate-300">
+                    <td
+                      colSpan={5}
+                      className="border-t border-slate-800 px-2.5 py-2 text-xs font-bold text-slate-300"
+                    >
                       {dayLabel(g.day)}
                     </td>
                     <td
@@ -230,13 +257,19 @@ export function SettleTransactionsPanel({
                   ...g.shown.map((r) => {
                     const open = r.status === "open";
                     const on = open && r.checked;
-                    const dim = r.status === "paid" ? "opacity-45" : !on ? "opacity-50" : "";
+                    const dim =
+                      r.status === "paid"
+                        ? "opacity-45"
+                        : !on
+                          ? "opacity-50"
+                          : "";
                     const td = `border-t border-slate-800 px-2.5 py-2 align-middle ${dim}`;
                     const left =
                       r.status === "paid"
                         ? t("accountSettle.transactions.paid")
                         : r.status === "waiting"
-                          ? (r.waitingNote ?? t("accountSettle.dayDetails.waitingForStatement"))
+                          ? (r.waitingNote ??
+                            t("accountSettle.dayDetails.waitingForStatement"))
                           : on
                             ? rowMoney(r.left_usd, r.left_lbp, f)
                             : t("accountSettle.transactions.unticked");
@@ -249,13 +282,22 @@ export function SettleTransactionsPanel({
                               checked={on}
                               disabled={!open || !onToggleRow}
                               onChange={() => onToggleRow?.(r.key)}
-                              aria-label={t("accountSettle.dayDetails.includeRow", { id: r.id })}
+                              aria-label={t(
+                                "accountSettle.dayDetails.includeRow",
+                                { id: r.id },
+                              )}
                               className="size-[15px] accent-emerald-500"
                             />
                           )}
                         </td>
-                        <td className={`${td} font-mono text-[11.5px] text-slate-400`}>#{r.id}</td>
-                        <td className={`${td} font-semibold text-white`}>{r.label}</td>
+                        <td
+                          className={`${td} font-mono text-[11.5px] text-slate-400`}
+                        >
+                          #{r.id}
+                        </td>
+                        <td className={`${td} font-semibold text-white`}>
+                          {r.label}
+                        </td>
                         <td className={td}>
                           {r.memberTag && (
                             <span className="rounded-[5px] bg-emerald-500/15 px-1.5 py-px text-[10px] font-bold text-emerald-300">
@@ -263,8 +305,12 @@ export function SettleTransactionsPanel({
                             </span>
                           )}
                         </td>
-                        <td className={`${td} text-[11.5px] text-slate-400`}>{r.nameRef ?? ""}</td>
-                        <td className={`${td} text-end font-mono whitespace-nowrap tabular-nums`}>
+                        <td className={`${td} text-[11.5px] text-slate-400`}>
+                          {r.nameRef ?? ""}
+                        </td>
+                        <td
+                          className={`${td} text-end font-mono whitespace-nowrap tabular-nums`}
+                        >
                           {rowMoney(r.amount_usd, r.amount_lbp, f)}
                         </td>
                         <td

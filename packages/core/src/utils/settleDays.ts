@@ -70,7 +70,9 @@ export interface SettleDay {
   /** Σ positive amounts of the day's DAY rows (debts only, closed too). */
   owed_usd: number;
   owed_lbp: number;
-  /** (owed − max(left,0)) / owed, 0..1; null when no debt in that currency. */
+  /** Paid share of the day's net amount in that currency, 0..1, measured in
+   *  the direction the money goes (see `currencyState`); null when the day
+   *  has no amount in that currency. */
   paid_pct_usd: number | null;
   paid_pct_lbp: number | null;
   currency_state_usd: SettleCurrencyState | null;
@@ -151,24 +153,38 @@ export function daysOfMonth(month: string): string[] {
   return out;
 }
 
+/**
+ * One currency's badge and % for a day, measured in the direction the day's
+ * money goes (owner scenario 2026-10-27): the day's NET amount is what is
+ * owed — by the shop when positive, by OMT / the other side when negative —
+ * and `left` in that same direction is what is still open. So a send netted
+ * by a receive on the same day is not counted as a payment, and a day OMT
+ * still owes on reads partly paid instead of "PAID".
+ *
+ * A day whose sends and receives net to exactly 0 falls back to its larger
+ * side. `PAID` only when nothing is left; money left in the other direction
+ * keeps the currency at `PART`. Null when the day has no amount in it.
+ */
 function currencyState(
-  owedMinor: number,
+  debtMinor: number,
+  creditMinor: number,
+  netMinor: number,
   leftMinor: number,
 ): { pct: number | null; state: SettleCurrencyState | null } {
-  if (owedMinor <= 0) return { pct: null, state: null };
-  const paid = Math.min(
-    Math.max(owedMinor - Math.max(leftMinor, 0), 0),
-    owedMinor,
-  );
+  if (debtMinor === 0 && creditMinor === 0) return { pct: null, state: null };
+  const sign =
+    netMinor !== 0 ? Math.sign(netMinor) : debtMinor >= creditMinor ? 1 : -1;
+  const total =
+    netMinor !== 0 ? Math.abs(netMinor) : Math.max(debtMinor, creditMinor);
+  const leftThisWay = Math.max(sign * leftMinor, 0);
+  const paid = Math.min(Math.max(total - leftThisWay, 0), total);
   const state: SettleCurrencyState =
-    paid === 0 ? "OWED" : paid === owedMinor ? "PAID" : "PART";
-  return { pct: paid / owedMinor, state };
+    leftMinor === 0 ? "PAID" : paid === 0 ? "OWED" : "PART";
+  return { pct: paid / total, state };
 }
 
 /** T037 — marks from the open undo / void ACCOUNT rows of one day. */
-function marksOf(
-  rows: readonly SettleDayRow<string>[],
-): SettleAccountMark[] {
+function marksOf(rows: readonly SettleDayRow<string>[]): SettleAccountMark[] {
   const sums = new Map<string, SettleAccountMark & { minor: number }>();
   for (const r of rows) {
     if (r.row_scope !== "ACCOUNT" || !r.relief_origin) continue;
@@ -209,6 +225,8 @@ function buildDay(
   let leftLbp = 0;
   let owedUsd = 0;
   let owedLbp = 0;
+  let creditUsd = 0;
+  let creditLbp = 0;
   let anyOpen = false;
   let anyCovered = false;
   let waiting = 0;
@@ -216,7 +234,9 @@ function buildDay(
     const amtUsd = toSettleCents(r.amount_usd);
     const amtLbp = toSettleWholeLbp(r.amount_lbp);
     if (amtUsd > 0) owedUsd += amtUsd;
+    else creditUsd -= amtUsd;
     if (amtLbp > 0) owedLbp += amtLbp;
+    else creditLbp -= amtLbp;
     if (
       toSettleCents(r.covered_usd) !== 0 ||
       toSettleWholeLbp(r.covered_lbp) !== 0
@@ -243,8 +263,8 @@ function buildDay(
         : anyCovered
           ? "PARTIAL"
           : "UNPAID";
-  const usd = currencyState(owedUsd, leftUsd);
-  const lbp = currencyState(owedLbp, leftLbp);
+  const usd = currencyState(owedUsd, creditUsd, owedUsd - creditUsd, leftUsd);
+  const lbp = currencyState(owedLbp, creditLbp, owedLbp - creditLbp, leftLbp);
   return {
     day,
     state,

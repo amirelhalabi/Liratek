@@ -283,6 +283,7 @@ import type {
   DrawerTopUpFromDrawerPayload,
   // LIRA-256 — OMT statement covered commission types (rule 21).
   OmtCoveredTypesInput,
+  AccountExpectedStatementParamsInput,
   // LIRA-343 — the calendar's month read (rule 21).
   AccountMonthInput,
   // LIRA-343 — one shop day's details (rule 21).
@@ -775,6 +776,11 @@ export type AccountExpectedStatement = {
     commission_lbp: number;
     count: number;
   }>;
+  /** 2026-10-27 — present only when the read was cut at a shop day: the
+   *  signed net still open on LATER shop days (same sign as the gross),
+   *  left out of every figure above. */
+  after_day_usd?: number;
+  after_day_lbp?: number;
 };
 
 /**
@@ -2046,6 +2052,9 @@ export type ApiAdapter = {
     accountSupplierId: number,
     /** LIRA-256 — covered OMT commission types; omit for all types. */
     coveredTypes?: OmtCoveredTypesInput,
+    /** 2026-10-27 — the shop's day (YYYY-MM-DD, inclusive) OMT's SMS
+     *  covers; omit for every open row. */
+    upToDay?: AccountExpectedStatementParamsInput["up_to_day"],
   ) => Promise<AccountExpectedStatement>;
   createSupplier: (
     data: SupplierCreatePayload,

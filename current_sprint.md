@@ -8105,3 +8105,11 @@ Spec, plan and tasks: `specs/340-partner-ledger-modals/`.
 Owner decisions 2026-10-25: follow the Suppliers page. Payments = settlements, write-offs/discounts and manual "Add credit / debt" entries; Transactions = everything else (incl. future entry types). The Payments window has the date filter only. Display only: no money or ledger behaviour changes.
 
 What users will notice: on the Partners page, a partner's ledger no longer sits as one long table on the panel. Two buttons, "Transactions (N)" and "Payments (N)", open each list in its own window, like on the Suppliers page. Transactions keeps the date, mode, provider and direction filters; Payments lists settlements (a Cash + Whish one reads "via SPLIT"), write-offs and credit/debt entries, with a date filter. Desktop app and web app.
+
+## LIRA-351: Loto on Settle Account (day calendar), like every other supplier — TODO (owner, 2026-10-27)
+
+Loto is the last supplier still paid through the Pay / Receive tab; OMT, Katsh, Whish and product suppliers all pay through Settle Account (LIRA-343/345). Because Loto has two tabs (Settle commission list + Pay / Receive), it is also the only supplier that still shows a tab bar after the one-tab strip was removed (2026-10-27).
+
+To do: put Loto on the day calendar (`settlesByDay` rule), drop its Pay / Receive tab, and decide what happens to its commission "Settle" list. Changes how Loto money moves, so it needs the FEATURE_GUIDE §13 checklist and its own spec. Owner parked it on 2026-10-27; see the "Every supplier type" table on the settle-by-day planning artifact.
+
+What users will notice (when built): Loto gets a Settle Account button with the day calendar, and its Pay / Receive tab goes away.

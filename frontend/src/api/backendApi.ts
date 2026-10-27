@@ -99,6 +99,7 @@ import type {
 // LIRA-256 — OMT statement covered commission types (rule 21).
 import type {
   OmtCoveredTypesInput,
+  AccountExpectedStatementParamsInput,
   AccountMonthInput,
   AccountDayInput,
 } from "@liratek/core";
@@ -3900,22 +3901,24 @@ export async function getSupplierAccountExpectedStatement(
   // LIRA-256 — covered OMT commission types; undefined = all types. One
   // call site per transport, the choice built once by the caller (rule 22).
   coveredTypes?: OmtCoveredTypesInput,
+  // 2026-10-27 (owner option B) — the shop's day (YYYY-MM-DD, the
+  // BROWSER's, rule 27) OMT's SMS covers, inclusive; undefined = every
+  // open row. Same value on both transports.
+  upToDay?: AccountExpectedStatementParamsInput["up_to_day"],
 ): Promise<AccountExpectedStatement> {
+  const params = new URLSearchParams();
+  if (coveredTypes !== undefined) params.set("covered", coveredTypes.join(","));
+  if (upToDay !== undefined) params.set("up_to_day", upToDay);
+  const qs = params.toString();
+  const query = qs ? `?${qs}` : "";
   return ipcOrHttp(
     async () =>
-      coveredTypes === undefined
-        ? getElectronApi().suppliers.getAccountExpectedStatement(
-            accountSupplierId,
-          )
-        : getElectronApi().suppliers.getAccountExpectedStatement(
-            accountSupplierId,
-            coveredTypes,
-          ),
+      getElectronApi().suppliers.getAccountExpectedStatement(
+        accountSupplierId,
+        coveredTypes,
+        upToDay,
+      ),
     async () => {
-      const query =
-        coveredTypes === undefined
-          ? ""
-          : `?covered=${encodeURIComponent(coveredTypes.join(","))}`;
       const res = await requestJson<{
         success: boolean;
         statement?: AccountExpectedStatement;

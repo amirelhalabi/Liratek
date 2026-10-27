@@ -9,6 +9,7 @@ import type {
   DesktopUnpairInput,
   // LIRA-256 — OMT statement covered commission types (core schema input).
   OmtCoveredTypesInput,
+  AccountExpectedStatementParamsInput,
   // LIRA-343 — the calendar's month read (core schema input).
   AccountMonthInput,
   // LIRA-343 — one shop day's details (core schema input + row).
@@ -423,6 +424,10 @@ export interface AccountExpectedStatement {
     commission_lbp: number;
     count: number;
   }>;
+  /** 2026-10-27 — only when cut at a day: the signed net still open on
+   *  later shop days (left out of every figure above). */
+  after_day_usd?: number;
+  after_day_lbp?: number;
 }
 
 /**
@@ -1982,6 +1987,7 @@ export interface ElectronAPI {
     getAccountExpectedStatement: (
       accountSupplierId: number,
       coveredTypes?: OmtCoveredTypesInput,
+      upToDay?: AccountExpectedStatementParamsInput["up_to_day"],
     ) => Promise<AccountExpectedStatement>;
     create: (data: {
       name: string;

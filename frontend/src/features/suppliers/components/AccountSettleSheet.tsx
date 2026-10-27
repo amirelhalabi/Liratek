@@ -20,25 +20,20 @@ import {
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
 import { localDay } from "@/shared/utils/localDay";
-import { parseDbDate } from "@/shared/utils/parseDbDate";
 import {
   countOpenSettleTransactions,
   SettleCalendar,
-  SettleDayDetails,
   SettleSelectionBar,
   SettleSheetLayout,
   SettleTransactionsPanel,
-  type SettleDayDetailsRow,
   type SettleTransactionRow,
 } from "@/shared/components/settleCalendar";
 import {
-  useSupplierAccountDayDetailQuery,
   useSupplierAccountMonthRowsQuery,
   useSupplierAccountMonthsRowsQueries,
   useSupplierAccountUnsettledQuery,
   useSettleSupplierAccountMutation,
   type AccountBalance,
-  type AccountDayDetailRow,
   type AccountUnsettledRow,
   type SettleAccountRequest,
 } from "../hooks/useSuppliers";
@@ -121,7 +116,7 @@ function rowTypeLabel(row: AccountUnsettledRow): string {
   return row.source_name || row.source_provider || "—";
 }
 
-/** A day-details row's own label: the transfer type, else the ledger entry
+/** A "See transactions" row's own label: the transfer type, else the ledger entry
  *  type (data values, shown as stored like the Transactions window). */
 function detailLabel(row: AccountUnsettledRow): string {
   return row.service_type || row.entry_type || "—";
@@ -227,10 +222,6 @@ export interface AccountSettleSheetProps {
   /** Fired after a successful settle — the page closes the sheet and lets
    *  its own queries (already invalidated by the mutation) refresh. */
   onSettled: () => void;
-  /** LIRA-343 T033 (FR-016c) — "See in Transactions ›" in a day's details:
-   *  the page opens its Transactions window filtered to that shop day, above
-   *  the sheet. The link is hidden when omitted. */
-  onSeeInTransactions?: ((day: string) => void) | undefined;
   /** LIRA-343 T041 (FR-021) — offer "Settle old history up to…" (admin). */
   canSettleOldHistory?: boolean | undefined;
   /** LIRA-344 — offer "Remove credit" on each open account credit (admin). */
@@ -248,7 +239,6 @@ export function AccountSettleSheet({
   account,
   onClose,
   onSettled,
-  onSeeInTransactions,
   canSettleOldHistory = false,
   canRemoveCredit = false,
   showStatementTypes = true,
@@ -315,9 +305,10 @@ export function AccountSettleSheet({
   );
   const defaultPicked = useMemo(() => new Set(openDays), [openDays]);
   const picked: ReadonlySet<string> = pickedState ?? defaultPicked;
-  const [focusedDay, setFocusedDay] = useState<string | null>(null);
   // LIRA-343 FR-016a — open transfers of picked days the operator unticked
-  // in the day details (`"KIND:id"`); left out like an unpicked day.
+  // in the "See transactions" table (`"KIND:id"`); left out like an
+  // unpicked day. (Owner 2026-10-27: a day tap only picks / unpicks; the
+  // inline day details are gone.)
   const [untickedRows, setUntickedRows] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -329,11 +320,6 @@ export function AccountSettleSheet({
       return next;
     });
   };
-  const dayDetailQuery = useSupplierAccountDayDetailQuery(
-    account.account_supplier_id,
-    focusedDay,
-  );
-
   const handleToggleDay = (day: string) => {
     const next = new Set(picked);
     if (next.has(day)) next.delete(day);
@@ -352,7 +338,7 @@ export function AccountSettleSheet({
       ),
     [openDays, newestPicked, picked],
   );
-  // Picked days with an open transfer unticked in the day details: the
+  // Picked days with an open transfer unticked in the table: the
   // calendar marks them "partly picked". Same rows, same key and same open
   // rule as `buildDaySelections` (rule 14); an unpicked day is never in it,
   // even while its unticked keys are remembered.
@@ -894,46 +880,13 @@ export function AccountSettleSheet({
     }
   };
 
-  // ── Day details (T033, FR-016 / FR-016a) ────────────────────────────────
-  const detailRows: SettleDayDetailsRow[] = useMemo(
-    () =>
-      ((dayDetailQuery.data ?? []) as AccountDayDetailRow[])
-        // Account rows sit on no day (research R4); they are listed as
-        // account lines instead.
-        .filter((r) => r.row_scope === "DAY")
-        .map((r) => ({
-          key: accountRowKey(r),
-          id: r.id,
-          label: detailLabel(r),
-          memberTag: r.source_name || null,
-          // The panel reads magnitudes; the sign is the row's direction.
-          amount_usd: Math.abs(r.amount_usd),
-          amount_lbp: Math.abs(r.amount_lbp),
-          covered_usd: r.covered_usd,
-          covered_lbp: r.covered_lbp,
-          remaining_usd: Math.abs(r.remaining_usd),
-          remaining_lbp: Math.abs(r.remaining_lbp),
-          settlements: r.settlements.map((x) => ({
-            transaction_id: x.transaction_id,
-            // Stored UTC → the shop's own day on this device (rule 27);
-            // never a slice of the UTC string.
-            settled_at: localDay(parseDbDate(x.settled_at)),
-            currency: x.currency,
-            amount: x.amount,
-          })),
-          addedAfterSettlement: r.added_after_settlement,
-          waitingForStatement: isSettleRowWaiting(r, coveredTypes),
-        })),
-    [dayDetailQuery.data, coveredTypes],
-  );
-
   // ── See transactions (owner mock 2026-10-26 §7) ─────────────────────────
   // The picked days' rows, paid ones too, beside the calendar. Paid rows and
   // full amounts come from the month reads (every month with a picked day,
   // shared cache with the calendar); open status, what is left and the tick
   // come from the open queue and `buildDaySelections` (`selectedKeys`), so
   // the table can never disagree with the payload (rule 14). Unticking here
-  // is the day details' own `untickedRows`.
+  // writes the sheet's `untickedRows`.
   const [txOpen, setTxOpen] = useState(false);
   const [txScroll, setTxScroll] = useState<{ day: string; seq: number } | null>(
     null,
@@ -998,20 +951,21 @@ export function AccountSettleSheet({
       });
   })();
   const txCount = countOpenSettleTransactions(txRows, picked);
-  const handleOpenDay = (day: string) => {
-    // While the table is open a tap picks the day and scrolls the table to
-    // it; the day details stay closed.
+  /** Scroll the open table to `day`; nothing while it is closed (owner
+   *  2026-10-27: a day tap only picks / unpicks). */
+  const scrollTableTo = (day: string) => {
     if (txOpen) setTxScroll((prev) => ({ day, seq: (prev?.seq ?? 0) + 1 }));
-    else setFocusedDay(day);
   };
 
   // ── Account lines an undo / void wrote (T037, FR-016b) ──────────────────
   const reliefRows = accountRows.filter(
     (r) => r.relief_origin && isSettleRowOpen(r),
   );
-  const openDay = (day: string) => {
+  /** The ↺ line's day link: show that day's month (and its rows, when the
+   *  table is open). */
+  const goToDay = (day: string) => {
     setMonth(day.slice(0, 7));
-    setFocusedDay(day);
+    scrollTableTo(day);
   };
 
   const sideSections = SETTLE_CURRENCIES.map((c) => sections[c]).filter(
@@ -1107,7 +1061,7 @@ export function AccountSettleSheet({
                 picked={picked}
                 partlyPicked={partlyPickedDays}
                 onToggleDay={handleToggleDay}
-                onOpenDay={handleOpenDay}
+                onOpenDay={scrollTableTo}
                 onPrevMonth={() => setMonth((m) => shiftMonth(m, -1))}
                 onNextMonth={
                   month < currentMonth
@@ -1115,18 +1069,13 @@ export function AccountSettleSheet({
                     : undefined
                 }
                 leftOutDays={leftOutDays}
-                focusedDay={focusedDay}
                 monthLeft={monthLeftTotals}
                 olderUnselected={olderUnselected}
                 seeTransactions={{
                   count: txCount,
                   expanded: txOpen,
                   controlsId: txPanelId,
-                  onToggle: () => {
-                    // The table takes over from the day details.
-                    if (!txOpen) setFocusedDay(null);
-                    setTxOpen(!txOpen);
-                  },
+                  onToggle: () => setTxOpen(!txOpen),
                 }}
                 // LIRA-345 — the ↺ hover text names the supplier settled.
                 formatMark={(m) => {
@@ -1150,26 +1099,6 @@ export function AccountSettleSheet({
                 leftOutCount={leftOutDays.size}
                 onClear={() => setPickedState(new Set())}
                 onPickAllOpen={() => setPickedState(new Set(openDays))}
-              />
-            )}
-            {focusedDay !== null && (
-              <SettleDayDetails
-                day={focusedDay}
-                dayLabel={fmt.formatDate(dayDate(focusedDay), {
-                  weekday: "short",
-                  day: "numeric",
-                  month: "short",
-                })}
-                rows={detailRows}
-                picked={picked.has(focusedDay)}
-                unticked={untickedRows}
-                onToggleRow={handleToggleRow}
-                onSeeInTransactions={
-                  onSeeInTransactions
-                    ? () => onSeeInTransactions(focusedDay)
-                    : undefined
-                }
-                onClose={() => setFocusedDay(null)}
               />
             )}
           </div>
@@ -1281,7 +1210,7 @@ export function AccountSettleSheet({
                   <span className="flex-1">{lines.join(" · ")}</span>
                   <button
                     type="button"
-                    onClick={() => openDay(r.shop_day)}
+                    onClick={() => goToDay(r.shop_day)}
                     className="font-semibold underline underline-offset-[3px] hover:text-white"
                   >
                     {t("accountSettle.calendar.reliefGoToDay", {

@@ -42,8 +42,8 @@ export interface SettleFormatters {
   formatUsd: (amount: number) => string;
   /** Month line / selection bar: `1,890,000 LBP`. */
   formatLbp: (amount: number) => string;
-  /** Under a circle: `$47`, `$47.50`. */
+  /** Under a circle, unsigned (the colour carries the sign): `$47`, `$6.5k`. */
   formatUsdShort: (amount: number) => string;
-  /** Under a circle, number part only (the LBP label is added): `990k`, `1.2m`. */
+  /** Under a circle, unsigned, number part only (the LBP label is added): `990k`, `1.17B`. */
   formatLbpShort: (amount: number) => string;
 }

@@ -20,8 +20,6 @@ export type {
   SettleDayState,
   SettleFormatters,
 } from "./types";
-export { SettleDayDetails } from "./SettleDayDetails";
-export type { SettleDayDetailsProps, SettleDayDetailsRow, SettleDayDetailsSettlement } from "./SettleDayDetails";
 /*
  * "See transactions" (owner mock 2026-10-26 §7) — reuse in any settle sheet:
  *
@@ -41,8 +39,9 @@ export type { SettleDayDetailsProps, SettleDayDetailsRow, SettleDayDetailsSettle
  *                   status: open|paid|waiting, checked, waitingNote? }` —
  *                   `checked` must come from the sheet's payload builder.
  *
- * While the table is open, pass `onOpenDay` a handler that bumps
- * `scrollToDay` instead of opening the day details.
+ * Pass `onOpenDay` a handler that bumps `scrollToDay` while the table is
+ * open and does nothing while it is closed: a day tap only picks / unpicks
+ * (owner 2026-10-27 — no inline day details).
  */
 export { SettleTransactionsPanel } from "./SettleTransactionsPanel";
 export type { SettleTransactionsPanelProps } from "./SettleTransactionsPanel";

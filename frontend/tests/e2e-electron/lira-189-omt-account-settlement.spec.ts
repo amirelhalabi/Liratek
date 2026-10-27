@@ -56,8 +56,8 @@
  * PICKED DAYS ("Pick transfers" is gone). This spec's rows are ledger rows
  * (an iPick top-up, an OMT App cash-out) that cannot be backdated, so they
  * all sit on TODAY, next to whatever earlier specs left open today. Each
- * test therefore clears the default pick, picks ONLY today, and in today's
- * day details (FR-016a) unticks every open row that is not its own — the
+ * test therefore clears the default pick, picks ONLY today, and in the
+ * "See transactions" table (FR-016a) unticks every open row that is not its own — the
  * others stay open and untouched — then sets the OMT credit to 0. The
  * preview then lists exactly this test's rows, so every amount below is
  * still this test's own.
@@ -416,12 +416,13 @@ async function openAccountSettleSheet(page: Page): Promise<Locator> {
 
 /**
  * LIRA-343 — narrows the settlement to EXACTLY the given rows. They all sit
- * on `today`: pick only today, then, in today's day details (picking a day
- * also opens them), untick every open row that is not wanted — earlier
- * specs' leftovers stay open and untouched. Close the details, set the OMT
- * credit to 0, and wait for the preview to list every wanted row (identity,
- * never position) and nothing else. All before any payment is typed (the
- * day, the unticks and the credit each re-fill the box).
+ * on `today`: pick only today, then, in the "See transactions" table (owner
+ * 2026-10-27: a day tap only picks; there are no inline day details), untick
+ * every open row that is not wanted — earlier specs' leftovers stay open and
+ * untouched. Close the table, set the OMT credit to 0, and wait for the
+ * preview to list every wanted row (identity, never position) and nothing
+ * else. All before any payment is typed (the day, the unticks and the
+ * credit each re-fill the box).
  */
 async function isolateSelection(
   sheet: Locator,
@@ -429,28 +430,36 @@ async function isolateSelection(
   wanted: Array<{ kind: "FINANCIAL_SERVICE" | "LEDGER"; id: number }>,
 ) {
   await pickOnlyDay(sheet, today);
-  const details = sheet.getByTestId("settle-day-details");
-  await expect(details).toBeVisible();
-  // Every wanted row listed = the details were loaded after seeding.
-  const wantedIds = wanted.map((w) => `settle-day-row-${w.kind}:${w.id}`);
+  await expect(sheet.getByTestId("settle-day-details")).toHaveCount(0);
+  await sheet.getByTestId("settle-see-transactions").click();
+  const table = sheet.getByTestId("settle-transactions-panel");
+  await expect(table).toBeVisible();
+  // Every wanted row listed = the table was loaded after seeding.
+  const wantedIds = wanted.map((w) => `settle-tx-row-${w.kind}:${w.id}`);
   for (const id of wantedIds) {
-    await expect(details.getByTestId(id)).toBeVisible({ timeout: 15_000 });
+    await expect(table.getByTestId(id)).toBeVisible({ timeout: 15_000 });
   }
-  const listed = await details
-    .locator('[data-testid^="settle-day-row-"]')
+  const listed = await table
+    .locator('[data-testid^="settle-tx-row-"]')
     .evaluateAll((els) => els.map((e) => e.getAttribute("data-testid") ?? ""));
   for (const id of listed) {
     if (wantedIds.includes(id)) continue;
-    // Only OPEN rows of a picked day carry the box; a closed one has none.
-    const box = details.getByTestId(id).getByRole("checkbox");
-    if (await box.count()) {
+    // Only OPEN rows carry an enabled box (paid ones are disabled, rows
+    // waiting for their statement type have none).
+    const box = table.getByTestId(id).getByRole("checkbox");
+    if ((await box.count()) && (await box.isEnabled())) {
       await box.uncheck();
       await expect(box).not.toBeChecked();
     }
   }
-  // Close the details by THEIR Close button (the sheet has its own).
-  await details.getByRole("button", { name: "Close", exact: true }).click();
-  await expect(details).toHaveCount(0);
+  // Close the table (× on a wide window, ← below 900px, where the table
+  // covers the sheet): the payment boxes are in the sheet.
+  await table
+    .getByRole("button", {
+      name: /^(Close transactions|Back to the calendar)$/,
+    })
+    .click();
+  await expect(table).toHaveCount(0);
   await setCreditToZero(sheet);
   for (const w of wanted) {
     await expect(

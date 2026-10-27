@@ -38,5 +38,6 @@ export function countOpenSettleTransactions(
   rows: readonly SettleTransactionRow[],
   pickedDays: ReadonlySet<string>,
 ): number {
-  return rows.filter((r) => r.status !== "paid" && pickedDays.has(r.day)).length;
+  return rows.filter((r) => r.status !== "paid" && pickedDays.has(r.day))
+    .length;
 }

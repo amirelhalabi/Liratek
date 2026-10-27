@@ -481,10 +481,14 @@ function webApiShimBody(): void {
     },
     // LIRA-256: IPC returns the statement raw (and throws on a refused
     // choice); REST wraps it as { statement }.
-    "suppliers.getAccountExpectedStatement": async ([id, covered]) => {
-      const query = Array.isArray(covered)
-        ? `?covered=${encodeURIComponent((covered as string[]).join(","))}`
-        : "";
+    "suppliers.getAccountExpectedStatement": async ([id, covered, upToDay]) => {
+      const params = new URLSearchParams();
+      if (Array.isArray(covered)) {
+        params.set("covered", (covered as string[]).join(","));
+      }
+      if (typeof upToDay === "string") params.set("up_to_day", upToDay);
+      const qs = params.toString();
+      const query = qs ? `?${qs}` : "";
       const res = await rest(
         "GET",
         `/api/suppliers/${id}/account-expected-statement${query}`,

@@ -342,7 +342,12 @@ describe("Suppliers page — Transactions window range on the server (LIRA-343 T
     }
   });
 
-  it('"See in Transactions ›" from the settle sheet opens the window for that day ABOVE the sheet', async () => {
+  // Was: '"See in Transactions ›" from the settle sheet opens the window for
+  // that day ABOVE the sheet'. Owner decision 2026-10-27 removed the day
+  // details (and that link with them); a day tap only picks / unpicks.
+  // Failing-first guard (rule 17): run against the page whose sheet still
+  // opened the details.
+  it("tapping a day in the settle sheet opens no day details and no Transactions window", async () => {
     mockGetSupplierAccountUnsettled.mockResolvedValue([OCT20_ROW]);
     mockGetSupplierAccountMonthRows.mockImplementation(
       async (_id: number, month: string) =>
@@ -358,31 +363,21 @@ describe("Suppliers page — Transactions window range on the server (LIRA-343 T
       if (!el) throw new Error("calendar not rendered");
       return el as HTMLElement;
     });
-    fireEvent.click(within(cell).getByRole("button"));
-    const details = await within(sheet).findByTestId("settle-day-details");
-    fireEvent.click(
-      within(details).getByRole("button", { name: "See in Transactions ›" }),
-    );
-
-    const dialog = await screen.findByRole("dialog");
-    expect(dialog.textContent).toContain("OMT");
-    // The sheet (and its picks) stays mounted underneath.
-    expect(
-      screen.getByTestId("supplier-account-settle-sheet"),
-    ).toBeInTheDocument();
-    // The window sits on a layer above the sheet's z-50.
-    const layer = screen.getByTestId("supplier-txns-layer");
-    expect(layer.className).toContain("z-[60]");
-    expect(layer).toContainElement(dialog);
-    // Filtered to that one shop day, on the server, for the whole account.
-    expect(fields(dialog).from.value).toBe("2026-10-20");
-    expect(fields(dialog).to.value).toBe("2026-10-20");
+    const button = within(cell).getByRole("button");
+    const before = button.getAttribute("aria-pressed");
+    fireEvent.click(button);
     await waitFor(() =>
-      expect(mockGetSupplierAccountTransactions).toHaveBeenCalledWith(
-        1,
-        undefined,
-        { from: "2026-10-20", to: "2026-10-20" },
-      ),
+      expect(
+        within(
+          sheet.querySelector('[data-day="2026-10-20"]') as HTMLElement,
+        ).getByRole("button"),
+      ).not.toHaveAttribute("aria-pressed", before ?? ""),
     );
+    expect(within(sheet).queryByTestId("settle-day-details")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "See in Transactions ›" }),
+    ).toBeNull();
+    expect(screen.queryByTestId("supplier-txns-layer")).toBeNull();
+    expect(mockGetSupplierAccountTransactions).not.toHaveBeenCalled();
   });
 });

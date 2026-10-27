@@ -87,7 +87,7 @@ jest.mock("@/hooks/useShopBase", () => ({
 }));
 
 // A product supplier (is_system = 0) — "Record Debt" is a product-supplier
-// feature, the mirror of "Add Credit / Debt" (company suppliers only).
+// feature. Since 2026-10-27 product suppliers also get "Add Credit / Debt".
 const ACME_SUPPLIER = {
   id: 5,
   name: "Acme Distributors",
@@ -209,5 +209,19 @@ describe("Suppliers page — Record Debt (LIRA-087)", () => {
     expect(
       screen.queryByRole("button", { name: "Record Debt" }),
     ).not.toBeInTheDocument();
+  });
+
+  // Owner decision 2026-10-27: a product supplier gets the same "Add Credit /
+  // Debt" button as a company supplier, next to "Record Debt". Written
+  // before the change; the first run failed (the button was not rendered).
+  it("shows 'Add Credit / Debt' next to 'Record Debt' for a product supplier", async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Products" }));
+    fireEvent.click((await screen.findAllByText("Acme Distributors"))[0]);
+
+    await screen.findByRole("button", { name: "Record Debt" });
+    expect(
+      screen.getByRole("button", { name: "Add Credit / Debt" }),
+    ).toBeInTheDocument();
   });
 });

@@ -4,7 +4,11 @@
  * "See transactions" (owner mock 2026-10-26 §7) on the partner settle sheet
  * (LIRA-346): the pill under the month line, the table of the picked days'
  * entries (paid ones too, For / Through tag, notes as name / ref), and an
- * untick there leaving the entry out of the plan like the day details do.
+ * untick there leaving the entry out of the plan.
+ *
+ * Owner decision 2026-10-27: the inline day details are gone — a day tap
+ * only picks / unpicks (guard below, failing-first against the sheet that
+ * still opened them), and the ↺ line's day link only switches the month.
  *
  * Failing-first (rule 17): written before the sheet wired the panel. Same
  * fixture as `PartnerSettleSheet.test.tsx` plus a paid 20 Oct entry that
@@ -165,5 +169,50 @@ describe("PartnerSettleSheet — See transactions", () => {
     );
     expect(within(through).getByRole("checkbox")).not.toBeChecked();
     expect(through).toHaveTextContent("unticked");
+  });
+
+  it("tapping a day only picks / unpicks it: no day details, no day-detail read", async () => {
+    renderSheet();
+    const cell = await waitFor(() => {
+      const el = document.querySelector('[data-day="2026-10-20"] button');
+      if (!el) throw new Error("calendar not rendered");
+      return el as HTMLButtonElement;
+    });
+    await waitFor(() => expect(cell).toHaveAttribute("aria-pressed", "true"));
+    fireEvent.click(cell);
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-day="2026-10-20"] button'),
+      ).toHaveAttribute("aria-pressed", "false"),
+    );
+    expect(screen.queryByTestId("settle-day-details")).not.toBeInTheDocument();
+    expect(mockGetDayDetail).not.toHaveBeenCalled();
+  });
+
+  it("the ↺ line's day link switches the calendar to that month and opens nothing", async () => {
+    const RELIEF = row({
+      id: 20,
+      shop_day: "2026-10-24",
+      amount_usd: 30,
+      row_scope: "ACCOUNT",
+      relief_origin: "UNDO",
+      relief_ref: "#5",
+    });
+    mockGetOpenRows.mockResolvedValue([...OPEN, RELIEF]);
+    renderSheet();
+    const line = await screen.findByTestId("partner-settle-relief-line");
+    await waitFor(() =>
+      expect(document.querySelector('[data-day="2026-10-24"]')).not.toBeNull(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Previous month" }));
+    await waitFor(() =>
+      expect(document.querySelector('[data-day="2026-10-24"]')).toBeNull(),
+    );
+    fireEvent.click(within(line).getByRole("button"));
+    await waitFor(() =>
+      expect(document.querySelector('[data-day="2026-10-24"]')).not.toBeNull(),
+    );
+    expect(screen.queryByTestId("settle-day-details")).not.toBeInTheDocument();
+    expect(mockGetDayDetail).not.toHaveBeenCalled();
   });
 });

@@ -17,7 +17,9 @@ export interface SettleSelectionBarProps {
   leftOutCount: number;
   onClear: () => void;
   onPickAllOpen: () => void;
-  formatters?: Partial<Pick<SettleFormatters, "formatUsd" | "formatLbp">> | undefined;
+  formatters?:
+    | Partial<Pick<SettleFormatters, "formatUsd" | "formatLbp">>
+    | undefined;
 }
 
 const LINK =
@@ -65,7 +67,9 @@ export function SettleSelectionBar({
       >
         {count}
       </span>
-      <span className="sr-only">{t("accountSettle.calendar.selectedCount", { count })}</span>
+      <span className="sr-only">
+        {t("accountSettle.calendar.selectedCount", { count })}
+      </span>
       <span className="font-semibold text-white">{range}</span>
       {leftOutCount > 0 && (
         <span className="font-semibold text-amber-400">

@@ -35,6 +35,13 @@ const mockApi = {
   getSupplierAccountExpectedStatement: mockGetStatement,
 };
 
+// 2026-10-27 — the browser's own day is the 28th, so "yesterday" (the
+// default statement day) is the 27th.
+jest.mock("@/shared/utils/localDay", () => {
+  const actual = jest.requireActual("@/shared/utils/localDay");
+  return { ...actual, localDay: () => "2026-10-28" };
+});
+
 jest.mock("@liratek/ui", () => {
   const actual = jest.requireActual("@liratek/ui");
   return {
@@ -95,7 +102,7 @@ describe("OmtStatementCheckPanel (LIRA-255)", () => {
     });
 
     await waitFor(() =>
-      expect(mockGetStatement).toHaveBeenCalledWith(1),
+      expect(mockGetStatement).toHaveBeenCalledWith(1, undefined, "2026-10-27"),
     );
 
     expect(await screen.findByTestId("omt-statement-gross-usd")).toHaveTextContent(
@@ -290,16 +297,18 @@ describe("OmtStatementCheckPanel — LIRA-256 covered types", () => {
     expect(screen.getByText("Type not recorded")).toBeInTheDocument();
   });
 
-  it("'All types' calls the read with ONE argument (id only)", async () => {
+  it("'All types' calls the read with no covered list (id, undefined, day)", async () => {
     renderWith(byChoice);
-    await waitFor(() => expect(mockGetStatement).toHaveBeenCalledWith(1));
-    expect(mockGetStatement.mock.calls[0]).toHaveLength(1);
+    await waitFor(() =>
+      expect(mockGetStatement).toHaveBeenCalledWith(1, undefined, "2026-10-27"),
+    );
+    expect(mockGetStatement.mock.calls[0][1]).toBeUndefined();
   });
 
   it("ticking only Intra re-reads with (id, ['INTRA']) and renders that response", async () => {
     renderWith(byChoice);
     await toggleCoveredType(P, "INTRA");
-    await waitFor(() => expect(mockGetStatement).toHaveBeenCalledWith(1, ["INTRA"]));
+    await waitFor(() => expect(mockGetStatement).toHaveBeenCalledWith(1, ["INTRA"], "2026-10-27"));
     await waitFor(() =>
       expect(screen.getByTestId("omt-statement-commission-usd")).toHaveTextContent("$0.30"),
     );
@@ -326,7 +335,7 @@ describe("OmtStatementCheckPanel — LIRA-256 covered types", () => {
     mockGetStatement.mockClear();
     renderWith(byChoice);
     expect(await isCoveredTypeTicked(P, "INTRA")).toBe(true);
-    await waitFor(() => expect(mockGetStatement).toHaveBeenCalledWith(1, ["INTRA"]));
+    await waitFor(() => expect(mockGetStatement).toHaveBeenCalledWith(1, ["INTRA"], "2026-10-27"));
   });
 
   it("unticking the last type returns to 'All types' (never sends [])", async () => {
@@ -335,7 +344,7 @@ describe("OmtStatementCheckPanel — LIRA-256 covered types", () => {
     await toggleCoveredType(P, "INTRA");
     expect(coveredPickerShowsAllTypes(P)).toBe(true);
     for (const call of mockGetStatement.mock.calls) {
-      if (call.length > 1) expect(call[1]).not.toEqual([]);
+      expect(call[1]).not.toEqual([]);
     }
   });
 
@@ -351,5 +360,114 @@ describe("OmtStatementCheckPanel — LIRA-256 covered types", () => {
     expect(coveredPickerShowsAllTypes(P)).toBe(true);
     await toggleCoveredType(P, "INTRA");
     expect(await isCoveredTypeTicked(P, "INTRA")).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// 2026-10-27 (owner option B) — OMT's SMS covers the account up to the END
+// OF YESTERDAY. The panel reads up to a day (default: yesterday, from the
+// browser's own day), lets the operator pick an earlier one, and shows what
+// later days still have open, not counted.
+// ─────────────────────────────────────────────────────────────────────────
+describe("OmtStatementCheckPanel — up to a day", () => {
+  const CUT: AccountExpectedStatement = {
+    account_supplier_id: 1,
+    gross_owed_usd: 150,
+    gross_owed_lbp: 0,
+    unsettled_commission_usd: 1.5,
+    unsettled_commission_lbp: 0,
+    expected_usd: 148.5,
+    expected_lbp: 0,
+    covered_omt_service_types: null,
+    commission_by_type: [],
+    after_day_usd: -150,
+    after_day_lbp: 500_000,
+  };
+
+  function renderCut(statement: AccountExpectedStatement) {
+    mockGetStatement.mockResolvedValue(statement);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <OmtStatementCheckPanel account={ACCOUNT} />
+      </QueryClientProvider>,
+    );
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    try {
+      window.localStorage.clear();
+    } catch {
+      // ignore
+    }
+  });
+
+  it("defaults to yesterday: the chip says so and the read is cut at it", async () => {
+    renderCut(CUT);
+    expect(screen.getByTestId("omt-statement-up-to-chip")).toHaveTextContent(
+      "Up to: Tue, Oct 27",
+    );
+    await waitFor(() =>
+      expect(mockGetStatement).toHaveBeenCalledWith(1, undefined, "2026-10-27"),
+    );
+  });
+
+  it("picking another day re-reads with it; today and later cannot be picked", async () => {
+    renderCut(CUT);
+    await waitFor(() => expect(mockGetStatement).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId("omt-statement-up-to-chip"));
+    const input = screen.getByTestId(
+      "omt-statement-up-to-input",
+    ) as HTMLInputElement;
+    expect(input.max).toBe("2026-10-27");
+    expect(input.value).toBe("2026-10-27");
+
+    fireEvent.change(input, { target: { value: "2026-10-25" } });
+    await waitFor(() =>
+      expect(mockGetStatement).toHaveBeenLastCalledWith(
+        1,
+        undefined,
+        "2026-10-25",
+      ),
+    );
+    expect(screen.getByTestId("omt-statement-up-to-chip")).toHaveTextContent(
+      "Up to: Sun, Oct 25",
+    );
+
+    // Today (the 28th) is refused: the read stays on the 25th.
+    mockGetStatement.mockClear();
+    fireEvent.click(screen.getByTestId("omt-statement-up-to-chip"));
+    fireEvent.change(screen.getByTestId("omt-statement-up-to-input"), {
+      target: { value: "2026-10-28" },
+    });
+    expect(screen.getByTestId("omt-statement-up-to-chip")).toHaveTextContent(
+      "Up to: Sun, Oct 25",
+    );
+    expect(mockGetStatement).not.toHaveBeenCalledWith(
+      1,
+      undefined,
+      "2026-10-28",
+    );
+  });
+
+  it("shows what later days still have open, not counted", async () => {
+    renderCut(CUT);
+    const line = await screen.findByTestId("omt-statement-after-day");
+    expect(line).toHaveTextContent(
+      "After Tue, Oct 27, not counted: -$150.00 · +500,000 LBP",
+    );
+  });
+
+  it("no line when nothing is left out", async () => {
+    renderCut({ ...CUT, after_day_usd: 0, after_day_lbp: 0 });
+    await waitFor(() =>
+      expect(screen.getByTestId("omt-statement-expected-usd")).toHaveTextContent(
+        "$148.50",
+      ),
+    );
+    expect(screen.queryByTestId("omt-statement-after-day")).toBeNull();
   });
 });

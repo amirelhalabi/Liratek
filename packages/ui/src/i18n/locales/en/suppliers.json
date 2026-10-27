@@ -95,7 +95,9 @@
       "monthLoading": "Loading the days…",
       "monthFailed": "Couldn't load this month's days. Close and try again.",
       "reliefGoToDay": "{{day}} ›",
-      "dayAriaPartlyPicked": "{{label}}, partly picked"
+      "dayAriaPartlyPicked": "{{label}}, partly picked",
+      "amount_owed": "{{amount}} owed",
+      "amount_credit": "{{amount}} credit"
     },
     "dayDetails": {
       "close": "Close",
@@ -328,7 +330,10 @@
     "smsLbp": "OMT SMS says (LBP)",
     "typeSmsFigure": "Type the SMS figure",
     "matches": "Matches",
-    "offBy": "Off by <ltr>{{money}}</ltr>"
+    "offBy": "Off by <ltr>{{money}}</ltr>",
+    "upTo": "Up to: {{day}}",
+    "upToPick": "Statement up to (end of day)",
+    "afterDay": "After {{day}}, not counted: <ltr>{{amounts}}</ltr>"
   },
   "status": {
     "partial": "Partial",

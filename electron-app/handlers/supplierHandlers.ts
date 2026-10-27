@@ -18,7 +18,7 @@ import {
   SupplierPurchaseCreateSchema,
   SupplierAccountLinkSchema,
   SupplierRecordDebtSchema,
-  OmtCoveredTypesSchema,
+  AccountExpectedStatementParamsSchema,
   AccountMonthSchema,
   AccountDaySchema,
   SupplierDayRangeSchema,
@@ -144,16 +144,31 @@ export function registerSupplierHandlers(): void {
   // core schema. This is a RAW-shape read (the renderer expects a
   // statement, never an envelope), so an invalid value THROWS — the invoke
   // promise rejects and the query enters its error state.
+  // 2026-10-27 (owner option B) — optional 3rd argument: the shop's day
+  // (YYYY-MM-DD, the CLIENT's, rule 27) the statement covers, inclusive.
+  // Both arguments go through ONE shared core schema with the REST route
+  // (rule 14); an invalid value THROWS, same as above.
   ipcMain.handle(
     "suppliers:account-expected-statement",
-    (_e, accountSupplierId: number, coveredTypes?: unknown) => {
-      let covered: OmtCoveredTypesInput | undefined;
-      if (coveredTypes !== undefined) {
-        const v = validatePayload(OmtCoveredTypesSchema, coveredTypes);
-        if (!v.ok) throw new Error(v.error);
-        covered = v.data;
-      }
-      return service.getAccountExpectedStatement(accountSupplierId, covered);
+    (
+      _e,
+      accountSupplierId: number,
+      coveredTypes?: unknown,
+      upToDay?: unknown,
+    ) => {
+      const v = validatePayload(AccountExpectedStatementParamsSchema, {
+        covered: coveredTypes,
+        up_to_day: upToDay,
+      });
+      if (!v.ok) throw new Error(v.error);
+      const covered: OmtCoveredTypesInput | undefined = v.data.covered;
+      return v.data.up_to_day === undefined
+        ? service.getAccountExpectedStatement(accountSupplierId, covered)
+        : service.getAccountExpectedStatement(
+            accountSupplierId,
+            covered,
+            v.data.up_to_day,
+          );
     },
   );
 

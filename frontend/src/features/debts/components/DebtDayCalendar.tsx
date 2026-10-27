@@ -38,10 +38,8 @@ import logger from "@/utils/logger";
 import {
   countOpenSettleTransactions,
   SettleCalendar,
-  SettleDayDetails,
   SettleSelectionBar,
   SettleTransactionsPanel,
-  type SettleDayDetailsRow,
   type SettleTransactionRow,
 } from "@/shared/components/settleCalendar";
 
@@ -162,7 +160,6 @@ export default function DebtDayCalendar({
     USD: null,
     LBP: null,
   });
-  const [focusedDay, setFocusedDay] = useState<string | null>(null);
 
   const lines = account ?? NO_LINES;
   const planFor = (
@@ -247,27 +244,6 @@ export default function DebtDayCalendar({
 
   const dayLabel = (day: string) =>
     fmt.formatDate(dayDate(day), { day: "numeric", month: "short" });
-
-  const detailRows: SettleDayDetailsRow[] =
-    focusedDay && data
-      ? data.rows
-          .filter((r) => r.shop_day === focusedDay)
-          .map((r) => ({
-            key: daySelectionRowKey(r),
-            id: r.id,
-            label: r.label,
-            memberTag: null,
-            amount_usd: r.amount_usd,
-            amount_lbp: r.amount_lbp,
-            covered_usd: r.covered_usd,
-            covered_lbp: r.covered_lbp,
-            remaining_usd: r.remaining_usd,
-            remaining_lbp: r.remaining_lbp,
-            settlements: [],
-            addedAfterSettlement: false,
-            waitingForStatement: false,
-          }))
-      : [];
 
   // ── See transactions (owner mock 2026-10-26 §7) ─────────────────────────
   // The picked days' items, paid ones too, under the calendar (the calendar
@@ -374,11 +350,10 @@ export default function DebtDayCalendar({
     return [...out.values()].sort((a, b) => a.day.localeCompare(b.day));
   })();
   const txCount = countOpenSettleTransactions(txRows, picked);
-  const handleOpenDay = (day: string) => {
-    // While the table is open a tap picks the day and scrolls the table to
-    // it; the day details stay closed.
+  /** Scroll the open table to `day`; nothing while it is closed (owner
+   *  2026-10-27: a day tap only picks / unpicks; no inline day details). */
+  const scrollTableTo = (day: string) => {
     if (txOpen) setTxScroll((prev) => ({ day, seq: (prev?.seq ?? 0) + 1 }));
-    else setFocusedDay(day);
   };
 
   const creditCcys: Ccy[] = [
@@ -409,7 +384,7 @@ export default function DebtDayCalendar({
           picked={picked}
           partlyPicked={partlyPicked}
           onToggleDay={toggleDay}
-          onOpenDay={handleOpenDay}
+          onOpenDay={scrollTableTo}
           onPrevMonth={() => setMonth((m) => shiftMonth(m, -1))}
           onNextMonth={
             month < currentMonth
@@ -417,18 +392,13 @@ export default function DebtDayCalendar({
               : undefined
           }
           leftOutDays={leftOutDays}
-          focusedDay={focusedDay}
           monthLeft={sumMonthLeft(days)}
           olderUnselected={olderUnselected}
           seeTransactions={{
             count: txCount,
             expanded: txOpen,
             controlsId: txPanelId,
-            onToggle: () => {
-              // The table takes over from the day details.
-              if (!txOpen) setFocusedDay(null);
-              setTxOpen(!txOpen);
-            },
+            onToggle: () => setTxOpen(!txOpen),
           }}
         />
       )}
@@ -443,21 +413,6 @@ export default function DebtDayCalendar({
           change(new Set(openDays), unticked, { USD: null, LBP: null })
         }
       />
-      {focusedDay !== null && (
-        <SettleDayDetails
-          day={focusedDay}
-          dayLabel={fmt.formatDate(dayDate(focusedDay), {
-            weekday: "short",
-            day: "numeric",
-            month: "short",
-          })}
-          rows={detailRows}
-          picked={picked.has(focusedDay)}
-          unticked={unticked}
-          onToggleRow={toggleRow}
-          onClose={() => setFocusedDay(null)}
-        />
-      )}
       <div
         id={txPanelId}
         inert={!txOpen}

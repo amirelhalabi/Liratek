@@ -82,7 +82,9 @@ const DAYS: SettleDay[] = [
     paid_pct_usd: 0,
     currency_state_usd: "OWED",
     selectable: true,
-    account_marks: [{ origin: "VOID", ref: "440", currency: "USD", amount: -35 }],
+    account_marks: [
+      { origin: "VOID", ref: "440", currency: "USD", amount: -35 },
+    ],
   }),
   day({
     day: "2026-10-26",
@@ -105,7 +107,9 @@ const DAYS: SettleDay[] = [
   }),
 ];
 
-function renderCal(overrides: Partial<ComponentProps<typeof SettleCalendar>> = {}) {
+function renderCal(
+  overrides: Partial<ComponentProps<typeof SettleCalendar>> = {},
+) {
   const onToggleDay = jest.fn();
   const onOpenDay = jest.fn();
   const utils = render(
@@ -120,17 +124,22 @@ function renderCal(overrides: Partial<ComponentProps<typeof SettleCalendar>> = {
       {...overrides}
     />,
   );
-  const cell = (d: string) => utils.container.querySelector(`[data-day="${d}"]`) as HTMLElement;
-  const btn = (d: string) => within(cell(d)).getAllByRole("button")[0] as HTMLButtonElement;
+  const cell = (d: string) =>
+    utils.container.querySelector(`[data-day="${d}"]`) as HTMLElement;
+  const btn = (d: string) =>
+    within(cell(d)).getAllByRole("button")[0] as HTMLButtonElement;
   return { ...utils, onToggleDay, onOpenDay, cell, btn };
 }
 
 describe("SettleCalendar (LIRA-343)", () => {
   it("renders every day of the month as a circle, Monday first", () => {
-    const { container } = renderCal();
+    // No tappable day in the month, so no week is hidden.
+    const { container } = renderCal({ days: [] });
     expect(container.querySelectorAll("[data-day]")).toHaveLength(31);
     // 1 Oct 2026 is a Thursday: three blank slots before it (Mon-Wed).
-    const first = container.querySelector('[data-day="2026-10-01"]') as HTMLElement;
+    const first = container.querySelector(
+      '[data-day="2026-10-01"]',
+    ) as HTMLElement;
     const before: Element[] = [];
     let el = first.previousElementSibling;
     while (el && el.hasAttribute("data-blank")) {
@@ -176,7 +185,8 @@ describe("SettleCalendar (LIRA-343)", () => {
 
   it("a day with no transactions is a faint number and not clickable", () => {
     const { btn, onToggleDay, onOpenDay } = renderCal();
-    const b = btn("2026-10-14");
+    // 20 Oct: no transactions, in a week kept by 21-24 Oct.
+    const b = btn("2026-10-20");
     expect(b).toBeDisabled();
     fireEvent.click(b);
     expect(onToggleDay).not.toHaveBeenCalled();
@@ -210,12 +220,20 @@ describe("SettleCalendar (LIRA-343)", () => {
   it("picked days are aria-pressed with a ✓ badge; unpicked are not", () => {
     const { btn, cell } = renderCal();
     expect(btn("2026-10-22")).toHaveAttribute("aria-pressed", "true");
-    expect(cell("2026-10-22").querySelector('[data-corner="picked"]')).not.toBeNull();
+    expect(
+      cell("2026-10-22").querySelector('[data-corner="picked"]'),
+    ).not.toBeNull();
     expect(btn("2026-10-21")).toHaveAttribute("aria-pressed", "false");
-    expect(cell("2026-10-21").querySelector('[data-corner="picked"]')).toBeNull();
+    expect(
+      cell("2026-10-21").querySelector('[data-corner="picked"]'),
+    ).toBeNull();
     // the neutral band joins 22 and 23 (same week row)
-    expect(cell("2026-10-22").querySelector('[data-band="start"]')).not.toBeNull();
-    expect(cell("2026-10-23").querySelector('[data-band="end"]')).not.toBeNull();
+    expect(
+      cell("2026-10-22").querySelector('[data-band="start"]'),
+    ).not.toBeNull();
+    expect(
+      cell("2026-10-23").querySelector('[data-band="end"]'),
+    ).not.toBeNull();
   });
 
   it("a left-out day shows the amber ! badge", () => {
@@ -260,7 +278,9 @@ describe("SettleCalendar (LIRA-343)", () => {
 
   it("month line says nothing is left when both currencies are 0", () => {
     renderCal({ monthLeft: { usd: 0, lbp: 0 } });
-    expect(screen.getByTestId("settle-month-left")).toHaveTextContent("Nothing left this month");
+    expect(screen.getByTestId("settle-month-left")).toHaveTextContent(
+      "Nothing left this month",
+    );
   });
 
   it("month arrows: disabled without a handler, call it when given", () => {
@@ -276,8 +296,12 @@ describe("SettleCalendar (LIRA-343)", () => {
 
   it("older unselected days: amber link that opens that month", () => {
     const onOpen = jest.fn();
-    renderCal({ olderUnselected: { count: 1, monthLabel: "September", onOpen } });
-    const link = screen.getByRole("button", { name: /1 unselected day in September/ });
+    renderCal({
+      olderUnselected: { count: 1, monthLabel: "September", onOpen },
+    });
+    const link = screen.getByRole("button", {
+      name: /1 unselected day in September/,
+    });
     fireEvent.click(link);
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
@@ -298,13 +322,162 @@ describe("SettleCalendar — partly picked (LIRA-343)", () => {
     expect(btn("2026-10-22")).toHaveAttribute("aria-pressed", "true");
     expect(btn("2026-10-22")).toHaveAccessibleName(/partly picked/);
     // a fully picked day keeps the white ✓
-    expect(cell("2026-10-23").querySelector('[data-corner="picked"]')).not.toBeNull();
+    expect(
+      cell("2026-10-23").querySelector('[data-corner="picked"]'),
+    ).not.toBeNull();
     expect(btn("2026-10-23")).not.toHaveAccessibleName(/partly picked/);
   });
 
   it("an unpicked day is never marked partly picked", () => {
     const { cell, btn } = renderCal({ partlyPicked: new Set(["2026-10-21"]) });
-    expect(cell("2026-10-21").querySelector('[data-corner="partlyPicked"]')).toBeNull();
+    expect(
+      cell("2026-10-21").querySelector('[data-corner="partlyPicked"]'),
+    ).toBeNull();
     expect(btn("2026-10-21")).not.toHaveAccessibleName(/partly picked/);
+  });
+});
+
+/**
+ * Owner pick 2026-10-27 ("1 · Short numbers in colour"): under each day,
+ * short numbers with no minus sign; the colour says who owes whom (red =
+ * still owed, green = credit), and hovering shows the exact amounts.
+ * Written before the change; the first run failed all three (no "$391",
+ * no "$6.5k", empty hover title).
+ */
+describe("SettleCalendar day amounts — short numbers in colour", () => {
+  const BIG: SettleDay[] = [
+    day({
+      day: "2026-10-12",
+      state: "UNPAID",
+      left_usd: 390.61,
+      left_lbp: 153_180_000,
+      owed_usd: 390.61,
+      owed_lbp: 153_180_000,
+      paid_pct_usd: 0,
+      paid_pct_lbp: 0,
+      currency_state_usd: "OWED",
+      currency_state_lbp: "OWED",
+      selectable: true,
+    }),
+    day({
+      day: "2026-10-13",
+      state: "UNPAID",
+      left_usd: -6517.96,
+      left_lbp: -1_174_840_000,
+      selectable: true,
+    }),
+  ];
+  const amounts = (c: HTMLElement) =>
+    c.querySelector("[data-amounts]") as HTMLElement;
+
+  it("owed day: $391 and 153.2m LBP, both red", () => {
+    const { cell } = renderCal({ days: BIG });
+    const a = amounts(cell("2026-10-12"));
+    expect(a).toHaveTextContent("$391");
+    expect(a).toHaveTextContent("153.2m LBP");
+    const tones = Array.from(a.querySelectorAll("[data-tone]")).map((e) =>
+      e.getAttribute("data-tone"),
+    );
+    expect(tones).toEqual(["owed", "owed"]);
+  });
+
+  it("credit day: $6.5k and 1.17B LBP, green, no minus sign", () => {
+    const { cell } = renderCal({ days: BIG });
+    const a = amounts(cell("2026-10-13"));
+    expect(a).toHaveTextContent("$6.5k");
+    expect(a).toHaveTextContent("1.17B LBP");
+    expect(a.textContent).not.toMatch(/[−-]/);
+    const tones = Array.from(a.querySelectorAll("[data-tone]")).map((e) =>
+      e.getAttribute("data-tone"),
+    );
+    expect(tones).toEqual(["credit", "credit"]);
+  });
+
+  it("hover shows the exact amounts", () => {
+    const { cell } = renderCal({ days: BIG });
+    const title = amounts(cell("2026-10-13")).getAttribute("title") ?? "";
+    expect(title).toContain("$6,517.96");
+    expect(title).toContain("1,174,840,000 LBP");
+    expect(title).not.toMatch(/[−-]\$|[−-]1/);
+  });
+});
+
+/**
+ * Owner request 2026-10-27: a week in which no day can be tapped (no
+ * activity, or still in the future) is not shown. A month with no tappable
+ * day at all keeps every week, so the calendar never renders empty.
+ * Written before the change; the first run failed (every week was shown).
+ */
+describe("SettleCalendar — weeks with no tappable day are hidden", () => {
+  it("hides the weeks of 1-4, 12-18 and 19-25 Oct; keeps 5-11 and 26-31", () => {
+    const { container } = renderCal({
+      days: [
+        day({
+          day: "2026-10-05",
+          state: "SETTLED",
+          owed_usd: 1,
+          paid_pct_usd: 1,
+          currency_state_usd: "PAID",
+        }),
+        day({
+          day: "2026-10-27",
+          state: "UNPAID",
+          left_usd: 21,
+          owed_usd: 21,
+          paid_pct_usd: 0,
+          currency_state_usd: "OWED",
+          selectable: true,
+        }),
+        // future activity alone does not keep a week
+        day({
+          day: "2026-10-20",
+          state: "UNPAID",
+          left_usd: 5,
+          owed_usd: 5,
+          paid_pct_usd: 0,
+          currency_state_usd: "OWED",
+        }),
+      ],
+      today: "2026-10-19",
+    });
+    const shown = Array.from(container.querySelectorAll("[data-day]")).map(
+      (e) => e.getAttribute("data-day"),
+    );
+    expect(shown).toContain("2026-10-05");
+    expect(shown).toContain("2026-10-11");
+    expect(shown).not.toContain("2026-10-01");
+    expect(shown).not.toContain("2026-10-14");
+    expect(shown).not.toContain("2026-10-20");
+    expect(shown).not.toContain("2026-10-27");
+    expect(shown).toHaveLength(7);
+  });
+
+  it("keeps a week whose only day carries a ↺ account mark", () => {
+    const { container } = renderCal({
+      days: [
+        day({
+          day: "2026-10-05",
+          state: "SETTLED",
+          owed_usd: 1,
+          paid_pct_usd: 1,
+          currency_state_usd: "PAID",
+        }),
+        day({
+          day: "2026-10-14",
+          account_marks: [
+            { origin: "UNDO", ref: "A", currency: "USD", amount: 8.7 },
+          ],
+        }),
+      ],
+    });
+    expect(
+      container.querySelector('[data-day="2026-10-14"] [data-account-mark]'),
+    ).not.toBeNull();
+    expect(container.querySelector('[data-day="2026-10-20"]')).toBeNull();
+  });
+
+  it("keeps every week when no day of the month can be tapped", () => {
+    const { container } = renderCal({ days: [] });
+    expect(container.querySelectorAll("[data-day]")).toHaveLength(31);
   });
 });
