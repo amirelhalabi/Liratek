@@ -78,8 +78,6 @@ export interface CheckpointResolutionResult {
 export const CHECKPOINT_RESOLUTION_EXCLUSIONS: Readonly<
   Record<string, string>
 > = {
-  "repositories/DrawerTopUpRepository.ts":
-    "Moves the shop's own money between drawers (top-up / transfer), not a sale or payment missed at the counter; not in the FR-006 flow list. Follow-up for the owner: should a back-timed top-up resolve a difference?",
   "repositories/DrawerCashoutRepository.ts":
     "Owner cash-out from a drawer, not a counter transaction; not in the FR-006 flow list. Follow-up for the owner, same question as top-ups.",
   "repositories/WalletExchangeRepository.ts":

@@ -13,6 +13,7 @@ import { getExchangeLotRepository } from "./ExchangeLotRepository.js";
 import { getRateRepository } from "./RateRepository.js";
 import { marketRateToUsdPerUnit } from "../utils/lotMarketRate.js";
 import { exchangeLogger } from "../utils/logger.js";
+import { resolveBackTimedDrawerMovement } from "./checkpointResolution.js";
 
 export interface DrawerTopUpEntity {
   id: number;
@@ -744,6 +745,16 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
           tenantId,
         });
       }
+
+      // LIRA-335 engine, last, after both legs (owner 2026-10-28): a move
+      // dated before a count of either drawer resolves that count's open
+      // difference (money out ↔ Short, money in ↔ Over) instead of moving
+      // the drawer a second time. Top-ups (createTopUp / createTopUpFromDrawer)
+      // are not wired yet — still an open owner question.
+      resolveBackTimedDrawerMovement(this.db, {
+        transactionId: txnId,
+        userId: data.createdBy,
+      });
 
       return transferId;
     })();

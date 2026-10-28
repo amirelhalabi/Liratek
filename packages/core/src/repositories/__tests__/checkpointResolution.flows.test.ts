@@ -74,6 +74,10 @@ import {
   resetHoldMoneyRepository,
 } from "../HoldMoneyRepository";
 import { resetSupplierRepository } from "../SupplierRepository";
+import {
+  getDrawerTopUpRepository,
+  resetDrawerTopUpRepository,
+} from "../DrawerTopUpRepository";
 import { resetCarrierLineRepository } from "../CarrierLineRepository";
 import {
   getMaintenanceService,
@@ -122,6 +126,7 @@ function resetAllRepositories(): void {
   resetSupplierRepository();
   resetCarrierLineRepository();
   resetMaintenanceService();
+  resetDrawerTopUpRepository();
 }
 
 beforeEach(() => {
@@ -532,6 +537,48 @@ const CASES: FlowCase[] = [
       const res = hold.voidPickup(pickup.id, USER_ID);
       expect(res.error).toBeUndefined();
     },
+  },
+  // Owner 2026-10-28 (Cornertech): a drawer move dated before a count
+  // resolves that count's open difference like any other back-timed money.
+  // Only the counted drawer (General) resolves here; the other side moves as
+  // today because no checkpoint counted it.
+  {
+    name: "drawer transfer General → OMT cash drawer (money OUT of General LBP)",
+    drawer: "General",
+    currency: "LBP",
+    movement: -50_000_000,
+    save: (time) =>
+      txnOf(
+        "drawer_transfers",
+        getDrawerTopUpRepository().transferBetweenDrawers({
+          fromDrawer: "General",
+          toDrawer: "OMT_System",
+          amountUsd: 0,
+          amountLbp: 50_000_000,
+          createdBy: USER_ID,
+          transactionTime: time,
+        }),
+      ),
+    reverse: "generic",
+  },
+  {
+    name: "drawer transfer OMT cash drawer → General (money IN General USD)",
+    drawer: "General",
+    currency: "USD",
+    movement: 300,
+    save: (time) =>
+      txnOf(
+        "drawer_transfers",
+        getDrawerTopUpRepository().transferBetweenDrawers({
+          fromDrawer: "OMT_System",
+          toDrawer: "General",
+          amountUsd: 300,
+          amountLbp: 0,
+          createdBy: USER_ID,
+          transactionTime: time,
+        }),
+      ),
+    reverse: "generic",
   },
 ];
 
