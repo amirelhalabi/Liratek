@@ -88,14 +88,22 @@ export function useAutoCheckpointAfterSignIn(
             apiRef.current.getLastCheckpointPerDrawer(),
             apiRef.current.getEnabledModules(),
             // Settings are a nicety here: if they fail, the base system is
-            // unknown and no drawer is hidden on its account.
-            apiRef.current.getAllSettings().catch(() => []),
+            // unknown and no drawer is hidden on its account. Wrapped so a
+            // synchronous throw (an adapter without the read) fails only
+            // this read, never the whole window.
+            Promise.resolve()
+              .then(() => apiRef.current.getAllSettings())
+              .catch(() => []),
           ]);
         const baseSetting = (
           Array.isArray(settings) ? (settings as SettingRow[]) : []
         ).find((s) => s.key_name === "shop_base_system")?.value;
         const baseSystem =
-          baseSetting === "WHISH" ? "WHISH" : baseSetting === "OMT" ? "OMT" : null;
+          baseSetting === "WHISH"
+            ? "WHISH"
+            : baseSetting === "OMT"
+              ? "OMT"
+              : null;
         const enabled = new Set(
           (Array.isArray(modules) ? (modules as ModuleRow[]) : [])
             .filter((m) => m.is_enabled)

@@ -15104,10 +15104,13 @@ CREATE INDEX IF NOT EXISTS idx_psc_transaction ON partner_settlement_coverage(te
         db.exec(
           `ALTER TABLE partner_ledger ADD COLUMN legacy_covered_amount REAL NOT NULL DEFAULT 0`,
         );
-        // Freeze today's coverage: no coverage row explains it.
-        db.exec(
-          `UPDATE partner_ledger SET legacy_covered_amount = covered_amount WHERE covered_amount <> 0`,
-        );
+        // Freeze today's coverage: no coverage row explains it. A trimmed
+        // schema without covered_amount (v128 skipped in a test) has none.
+        if (columnExists(db, "partner_ledger", "covered_amount")) {
+          db.exec(
+            `UPDATE partner_ledger SET legacy_covered_amount = covered_amount WHERE covered_amount <> 0`,
+          );
+        }
       }
     },
     down(db: Database.Database) {
