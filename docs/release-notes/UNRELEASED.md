@@ -207,6 +207,7 @@ Settle Account on the OMT card now opens on a calendar of the month. Settled day
 
 ## 🎨 Look & feel
 
+- Sign-in page: less empty space between the shop name and the Username field.
 - Light mode: cards and input boxes now use a soft warm grey instead of bright white, and the dark text on OMT's yellow buttons and tabs is a softer charcoal instead of pure black.
 - Exchange: the form and the Rates list now fill the whole page width, with the same margins at any window size. Before, wide windows left an empty strip on the right.
 - Accounts: a client's balance in $ and LBP now stays on one line, and the Settle Debt, Cash Out and Write off buttons are never cut off. On narrower windows they move under the balance.
@@ -259,6 +260,8 @@ Settle Account on the OMT card now opens on a calendar of the month. Settled day
 
 ## 🤝 Partners
 
+- OMT / Whish: on a "For Partner" receive, the note now says what really happens: no drawer moves, and the shop owes the partner the full amount received (the fee is not taken off). It used to say the drawer is credited and the fee is deducted.
+- Partners: when the partner list can't load on a form ("For Partner"), the message now says why (for example "Too many requests") instead of "[object Object]".
 - Partners: Settle now opens a calendar of the month. Settled days are green, open days show what is still owed in $ and LBP (short form, red or green by who owes whom; point at a day for the exact amounts), and the open days before today are already picked. Tap a day to add or skip it; to leave single entries out, untick them under "See transactions". Only the picked days are settled, and what the partner owes you and what you owe the partner on those days count against each other.
 - Partners / Profits: a sale made for a partner now counts its profit as soon as a settlement clears it against what you owe that partner, not only when the partner pays cash. Undoing the settlement moves that profit back to pending.
 - Partners: when the partner pays more than the picked days need, the extra stays on the partner's account as credit. Next time, "Use partner credit" takes it off what the partner pays.

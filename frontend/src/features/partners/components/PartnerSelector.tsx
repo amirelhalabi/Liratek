@@ -4,6 +4,7 @@ import { Users } from "lucide-react";
 import type { Partner } from "@/types/electron";
 import logger from "@/utils/logger";
 import { Select, useApi } from "@liratek/ui";
+import { messageFrom } from "@/api/apiError";
 
 interface PartnerSelectorProps {
   selectedPartnerId: number | null;
@@ -67,7 +68,10 @@ export function PartnerSelector({
       .catch((err: unknown) => {
         logger.error("Failed to load partners:", err);
         if (cancelled) return;
-        setLoadError(err instanceof Error ? err.message : String(err));
+        // A web failure is a plain ApiError object, not an Error: read its
+        // message instead of printing "[object Object]".
+        // The sentence adds its own full stop, so drop the server's.
+        setLoadError(messageFrom(err, "").replace(/[.\s]+$/, "") || null);
         setLoadState("error");
       });
     return () => {

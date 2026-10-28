@@ -120,4 +120,22 @@ describe("For Partner picker on recharge forms", () => {
       await screen.findByText(/No partners available\. Add a partner first\./),
     ).toBeInTheDocument();
   });
+
+  // Owner report 2026-10-28: on a rate-limited web request the picker read
+  // "Couldn't load partners: [object Object]". requestJson throws a plain
+  // ApiError object ({ status, message }), not an Error. Written before the
+  // fix; the first run failed (the text showed "[object Object]").
+  it("shows the server's message when the failure is a plain object, not [object Object]", async () => {
+    mockPartnersGetAll.mockRejectedValueOnce({
+      status: 429,
+      message: "Too many requests — please wait a minute and try again.",
+    });
+    renderRechargeToggle();
+    expect(
+      await screen.findByText(/Couldn't load partners: Too many requests/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/\[object Object\]/)).toBeNull();
+    // one full stop, not "again.."
+    expect(screen.queryByText(/again\.\./)).toBeNull();
+  });
 });

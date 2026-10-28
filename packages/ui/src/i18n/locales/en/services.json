@@ -96,7 +96,7 @@
   },
   "forPartner": {
     "sendNotice": "For partner: <b>{{partner}}</b> owes you <b>{{amount}}</b> (amount + fee). It is recorded on the {{provider}} supplier page as money you owe {{provider}}. No cash leaves a drawer.",
-    "receiveNotice": "There is no payout method to choose here — the {{provider}} drawer is credited automatically, and the shop ends up owing <b>{{partner}}</b> the amount received minus the fee."
+    "receiveNotice": "No payout here — {{partner}}'s customer is paid by the partner, so no drawer moves. The shop owes <b>{{partner}}</b> the full amount received; the fee is not taken off it."
   },
   "toast": {
     "recordedSEND": "{{provider}} send recorded successfully",

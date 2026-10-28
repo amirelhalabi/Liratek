@@ -445,6 +445,24 @@ describe("Services page — For-Partner payment-section gating (LIRA-114 §4, LI
     ).toBeInTheDocument();
   });
 
+  // Owner 2026-10-28 (Adham check on Cornertech): an OMT / Whish system
+  // RECEIVE for a partner moves no drawer and owes the partner the FULL
+  // amount (partnerOwedDelta: CREDIT x, no fee), so the note must not say
+  // "drawer is credited" or "minus the fee". Written before the fix; the
+  // first run failed on the old wording.
+  it("For Partner ON + OMT RECEIVE: the note says the partner is owed the full amount and no drawer moves", async () => {
+    await renderPage();
+    switchTab("OMT", "RECEIVE");
+    await checkForPartnerAndWaitForSelection();
+
+    const notice = screen.getByTestId(
+      "services-for-partner-receive-no-payout-notice",
+    );
+    expect(notice).toHaveTextContent("full amount received");
+    expect(notice).not.toHaveTextContent(/minus the fee/i);
+    expect(notice).not.toHaveTextContent(/credited automatically/i);
+  });
+
   it("For Partner OFF + SEND: unchanged — Customer Account still offered, section still labelled 'Payment'", async () => {
     await renderPage();
     // Default state: forPartner is off.

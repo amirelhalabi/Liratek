@@ -219,7 +219,7 @@ export default function Login({ adminOnly = false }: LoginProps = {}) {
             mode. A shop that has named itself is still named under the logo:
             before login that is the only tenant identity on the page. */}
         <div
-          className="px-10 pt-9 pb-8 text-center"
+          className="px-10 pt-9 pb-4 text-center"
           style={{ backgroundColor: BRAND_NAVY }}
         >
           <img
@@ -245,8 +245,9 @@ export default function Login({ adminOnly = false }: LoginProps = {}) {
           )}
         </div>
 
-        {/* Form */}
-        <div className="p-8 relative z-10">
+        {/* Form — top padding trimmed so the shop name sits closer to the
+            first field (owner 2026-10-28: the gap read as empty space). */}
+        <div className="px-8 pb-8 pt-2 relative z-10">
           {showPlatformSignIn ? (
             <>
               {(sso.exchanging || sso.error) && (
