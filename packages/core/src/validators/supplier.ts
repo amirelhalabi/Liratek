@@ -57,6 +57,10 @@ export const supplierLedgerEntrySchema = z.object({
   amount_lbp: z.number(),
   note: z.string().optional(),
   drawer_name: z.string().optional(),
+  // LIRA-352 — "Set custom time" on Add Credit / Debt (paper): the day the
+  // entry really belongs to. Paper only: refused with drawer_name (a cash
+  // entry goes through supplierCashflowSchema). Future check in the service.
+  transaction_time: transactionTimeSchema,
 });
 
 // CQ-5 follow-up: a leg amount of 0 (or negative) is not a real payment —
@@ -202,6 +206,11 @@ export const supplierCashflowSchema = z
     // SupplierRepository.recordSupplierCashflow also enforces this at the
     // data layer as a safety net.
     discount: counterpartyDiscountInputSchema.optional(),
+    // LIRA-352 — "Set custom time" on Add Credit / Debt (cash): every row
+    // the payment writes takes this time, and a payment dated before a
+    // drawer count resolves that count's open difference. Future check in
+    // the service.
+    transaction_time: transactionTimeSchema,
   })
   .refine((d) => !d.discount || d.direction === "PAY", {
     message: "discount is only valid on PAY-direction cashflow",

@@ -75,6 +75,10 @@ import {
 } from "../HoldMoneyRepository";
 import { resetSupplierRepository } from "../SupplierRepository";
 import {
+  getSupplierService,
+  resetSupplierService,
+} from "../../services/SupplierService";
+import {
   getDrawerTopUpRepository,
   resetDrawerTopUpRepository,
 } from "../DrawerTopUpRepository";
@@ -127,6 +131,7 @@ function resetAllRepositories(): void {
   resetCarrierLineRepository();
   resetMaintenanceService();
   resetDrawerTopUpRepository();
+  resetSupplierService();
 }
 
 beforeEach(() => {
@@ -222,6 +227,22 @@ function txnOf(sourceTable: string, sourceId: number, type?: string): number {
     ) as { id: number } | undefined;
   expect(row).toBeDefined();
   return row!.id;
+}
+
+/** A plain product supplier (no provider): its CASH legs use General. */
+function plainSupplier(): number {
+  return Number(
+    db
+      .prepare(`INSERT INTO suppliers (tenant_id, name) VALUES (1, 'Paper Co')`)
+      .run().lastInsertRowid,
+  );
+}
+
+function txnOfSupplierEntry(ledgerId: number): number {
+  const row = db
+    .prepare(`SELECT transaction_id FROM supplier_ledger WHERE id = ?`)
+    .get(ledgerId) as { transaction_id: number };
+  return row.transaction_id;
 }
 
 function txnOfDebtLedger(ledgerId: number): number {
@@ -538,6 +559,45 @@ const CASES: FlowCase[] = [
       expect(res.error).toBeUndefined();
     },
   },
+  // LIRA-352: Add Credit / Debt (cash) on a supplier, saved with "Set
+  // custom time" — a payment or receipt made on an earlier day.
+  {
+    name: "supplier paid in cash from Add Credit / Debt (money OUT of General USD)",
+    drawer: "General",
+    currency: "USD",
+    movement: -40,
+    save: (time) => {
+      const res = getSupplierService().recordSupplierCashflow({
+        supplier_id: plainSupplier(),
+        direction: "PAY",
+        payments: [{ method: "CASH", currency_code: "USD", amount: 40 }],
+        note: "paid last week",
+        created_by: USER_ID,
+        transaction_time: time,
+      });
+      expect(res.error).toBeUndefined();
+      return txnOfSupplierEntry(res.id!);
+    },
+    reverse: "generic",
+  },
+  {
+    name: "supplier pays the shop in cash from Add Credit / Debt (money IN General LBP)",
+    drawer: "General",
+    currency: "LBP",
+    movement: 900_000,
+    save: (time) => {
+      const res = getSupplierService().recordSupplierCashflow({
+        supplier_id: plainSupplier(),
+        direction: "RECEIVE",
+        payments: [{ method: "CASH", currency_code: "LBP", amount: 900_000 }],
+        created_by: USER_ID,
+        transaction_time: time,
+      });
+      expect(res.error).toBeUndefined();
+      return txnOfSupplierEntry(res.id!);
+    },
+    reverse: "generic",
+  },
   // Owner 2026-10-28 (Cornertech): a drawer move dated before a count
   // resolves that count's open difference like any other back-timed money.
   // Only the counted drawer (General) resolves here; the other side moves as
@@ -686,5 +746,56 @@ describe("Set custom time dates every row the save writes", () => {
       }
     }
     expect(wrong).toEqual([]);
+  });
+});
+
+describe("LIRA-352 — Add Credit / Debt on paper takes Set custom time", () => {
+  it("dates the paper line and its transaction, and refuses a future time", () => {
+    const supplierId = plainSupplier();
+    const before = maxIds();
+    const res = getSupplierService().addLedgerEntry({
+      supplier_id: supplierId,
+      entry_type: "ADJUSTMENT",
+      amount_usd: 1651.01,
+      amount_lbp: 0,
+      note: "reverses Monday's manual adjustment",
+      created_by: USER_ID,
+      transaction_time: MON_1410,
+    });
+    expect(res.error).toBeUndefined();
+    const rows = db
+      .prepare(
+        `SELECT 'supplier_ledger' AS t, created_at FROM supplier_ledger WHERE id > ?
+         UNION ALL
+         SELECT 'transactions', created_at FROM transactions WHERE id > ?`,
+      )
+      .all(before.supplier_ledger, before.transactions) as {
+      t: string;
+      created_at: string;
+    }[];
+    expect(rows.map((r) => r.t).sort()).toEqual([
+      "supplier_ledger",
+      "transactions",
+    ]);
+    for (const r of rows) {
+      expect(
+        new Date(
+          r.created_at.replace(" ", "T") +
+            (r.created_at.endsWith("Z") ? "" : "Z"),
+        ).toISOString(),
+      ).toBe(MON_1410);
+    }
+
+    const future = new Date(Date.now() + 3_600_000).toISOString();
+    const refused = getSupplierService().addLedgerEntry({
+      supplier_id: supplierId,
+      entry_type: "ADJUSTMENT",
+      amount_usd: 1,
+      amount_lbp: 0,
+      created_by: USER_ID,
+      transaction_time: future,
+    });
+    expect(refused.success).toBe(false);
+    expect(refused.error).toMatch(/future/);
   });
 });

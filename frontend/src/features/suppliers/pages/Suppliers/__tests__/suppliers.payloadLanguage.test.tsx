@@ -478,6 +478,63 @@ const SCENARIOS: Scenario[] = [
       ]);
     },
   },
+  // LIRA-352 — "Set custom time" on Add Credit / Debt: the chosen time rides
+  // in the ONE payload of either path (rule 22), named as the schema names it.
+  {
+    name: "Add Credit / Debt — CREDIT $40 cash, dated Mon 26 13:18 (cashflow)",
+    write: "recordSupplierCashflow",
+    setup: () => {
+      mockApi.getSuppliers.mockResolvedValue([WHISH_APP_SUPPLIER]);
+    },
+    drive: async () => {
+      click(await screen.findByTestId("supplier-tile-WHISH_APP"));
+      click(await screen.findByTestId("supplier-adjust-open"));
+      click(await screen.findByTestId("supplier-adjust-direction-credit"));
+      type(screen.getByTestId("supplier-adjust-amount"), "40");
+      click(screen.getByTestId("txn-time-toggle"));
+      type(screen.getByTestId("txn-time-input"), "2026-10-26T13:18");
+      click(screen.getByTestId("supplier-adjust-submit"));
+    },
+    check: (calls) => {
+      const p = cashflowPayload(calls);
+      expect(p.direction).toBe("RECEIVE");
+      expect(p.transaction_time).toBe(
+        new Date("2026-10-26T13:18").toISOString(),
+      );
+    },
+  },
+  {
+    name: "Add Credit / Debt — DEBIT $1,651.01 on paper, dated Mon 26 13:44 (ledger entry)",
+    write: "addSupplierLedgerEntry",
+    setup: () => {
+      mockApi.getSuppliers.mockResolvedValue([WHISH_APP_SUPPLIER]);
+    },
+    drive: async () => {
+      click(await screen.findByTestId("supplier-tile-WHISH_APP"));
+      click(await screen.findByTestId("supplier-adjust-open"));
+      click(await screen.findByTestId("supplier-adjust-direction-debit"));
+      type(screen.getByTestId("supplier-adjust-amount"), "1651.01");
+      click(
+        within(screen.getByTestId("supplier-cash-moved-toggle")).getByRole(
+          "checkbox",
+        ),
+      );
+      click(screen.getByTestId("txn-time-toggle"));
+      type(screen.getByTestId("txn-time-input"), "2026-10-26T13:44");
+      click(screen.getByTestId("supplier-adjust-submit"));
+    },
+    check: (calls) => {
+      expect(calls[0]).toEqual([
+        7,
+        {
+          entry_type: "ADJUSTMENT",
+          amount_usd: -1651.01,
+          amount_lbp: 0,
+          transaction_time: new Date("2026-10-26T13:44").toISOString(),
+        },
+      ]);
+    },
+  },
   {
     name: "Record Debt — $50 + 100,000 LBP with a note",
     write: "recordSupplierDebt",

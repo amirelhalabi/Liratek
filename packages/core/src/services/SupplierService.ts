@@ -1,5 +1,6 @@
 import type { OmtCoveredType } from "../utils/omtCoveredTypes.js";
 import type { SupplierDayRangeInput } from "../validators/supplier.js";
+import { toSqliteUtc } from "../utils/requestNow.js";
 import {
   getSupplierRepository,
   getProductSupplierRepository,
@@ -220,14 +221,31 @@ export class SupplierService {
   addLedgerEntry(
     data: Omit<CreateSupplierLedgerEntryData, "created_at"> & {
       drawer_name?: string;
+      /** LIRA-352 — "Set custom time" (ISO), paper entries only. */
+      transaction_time?: string;
     },
   ): SupplierResult {
     try {
       if (!data.supplier_id)
         return { success: false, error: "supplier_id is required" };
-      // `created_at` is a server-side override for flows saved with a
-      // custom time; a manual entry from either transport is always "now".
-      const res = this.repo.addLedgerEntry({ ...data, created_at: undefined });
+      const { transaction_time, ...entry } = data;
+      const timeError = transactionTimeError(transaction_time);
+      if (timeError) return { success: false, error: timeError };
+      // A dated entry is paper only: a cash entry is a cashflow, which
+      // dates its drawer legs and resolves checkpoints (rule 23 reverse —
+      // the key is used or refused, never ignored).
+      if (transaction_time && entry.drawer_name)
+        return {
+          success: false,
+          error:
+            "A custom time is only for entries that move no cash. Record a cash entry as a payment.",
+        };
+      // `created_at` is a server-side field: a manual entry is "now" unless
+      // the operator set a custom time (LIRA-352).
+      const res = this.repo.addLedgerEntry({
+        ...entry,
+        created_at: transaction_time ? toSqliteUtc(transaction_time) : undefined,
+      });
       return { success: true, id: res.id };
     } catch (e) {
       return { success: false, error: toErrorString(e) };
@@ -273,18 +291,8 @@ export class SupplierService {
       // decides what the money covers, inside its own write transaction;
       // the selections/amount checks below belong to the legacy path only.
       if (data.per_currency !== undefined) {
-        // "Set custom time" — same check as every other backdated form:
-        // a valid instant, not in the future.
-        if (data.transaction_time) {
-          const at = new Date(data.transaction_time);
-          if (isNaN(at.getTime()))
-            return { success: false, error: "Invalid transaction_time format" };
-          if (at > new Date())
-            return {
-              success: false,
-              error: "transaction_time cannot be in the future",
-            };
-        }
+        const timeError = transactionTimeError(data.transaction_time);
+        if (timeError) return { success: false, error: timeError };
         // LIRA-345 (S1) — only suppliers on the day calendar settle here
         // (the OMT account, Katsh, active Whish, product suppliers); Loto
         // keeps its checkpoints. The ONE rule: `settlesByDay`.
@@ -407,6 +415,8 @@ export class SupplierService {
           success: false,
           error: "At least one payment leg is required",
         };
+      const timeError = transactionTimeError(data.transaction_time);
+      if (timeError) return { success: false, error: timeError };
       const res = this.repo.recordSupplierCashflow(data);
       return { success: true, id: res.id };
     } catch (e) {
@@ -420,6 +430,16 @@ export class SupplierService {
   // branch → postSupplierBundledDiscount) is the only supported forgive-a-payable
   // path now. See BUILD_CONTRACT.md handoffs for every caller that still
   // references the removed method.
+}
+
+/** "Set custom time" — the ONE check every supplier form shares (rule 14):
+ *  a valid instant, not in the future. `null` when fine or absent. */
+function transactionTimeError(time: string | undefined): string | null {
+  if (!time) return null;
+  const at = new Date(time);
+  if (isNaN(at.getTime())) return "Invalid transaction_time format";
+  if (at > new Date()) return "transaction_time cannot be in the future";
+  return null;
 }
 
 /** `YYYY-MM-DD 00:00:00` for a UTC midnight epoch (the format `created_at`

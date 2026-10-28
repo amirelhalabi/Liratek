@@ -8114,7 +8114,7 @@ To do: put Loto on the day calendar (`settlesByDay` rule), drop its Pay / Receiv
 
 What users will notice (when built): Loto gets a Settle Account button with the day calendar, and its Pay / Receive tab goes away.
 
-## LIRA-352: "Set custom time" on Add Credit / Debt (suppliers) — TODO (owner, 2026-10-28)
+## LIRA-352: "Set custom time" on Add Credit / Debt (suppliers) — DONE (owner, 2026-10-28)
 
 Supplier adjustments (paper Add Credit / Debt) can't be voided; the app's way to correct one is an opposite entry. Without a custom time that opposite entry is dated today, so a correction for an earlier day leaves that day's balance wrong (found on Cornertech: Monday's 3 manual OMT adjustments, −$1,651.01 / −1,099,566,686 / −35,689,064 LBP, corrected on Wed 28). Add the same "Set custom time" as Settle Account (888a3018): schema field, one dating rule for every row it writes, checkpoint resolution for cash-moved entries, both transports, failing-first tests.
 

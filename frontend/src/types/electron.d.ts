@@ -18,6 +18,7 @@ import type {
   SupplierDayRangeInput,
   // LIRA-313 — supplier Pay/Receive payload incl. change legs (rule 21).
   SupplierCashflowPayload,
+  SupplierLedgerEntryPayload,
   // LIRA-322 — account settlement payload (rule 21).
   SupplierSettleAccountPayload,
   RemoveAccountCreditPayload,
@@ -2006,14 +2007,11 @@ export interface ElectronAPI {
       supplier_id: number;
       account_supplier_id: number | null;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
-    addLedgerEntry: (data: {
-      supplier_id: number;
-      entry_type: "TOP_UP" | "PAYMENT" | "ADJUSTMENT";
-      amount_usd: number;
-      amount_lbp: number;
-      note?: string;
-      drawer_name?: string;
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    // Derived from the core schema (rule 21) — includes LIRA-352's
+    // transaction_time.
+    addLedgerEntry: (
+      data: SupplierLedgerEntryPayload,
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
     getUnsettledTransactions: (provider: string) => Promise<
       Array<{
         id: number;

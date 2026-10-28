@@ -62,6 +62,7 @@ import {
   type OmtCoveredType,
   type SettlesByDayInput,
 } from "@liratek/core";
+import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 
 type Supplier = {
   id: number;
@@ -992,6 +993,8 @@ export default function SuppliersPage() {
   const [adjustCurrency, setAdjustCurrency] = useState<"USD" | "LBP">("USD");
   const [adjustNote, setAdjustNote] = useState("");
   const [adjustMoveCash, setAdjustMoveCash] = useState(true);
+  // LIRA-352 — "Set custom time": the day the entry really belongs to.
+  const [adjustTime, setAdjustTime] = useState<string | undefined>();
   const [adjustSubmitting, setAdjustSubmitting] = useState(false);
 
   // LIRA-087 (migration v189) — "Record Debt" modal for a product supplier:
@@ -1639,6 +1642,7 @@ export default function SuppliersPage() {
     setAdjustCurrency("USD");
     setAdjustNote("");
     setAdjustMoveCash(true);
+    setAdjustTime(undefined);
   };
 
   const handleSupplierAdjust = async () => {
@@ -1663,6 +1667,7 @@ export default function SuppliersPage() {
           payments: [{ method: "CASH", currency_code: adjustCurrency, amount }],
           exchange_rate: exchangeRate,
           ...(trimmedNote ? { note: trimmedNote } : {}),
+          ...(adjustTime ? { transaction_time: adjustTime } : {}),
         })) as { success: boolean; error?: string };
       } else {
         // Paper: signed ADJUSTMENT (CREDIT +, DEBIT −), no drawer/payments.
@@ -1674,6 +1679,7 @@ export default function SuppliersPage() {
           amount_usd: adjustCurrency === "USD" ? signed : 0,
           amount_lbp: adjustCurrency === "LBP" ? signed : 0,
           ...(trimmedNote ? { note: trimmedNote } : {}),
+          ...(adjustTime ? { transaction_time: adjustTime } : {}),
         })) as { success: boolean; error?: string };
       }
       if (result.success) {
@@ -3642,6 +3648,11 @@ export default function SuppliersPage() {
                     : t("adjust.cashMovedOutHint")}
                 </span>
               </label>
+
+              <TransactionTimeOverride
+                value={adjustTime}
+                onChange={setAdjustTime}
+              />
 
               <div className="pt-2 flex gap-3">
                 <button

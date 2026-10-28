@@ -65,6 +65,7 @@ import type {
   SupplierDayRangeInput,
   // LIRA-313 — supplier Pay/Receive payload incl. change legs (rule 21).
   SupplierCashflowPayload,
+  SupplierLedgerEntryPayload,
   // LIRA-322 — account settlement payload (rule 21).
   SupplierSettleAccountPayload,
   // LIRA-344 — Remove credit payload (rule 21).
@@ -814,13 +815,10 @@ contextBridge.exposeInMainWorld("api", {
       supplier_id: number;
       account_supplier_id: number | null;
     }) => ipcRenderer.invoke("suppliers:update-account-link", data),
-    addLedgerEntry: (data: {
-      supplier_id: number;
-      entry_type: "TOP_UP" | "PAYMENT" | "ADJUSTMENT";
-      amount_usd: number;
-      amount_lbp: number;
-      note?: string;
-    }) => ipcRenderer.invoke("suppliers:add-ledger-entry", data),
+    // Derived from the core schema (rule 21) — includes drawer_name and
+    // LIRA-352's transaction_time.
+    addLedgerEntry: (data: SupplierLedgerEntryPayload) =>
+      ipcRenderer.invoke("suppliers:add-ledger-entry", data),
     getUnsettledTransactions: (provider: string) =>
       ipcRenderer.invoke("suppliers:unsettled-transactions", provider),
     getAllTransactions: (

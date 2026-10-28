@@ -710,6 +710,9 @@ export interface SupplierCashflowData {
     direction?: "IN" | "OUT";
   }>;
   note?: string;
+  /** LIRA-352 — "Set custom time" (ISO): every row this payment writes
+   *  takes it; absent = now. The service refuses a future time. */
+  transaction_time?: string;
   created_by: number;
   /** Exchange rate (1 USD = X LBP) used to convert LBP legs to USD when
    *  applying FIFO coverage to supplier_purchases. Defaults to 89 000.
@@ -8242,6 +8245,11 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         baseSystem: getSettingsService().getShopBaseSystem(),
       };
       const run = this.db.transaction(() => {
+        // LIRA-352 — "Set custom time", as SQLite UTC text like every
+        // ledger row; absent = now.
+        const customAt = data.transaction_time
+          ? toSqliteUtc(data.transaction_time)
+          : undefined;
         // SQLite-side timestamps — see settleTransactions (A6 ordering).
         const isPay = data.direction === "PAY";
         const entryType: SupplierLedgerEntryType = isPay
@@ -8285,7 +8293,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           .prepare(
             `INSERT INTO supplier_ledger
                (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+             VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))`,
           )
           .run(
             data.supplier_id,
@@ -8295,6 +8303,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             data.note ?? null,
             data.created_by,
             tenantId,
+            customAt ?? null,
           );
         const ledgerEntryId = Number(ledgerRes.lastInsertRowid);
 
@@ -8313,6 +8322,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           type: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
           source_table: "supplier_ledger",
           source_id: ledgerEntryId,
+          ...(customAt ? { transaction_time: customAt } : {}),
           user_id: data.created_by,
           amount_usd: usd,
           amount_lbp: lbp,
@@ -8424,8 +8434,19 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             createdBy: data.created_by,
             applyPurchaseCoverage: true,
             rate,
+            ...(data.transaction_time
+              ? { transactionTime: data.transaction_time }
+              : {}),
           });
         }
+
+        // LIRA-352 — last, after every leg: a payment dated before a count
+        // of the drawer it moved resolves that count's open difference
+        // instead of moving the drawer a second time (LIRA-335 engine).
+        resolveBackTimedDrawerMovement(this.db, {
+          transactionId: txnId,
+          userId: data.created_by,
+        });
 
         return { id: ledgerEntryId };
       });
