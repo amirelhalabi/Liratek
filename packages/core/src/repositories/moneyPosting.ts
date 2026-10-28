@@ -546,13 +546,44 @@ export interface BookClientDebtChargeInput {
   tenantId: number;
 }
 
+/** The linked transaction's `created_at` as SQLite UTC text, or now.
+ *  Shared by `bookClientDebtCharge` and `DebtRepository.addCredit` (rule 14). */
+export function linkedTransactionTime(
+  db: Database.Database,
+  transactionId: number,
+  tenantId: number,
+): string {
+  const hasTable = db
+    .prepare(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'transactions'`,
+    )
+    .get();
+  if (hasTable) {
+    const row = db
+      .prepare(
+        `SELECT datetime(created_at) AS at FROM transactions WHERE id = ? AND tenant_id = ?`,
+      )
+      .get(transactionId, tenantId) as { at: string | null } | undefined;
+    if (row?.at) return row.at;
+  }
+  return requestNow();
+}
+
 export function bookClientDebtCharge(
   db: Database.Database,
   input: BookClientDebtChargeInput,
 ): void {
-  // LIRA-306 (FR-021): the charge (and its 30-day due date) dates from the
-  // event's own time on replay; otherwise from now, exactly as before.
-  const now = requestNow();
+  // The charge (and its 30-day due date) dates from its OWN transaction's
+  // time, derived here from the link so every caller inherits it (rule 14):
+  // a backdated entry ("Set custom time", `transaction_time`) used to stamp
+  // its debt row with the save time (Cornertech tx 13435, 2026-10-28). That
+  // time already folds in an offline replay's event time (LIRA-306 FR-021),
+  // since `createTransaction` stamps `transaction_time ?? requestNow()`.
+  // `datetime()` normalises the custom-time ISO text ('…T18:03:00.000Z') to
+  // debt_ledger's canonical 'YYYY-MM-DD HH:MM:SS' UTC so the table's text
+  // ordering and string date-range bounds stay consistent. No transaction
+  // row (or a hand-rolled test DB without the table) → now, as before.
+  const now = linkedTransactionTime(db, input.transactionId, input.tenantId);
   db.prepare(
     `INSERT INTO debt_ledger (
        client_id, transaction_type, amount_usd, amount_lbp,

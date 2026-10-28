@@ -71,6 +71,7 @@ import { getEffectiveRate } from "../utils/effectiveRate.js";
 import {
   applyDrawerDelta,
   insertPaymentRow,
+  linkedTransactionTime,
   buildCounterpartyDiscountPosting,
   resolveStampedExchangeRate,
   usdEquivalent,
@@ -2319,8 +2320,20 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       data.createdBy,
       data.sessionId ?? null,
       getCurrentTenantId(),
-      // LIRA-306 FR-021: the event time on an offline replay.
-      data.transactionTime ?? requestNow(),
+      // A credit that is a side effect of a transaction dates from THAT
+      // transaction's time (a backdated "Set custom time" entry included —
+      // 2026-10-28), derived from the link in one place like
+      // `bookClientDebtCharge`; the transaction's time already folds in an
+      // offline replay's event time (LIRA-306 FR-021). A standalone credit
+      // keeps the caller's time or now.
+      data.transactionTime ??
+        (data.transactionId != null
+          ? linkedTransactionTime(
+              this.db,
+              data.transactionId,
+              getCurrentTenantId(),
+            )
+          : requestNow()),
     );
     return { id: Number(result.lastInsertRowid) };
   }

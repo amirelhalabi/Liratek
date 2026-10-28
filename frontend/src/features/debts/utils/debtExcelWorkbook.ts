@@ -26,6 +26,11 @@ import {
   EXPORT_MARKER_VERSION,
   type DebtExportClient,
 } from "./debtExcelExport";
+import {
+  ledgerCancellations,
+  ledgerRowState,
+  type LedgerCancellations,
+} from "./ledgerCancellation";
 
 /**
  * Empty rows left inside each page's totals for lines added by hand later.
@@ -164,12 +169,22 @@ function ledgerTypeLabel(type: string): string {
   return type;
 }
 
-function describe(entry: DebtLedgerEntity): string {
+function describe(
+  entry: DebtLedgerEntity,
+  pairs?: LedgerCancellations<DebtLedgerEntity>,
+): string {
+  // A cancellation names what it cancelled (2026-10-28, same pairing as the
+  // Accounts page — ledgerCancellation.ts). Its amount stays positive on
+  // the paid side: the import reads only amounts above zero.
+  const original = pairs?.reversalOf.get(entry.id);
+  if (original) return `Cancelled: ${describe(original)}`;
   const parts = [ledgerTypeLabel(entry.transaction_type), entry.note ?? ""]
     .map((s) => s.trim())
     .filter(Boolean);
   let out = parts.join(" — ");
   if (entry.is_refunded) out = out ? `${out} (refunded)` : "(refunded)";
+  if (pairs && ledgerRowState(entry, pairs.cancelled) === "voided")
+    out = out ? `${out} (voided)` : "(voided)";
   return out;
 }
 
@@ -311,6 +326,7 @@ function buildClientSheet(
   h: DebtExportHeadings,
 ): { ws: WorkSheet; layout: PageLayout } {
   const { left: debts, right: payments } = splitBySign(client.history);
+  const pairs = ledgerCancellations(client.history);
 
   const rows: Cell[][] = [
     // F1 links back to the list; the import reads only B1 and D1 here.
@@ -343,12 +359,12 @@ function buildClientSheet(
       d ? dateCell(d.entry.created_at) : blank(S.date),
       d ? num(d.usd, S.usd) : blank(S.usd),
       d ? num(d.lbp, S.lbp) : blank(S.lbp),
-      d ? text(describe(d.entry), S.descLeft) : blank(S.descLeft),
+      d ? text(describe(d.entry, pairs), S.descLeft) : blank(S.descLeft),
       null,
       p ? dateCell(p.entry.created_at) : blank(S.date),
       p ? num(p.usd, S.usd) : blank(S.usd),
       p ? num(p.lbp, S.lbp) : blank(S.lbp),
-      p ? text(describe(p.entry), S.descRight) : blank(S.descRight),
+      p ? text(describe(p.entry, pairs), S.descRight) : blank(S.descRight),
     ]);
   }
 

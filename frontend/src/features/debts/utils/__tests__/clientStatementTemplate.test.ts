@@ -185,3 +185,66 @@ describe("client statement export (LIRA-350, C14)", () => {
     expect(statementFilename('a/b:c*?"<>|')).toBe("statement-a-b-c");
   });
 });
+
+describe("client statement — a voided charge, its cancellation and the re-entry (2026-10-28)", () => {
+  const LINE = "OMT send 5,630,000 LBP";
+  const details = {
+    kind: "transfer" as const,
+    ref: null,
+    line: LINE,
+    fields: [],
+    items: [],
+    payments: [],
+    onAccount: { usd: 0, lbp: 5630000 },
+    note: null,
+  };
+  const rows = [
+    row({
+      id: 181570,
+      transaction_id: 13435,
+      transaction_type: "Service Debt",
+      amount_lbp: 5630000,
+      client_details: details,
+    }),
+    row({
+      id: 181569,
+      transaction_id: 12708,
+      transaction_type: "Refund Reversal",
+      amount_lbp: -5630000,
+      note: "Debt cancelled by refund/void",
+      client_details: details,
+    }),
+    row({
+      id: 181456,
+      transaction_id: 12708,
+      transaction_type: "Service Debt",
+      amount_lbp: 5630000,
+      client_details: details,
+    }),
+  ];
+
+  it("marks the voided charge and words the reversal as its cancellation; the total stays the balance", () => {
+    const sheets = buildClientStatementTemplate({
+      client: { full_name: "SouheiL SALIM Kerbaj", phone_number: null },
+      purchases: rows,
+      payments: [],
+      balance: { usd: 0, lbp: 5630000 },
+      labels: {
+        ...LABELS,
+        voided: "Voided",
+        cancelledLine: (line: string) => `Cancelled: ${line}`,
+      },
+      formatDate: (d) => `D${d.getUTCDate()}`,
+      formatTime: (d) => `T${d.getUTCHours()}`,
+    }).excel({ rows, now: new Date() });
+    const buys = sheets[0]!.blocks[1] as ExportTableBlock;
+    expect(
+      buys.rows.map((r) => [r.cells[2]!.value, r.cells[4]!.value]),
+    ).toEqual([
+      [LINE, 5630000],
+      [`Cancelled: ${LINE}`, -5630000],
+      [`${LINE} (Voided)`, 5630000],
+    ]);
+    expect(buys.totals[0]![4]!.value).toBe(5630000);
+  });
+});

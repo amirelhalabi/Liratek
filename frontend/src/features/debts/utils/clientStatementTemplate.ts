@@ -25,6 +25,7 @@ import {
 } from "@liratek/ui";
 import { clientMoney } from "@liratek/core";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { ledgerCancellations, ledgerRowState } from "./ledgerCancellation";
 
 export interface ClientStatementLabels {
   title: string;
@@ -40,6 +41,10 @@ export interface ClientStatementLabels {
   total: string;
   totalCharged: string;
   totalPaid: string;
+  /** "Voided" — appended to a charge a void/refund cancelled in full. */
+  voided?: string;
+  /** "Cancelled: <line>" — a 'Refund Reversal' row's description. */
+  cancelledLine?: (line: string) => string;
 }
 
 export interface ClientStatementInput {
@@ -53,9 +58,33 @@ export interface ClientStatementInput {
   formatTime: (d: Date) => string;
 }
 
-/** What a row says: the client line, else its stored note. */
-export function statementDescription(row: DebtLedgerEntity): string {
-  return row.client_details?.line || row.note || row.transaction_type;
+/** What a row says: the client line, else its stored note. With `marks`,
+ *  a cancelled charge and its cancellation row read as such (2026-10-28 —
+ *  both carry the original's client line; ledgerCancellation.ts). */
+export function statementDescription(
+  row: DebtLedgerEntity,
+  marks?: {
+    cancelled: ReadonlySet<number>;
+    /** Matched cancellation → the original it cancels. */
+    reversalOf?: ReadonlyMap<number, DebtLedgerEntity>;
+    voided?: string | undefined;
+    cancelledLine?: ((line: string) => string) | undefined;
+  },
+): string {
+  const text = row.client_details?.line || row.note || row.transaction_type;
+  if (!marks) return text;
+  const state = ledgerRowState(row, marks.cancelled);
+  if (state === "cancellation" && marks.cancelledLine) {
+    // Name what was cancelled: the original's words when it is paired,
+    // else the row's own client line (it carries the original's).
+    const original = marks.reversalOf?.get(row.id);
+    const line = original
+      ? statementDescription(original)
+      : row.client_details?.line;
+    if (line) return marks.cancelledLine(line);
+  }
+  if (state === "voided" && marks.voided) return `${text} (${marks.voided})`;
+  return text;
 }
 
 /** "statement-Review-Client-26-10" — no characters a file system refuses. */
@@ -77,6 +106,14 @@ export function buildClientStatementTemplate(
   input: ClientStatementInput,
 ): ExportTemplate<DebtLedgerEntity> {
   const { labels: L, client } = input;
+  const pairs = ledgerCancellations([...input.purchases, ...input.payments]);
+  const marks = {
+    cancelled: pairs.cancelled,
+    reversalOf: pairs.reversalOf,
+    voided: L.voided,
+    cancelledLine: L.cancelledLine,
+  };
+  const describe = (r: DebtLedgerEntity) => statementDescription(r, marks);
   // Payments are stored negative (they lower the balance); a statement
   // lists what was paid, so as positive amounts.
   const paid = (r: DebtLedgerEntity, c: "usd" | "lbp") =>
@@ -115,7 +152,7 @@ export function buildClientStatementTemplate(
         },
         {
           header: L.description,
-          value: statementDescription,
+          value: describe,
           width: 70,
         },
         {
@@ -146,7 +183,7 @@ export function buildClientStatementTemplate(
         cells: [
           { text: input.formatDate(d), bold: false },
           { text: input.formatTime(d), bold: false },
-          { text: statementDescription(r), bold: false },
+          { text: describe(r), bold: false },
           { text: amountText(usd(r), "USD"), align: "right" },
           { text: amountText(lbp(r), "LBP"), align: "right" },
         ],

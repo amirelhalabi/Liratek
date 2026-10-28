@@ -454,3 +454,53 @@ describe("looksLikeSameShop", () => {
     ).toBe(false);
   });
 });
+
+describe("buildDebtExportWorkbook — a voided charge, its cancellation and the re-entry (2026-10-28)", () => {
+  const client: DebtExportClient = {
+    name: "SouheiL SALIM Kerbaj",
+    phone: "70000000",
+    history: [
+      entry({
+        transaction_type: "Service Debt",
+        transaction_id: 12708,
+        created_at: "2026-10-25 08:41:21",
+        amount_lbp: 5_630_000,
+        note: "OMT send",
+      }),
+      entry({
+        transaction_type: "Refund Reversal",
+        transaction_id: 12708,
+        created_at: "2026-10-27 23:06:07",
+        amount_lbp: -5_630_000,
+        note: "Debt cancelled by refund/void",
+      }),
+      entry({
+        transaction_type: "Service Debt",
+        transaction_id: 13435,
+        created_at: "2026-10-27 23:33:57",
+        amount_lbp: 5_630_000,
+        note: "OMT send",
+      }),
+    ],
+  };
+
+  it("marks the voided charge and names the cancellation; the balance stays the ledger's sum", () => {
+    const rows = rowsOf(roundTrip([client]), "SouheiL SALIM Kerbaj");
+    expect(rows[2]!.slice(2, 4)).toEqual([
+      5_630_000,
+      "Service Debt — OMT send (voided)",
+    ]);
+    expect(rows[3]!.slice(2, 4)).toEqual([
+      5_630_000,
+      "Service Debt — OMT send",
+    ]);
+    // The cancellation stays a positive paid-side figure: the import reads
+    // only amounts above zero (see "never writes a negative amount").
+    expect(rows[2]!.slice(7, 9)).toEqual([
+      5_630_000,
+      "Cancelled: Service Debt — OMT send",
+    ]);
+    const bal = rows.find((r) => r[3] === "Balance Remaining in LBP")!;
+    expect(bal[4]).toBe(5_630_000);
+  });
+});

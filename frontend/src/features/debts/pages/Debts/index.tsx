@@ -100,6 +100,13 @@ import {
   loadAccountsForExport,
   looksLikeSameShop,
 } from "../../utils/debtExcelExport";
+import {
+  isCancelledPairRow,
+  ledgerCancellations,
+  ledgerRowState,
+  ledgerSideType,
+  type LedgerRowState,
+} from "../../utils/ledgerCancellation";
 import type { Client } from "@liratek/ui";
 
 type DebtAgingBuckets = {
@@ -155,6 +162,23 @@ const LEDGER_BADGE_CLASS: Record<string, string> = {
 };
 function ledgerBadgeClass(type: string): string {
   return LEDGER_BADGE_CLASS[type] ?? "bg-slate-700 text-slate-400";
+}
+
+/**
+ * A Purchases-side amount cell. A cancellation row shows its own sign (a
+ * charge's cancellation is negative); every other row shows the amount as
+ * booked, struck through when the charge was voided / refunded in full.
+ */
+function ledgerAmountText(
+  value: number,
+  state: LedgerRowState,
+  format: (abs: number) => string,
+): string {
+  const abs = format(Math.abs(value));
+  if (state === "cancellation") {
+    return `${value < 0 ? "\u2212" : "+"}${abs}`;
+  }
+  return abs;
 }
 
 /** en-US `toLocaleDateString()` / `toLocaleTimeString()` shapes. */
@@ -395,25 +419,37 @@ export default function Debts() {
   // Split history into debts (purchases) and payments (repayments + credit
   // deposits) — the rule lives in isPaymentLedgerType, shared with the Excel
   // export so the file splits rows exactly as this screen does.
+  // Option A (2026-10-28): a charge (or credit deposit) a void/refund
+  // cancelled in full stays listed, struck through; its 'Refund Reversal'
+  // row reads as the cancellation, on the original's side. Derived from the
+  // rows already loaded (one rule, shared with the client statement and the
+  // Excel export — ledgerCancellation.ts).
+  const cancellations = useMemo(() => ledgerCancellations(history), [history]);
+  const cancelledIds = cancellations.cancelled;
+
   const debtEntries = useMemo(() => {
     return [...history]
-      .filter((item) => !isPaymentLedgerType(item.transaction_type))
+      .filter(
+        (item) => !isPaymentLedgerType(ledgerSideType(item, cancellations)),
+      )
       .sort((a, b) => {
         const dateA = parseDbDate(a.created_at).getTime();
         const dateB = parseDbDate(b.created_at).getTime();
         return dateSortOrder === "desc" ? dateB - dateA : dateA - dateB;
       });
-  }, [history, dateSortOrder]);
+  }, [history, dateSortOrder, cancellations]);
 
   const paymentEntries = useMemo(() => {
     return [...history]
-      .filter((item) => isPaymentLedgerType(item.transaction_type))
+      .filter((item) =>
+        isPaymentLedgerType(ledgerSideType(item, cancellations)),
+      )
       .sort((a, b) => {
         const dateA = parseDbDate(a.created_at).getTime();
         const dateB = parseDbDate(b.created_at).getTime();
         return dateSortOrder === "desc" ? dateB - dateA : dateA - dateB;
       });
-  }, [history, dateSortOrder]);
+  }, [history, dateSortOrder, cancellations]);
 
   // Sessions that booked an on-account credit (a session-linked CREDIT_DEPOSIT
   // on the Payments side). For those the cash-out payout lives on the Payments
@@ -434,25 +470,31 @@ export default function Debts() {
     [history],
   );
 
+  // A cancelled pair (original + its cancellation) nets to 0 and counts on
+  // neither side, so the totals agree with the client statement.
   const debtTotals = useMemo(() => {
-    return debtEntries.reduce(
-      (acc, item) => ({
-        usd: acc.usd + (item.amount_usd > 0 ? item.amount_usd : 0),
-        lbp: acc.lbp + (item.amount_lbp > 0 ? item.amount_lbp : 0),
-      }),
-      { usd: 0, lbp: 0 },
-    );
-  }, [debtEntries]);
+    return debtEntries
+      .filter((item) => !isCancelledPairRow(item, cancellations))
+      .reduce(
+        (acc, item) => ({
+          usd: acc.usd + (item.amount_usd > 0 ? item.amount_usd : 0),
+          lbp: acc.lbp + (item.amount_lbp > 0 ? item.amount_lbp : 0),
+        }),
+        { usd: 0, lbp: 0 },
+      );
+  }, [debtEntries, cancellations]);
 
   const paymentTotals = useMemo(() => {
-    return paymentEntries.reduce(
-      (acc, item) => ({
-        usd: acc.usd + Math.abs(item.amount_usd < 0 ? item.amount_usd : 0),
-        lbp: acc.lbp + Math.abs(item.amount_lbp < 0 ? item.amount_lbp : 0),
-      }),
-      { usd: 0, lbp: 0 },
-    );
-  }, [paymentEntries]);
+    return paymentEntries
+      .filter((item) => !isCancelledPairRow(item, cancellations))
+      .reduce(
+        (acc, item) => ({
+          usd: acc.usd + Math.abs(item.amount_usd < 0 ? item.amount_usd : 0),
+          lbp: acc.lbp + Math.abs(item.amount_lbp < 0 ? item.amount_lbp : 0),
+        }),
+        { usd: 0, lbp: 0 },
+      );
+  }, [paymentEntries, cancellations]);
 
   const toggleDateSort = () => {
     setDateSortOrder((prev) => (prev === "desc" ? "asc" : "desc"));
@@ -504,6 +546,9 @@ export default function Debts() {
               total: t("statement.total"),
               totalCharged: t("history.totalCharged"),
               totalPaid: t("history.totalPaid"),
+              voided: t("history.voided"),
+              cancelledLine: (line: string) =>
+                t("history.cancelledLine", { line }),
             },
             formatDate: (d) => formatDate(d, SHORT_DATE),
             formatTime: (d) => formatTime(d, LONG_TIME),
@@ -2266,6 +2311,19 @@ export default function Debts() {
                         emptyMessage={t("history.noPurchases")}
                         renderRow={(item) => {
                           const isRefunded = Boolean(item.is_refunded);
+                          const rowState = ledgerRowState(item, cancelledIds);
+                          const amountClass =
+                            rowState === "cancellation"
+                              ? "text-amber-400"
+                              : rowState === "voided"
+                                ? "text-slate-500"
+                                : item.transaction_type === "CREDIT_DEPOSIT"
+                                  ? "text-emerald-400"
+                                  : item.transaction_type === "CREDIT_USED"
+                                    ? "text-orange-400"
+                                    : "text-red-400";
+                          const struck =
+                            rowState === "voided" ? "line-through" : "";
                           return (
                             <>
                               <tr
@@ -2294,34 +2352,49 @@ export default function Debts() {
                                         {t("history.refunded")}
                                       </span>
                                     )}
-                                    {item.transaction_type && (
-                                      <span
-                                        className={`inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-medium ${ledgerBadgeClass(item.transaction_type)}`}
-                                      >
-                                        {item.transaction_type ===
-                                          "Custom Service Debt" && (
-                                          <Briefcase
-                                            size={10}
-                                            className="me-1"
-                                          />
-                                        )}
-                                        {item.client_details
-                                          ? t(
-                                              `clientDebt.kind.${item.client_details.kind}`,
-                                            )
-                                          : ledgerTypeLabel(
-                                              item.transaction_type,
-                                              t,
-                                            )}
+                                    {rowState === "voided" && (
+                                      <span className="inline-flex items-center self-start rounded-full bg-slate-700 px-2 py-0.5 text-xs font-medium text-slate-300">
+                                        {t("history.voided")}
                                       </span>
+                                    )}
+                                    {rowState === "cancellation" ? (
+                                      <span className="inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-400/10 text-amber-400">
+                                        {t("history.cancellation")}
+                                      </span>
+                                    ) : (
+                                      item.transaction_type && (
+                                        <span
+                                          className={`inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-medium ${ledgerBadgeClass(item.transaction_type)}`}
+                                        >
+                                          {item.transaction_type ===
+                                            "Custom Service Debt" && (
+                                            <Briefcase
+                                              size={10}
+                                              className="me-1"
+                                            />
+                                          )}
+                                          {item.client_details
+                                            ? t(
+                                                `clientDebt.kind.${item.client_details.kind}`,
+                                              )
+                                            : ledgerTypeLabel(
+                                                item.transaction_type,
+                                                t,
+                                              )}
+                                        </span>
+                                      )
                                     )}
                                     <div className="flex items-center gap-1.5">
                                       {item.client_details?.line ? (
                                         <span
                                           data-testid={`debt-line-${item.id}`}
-                                          className="whitespace-normal break-words"
+                                          className={`whitespace-normal break-words${rowState === "voided" ? " line-through" : ""}`}
                                         >
-                                          {item.client_details.line}
+                                          {rowState === "cancellation"
+                                            ? t("history.cancelledLine", {
+                                                line: item.client_details.line,
+                                              })
+                                            : item.client_details.line}
                                         </span>
                                       ) : item.itemNames &&
                                         item.itemNames.length > 0 ? (
@@ -2457,19 +2530,31 @@ export default function Debts() {
                                   {item.created_by_username || "—"}
                                 </td>
                                 <td
-                                  className={`px-3 py-2.5 text-end font-mono text-sm font-bold ${item.transaction_type === "CREDIT_DEPOSIT" ? "text-emerald-400" : item.transaction_type === "CREDIT_USED" ? "text-orange-400" : "text-red-400"}`}
+                                  className={`px-3 py-2.5 text-end font-mono text-sm font-bold ${amountClass}`}
                                 >
                                   {Math.abs(item.amount_usd) > 0 ? (
-                                    `$${Math.abs(item.amount_usd).toFixed(2)}`
+                                    <span dir="ltr" className={struck}>
+                                      {ledgerAmountText(
+                                        item.amount_usd,
+                                        rowState,
+                                        (n) => `$${n.toFixed(2)}`,
+                                      )}
+                                    </span>
                                   ) : (
                                     <span className="text-slate-600">-</span>
                                   )}
                                 </td>
                                 <td
-                                  className={`px-3 py-2.5 text-end font-mono text-sm font-bold ${item.transaction_type === "CREDIT_DEPOSIT" ? "text-emerald-400" : item.transaction_type === "CREDIT_USED" ? "text-orange-400" : "text-red-400"}`}
+                                  className={`px-3 py-2.5 text-end font-mono text-sm font-bold ${amountClass}`}
                                 >
                                   {Math.abs(item.amount_lbp) > 0 ? (
-                                    formatNumber(Math.abs(item.amount_lbp))
+                                    <span dir="ltr" className={struck}>
+                                      {ledgerAmountText(
+                                        item.amount_lbp,
+                                        rowState,
+                                        formatNumber,
+                                      )}
+                                    </span>
                                   ) : (
                                     <span className="text-slate-600">-</span>
                                   )}
@@ -2582,6 +2667,17 @@ export default function Debts() {
                         emptyMessage={t("history.noPayments")}
                         renderRow={(item) => {
                           const isRefunded = Boolean(item.is_refunded);
+                          const rowState = ledgerRowState(item, cancelledIds);
+                          const cancelledOriginal =
+                            cancellations.reversalOf.get(item.id);
+                          const amountClass =
+                            rowState === "cancellation"
+                              ? "text-amber-400"
+                              : rowState === "voided"
+                                ? "text-slate-500"
+                                : "text-emerald-400";
+                          const struck =
+                            rowState === "voided" ? "line-through" : "";
                           return (
                             <>
                               <tr
@@ -2605,14 +2701,35 @@ export default function Debts() {
                                     className="flex flex-col gap-1"
                                     data-export-sep=" · "
                                   >
-                                    {item.transaction_type ===
-                                      "CREDIT_DEPOSIT" && (
-                                      <span className="inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-400/10 text-emerald-400">
-                                        {t("ledgerType.creditDeposit")}
+                                    {rowState === "voided" && (
+                                      <span className="inline-flex items-center self-start rounded-full bg-slate-700 px-2 py-0.5 text-xs font-medium text-slate-300">
+                                        {t("history.voided")}
                                       </span>
                                     )}
+                                    {rowState === "cancellation" ? (
+                                      <span className="inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-400/10 text-amber-400">
+                                        {t("history.cancellation")}
+                                      </span>
+                                    ) : (
+                                      item.transaction_type ===
+                                        "CREDIT_DEPOSIT" && (
+                                        <span className="inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-400/10 text-emerald-400">
+                                          {t("ledgerType.creditDeposit")}
+                                        </span>
+                                      )
+                                    )}
                                     <span className="flex items-center gap-1">
-                                      {item.note || "-"}
+                                      <span className={struck}>
+                                        {cancelledOriginal
+                                          ? t("history.cancelledLine", {
+                                              line:
+                                                cancelledOriginal.note ||
+                                                cancelledOriginal.client_details
+                                                  ?.line ||
+                                                "-",
+                                            })
+                                          : item.note || "-"}
+                                      </span>
                                       {isRefunded && (
                                         <span className="ms-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
                                           {t("history.refunded")}
@@ -2662,16 +2779,34 @@ export default function Debts() {
                                 <td className="px-3 py-2.5 text-slate-400 text-sm whitespace-nowrap">
                                   {item.created_by_username || "—"}
                                 </td>
-                                <td className="px-3 py-2.5 text-end font-mono text-sm font-bold text-emerald-400">
+                                {/* Payments-side figures read as paid:
+                                    a cancellation shows minus. */}
+                                <td
+                                  className={`px-3 py-2.5 text-end font-mono text-sm font-bold ${amountClass}`}
+                                >
                                   {Math.abs(item.amount_usd) > 0 ? (
-                                    `$${Math.abs(item.amount_usd).toFixed(2)}`
+                                    <span dir="ltr" className={struck}>
+                                      {ledgerAmountText(
+                                        -item.amount_usd,
+                                        rowState,
+                                        (n) => `$${n.toFixed(2)}`,
+                                      )}
+                                    </span>
                                   ) : (
                                     <span className="text-slate-600">-</span>
                                   )}
                                 </td>
-                                <td className="px-3 py-2.5 text-end font-mono text-sm font-bold text-emerald-400">
+                                <td
+                                  className={`px-3 py-2.5 text-end font-mono text-sm font-bold ${amountClass}`}
+                                >
                                   {Math.abs(item.amount_lbp) > 0 ? (
-                                    formatNumber(Math.abs(item.amount_lbp))
+                                    <span dir="ltr" className={struck}>
+                                      {ledgerAmountText(
+                                        -item.amount_lbp,
+                                        rowState,
+                                        formatNumber,
+                                      )}
+                                    </span>
                                   ) : (
                                     <span className="text-slate-600">-</span>
                                   )}
