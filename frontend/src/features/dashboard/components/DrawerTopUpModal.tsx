@@ -14,6 +14,7 @@ import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { appEvents, DecimalInput, Select, useApi } from "@liratek/ui";
 import { useShopBase } from "@/hooks/useShopBase";
 import { useExchangeCurrencyList } from "@/hooks/useExchangeCurrencyList";
+import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import type { ExchangeRate } from "@/utils/currencyUtils";
 
 interface SourceDrawer {
@@ -105,6 +106,10 @@ export function DrawerTopUpModal({
   const [amountUsd, setAmountUsd] = useState("");
   const [amountLbp, setAmountLbp] = useState("");
   const [notes, setNotes] = useState("");
+  // Transfer mode only: record a General <-> primary drawer move on the day
+  // it really happened (the server already takes `transaction_time`), so it
+  // resolves that day's drawer-count difference (owner, 2026-10-28).
+  const [transferTime, setTransferTime] = useState<string | undefined>();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [sourceDrawers, setSourceDrawers] = useState<SourceDrawer[]>([]);
   const [selectedDrawer, setSelectedDrawer] = useState("");
@@ -389,11 +394,7 @@ export function DrawerTopUpModal({
       }
 
       if (result.success) {
-        appEvents.emit(
-          "notification:show",
-          t("topup.success"),
-          "success",
-        );
+        appEvents.emit("notification:show", t("topup.success"), "success");
         setAmountUsd("");
         setAmountLbp("");
         setNotes("");
@@ -434,6 +435,7 @@ export function DrawerTopUpModal({
         amount_usd: usd,
         amount_lbp: lbp,
         ...(trimmedNotes ? { notes: trimmedNotes } : {}),
+        ...(transferTime ? { transaction_time: transferTime } : {}),
       });
 
       if (result.success) {
@@ -453,6 +455,7 @@ export function DrawerTopUpModal({
         setAmountUsd("");
         setAmountLbp("");
         setNotes("");
+        setTransferTime(undefined);
         onSuccess();
       } else {
         alert(translateServerError(result, t, t("transfer.failed")));
@@ -510,52 +513,52 @@ export function DrawerTopUpModal({
 
         {/* Body (scrolls) */}
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6">
-        {/* Mode Toggle */}
-        <div className="flex gap-2 mb-5">
-          <button
-            data-testid="drawer-external-mode-toggle"
-            onClick={() => setMode("external")}
-            className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors ${
-              mode === "external"
-                ? "bg-emerald-600 text-white"
-                : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-            }`}
-          >
-            {t("topup.modeExternal")}
-          </button>
-          <button
-            data-testid="drawer-from-drawer-mode-toggle"
-            onClick={() => setMode("from_drawer")}
-            className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
-              mode === "from_drawer"
-                ? "bg-violet-600 text-white"
-                : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-            }`}
-          >
-            <ArrowRightLeft size={14} />
-            {t("topup.modeFromDrawer")}
-          </button>
-          <button
-            data-testid="drawer-transfer-mode-toggle"
-            onClick={() => setMode("transfer")}
-            className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
-              mode === "transfer"
-                ? "bg-amber-600 text-white"
-                : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-            }`}
-          >
-            <Landmark size={14} />
-            {t("topup.modeTransfer")}
-          </button>
-        </div>
+          {/* Mode Toggle */}
+          <div className="flex gap-2 mb-5">
+            <button
+              data-testid="drawer-external-mode-toggle"
+              onClick={() => setMode("external")}
+              className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors ${
+                mode === "external"
+                  ? "bg-emerald-600 text-white"
+                  : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+              }`}
+            >
+              {t("topup.modeExternal")}
+            </button>
+            <button
+              data-testid="drawer-from-drawer-mode-toggle"
+              onClick={() => setMode("from_drawer")}
+              className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
+                mode === "from_drawer"
+                  ? "bg-violet-600 text-white"
+                  : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+              }`}
+            >
+              <ArrowRightLeft size={14} />
+              {t("topup.modeFromDrawer")}
+            </button>
+            <button
+              data-testid="drawer-transfer-mode-toggle"
+              onClick={() => setMode("transfer")}
+              className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
+                mode === "transfer"
+                  ? "bg-amber-600 text-white"
+                  : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+              }`}
+            >
+              <Landmark size={14} />
+              {t("topup.modeTransfer")}
+            </button>
+          </div>
 
-        {mode === "transfer" ? (
-          <div className="space-y-4">
-            <p className="text-xs text-slate-400">
-              {t("transfer.intro", { label: primaryDrawerLabel })}
-            </p>
+          {mode === "transfer" ? (
+            <div className="space-y-4">
+              <p className="text-xs text-slate-400">
+                {t("transfer.intro", { label: primaryDrawerLabel })}
+              </p>
 
-            {/* NEGATIVE-DRAWER PROMPT (owner decision 2026-08-01).
+              {/* NEGATIVE-DRAWER PROMPT (owner decision 2026-08-01).
                 Replaces the old hard block. Nothing in the system refuses a
                 money movement any more — a drawer may go negative, which
                 means cash was physically taken from somewhere else and the
@@ -565,455 +568,473 @@ export function DrawerTopUpModal({
                 currency, and pre-fills the amount that brings it back to
                 zero. Surfaced HERE (the move-money screen) because this is
                 the only place the operator can act on it. */}
-            {(() => {
-              const negatives = Object.entries(transferBalances)
-                .flatMap(([drawer, byCurrency]) =>
-                  (["USD", "LBP"] as const)
-                    .map((cur) => ({
-                      drawer,
-                      cur,
-                      bal: byCurrency?.[cur] ?? 0,
-                    }))
-                    .filter((x) => x.bal < 0),
-                )
-                .sort((a, b) => a.bal - b.bal);
-              if (negatives.length === 0) return null;
-              return (
-                <div
-                  data-testid="drawer-negative-balance-panel"
-                  className="rounded-lg bg-red-500/10 border border-red-500/30 p-3 space-y-2"
-                >
-                  <p className="text-xs font-semibold text-red-300">
-                    {negatives.length === 1
-                      ? t("transfer.negativeOne")
-                      : t("transfer.negativeMany", { n: negatives.length })}
-                  </p>
-                  <p className="text-[11px] text-red-200/80">
-                    {t("transfer.negativeHint")}
-                  </p>
-                  {negatives.map(({ drawer, cur, bal }) => (
-                    <div
-                      key={`${drawer}-${cur}`}
-                      className="flex items-center justify-between gap-2"
-                    >
-                      <span className="text-xs text-slate-200">
-                        {drawerText(drawer)}:{" "}
-                        <Ltr className="font-semibold text-red-300">
-                          {cur === "USD"
-                            ? `-$${Math.abs(bal).toFixed(2)}`
-                            : `-${formatNumber(Math.abs(bal))} LBP`}
-                        </Ltr>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          // Point the transfer AT the negative drawer and
-                          // pre-fill exactly what clears it.
-                          setTransferDirection(
-                            drawer === "General" ? "to_general" : "to_primary",
-                          );
-                          if (cur === "USD")
-                            setAmountUsd(String(Math.abs(bal)));
-                          else setAmountLbp(String(Math.abs(bal)));
-                        }}
-                        className="shrink-0 text-[11px] font-medium px-2 py-1 rounded-md bg-red-500/20 text-red-200 hover:bg-red-500/30 transition-colors"
+              {(() => {
+                const negatives = Object.entries(transferBalances)
+                  .flatMap(([drawer, byCurrency]) =>
+                    (["USD", "LBP"] as const)
+                      .map((cur) => ({
+                        drawer,
+                        cur,
+                        bal: byCurrency?.[cur] ?? 0,
+                      }))
+                      .filter((x) => x.bal < 0),
+                  )
+                  .sort((a, b) => a.bal - b.bal);
+                if (negatives.length === 0) return null;
+                return (
+                  <div
+                    data-testid="drawer-negative-balance-panel"
+                    className="rounded-lg bg-red-500/10 border border-red-500/30 p-3 space-y-2"
+                  >
+                    <p className="text-xs font-semibold text-red-300">
+                      {negatives.length === 1
+                        ? t("transfer.negativeOne")
+                        : t("transfer.negativeMany", { n: negatives.length })}
+                    </p>
+                    <p className="text-[11px] text-red-200/80">
+                      {t("transfer.negativeHint")}
+                    </p>
+                    {negatives.map(({ drawer, cur, bal }) => (
+                      <div
+                        key={`${drawer}-${cur}`}
+                        className="flex items-center justify-between gap-2"
                       >
-                        {t("transfer.coverIt")}
-                      </button>
-                    </div>
+                        <span className="text-xs text-slate-200">
+                          {drawerText(drawer)}:{" "}
+                          <Ltr className="font-semibold text-red-300">
+                            {cur === "USD"
+                              ? `-$${Math.abs(bal).toFixed(2)}`
+                              : `-${formatNumber(Math.abs(bal))} LBP`}
+                          </Ltr>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // Point the transfer AT the negative drawer and
+                            // pre-fill exactly what clears it.
+                            setTransferDirection(
+                              drawer === "General"
+                                ? "to_general"
+                                : "to_primary",
+                            );
+                            if (cur === "USD")
+                              setAmountUsd(String(Math.abs(bal)));
+                            else setAmountLbp(String(Math.abs(bal)));
+                          }}
+                          className="shrink-0 text-[11px] font-medium px-2 py-1 rounded-md bg-red-500/20 text-red-200 hover:bg-red-500/30 transition-colors"
+                        >
+                          {t("transfer.coverIt")}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {/* Direction (bidirectional — owner decision #12) */}
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">
+                  {t("transfer.direction")}
+                </label>
+                <div
+                  data-testid="drawer-transfer-direction-toggle"
+                  className="flex gap-2"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setTransferDirection("to_primary")}
+                    className={`flex-1 py-2 px-3 text-xs font-medium rounded-lg transition-colors ${
+                      transferDirection === "to_primary"
+                        ? "bg-amber-600 text-white"
+                        : "bg-slate-900 text-slate-400 border border-slate-700 hover:text-slate-200"
+                    }`}
+                  >
+                    {t("transfer.directionArrow", {
+                      from: t("drawer.generalName"),
+                      to: primaryDrawerLabel,
+                    })}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTransferDirection("to_general")}
+                    className={`flex-1 py-2 px-3 text-xs font-medium rounded-lg transition-colors ${
+                      transferDirection === "to_general"
+                        ? "bg-amber-600 text-white"
+                        : "bg-slate-900 text-slate-400 border border-slate-700 hover:text-slate-200"
+                    }`}
+                  >
+                    {t("transfer.directionArrow", {
+                      from: primaryDrawerLabel,
+                      to: t("drawer.generalName"),
+                    })}
+                  </button>
+                </div>
+                <p className="mt-1.5 text-xs text-slate-500">
+                  {t("transfer.balanceLabel", {
+                    drawer: drawerText(transferFromDrawer),
+                  })}{" "}
+                  <Ltr>{formatDrawerAmount(transferFromBalanceUsd, "USD")}</Ltr>{" "}
+                  /{" "}
+                  <Ltr>{formatDrawerAmount(transferFromBalanceLbp, "LBP")}</Ltr>
+                </p>
+              </div>
+
+              {/* USD Amount */}
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">
+                  {t("drawer.usdAmount")}
+                </label>
+                <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-amber-500 transition-colors">
+                  <span className="px-3 text-sm text-slate-400 border-e border-slate-700">
+                    $
+                  </span>
+                  <DecimalInput
+                    value={parseFloat(amountUsd) || 0}
+                    onChange={(n) => setAmountUsd(n ? String(n) : "")}
+                    placeholder="0.00"
+                    data-testid="drawer-transfer-amount-usd-input"
+                    className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
+                  />
+                </div>
+              </div>
+
+              {/* LBP Amount */}
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">
+                  {t("drawer.lbpAmount")}
+                </label>
+                <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-amber-500 transition-colors">
+                  <span className="px-3 text-sm text-slate-400 border-e border-slate-700">
+                    LBP
+                  </span>
+                  <DecimalInput
+                    value={parseFloat(amountLbp) || 0}
+                    onChange={(n) => setAmountLbp(n ? String(n) : "")}
+                    decimals={0}
+                    placeholder="0"
+                    data-testid="drawer-transfer-amount-lbp-input"
+                    className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
+                  />
+                </div>
+              </div>
+
+              {transferInsufficient && (
+                <p className="text-xs text-red-400">
+                  {t("transfer.insufficient", {
+                    drawer: drawerText(transferFromDrawer),
+                  })}
+                </p>
+              )}
+
+              {/* Before-you-confirm preview — make the money movement unambiguous */}
+              {transferPreviewAmounts.length > 0 && (
+                <div
+                  data-testid="drawer-transfer-preview"
+                  className="bg-slate-900/60 border border-amber-500/30 rounded-lg px-3 py-2.5 text-xs text-slate-300 space-y-1"
+                >
+                  {transferPreviewAmounts.map((amountLabel) => (
+                    <p key={amountLabel}>
+                      <span className="text-red-400 font-semibold">−</span>{" "}
+                      <Ltr>{amountLabel}</Ltr> {t("transfer.from")}{" "}
+                      <span className="text-white font-medium">
+                        {drawerText(transferFromDrawer)}
+                      </span>
+                      {" · "}
+                      <span className="text-emerald-400 font-semibold">
+                        +
+                      </span>{" "}
+                      <Ltr>{amountLabel}</Ltr> {t("transfer.into")}{" "}
+                      <span className="text-white font-medium">
+                        {drawerText(transferToDrawer)}
+                      </span>
+                    </p>
                   ))}
                 </div>
-              );
-            })()}
+              )}
 
-            {/* Direction (bidirectional — owner decision #12) */}
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">
-                {t("transfer.direction")}
-              </label>
-              <div
-                data-testid="drawer-transfer-direction-toggle"
-                className="flex gap-2"
-              >
-                <button
-                  type="button"
-                  onClick={() => setTransferDirection("to_primary")}
-                  className={`flex-1 py-2 px-3 text-xs font-medium rounded-lg transition-colors ${
-                    transferDirection === "to_primary"
-                      ? "bg-amber-600 text-white"
-                      : "bg-slate-900 text-slate-400 border border-slate-700 hover:text-slate-200"
-                  }`}
-                >
-                  {t("transfer.directionArrow", {
-                    from: t("drawer.generalName"),
-                    to: primaryDrawerLabel,
-                  })}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTransferDirection("to_general")}
-                  className={`flex-1 py-2 px-3 text-xs font-medium rounded-lg transition-colors ${
-                    transferDirection === "to_general"
-                      ? "bg-amber-600 text-white"
-                      : "bg-slate-900 text-slate-400 border border-slate-700 hover:text-slate-200"
-                  }`}
-                >
-                  {t("transfer.directionArrow", {
-                    from: primaryDrawerLabel,
-                    to: t("drawer.generalName"),
-                  })}
-                </button>
-              </div>
-              <p className="mt-1.5 text-xs text-slate-500">
-                {t("transfer.balanceLabel", {
-                  drawer: drawerText(transferFromDrawer),
-                })}{" "}
-                <Ltr>{formatDrawerAmount(transferFromBalanceUsd, "USD")}</Ltr> /{" "}
-                <Ltr>{formatDrawerAmount(transferFromBalanceLbp, "LBP")}</Ltr>
-              </p>
-            </div>
-
-            {/* USD Amount */}
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">
-                {t("drawer.usdAmount")}
-              </label>
-              <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-amber-500 transition-colors">
-                <span className="px-3 text-sm text-slate-400 border-e border-slate-700">
-                  $
-                </span>
-                <DecimalInput
-                  value={parseFloat(amountUsd) || 0}
-                  onChange={(n) => setAmountUsd(n ? String(n) : "")}
-                  placeholder="0.00"
-                  data-testid="drawer-transfer-amount-usd-input"
-                  className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
-                />
-              </div>
-            </div>
-
-            {/* LBP Amount */}
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">
-                {t("drawer.lbpAmount")}
-              </label>
-              <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-amber-500 transition-colors">
-                <span className="px-3 text-sm text-slate-400 border-e border-slate-700">
-                  LBP
-                </span>
-                <DecimalInput
-                  value={parseFloat(amountLbp) || 0}
-                  onChange={(n) => setAmountLbp(n ? String(n) : "")}
-                  decimals={0}
-                  placeholder="0"
-                  data-testid="drawer-transfer-amount-lbp-input"
-                  className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
-                />
-              </div>
-            </div>
-
-            {transferInsufficient && (
-              <p className="text-xs text-red-400">
-                {t("transfer.insufficient", {
-                  drawer: drawerText(transferFromDrawer),
-                })}
-              </p>
-            )}
-
-            {/* Before-you-confirm preview — make the money movement unambiguous */}
-            {transferPreviewAmounts.length > 0 && (
-              <div
-                data-testid="drawer-transfer-preview"
-                className="bg-slate-900/60 border border-amber-500/30 rounded-lg px-3 py-2.5 text-xs text-slate-300 space-y-1"
-              >
-                {transferPreviewAmounts.map((amountLabel) => (
-                  <p key={amountLabel}>
-                    <span className="text-red-400 font-semibold">−</span>{" "}
-                    <Ltr>{amountLabel}</Ltr> {t("transfer.from")}{" "}
-                    <span className="text-white font-medium">
-                      {drawerText(transferFromDrawer)}
-                    </span>
-                    {" · "}
-                    <span className="text-emerald-400 font-semibold">
-                      +
-                    </span>{" "}
-                    <Ltr>{amountLabel}</Ltr> {t("transfer.into")}{" "}
-                    <span className="text-white font-medium">
-                      {drawerText(transferToDrawer)}
-                    </span>
-                  </p>
-                ))}
-              </div>
-            )}
-
-            {/* Notes */}
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">
-                {t("drawer.notes")}{" "}
-                <span className="text-slate-600">{t("drawer.optional")}</span>
-              </label>
-              <textarea
-                rows={3}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder={t("drawer.addNote")}
-                data-testid="drawer-transfer-notes-input"
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 placeholder:text-slate-600 resize-none transition-colors"
-              />
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {/* Source Drawer Selector (only in from_drawer mode) */}
-            {mode === "from_drawer" && (
+              {/* Notes */}
               <div>
                 <label className="text-xs text-slate-400 block mb-1">
-                  {t("fromDrawer.source")}
-                </label>
-                <Select
-                  value={selectedDrawer}
-                  onChange={(v) => setSelectedDrawer(v)}
-                  options={
-                    sourceDrawers.length === 0
-                      ? [{ value: "", label: t("fromDrawer.none") }]
-                      : sourceDrawers.map((d) => ({
-                          value: d.drawer_name,
-                          label: d.drawer_name.replace("_", " "),
-                        }))
-                  }
-                  buttonClassName="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors"
-                />
-                {currentDrawer && (
-                  <p className="mt-1.5 text-xs text-slate-500">
-                    {t("fromDrawer.balance")}{" "}
-                    <Ltr>
-                      ${formatNumber(currentDrawer.balance_usd)} USD
-                      {currentDrawer.balance_lbp > 0 &&
-                        ` / ${formatNumber(currentDrawer.balance_lbp)} LBP`}
-                    </Ltr>
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* USD Amount */}
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">
-                {t("drawer.usdAmount")}
-              </label>
-              <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-violet-500 transition-colors">
-                <span className="px-3 text-sm text-slate-400 border-e border-slate-700">
-                  $
-                </span>
-                <DecimalInput
-                  value={parseFloat(amountUsd) || 0}
-                  onChange={(n) => setAmountUsd(n ? String(n) : "")}
-                  placeholder="0.00"
-                  data-testid="drawer-topup-amount-usd-input"
-                  className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
-                />
-              </div>
-            </div>
-
-            {/* LBP Amount */}
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">
-                {t("drawer.lbpAmount")}
-              </label>
-              <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-violet-500 transition-colors">
-                <span className="px-3 text-sm text-slate-400 border-e border-slate-700">
-                  LBP
-                </span>
-                <DecimalInput
-                  value={parseFloat(amountLbp) || 0}
-                  onChange={(n) => setAmountLbp(n ? String(n) : "")}
-                  placeholder="0"
-                  data-testid="drawer-topup-amount-lbp-input"
-                  className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
-                />
-              </div>
-            </div>
-
-            {/* Extra currencies (External mode only) */}
-            {mode === "external" && (
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">
-                  {t("topup.otherCurrencies")}{" "}
+                  {t("drawer.notes")}{" "}
                   <span className="text-slate-600">{t("drawer.optional")}</span>
                 </label>
+                <textarea
+                  rows={3}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder={t("drawer.addNote")}
+                  data-testid="drawer-transfer-notes-input"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 placeholder:text-slate-600 resize-none transition-colors"
+                />
+              </div>
+              <TransactionTimeOverride
+                value={transferTime}
+                onChange={setTransferTime}
+              />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Source Drawer Selector (only in from_drawer mode) */}
+              {mode === "from_drawer" && (
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">
+                    {t("fromDrawer.source")}
+                  </label>
+                  <Select
+                    value={selectedDrawer}
+                    onChange={(v) => setSelectedDrawer(v)}
+                    options={
+                      sourceDrawers.length === 0
+                        ? [{ value: "", label: t("fromDrawer.none") }]
+                        : sourceDrawers.map((d) => ({
+                            value: d.drawer_name,
+                            label: d.drawer_name.replace("_", " "),
+                          }))
+                    }
+                    buttonClassName="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors"
+                  />
+                  {currentDrawer && (
+                    <p className="mt-1.5 text-xs text-slate-500">
+                      {t("fromDrawer.balance")}{" "}
+                      <Ltr>
+                        ${formatNumber(currentDrawer.balance_usd)} USD
+                        {currentDrawer.balance_lbp > 0 &&
+                          ` / ${formatNumber(currentDrawer.balance_lbp)} LBP`}
+                      </Ltr>
+                    </p>
+                  )}
+                </div>
+              )}
 
-                {currencyOptions.length === 0 ? (
-                  <p className="text-xs text-slate-500 bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2.5">
-                    {t("topup.noOtherCurrencies")}
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    {extraCurrencies.map((row, index) => {
-                      const usedElsewhere = new Set(
-                        extraCurrencies
-                          .filter((_, i) => i !== index)
-                          .map((r) => r.currency_code),
-                      );
-                      const rowOptions = currencyOptions
-                        .filter((c) => !usedElsewhere.has(c.code))
-                        .map((c) => ({
-                          value: c.code,
-                          label: c.symbol ? `${c.code} (${c.symbol})` : c.code,
-                        }));
+              {/* USD Amount */}
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">
+                  {t("drawer.usdAmount")}
+                </label>
+                <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-violet-500 transition-colors">
+                  <span className="px-3 text-sm text-slate-400 border-e border-slate-700">
+                    $
+                  </span>
+                  <DecimalInput
+                    value={parseFloat(amountUsd) || 0}
+                    onChange={(n) => setAmountUsd(n ? String(n) : "")}
+                    placeholder="0.00"
+                    data-testid="drawer-topup-amount-usd-input"
+                    className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
+                  />
+                </div>
+              </div>
 
-                      // EXCHANGE_LOT_SETTLEMENT.md Q3 — always true today
-                      // (USD/LBP have dedicated inputs above and never reach
-                      // `currencyOptions`), kept explicit rather than assumed
-                      // so the field tracks the real policy if that ever
-                      // changes.
-                      const needsAcquisitionRate = isLotTrackedCurrency(
-                        row.currency_code,
-                      );
-                      const basis = row.currency_code
-                        ? resolveBasis(row.currency_code)
-                        : null;
+              {/* LBP Amount */}
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">
+                  {t("drawer.lbpAmount")}
+                </label>
+                <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-violet-500 transition-colors">
+                  <span className="px-3 text-sm text-slate-400 border-e border-slate-700">
+                    LBP
+                  </span>
+                  <DecimalInput
+                    value={parseFloat(amountLbp) || 0}
+                    onChange={(n) => setAmountLbp(n ? String(n) : "")}
+                    placeholder="0"
+                    data-testid="drawer-topup-amount-lbp-input"
+                    className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
+                  />
+                </div>
+              </div>
 
-                      return (
-                        <div key={index} className="space-y-1.5">
-                          <div className="flex items-center gap-2">
-                            <Select
-                              value={row.currency_code}
-                              onChange={(v) =>
-                                updateCurrencyRow(index, { currency_code: v })
-                              }
-                              options={rowOptions}
-                              className="w-28 shrink-0"
-                              buttonClassName="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
-                            />
-                            <div className="flex-1 flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-emerald-500 transition-colors">
-                              <DecimalInput
-                                value={parseFloat(row.amount) || 0}
-                                onChange={(n) =>
-                                  updateCurrencyRow(index, {
-                                    amount: n ? String(n) : "",
-                                  })
+              {/* Extra currencies (External mode only) */}
+              {mode === "external" && (
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">
+                    {t("topup.otherCurrencies")}{" "}
+                    <span className="text-slate-600">
+                      {t("drawer.optional")}
+                    </span>
+                  </label>
+
+                  {currencyOptions.length === 0 ? (
+                    <p className="text-xs text-slate-500 bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2.5">
+                      {t("topup.noOtherCurrencies")}
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {extraCurrencies.map((row, index) => {
+                        const usedElsewhere = new Set(
+                          extraCurrencies
+                            .filter((_, i) => i !== index)
+                            .map((r) => r.currency_code),
+                        );
+                        const rowOptions = currencyOptions
+                          .filter((c) => !usedElsewhere.has(c.code))
+                          .map((c) => ({
+                            value: c.code,
+                            label: c.symbol
+                              ? `${c.code} (${c.symbol})`
+                              : c.code,
+                          }));
+
+                        // EXCHANGE_LOT_SETTLEMENT.md Q3 — always true today
+                        // (USD/LBP have dedicated inputs above and never reach
+                        // `currencyOptions`), kept explicit rather than assumed
+                        // so the field tracks the real policy if that ever
+                        // changes.
+                        const needsAcquisitionRate = isLotTrackedCurrency(
+                          row.currency_code,
+                        );
+                        const basis = row.currency_code
+                          ? resolveBasis(row.currency_code)
+                          : null;
+
+                        return (
+                          <div key={index} className="space-y-1.5">
+                            <div className="flex items-center gap-2">
+                              <Select
+                                value={row.currency_code}
+                                onChange={(v) =>
+                                  updateCurrencyRow(index, { currency_code: v })
                                 }
-                                placeholder="0.00"
-                                data-testid={`drawer-topup-currency-amount-${index}`}
-                                className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
+                                options={rowOptions}
+                                className="w-28 shrink-0"
+                                buttonClassName="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
                               />
+                              <div className="flex-1 flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-emerald-500 transition-colors">
+                                <DecimalInput
+                                  value={parseFloat(row.amount) || 0}
+                                  onChange={(n) =>
+                                    updateCurrencyRow(index, {
+                                      amount: n ? String(n) : "",
+                                    })
+                                  }
+                                  placeholder="0.00"
+                                  data-testid={`drawer-topup-currency-amount-${index}`}
+                                  className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => removeCurrencyRow(index)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+                                aria-label={t("topup.removeCurrency")}
+                              >
+                                <X size={16} />
+                              </button>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => removeCurrencyRow(index)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
-                              aria-label={t("topup.removeCurrency")}
-                            >
-                              <X size={16} />
-                            </button>
-                          </div>
 
-                          {/* AC2 (2026-08-23 refinement) — hands-free by
+                            {/* AC2 (2026-08-23 refinement) — hands-free by
                             default: a quiet basis line + an "edit" link,
                             instead of an always-visible rate input. Clicking
                             "edit" reveals the manual-override input (same
                             shape as before), which now overrides rather than
                             establishes the basis. */}
-                          {needsAcquisitionRate &&
-                            (!row.showRateOverride ? (
-                              <div className="ps-1 flex items-center justify-between gap-2">
-                                <span
-                                  data-testid={`drawer-topup-basis-line-${index}`}
-                                  className="text-[11px] text-slate-500"
-                                >
-                                  {basis
-                                    ? t("topup.basisLine", {
-                                        rate: formatBasisRate(basis.usdPerUnit),
-                                        code:
-                                          row.currency_code || t("topup.unit"),
-                                      })
-                                    : t("topup.basisMissing", {
-                                        code:
-                                          row.currency_code ||
-                                          t("topup.thisCurrency"),
-                                      })}
-                                </span>
-                                <button
-                                  type="button"
-                                  data-testid={`drawer-topup-basis-edit-${index}`}
-                                  onClick={() =>
-                                    updateCurrencyRow(index, {
-                                      showRateOverride: true,
-                                    })
-                                  }
-                                  className="shrink-0 text-[11px] font-medium text-emerald-400 hover:text-emerald-300 transition-colors"
-                                >
-                                  {t("topup.edit")}
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="ps-1">
-                                <label className="text-[11px] text-slate-500 block mb-1">
-                                  {t("topup.acquisitionRate", {
-                                    code: row.currency_code || t("topup.unit"),
-                                  })}
-                                </label>
-                                <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-emerald-500 transition-colors">
-                                  <span className="px-3 text-sm text-slate-400 border-e border-slate-700">
-                                    $
+                            {needsAcquisitionRate &&
+                              (!row.showRateOverride ? (
+                                <div className="ps-1 flex items-center justify-between gap-2">
+                                  <span
+                                    data-testid={`drawer-topup-basis-line-${index}`}
+                                    className="text-[11px] text-slate-500"
+                                  >
+                                    {basis
+                                      ? t("topup.basisLine", {
+                                          rate: formatBasisRate(
+                                            basis.usdPerUnit,
+                                          ),
+                                          code:
+                                            row.currency_code ||
+                                            t("topup.unit"),
+                                        })
+                                      : t("topup.basisMissing", {
+                                          code:
+                                            row.currency_code ||
+                                            t("topup.thisCurrency"),
+                                        })}
                                   </span>
-                                  <DecimalInput
-                                    value={parseFloat(row.acquisitionRate) || 0}
-                                    onChange={(n) =>
+                                  <button
+                                    type="button"
+                                    data-testid={`drawer-topup-basis-edit-${index}`}
+                                    onClick={() =>
                                       updateCurrencyRow(index, {
-                                        acquisitionRate: n ? String(n) : "",
+                                        showRateOverride: true,
                                       })
                                     }
-                                    placeholder="0.00"
-                                    data-testid={`drawer-topup-acquisition-rate-${index}`}
-                                    className="flex-1 bg-transparent px-3 py-2 text-sm text-white focus:outline-none placeholder:text-slate-600"
-                                  />
+                                    className="shrink-0 text-[11px] font-medium text-emerald-400 hover:text-emerald-300 transition-colors"
+                                  >
+                                    {t("topup.edit")}
+                                  </button>
                                 </div>
-                                <p className="mt-1 text-[11px] text-slate-500">
-                                  {t("topup.acquisitionHint", {
-                                    code: row.currency_code || t("topup.unit"),
-                                  })}
-                                </p>
-                              </div>
-                            ))}
-                        </div>
-                      );
-                    })}
+                              ) : (
+                                <div className="ps-1">
+                                  <label className="text-[11px] text-slate-500 block mb-1">
+                                    {t("topup.acquisitionRate", {
+                                      code:
+                                        row.currency_code || t("topup.unit"),
+                                    })}
+                                  </label>
+                                  <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-emerald-500 transition-colors">
+                                    <span className="px-3 text-sm text-slate-400 border-e border-slate-700">
+                                      $
+                                    </span>
+                                    <DecimalInput
+                                      value={
+                                        parseFloat(row.acquisitionRate) || 0
+                                      }
+                                      onChange={(n) =>
+                                        updateCurrencyRow(index, {
+                                          acquisitionRate: n ? String(n) : "",
+                                        })
+                                      }
+                                      placeholder="0.00"
+                                      data-testid={`drawer-topup-acquisition-rate-${index}`}
+                                      className="flex-1 bg-transparent px-3 py-2 text-sm text-white focus:outline-none placeholder:text-slate-600"
+                                    />
+                                  </div>
+                                  <p className="mt-1 text-[11px] text-slate-500">
+                                    {t("topup.acquisitionHint", {
+                                      code:
+                                        row.currency_code || t("topup.unit"),
+                                    })}
+                                  </p>
+                                </div>
+                              ))}
+                          </div>
+                        );
+                      })}
 
-                    <button
-                      type="button"
-                      data-testid="drawer-topup-add-currency"
-                      onClick={addCurrencyRow}
-                      disabled={
-                        extraCurrencies.length >= currencyOptions.length
-                      }
-                      className="flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 disabled:text-slate-600 disabled:cursor-not-allowed transition-colors"
-                    >
-                      <Plus size={14} />
-                      {t("topup.addCurrency")}
-                    </button>
-                  </div>
-                )}
+                      <button
+                        type="button"
+                        data-testid="drawer-topup-add-currency"
+                        onClick={addCurrencyRow}
+                        disabled={
+                          extraCurrencies.length >= currencyOptions.length
+                        }
+                        className="flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 disabled:text-slate-600 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <Plus size={14} />
+                        {t("topup.addCurrency")}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Notes */}
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">
+                  {t("drawer.notes")}{" "}
+                  <span className="text-slate-600">{t("drawer.optional")}</span>
+                </label>
+                <textarea
+                  rows={3}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder={t("drawer.addNote")}
+                  data-testid="drawer-topup-notes-input"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 placeholder:text-slate-600 resize-none transition-colors"
+                />
               </div>
-            )}
-
-            {/* Notes */}
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">
-                {t("drawer.notes")}{" "}
-                <span className="text-slate-600">{t("drawer.optional")}</span>
-              </label>
-              <textarea
-                rows={3}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder={t("drawer.addNote")}
-                data-testid="drawer-topup-notes-input"
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 placeholder:text-slate-600 resize-none transition-colors"
-              />
             </div>
-          </div>
-        )}
+          )}
         </div>
 
         {/* Footer */}

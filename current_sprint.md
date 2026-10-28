@@ -8113,3 +8113,27 @@ Loto is the last supplier still paid through the Pay / Receive tab; OMT, Katsh, 
 To do: put Loto on the day calendar (`settlesByDay` rule), drop its Pay / Receive tab, and decide what happens to its commission "Settle" list. Changes how Loto money moves, so it needs the FEATURE_GUIDE §13 checklist and its own spec. Owner parked it on 2026-10-27; see the "Every supplier type" table on the settle-by-day planning artifact.
 
 What users will notice (when built): Loto gets a Settle Account button with the day calendar, and its Pay / Receive tab goes away.
+
+## LIRA-352: "Set custom time" on Add Credit / Debt (suppliers) — TODO (owner, 2026-10-28)
+
+Supplier adjustments (paper Add Credit / Debt) can't be voided; the app's way to correct one is an opposite entry. Without a custom time that opposite entry is dated today, so a correction for an earlier day leaves that day's balance wrong (found on Cornertech: Monday's 3 manual OMT adjustments, −$1,651.01 / −1,099,566,686 / −35,689,064 LBP, corrected on Wed 28). Add the same "Set custom time" as Settle Account (888a3018): schema field, one dating rule for every row it writes, checkpoint resolution for cash-moved entries, both transports, failing-first tests.
+
+What users will notice (when built): Add Credit / Debt on a supplier can be dated to the day it really belongs to.
+
+## LIRA-353: Settle Account "too early" message shows a raw date — TODO (owner, 2026-10-28)
+
+When the custom time is before the latest picked day, the refusal reads "…2026-10-25…". Show it in the shop's date format (e.g. "Sun 25 Oct").
+
+What users will notice (when built): a readable date in that message.
+
+## LIRA-354: A new page silently joins any open customer session — TODO (owner, 2026-10-28)
+
+SessionContext picks the first open session when the device has none ("Set first active as current if we don't have one"). While a cashier has a walk-in session open, every other device that opens Mobile Recharge (and other session-aware forms) is attached to it: sender pre-filled with the session's customer, the button reads "Add to Cart", and an unrelated sale goes into that customer's basket. Found on Cornertech (session "Client4", open 32 seconds). Decide: never auto-join, or ask which session.
+
+What users will notice (when built): a page no longer drops a sale into another customer's open session by itself.
+
+## LIRA-355: Settings → Users never lists admin users — TODO (owner, 2026-10-28)
+
+The Users page reads /api/users/non-admins, so admins (including a support user like liratek_sync) can't be seen, deactivated or have their password reset there.
+
+What users will notice (when built): every user, admins included, appears on the Users page.
