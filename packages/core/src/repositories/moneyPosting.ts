@@ -569,6 +569,33 @@ export function linkedTransactionTime(
   return requestNow();
 }
 
+/** The `created_at` of the row an automatic side row was written FOR
+ *  (`source_ref_table` / `source_ref_id`), as SQLite UTC text, or now.
+ *  Every caller writes that parent row in the same action, stamped with the
+ *  action's business time ("Set custom time", or an offline replay's event
+ *  time), so the side row inherits it here instead of taking the save time
+ *  (owner 2026-10-28). The table name is code-supplied, never user input,
+ *  and is checked against sqlite_master before it is used as an identifier. */
+export function sourceRowTime(
+  db: Database.Database,
+  sourceTable: string,
+  sourceId: number,
+  tenantId: number,
+): string {
+  const known = db
+    .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
+    .get(sourceTable) as { name: string } | undefined;
+  if (known) {
+    const row = db
+      .prepare(
+        `SELECT datetime(created_at) AS at FROM "${known.name}" WHERE id = ? AND tenant_id = ?`,
+      )
+      .get(sourceId, tenantId) as { at: string | null } | undefined;
+    if (row?.at) return row.at;
+  }
+  return requestNow();
+}
+
 export function bookClientDebtCharge(
   db: Database.Database,
   input: BookClientDebtChargeInput,

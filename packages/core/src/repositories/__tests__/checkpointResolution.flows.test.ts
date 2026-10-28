@@ -634,3 +634,57 @@ describe("LIRA-335 — every back-timed flow resolves the first later checkpoint
     ).toBe("OPEN");
   });
 });
+
+/**
+ * Owner 2026-10-28 (Cornertech): "Set custom time" must date EVERY row a
+ * save writes, not only its transaction. Side rows written through shared
+ * writers (supplier / partner / customer-account ledgers, auto expenses)
+ * used to take the save time, so a back-dated OMT send showed on its real
+ * day but its OMT account line on the day it was typed. One check per flow
+ * above: every new row in those tables carries the custom time.
+ */
+const DATED_TABLES = [
+  "transactions",
+  "supplier_ledger",
+  "partner_ledger",
+  "debt_ledger",
+  "expenses",
+] as const;
+
+function maxIds(): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const t of DATED_TABLES) {
+    out[t] = (
+      db.prepare(`SELECT COALESCE(MAX(id), 0) AS m FROM ${t}`).get() as {
+        m: number;
+      }
+    ).m;
+  }
+  return out;
+}
+
+describe("Set custom time dates every row the save writes", () => {
+  it.each(CASES)("$name", (c) => {
+    if (c.setup) runWithTenant(1, c.setup, { effectiveNow: MON_0900 });
+    const before = maxIds();
+    c.save(MON_1410);
+    const wrong: string[] = [];
+    for (const t of DATED_TABLES) {
+      const rows = db
+        .prepare(
+          `SELECT id, created_at,
+                  ABS(julianday(created_at) - julianday(?)) * 86400 AS off
+             FROM ${t} WHERE id > ?`,
+        )
+        .all(MON_1410, before[t]) as {
+        id: number;
+        created_at: string;
+        off: number;
+      }[];
+      for (const r of rows) {
+        if (!(r.off < 1)) wrong.push(`${t}#${r.id} ${r.created_at}`);
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+});

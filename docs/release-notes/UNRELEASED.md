@@ -154,6 +154,7 @@ Settle Account on the OMT card now opens on a calendar of the month. Settled day
 
 ## 💸 OMT / Whish & suppliers
 
+- Suppliers: an OMT or Whish transfer, or a Loto entry, saved with "Set custom time" now also shows on that day in the supplier's ledger, not on the day it was typed (from now on).
 - Partners page: a partner's ledger now opens in two windows, "Transactions" and "Payments", from buttons that show how many entries each has, like on the Suppliers page. Payments holds settlements, write-offs and credit / debt entries; everything else is under Transactions.
 - OMT/Whish page: the partner picked on the partner system's tab (for example Whish through your Whish partner) no longer carries over when you switch to the other tab. Before, an OMT send or receive done right after opening Whish could be saved as going through the Whish partner, and the "+ Customer gives change" link vanished from OMT receive.
 - OMT/Whish page: a send or receive no longer adds the sender (or receiver) to your clients when "Save as client" is unticked. If a client with that phone is already saved, the transaction is still linked to them. Paying on the customer's account still needs a client, so one is still saved in that case.

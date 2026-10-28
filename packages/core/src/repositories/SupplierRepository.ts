@@ -73,6 +73,8 @@ import {
   cashierRateStamp,
   insertPaymentRow,
   buildCounterpartyDiscountPosting,
+  linkedTransactionTime,
+  sourceRowTime,
 } from "./moneyPosting.js";
 // BILL_COMMISSION_SETTLEMENT_PLAN.md — the bills-only commission-at-settlement
 // drawer top-up reuses the SAME provider→drawer map `RechargeRepository
@@ -2046,8 +2048,25 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         `);
         // LIRA-306 FR-021: the shared ledger writer stamps the request's
         // business time (the event's own instant inside an offline replay),
-        // or the flow's custom time when it passes one.
-        const createdAt = data.created_at ?? requestNow();
+        // or the flow's custom time when it passes one. Otherwise a row
+        // written as a side effect dates from what it belongs to — its
+        // linked transaction (link-mode) or the source row it was written
+        // for — so a back-dated save ("Set custom time") never leaves its
+        // supplier line on the day it was typed (owner 2026-10-28; the same
+        // derivation `bookClientDebtCharge` uses, rule 14). Its hidden
+        // journal transaction below takes the same time.
+        const createdAt =
+          data.created_at ??
+          (data.transaction_id != null
+            ? linkedTransactionTime(this.db, data.transaction_id, tenantId)
+            : data.source_ref_table && data.source_ref_id != null
+              ? sourceRowTime(
+                  this.db,
+                  data.source_ref_table,
+                  data.source_ref_id,
+                  tenantId,
+                )
+              : requestNow());
         const res = hasSourceRef
           ? stmt.run(
               data.supplier_id,
@@ -2123,6 +2142,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             type: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
             source_table: "supplier_ledger",
             source_id: entryId,
+            transaction_time: createdAt,
             user_id: data.created_by,
             amount_usd: Math.abs(amountUsd),
             amount_lbp: Math.abs(amountLbp),
@@ -2295,6 +2315,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             type: txnType as TransactionType,
             source_table: "supplier_ledger",
             source_id: entryId,
+            transaction_time: createdAt,
             user_id: data.created_by,
             amount_usd: journalUsd,
             amount_lbp: journalLbp,
