@@ -61,7 +61,11 @@ jest.mock("@/utils/logger", () => ({
   },
 }));
 
-import { SessionProvider, useSession } from "../SessionContext";
+import {
+  SessionProvider,
+  useSession,
+  REMEMBERED_SESSION_KEY,
+} from "../SessionContext";
 
 function Probe() {
   const { activeSession, cartItems, addToCart } = useSession();
@@ -106,6 +110,9 @@ describe("SessionContext.addToCart — server refusal", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // LIRA-354: a device only resumes a session it opened or picked itself,
+    // so this till has session 12 as its own.
+    window.localStorage.setItem(REMEMBERED_SESSION_KEY, "12");
     mockApi.session.getActiveSessions.mockResolvedValue({
       success: true,
       sessions: [

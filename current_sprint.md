@@ -8126,7 +8126,7 @@ When the custom time is before the latest picked day, the refusal reads "…2026
 
 What users will notice (when built): a readable date in that message.
 
-## LIRA-354: A new page silently joins any open customer session — TODO (owner, 2026-10-28)
+## LIRA-354: A new page silently joins any open customer session — DONE (owner decision 2026-10-29: only my own session)
 
 SessionContext picks the first open session when the device has none ("Set first active as current if we don't have one"). While a cashier has a walk-in session open, every other device that opens Mobile Recharge (and other session-aware forms) is attached to it: sender pre-filled with the session's customer, the button reads "Add to Cart", and an unrelated sale goes into that customer's basket. Found on Cornertech (session "Client4", open 32 seconds). Decide: never auto-join, or ask which session.
 

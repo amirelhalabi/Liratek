@@ -117,13 +117,48 @@ export function useSession() {
   return context;
 }
 
+/**
+ * LIRA-354 (owner decision 2026-10-29, "only my own session"): the customer
+ * session THIS device opened or picked, remembered per browser so a reload
+ * brings it back. A device never adopts another device's open session by
+ * itself — before, every device took the first open one and a sale on a
+ * second till landed in that customer's basket. Storage can be blocked or
+ * empty (private window, cleared data): then nothing is restored, which is
+ * the safe direction (a normal walk-in sale).
+ */
+export const REMEMBERED_SESSION_KEY = "liratek.session.current";
+
+function readRememberedSession(): number | null {
+  try {
+    const raw = window.localStorage.getItem(REMEMBERED_SESSION_KEY);
+    const id = raw ? Number(raw) : NaN;
+    return Number.isInteger(id) && id > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+function rememberSession(id: number | null): void {
+  try {
+    if (id == null) window.localStorage.removeItem(REMEMBERED_SESSION_KEY);
+    else window.localStorage.setItem(REMEMBERED_SESSION_KEY, String(id));
+  } catch {
+    // Storage blocked: the session still works, it just isn't restored.
+  }
+}
+
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const api = useApi();
   const { flags } = useFeatureFlags();
   const { isAuthenticated } = useAuth();
-  const [activeSession, setActiveSession] = useState<CustomerSession | null>(
-    null,
-  );
+  const [activeSession, setActiveSessionState] =
+    useState<CustomerSession | null>(null);
+  // Every change of this device's session goes through here, so what is
+  // remembered always matches what is on screen (LIRA-354).
+  const setActiveSession = useCallback((next: CustomerSession | null) => {
+    rememberSession(next ? next.id : null);
+    setActiveSessionState(next);
+  }, []);
   const [allActiveSessions, setAllActiveSessions] = useState<CustomerSession[]>(
     [],
   );
@@ -281,9 +316,16 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           setCartItems([]);
         }
 
-        // Set first active as current if we don't have one
+        // LIRA-354: with no session on screen, restore only the one this
+        // device opened or picked — never someone else's open session.
         if (!activeSession && active.length > 0) {
-          setActiveSession(active[0]);
+          const rememberedId = readRememberedSession();
+          const mine =
+            rememberedId != null
+              ? active.find((s) => s.id === rememberedId)
+              : undefined;
+          if (mine) setActiveSession(mine);
+          else if (rememberedId != null) rememberSession(null);
         }
       }
 
@@ -295,7 +337,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       logger.error("Failed to load sessions:", err);
     }
-  }, [activeSession, isAuthenticated]);
+  }, [activeSession, isAuthenticated, setActiveSession]);
 
   // Load active sessions on mount and keep them fresh with a light poll (only
   // when customer sessions feature is enabled). Sessions can be started/closed
@@ -395,7 +437,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         startingRef.current = false;
       }
     },
-    [refreshActiveSessions],
+    [refreshActiveSessions, setActiveSession],
   );
 
   const switchToSession = useCallback(
@@ -405,7 +447,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         setActiveSession(session);
       }
     },
-    [allActiveSessions],
+    [allActiveSessions, setActiveSession],
   );
 
   const closeCurrentSession = useCallback(async () => {
@@ -427,7 +469,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       logger.error("Failed to close session:", err);
       throw err;
     }
-  }, [activeSession, refreshActiveSessions]);
+  }, [activeSession, refreshActiveSessions, setActiveSession]);
 
   const closeSession = useCallback(
     async (sessionId: number) => {
@@ -451,7 +493,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         throw err;
       }
     },
-    [activeSession, refreshActiveSessions],
+    [activeSession, refreshActiveSessions, setActiveSession],
   );
 
   const deleteSession = useCallback(
@@ -474,7 +516,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         throw err;
       }
     },
-    [activeSession, refreshActiveSessions],
+    [activeSession, refreshActiveSessions, setActiveSession],
   );
 
   const updateSessionInfo = useCallback(
@@ -489,7 +531,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         const result = await api.updateSession(activeSession.id, data);
         if (result.success) {
           // Update local state
-          setActiveSession((prev) => (prev ? { ...prev, ...data } : null));
+          setActiveSessionState((prev) => (prev ? { ...prev, ...data } : null));
           await refreshActiveSessions();
         } else if (result.error) {
           throw new Error(result.error);

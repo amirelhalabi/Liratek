@@ -351,6 +351,7 @@ Settle Account on the OMT card now opens on a calendar of the month. Settled day
 
 ## 🧺 Customer sessions
 
+- A till or laptop no longer joins another cashier's open customer session by itself, so a sale there stays a normal walk-in sale instead of landing in that customer's basket. Each device goes back to its own open session after a refresh; to work on someone else's, pick it from the Sessions list.
 - Session checkout: you can now give one discount on the whole basket (the "− Discount" side of the line under Total Amount), up to the shop's profit on the basket. It cannot be combined with an extra or a waived amount. The Profits page shows these under a new "Session discounts" line.
 - The session checkout window now has "Set custom time". The time you pick is used for everything in that checkout: every item, the extra, the kept change or forgiven amount, the payment, and any amount put on the customer's account. An item that already had its own custom time when you added it keeps that time. Before, a session checkout was always saved at the time you checked out.
 - A Binance send or cash-out, an OMT App or Whish App transfer, and iPick, Katsh or Whish App items added to a customer session now keep the custom time you set on them. Before, that time was ignored and they were saved at checkout time.
