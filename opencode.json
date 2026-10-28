@@ -8,5 +8,11 @@
       "*": "allow"
     }
   },
-  "plugin": [".opencode/plugins/graphify.js"]
+  "plugin": [
+    ".opencode/plugins/graphify.js"
+  ],
+  "instructions": [
+    "CLAUDE.md",
+    "docs/fable-brain.md"
+  ]
 }
