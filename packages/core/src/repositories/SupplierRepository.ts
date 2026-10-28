@@ -33,7 +33,8 @@ import {
 // canonical getter rather than re-reading system_settings a third time.
 import { getSettingsService } from "../services/SettingsService.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
-import { requestNow } from "../utils/requestNow.js";
+import { requestNow, toSqliteUtc } from "../utils/requestNow.js";
+import { resolveBackTimedDrawerMovement } from "./checkpointResolution.js";
 import {
   SYSTEM_SUPPLIER_PROVIDERS,
   seedSystemSuppliers,
@@ -755,6 +756,14 @@ export interface CreateSupplierLedgerEntryData {
    *  pass it (CQ-7: the branch used to hardcode 'CASH' unconditionally). */
   method?: string;
   /**
+   * Server-side only: the row's business time as SQLite UTC text
+   * (`YYYY-MM-DD HH:MM:SS`). Set by a flow saved with "Set custom time"
+   * (the account settlement's commission credit) so the row lands on the
+   * day the money really moved. Never part of a request schema; absent =
+   * `requestNow()`, as before.
+   */
+  created_at?: string;
+  /**
    * Link-mode (CQ-7): when provided, the ledger row is stamped with this
    * EXISTING transactions.id and addLedgerEntry creates NO new transaction
    * row — the caller's own flow (e.g. RechargeRepository.topUpFromSupplier,
@@ -1224,6 +1233,9 @@ export type SettleAccountRequest = Omit<
     include_account_credits?: boolean;
     /** LIRA-343 — account credit to use per currency (magnitude, ≥ 0). */
     credit_used?: { usd?: number; lbp?: number };
+    /** "Set custom time" — ISO datetime the settlement really happened
+     *  (amount-first only; the service refuses a future time). */
+    transaction_time?: string;
   };
 
 /**
@@ -2033,8 +2045,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         // LIRA-306 FR-021: the shared ledger writer stamps the request's
-        // business time (the event's own instant inside an offline replay).
-        const createdAt = requestNow();
+        // business time (the event's own instant inside an offline replay),
+        // or the flow's custom time when it passes one.
+        const createdAt = data.created_at ?? requestNow();
         const res = hasSourceRef
           ? stmt.run(
               data.supplier_id,
@@ -3866,11 +3879,13 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     createdBy: number;
     tenantId: number;
     note: (amount: number) => string;
+    /** Custom time (SQLite UTC text); absent = now. */
+    createdAt?: string;
   }): void {
     const insert = this.db.prepare(
       `INSERT INTO supplier_ledger
          (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, tenant_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))`,
     );
     for (const [amountUsd, amountLbp] of [
       [args.ledger.usd, 0],
@@ -3888,6 +3903,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         args.createdBy,
         args.transactionId,
         args.tenantId,
+        args.createdAt ?? null,
       );
     }
   }
@@ -6754,6 +6770,14 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       USD: Math.abs(data.credit_used?.usd ?? 0),
       LBP: Math.abs(data.credit_used?.lbp ?? 0),
     };
+    // "Set custom time" — ONE time for every row this settlement writes
+    // (rule 14), stored as SQLite UTC text (`YYYY-MM-DD HH:MM:SS`): what
+    // every settlement row (transaction, supplier ledger, coverage,
+    // commission, payments) has always stored for "now", so text ordering,
+    // string date ranges and `localDayExpr` day bucketing keep treating a
+    // back-timed settlement like any other. Absent = now, as before.
+    const customTime = data.transaction_time;
+    const customAt = customTime ? toSqliteUtc(customTime) : undefined;
     for (const currency of AMOUNT_FIRST_CURRENCIES) {
       if (creditUsed[currency] > 0 && !pc[currency]) {
         throw new DatabaseError(
@@ -6816,6 +6840,34 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             parent.name,
           ),
         );
+      }
+
+      // A settlement can't be dated before the latest day it pays for: the
+      // money did not exist yet. The day is the shop's day of the custom
+      // time by the SAME rule as every row's `shop_day` (`localDayExpr`,
+      // rules 14 / 27), compared with the DAY rows this settlement covers.
+      if (customAt) {
+        const settleDay = (
+          this.db
+            .prepare(`SELECT ${localDayExpr("?")} AS d`)
+            .get(customAt) as { d: string }
+        ).d;
+        let latestCovered = "";
+        for (const p of plans) {
+          for (const t of p.alloc.takes) {
+            const r = byKey.get(`${t.kind}:${t.id}`);
+            if (r && r.row_scope === "DAY" && r.shop_day > latestCovered) {
+              latestCovered = r.shop_day;
+            }
+          }
+        }
+        if (latestCovered > settleDay) {
+          throw new DatabaseError(
+            `This payment covers ${latestCovered}, so it can't be dated before ${latestCovered}. ` +
+              `Pick a later time or leave out the later days. (Account settlement: ` +
+              `transaction_time ${customTime} is on ${settleDay})`,
+          );
+        }
       }
 
       // One commission member and one waive member for the whole settlement.
@@ -6944,7 +6996,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       const insertLedger = this.db.prepare(
         `INSERT INTO supplier_ledger
            (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, tenant_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))`,
       );
       const writeMemberRow = (
         r: { member: number; currency: "USD" | "LBP"; amount: number },
@@ -6960,6 +7012,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             data.created_by,
             txnId,
             tenantId,
+            customAt ?? null,
           ).lastInsertRowid,
         );
       const anchorLedgerId = writeMemberRow(anchorRow, null);
@@ -6986,6 +7039,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         source_table: "supplier_ledger",
         source_id: anchorLedgerId,
         user_id: data.created_by,
+        ...(customAt ? { transaction_time: customAt } : {}),
         amount_usd: applied.usd,
         amount_lbp: applied.lbp,
         profit_usd: commission.usd + cashout.usd,
@@ -7089,6 +7143,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         anchorLedgerId,
         createdBy: data.created_by,
         tenantId,
+        ...(customAt ? { createdAt: customAt } : {}),
       });
 
       // ── 6. Coverage rows; closes_row on the last take of a closed row ──
@@ -7124,7 +7179,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
            (tenant_id, transaction_id, anchor_ledger_id, row_kind, row_id,
             member_supplier_id, currency, amount, source, closes_row, is_reversed,
             created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, COALESCE(?, datetime('now')), datetime('now'))`,
       );
       allTakes.forEach((t, i) => {
         const key = `${t.kind}:${t.id}`;
@@ -7139,6 +7194,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           t.amount,
           t.source,
           closedKeys.has(key) && lastTakeIdx.get(key) === i ? 1 : 0,
+          customAt ?? null,
         );
       });
 
@@ -7201,6 +7257,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             note: data.note ?? summary,
             createdBy: data.created_by,
             tenantId,
+            ...(customAt ? { createdAt: customAt } : {}),
           });
         }
       }
@@ -7224,6 +7281,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           ),
           data,
           tenantId,
+          ...(customAt ? { createdAt: customAt } : {}),
         });
       }
 
@@ -7240,6 +7298,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             applyPurchaseCoverage: false,
             settlementId: anchorLedgerId,
             transactionMetadata: { settlement_transaction_id: txnId },
+            ...(customTime ? { transactionTime: customTime } : {}),
           },
         );
       }
@@ -7268,8 +7327,18 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             amount < 0
               ? `Overpayment credit: ${parent.name} — paid beyond what was owed`
               : `Overpayment received: ${parent.name} — collected beyond what was owed`,
+          ...(customAt ? { createdAt: customAt } : {}),
         });
       }
+
+      // ── 12. LIRA-335 — a settlement saved with a custom time before a
+      //       drawer count: its drawer legs resolve that count's open
+      //       difference instead of moving the drawer a second time, like
+      //       every other money flow. No-op without a later checkpoint. ──
+      resolveBackTimedDrawerMovement(this.db, {
+        transactionId: txnId,
+        userId: data.created_by,
+      });
 
       return { id: anchorLedgerId };
     });
@@ -7636,13 +7705,15 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     anchorLedgerId: number;
     createdBy: number;
     tenantId: number;
+    /** Custom time (SQLite UTC text); absent = now. */
+    createdAt?: string;
   }): void {
     if (args.pairs.length === 0) return;
     const insert = this.db.prepare(
       `INSERT INTO supplier_ledger
          (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by,
           transaction_id, settlement_id, is_auto, tenant_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, datetime('now'))`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, COALESCE(?, datetime('now')))`,
     );
     const name = (id: number) => args.names.get(id) ?? `supplier #${id}`;
     const write = (
@@ -7661,6 +7732,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         args.txnId,
         args.anchorLedgerId,
         args.tenantId,
+        args.createdAt ?? null,
       ).changes;
       if (changes !== 1) {
         throw new DatabaseError(
@@ -7717,6 +7789,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     }>;
     data: SettleAccountRequest;
     tenantId: number;
+    /** Custom time (SQLite UTC text); absent = now. */
+    createdAt?: string;
   }): void {
     const {
       anchorLedgerId,
@@ -7726,6 +7800,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       allocations,
       data,
       tenantId,
+      createdAt,
     } = args;
     if (this._hasCommissionAtSettlementSchema()) {
       const grossUsd = allocations
@@ -7740,7 +7815,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
              (tenant_id, supplier_id, ledger_entry_id, gross_usd, gross_lbp,
               commission_usd, commission_lbp, entry_mode, rate, unit_count,
               model, created_by, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, datetime('now'), datetime('now'))`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, COALESCE(?, datetime('now')), datetime('now'))`,
         )
         .run(
           tenantId,
@@ -7754,12 +7829,16 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           data.commission_rate ?? null,
           data.commission_unit_count ?? null,
           data.created_by,
+          createdAt ?? null,
         );
+      // Profits buckets the commission by this row's created_at
+      // (ProfitRepository `dateRange("sca.created_at")`), so a back-timed
+      // settlement's commission counts on the day it was really earned.
       const insertAllocation = this.db.prepare(
         `INSERT INTO settlement_commission_allocations
            (tenant_id, settlement_ledger_id, financial_service_id, service_type,
             provider, commission_usd, commission_lbp, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))`,
       );
       for (const a of allocations) {
         insertAllocation.run(
@@ -7770,6 +7849,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           a.row.source_provider,
           a.currency === "USD" ? a.amount : 0,
           a.currency === "LBP" ? a.amount : 0,
+          createdAt ?? null,
         );
       }
     }
@@ -7788,6 +7868,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         created_by: data.created_by,
         is_auto: true,
         transaction_id: txnId,
+        ...(createdAt ? { created_at: createdAt } : {}),
       });
     }
   }
@@ -8437,12 +8518,19 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       settlementId?: number;
       /** Extra keys stamped on the discount transaction's metadata. */
       transactionMetadata?: Record<string, unknown>;
+      /** "Set custom time" of the parent settlement (ISO text as sent);
+       *  the DISCOUNT row and its transaction store it as SQLite UTC text,
+       *  like the settlement's own rows. */
+      transactionTime?: string;
     },
   ): number {
     const tenantId = getCurrentTenantId();
     const amountUsd = Math.abs(discount.amount_usd || 0);
     const amountLbp = Math.abs(discount.amount_lbp || 0);
     const ledgerSign = opts.direction === "received" ? -1 : 1;
+    const ledgerTime = opts.transactionTime
+      ? toSqliteUtc(opts.transactionTime)
+      : null;
 
     const linked = this._supplierLedgerHasSourceRefColumns();
     const ledgerRes = linked
@@ -8451,7 +8539,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             `INSERT INTO supplier_ledger
                (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, tenant_id,
                 source_ref_table, source_ref_id, created_at)
-             VALUES (?, 'DISCOUNT', ?, ?, ?, ?, ?, 'supplier_ledger', ?, datetime('now'))`,
+             VALUES (?, 'DISCOUNT', ?, ?, ?, ?, ?, 'supplier_ledger', ?, COALESCE(?, datetime('now')))`,
           )
           .run(
             supplierId,
@@ -8461,12 +8549,13 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             opts.createdBy,
             tenantId,
             opts.parentLedgerId,
+            ledgerTime,
           )
       : this.db
           .prepare(
             `INSERT INTO supplier_ledger
                (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
-             VALUES (?, 'DISCOUNT', ?, ?, ?, ?, ?, datetime('now'))`,
+             VALUES (?, 'DISCOUNT', ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))`,
           )
           .run(
             supplierId,
@@ -8475,6 +8564,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             discount.reason ?? null,
             opts.createdBy,
             tenantId,
+            ledgerTime,
           );
     const ledgerEntryId = Number(ledgerRes.lastInsertRowid);
 
@@ -8517,6 +8607,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         action: "DISCOUNT",
         note: discount.reason,
       }),
+      ...(ledgerTime ? { transaction_time: ledgerTime } : {}),
     });
 
     const stampSettlement =

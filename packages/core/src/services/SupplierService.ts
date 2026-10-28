@@ -218,12 +218,16 @@ export class SupplierService {
   }
 
   addLedgerEntry(
-    data: CreateSupplierLedgerEntryData & { drawer_name?: string },
+    data: Omit<CreateSupplierLedgerEntryData, "created_at"> & {
+      drawer_name?: string;
+    },
   ): SupplierResult {
     try {
       if (!data.supplier_id)
         return { success: false, error: "supplier_id is required" };
-      const res = this.repo.addLedgerEntry(data);
+      // `created_at` is a server-side override for flows saved with a
+      // custom time; a manual entry from either transport is always "now".
+      const res = this.repo.addLedgerEntry({ ...data, created_at: undefined });
       return { success: true, id: res.id };
     } catch (e) {
       return { success: false, error: toErrorString(e) };
@@ -269,6 +273,18 @@ export class SupplierService {
       // decides what the money covers, inside its own write transaction;
       // the selections/amount checks below belong to the legacy path only.
       if (data.per_currency !== undefined) {
+        // "Set custom time" — same check as every other backdated form:
+        // a valid instant, not in the future.
+        if (data.transaction_time) {
+          const at = new Date(data.transaction_time);
+          if (isNaN(at.getTime()))
+            return { success: false, error: "Invalid transaction_time format" };
+          if (at > new Date())
+            return {
+              success: false,
+              error: "transaction_time cannot be in the future",
+            };
+        }
         // LIRA-345 (S1) — only suppliers on the day calendar settle here
         // (the OMT account, Katsh, active Whish, product suppliers); Loto
         // keeps its checkpoints. The ONE rule: `settlesByDay`.

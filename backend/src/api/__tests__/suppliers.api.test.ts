@@ -856,6 +856,66 @@ describe("Suppliers REST routes", () => {
     });
   });
 
+  // ── Settle Account "Set custom time" — transaction_time ────────────────
+  // Field name taken from the core schema (rule 24), never hand-typed.
+  describe("POST /:id/settle-account — Set custom time (transaction_time)", () => {
+    const timeKey = Object.keys(supplierSettleAccountSchema.shape).find(
+      (k) => k === "transaction_time",
+    ) as string;
+    const body = {
+      per_currency: {
+        USD: {
+          direction: "PAY",
+          payments: [{ method: "CASH", currency_code: "USD", amount: 110 }],
+        },
+      },
+      expected_owed: { usd: 110, lbp: 0 },
+    };
+
+    it("the schema has the key", () => {
+      expect(timeKey).toBe("transaction_time");
+    });
+
+    it("a past time reaches the service", async () => {
+      const spy = jest
+        .spyOn(supplierService, "settleAccount")
+        .mockReturnValue({ success: true, id: 6 } as any);
+      const res = await request(app)
+        .post("/api/suppliers/28/settle-account")
+        .set("x-test-role", "admin")
+        .send({ ...body, [timeKey]: "2026-10-26T14:00:00.000Z" });
+      expect(res.body).toEqual({ success: true, id: 6 });
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ [timeKey]: "2026-10-26T14:00:00.000Z" }),
+      );
+    });
+
+    it("a future time is refused by the real service (HTTP 200, success false)", async () => {
+      const future = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      const res = await request(app)
+        .post("/api/suppliers/28/settle-account")
+        .set("x-test-role", "admin")
+        .send({ ...body, [timeKey]: future });
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        success: false,
+        error: "transaction_time cannot be in the future",
+      });
+    });
+
+    it("a malformed time is refused before the service", async () => {
+      const spy = jest
+        .spyOn(supplierService, "settleAccount")
+        .mockReturnValue({ success: true, id: 6 } as any);
+      const res = await request(app)
+        .post("/api/suppliers/28/settle-account")
+        .set("x-test-role", "admin")
+        .send({ ...body, [timeKey]: "Monday afternoon" });
+      expect(res.body.success).toBe(false);
+      expect(spy).not.toHaveBeenCalled();
+    });
+  });
+
   // ── LIRA-344 — POST /:id/remove-account-credit ───────────────────────────
   describe("POST /api/suppliers/:id/remove-account-credit", () => {
     const body = {

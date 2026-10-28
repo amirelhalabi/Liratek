@@ -2,7 +2,11 @@ import { z } from "zod";
 import { counterpartyDiscountInputSchema } from "./counterparty.js";
 import { isWithinShortfallMax, SHORTFALL_MAX } from "./exchange.js";
 import { OMT_COVERED_TYPE_VALUES } from "../utils/omtCoveredTypes.js";
-import { clientDayInputSchema, localDayFormatSchema } from "./common.js";
+import {
+  clientDayInputSchema,
+  localDayFormatSchema,
+  transactionTimeSchema,
+} from "./common.js";
 import {
   ACCOUNT_CREDIT_REASON_MAX,
   ACCOUNT_CREDIT_REASON_MIN,
@@ -336,6 +340,13 @@ const supplierSettleAccountBaseSchema = z.object({
       lbp: z.number().min(0).optional(),
     })
     .optional(),
+  // "Set custom time" on the Settle Account sheet — the real moment the shop
+  // paid / was paid (e.g. Monday's payment recorded on Wednesday). Every row
+  // the settlement writes takes this time (SupplierRepository
+  // ._settleAccountAmountFirst). Amount-first only: refused on the legacy
+  // whole-row path (rule 23 reverse). The future check is the service's,
+  // like every other backdated form.
+  transaction_time: transactionTimeSchema,
 });
 
 /** Keys of the legacy whole-row payload that are refused next to `per_currency`. */
@@ -357,6 +368,7 @@ const LEGACY_ONLY_SETTLE_ACCOUNT_KEYS = [
 const AMOUNT_FIRST_ONLY_SETTLE_ACCOUNT_KEYS = [
   "include_account_credits",
   "credit_used",
+  "transaction_time",
 ] as const;
 
 /** Keys the legacy whole-row payload has always required. */

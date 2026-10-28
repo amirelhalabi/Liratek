@@ -20,6 +20,7 @@ import {
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
 import { localDay } from "@/shared/utils/localDay";
+import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import {
   countOpenSettleTransactions,
   SettleCalendar,
@@ -259,6 +260,17 @@ export function AccountSettleSheet({
   const today = useMemo(() => localDay(), []);
   const [month, setMonth] = useState(() => today.slice(0, 7));
   const currentMonth = today.slice(0, 7);
+  // "Set custom time" — when the payment really happened (e.g. Monday's
+  // payment recorded on Wednesday). Every row the settlement writes takes
+  // this time on the server. The settlement's own shop day then stands in
+  // for "today" in the day rules: the default pick is the open days BEFORE
+  // it, and no later day can be picked (the server refuses a settlement
+  // dated before a day it covers). The calendar still marks the real today.
+  const [transactionTime, setTransactionTime] = useState<string | undefined>();
+  const settleDay = useMemo(
+    () => (transactionTime ? localDay(new Date(transactionTime)) : today),
+    [transactionTime, today],
+  );
 
   // `refetchOnMount: "always"` — this sheet decides how much money changes
   // hands, so it never works off a cached queue that predates a change made
@@ -289,22 +301,33 @@ export function AccountSettleSheet({
   const days = useMemo(
     () =>
       buildSettleDays(monthQuery.data ?? [], {
-        today,
+        today: settleDay,
         month,
         ...(coveredTypes ? { coveredTypes } : {}),
       }),
-    [monthQuery.data, today, month, coveredTypes],
+    [monthQuery.data, settleDay, month, coveredTypes],
   );
   const monthLeftTotals = useMemo(() => sumMonthLeft(days), [days]);
-  /** Every open day before today, any month (the default pick). */
-  const openDays = useMemo(() => openDaysBefore(rows, today), [rows, today]);
+  /** Every open day before the settlement's day (today unless a custom
+   *  time is set), any month (the default pick). */
+  const openDays = useMemo(
+    () => openDaysBefore(rows, settleDay),
+    [rows, settleDay],
+  );
 
   // null = the default pick (follows the queue until the operator taps).
   const [pickedState, setPickedState] = useState<ReadonlySet<string> | null>(
     null,
   );
   const defaultPicked = useMemo(() => new Set(openDays), [openDays]);
-  const picked: ReadonlySet<string> = pickedState ?? defaultPicked;
+  // A day after the settlement's day is never picked (a custom time set
+  // after tapping days drops the later ones).
+  const picked: ReadonlySet<string> = useMemo(() => {
+    const base = pickedState ?? defaultPicked;
+    return [...base].every((d) => d <= settleDay)
+      ? base
+      : new Set([...base].filter((d) => d <= settleDay));
+  }, [pickedState, defaultPicked, settleDay]);
   // LIRA-343 FR-016a — open transfers of picked days the operator unticked
   // in the "See transactions" table (`"KIND:id"`); left out like an
   // unpicked day. (Owner 2026-10-27: a day tap only picks / unpicks; the
@@ -652,6 +675,8 @@ export function AccountSettleSheet({
       ...(trimmedNote ? { note: trimmedNote } : {}),
       // LIRA-256 — only when the statement covers some types.
       ...(coveredTypes ? { covered_omt_service_types: coveredTypes } : {}),
+      // "Set custom time" — the old-history settle carries it too.
+      ...(transactionTime ? { transaction_time: transactionTime } : {}),
     };
   };
 
@@ -742,6 +767,7 @@ export function AccountSettleSheet({
           : t("accountSettle.done", { name: account.account_name }),
         "success",
       );
+      setTransactionTime(undefined);
       onSettled();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("settle.failed"));
@@ -872,6 +898,7 @@ export function AccountSettleSheet({
         }),
         "success",
       );
+      setTransactionTime(undefined);
       onSettled();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("settle.failed"));
@@ -1423,7 +1450,7 @@ export function AccountSettleSheet({
                 setOldUpTo("");
               }}
               upTo={oldUpTo}
-              maxDay={today}
+              maxDay={settleDay}
               onUpToChange={setOldUpTo}
               accountName={account.account_name}
               preview={oldHistory}
@@ -1447,6 +1474,11 @@ export function AccountSettleSheet({
               })}
             />
           </div>
+
+          <TransactionTimeOverride
+            value={transactionTime}
+            onChange={setTransactionTime}
+          />
 
           {error && (
             <p
