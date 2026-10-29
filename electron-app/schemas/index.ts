@@ -61,6 +61,7 @@ import {
   // LIRA-087 (migration v189) — same cast-bridge pattern.
   supplierRecordDebtSchema,
   receiveStockSchema,
+  mergeProductSupplierSchema,
   partnerRecordTransactionSchema,
   partnerSettleSchema,
   partnerWriteOffSchema,
@@ -179,6 +180,7 @@ import {
   type SupplierAccountLinkInput,
   type SupplierRecordDebtInput,
   type ReceiveStockInput,
+  type MergeProductSupplierInput,
   type PartnerRecordTransactionInput,
   type PartnerSettleInput,
   type PartnerWriteOffInput,
@@ -502,6 +504,10 @@ export const StockAdjustSchema =
 // used is identical.
 export const ReceiveStockSchema =
   receiveStockSchema as unknown as z.ZodSchema<ReceiveStockInput>;
+
+// LIRA-361: supplier merge — shared with `POST /api/inventory/product-suppliers/merge`.
+export const MergeProductSupplierSchema =
+  mergeProductSupplierSchema as unknown as z.ZodSchema<MergeProductSupplierInput>;
 
 // LIRA-297: `item-costs:set` — shared with `POST /api/item-costs` (rule 14).
 // Cast bridges the zod major mismatch, same as the schemas above.

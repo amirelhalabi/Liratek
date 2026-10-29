@@ -80,3 +80,22 @@ export type GetStockAdjustmentsInput = z.infer<
 // hand-copied object literal.
 export type ReceiveStockPayload = z.input<typeof receiveStockSchema>;
 export type StockAdjustPayload = z.input<typeof stockAdjustSchema>;
+
+// LIRA-361 — fold a mistyped duplicate supplier into the real one
+// (ProductSupplierRepository.merge). Shared by `inventory:merge-product-supplier`
+// and `POST /api/inventory/product-suppliers/merge` (rule 14/19b).
+export const mergeProductSupplierSchema = z
+  .object({
+    sourceId: z.number().int().positive(),
+    targetId: z.number().int().positive(),
+  })
+  .refine((d) => d.sourceId !== d.targetId, {
+    message: "Cannot merge a supplier into itself",
+  });
+
+export type MergeProductSupplierInput = z.infer<
+  typeof mergeProductSupplierSchema
+>;
+export type MergeProductSupplierPayload = z.input<
+  typeof mergeProductSupplierSchema
+>;

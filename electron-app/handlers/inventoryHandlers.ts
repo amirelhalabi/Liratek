@@ -24,6 +24,7 @@ import {
   ResolveScanCodeSchema,
   ProductListFiltersSchema,
   ReceiveStockSchema,
+  MergeProductSupplierSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -662,6 +663,38 @@ export function registerInventoryHandlers(): void {
       }
     },
   );
+  // LIRA-361 — what a delete would orphan; the Settings dialog uses it to
+  // offer "Merge into…" instead. Read, same ungated baseline as above.
+  ipcMain.handle("inventory:product-supplier-impact", (_e, id: number) => {
+    try {
+      return { success: true, data: supplierRepo.getDeleteImpact(id) };
+    } catch (e) {
+      return { success: false, error: String(e) };
+    }
+  });
+  ipcMain.handle("inventory:merge-product-supplier", (e, data: unknown) => {
+    try {
+      const auth = requireRole(e.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(MergeProductSupplierSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
+      const result = supplierRepo.merge(v.data.sourceId, v.data.targetId);
+      audit(e.sender.id, {
+        action: "update",
+        entity_type: "product_supplier",
+        entity_id: String(v.data.targetId),
+        summary: `Merged product supplier #${v.data.sourceId} into #${v.data.targetId} (${result.moved_products} products, ${result.moved_ledger_entries} ledger rows)`,
+      });
+      return { success: true, data: result };
+    } catch (e) {
+      return {
+        success: false,
+        error: e instanceof Error ? e.message : String(e),
+      };
+    }
+  });
   ipcMain.handle("inventory:delete-product-supplier", (e, id: number) => {
     // Auth check
     try {
@@ -679,7 +712,11 @@ export function registerInventoryHandlers(): void {
       });
       return { success: true, deleted };
     } catch (e) {
-      return { success: false, error: String(e) };
+      // LIRA-361: the "merge instead" refusal is shown to the user as-is.
+      return {
+        success: false,
+        error: e instanceof Error ? e.message : String(e),
+      };
     }
   });
 }

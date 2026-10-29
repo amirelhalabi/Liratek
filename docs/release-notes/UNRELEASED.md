@@ -36,6 +36,11 @@
 
 ## ✨ Highlights
 
+### Merge a supplier entered twice
+
+If the same supplier was typed in two ways (for example "reacall" and "recall"), you can now merge them. In Settings → Categories & Suppliers, delete the wrong one: if it has products or a balance, a **Merge into** window opens instead. It shows how many products and how much balance will move. Pick the right supplier and press Merge. Its products, stock, debt and payments all move over, and its balance is added to the other supplier's. Renaming a supplier to a name that already exists offers the same merge.
+![Merging "Aaa Reacall" into "Aaa Recall": 2 products and $50 move](whats-new/1.35.0/supplier-merge.png)
+
 ### Settle Loto by day
 
 Loto is now settled like every other supplier: Suppliers → Loto → **Settle Account** opens the day calendar. Each day shows what you owe Loto for that day's tickets (after your commission), minus any cash prizes you paid out that day. Pick the days, pay, and they turn green. Everything you already settled through Loto checkpoints counts as paid, so only newer days show. The Pay / Receive tab for Loto and the Settle button on the Loto page are gone, so every Loto payment is tied to the days it pays.
@@ -316,6 +321,7 @@ Settle Account on the OMT card now opens on a calendar of the month. Settled day
 
 ## ⚙️ Settings
 
+- Product suppliers: a supplier that still has products or a balance can no longer be deleted by mistake (which used to leave its debt behind). You are offered to merge it into another supplier instead.
 - Settings → Users now lists admin users too, so an admin account can be seen, deactivated or given a new password there.
 - Reset Data: if the list of what will be removed can't load, you now see why, with a Retry button. If it takes long, a Retry button appears too. Before, "Reset All Data" just stayed greyed out.
 - Shop Config: if the shop settings can't load, you now see why, with a Retry button, instead of an empty form. If they take long, a Retry button appears too.

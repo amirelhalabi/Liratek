@@ -275,6 +275,11 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("inventory:update-product-supplier", id, name),
     deleteProductSupplier: (id: number) =>
       ipcRenderer.invoke("inventory:delete-product-supplier", id),
+    // LIRA-361 — supplier merge.
+    getProductSupplierImpact: (id: number) =>
+      ipcRenderer.invoke("inventory:product-supplier-impact", id),
+    mergeProductSupplier: (data: { sourceId: number; targetId: number }) =>
+      ipcRenderer.invoke("inventory:merge-product-supplier", data),
   },
 
   // Clients

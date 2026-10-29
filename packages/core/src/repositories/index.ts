@@ -550,6 +550,8 @@ export type {
   ProductSupplier,
   ProductSupplierWithCount,
   ProductSupplierItem,
+  ProductSupplierImpact,
+  ProductSupplierMergeResult,
 } from "./ProductSupplierRepository.js";
 
 // Supplier Purchase Repository

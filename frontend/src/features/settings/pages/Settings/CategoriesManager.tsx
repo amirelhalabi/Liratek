@@ -10,6 +10,8 @@ import {
   type SerialLabel,
   type SerialRequiredMode,
 } from "@liratek/core";
+import type { ProductSupplierImpact } from "@/api/backendApi";
+import { MergeSupplierDialog } from "./MergeSupplierDialog";
 
 interface Category {
   id: number;
@@ -119,6 +121,13 @@ export default function CategoriesManager() {
   const [suppEditingId, setSuppEditingId] = useState<number | null>(null);
   const [suppEditingName, setSuppEditingName] = useState("");
   const [suppError, setSuppError] = useState("");
+  // LIRA-361 — "Merge into…" dialog, opened instead of a plain delete when
+  // the supplier still has products or debt, or on rename to a taken name.
+  const [merging, setMerging] = useState<{
+    source: { id: number; name: string };
+    impact: ProductSupplierImpact;
+    targetId?: number;
+  } | null>(null);
 
   const [suppSelectedIds, setSuppSelectedIds] = useState<Set<number>>(
     new Set(),
@@ -215,7 +224,9 @@ export default function CategoriesManager() {
   // LIRA-296 P3 — the serial name and the sale-without-serial rule.
   const handleSerial = async (
     cat: Category,
-    patch: { serial_label: SerialLabel } | { serial_required: SerialRequiredMode },
+    patch:
+      | { serial_label: SerialLabel }
+      | { serial_required: SerialRequiredMode },
   ) => {
     setError("");
     const res = await api.updateCategory(cat.id, patch);
@@ -224,10 +235,7 @@ export default function CategoriesManager() {
   };
 
   const handleDelete = async (id: number, name: string) => {
-    if (
-      !confirm(t("categories.deleteConfirm", { name: shown(name) }))
-    )
-      return;
+    if (!confirm(t("categories.deleteConfirm", { name: shown(name) }))) return;
     const res = await api.deleteCategory(id);
     if (res?.success) load();
     else setError(res?.error ?? t("categories.deleteFailed"));
@@ -236,9 +244,7 @@ export default function CategoriesManager() {
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return;
     if (
-      !confirm(
-        t("categories.batchDeleteConfirm", { count: selectedIds.size }),
-      )
+      !confirm(t("categories.batchDeleteConfirm", { count: selectedIds.size }))
     )
       return;
     setError("");
@@ -247,8 +253,7 @@ export default function CategoriesManager() {
       const res = await api.deleteCategory(id);
       if (!res?.success) failed++;
     }
-    if (failed > 0)
-      setError(t("categories.batchFailed", { count: failed }));
+    if (failed > 0) setError(t("categories.batchFailed", { count: failed }));
     load();
   };
 
@@ -270,6 +275,26 @@ export default function CategoriesManager() {
   const handleUpdateSupplier = async (id: number) => {
     if (!suppEditingName.trim()) return;
     setSuppError("");
+    // LIRA-361 — renaming to a name another supplier already has means the
+    // two are the same supplier: offer to merge instead of failing.
+    const taken = suppliers.find(
+      (s) =>
+        s.id !== id &&
+        s.name.toLowerCase() === suppEditingName.trim().toLowerCase(),
+    );
+    const current = suppliers.find((s) => s.id === id);
+    if (taken && current) {
+      const impact = await api.getProductSupplierImpact(id);
+      if (impact?.success && impact.data) {
+        setSuppEditingId(null);
+        setMerging({
+          source: { id, name: current.name },
+          impact: impact.data,
+          targetId: taken.id,
+        });
+      } else setSuppError(impact?.error ?? t("suppliers.merge.failed"));
+      return;
+    }
     // Rule 19: was a raw, optional-chained
     // `window.api?.inventory.updateProductSupplier(...)` — silently no-op'd
     // on the web. `api.updateProductSupplier` routes IPC/REST for both
@@ -282,10 +307,19 @@ export default function CategoriesManager() {
   };
 
   const handleDeleteSupplier = async (id: number, name: string) => {
-    if (
-      !confirm(t("suppliers.deleteConfirm", { name }))
-    )
+    setSuppError("");
+    // LIRA-361 — a supplier with products or debt history is merged into
+    // another one, never deleted (its debt would be left behind).
+    const impact = await api.getProductSupplierImpact(id);
+    if (!impact?.success || !impact.data) {
+      setSuppError(impact?.error ?? t("categories.deleteFailed"));
       return;
+    }
+    if (impact.data.product_count > 0 || impact.data.ledger_entry_count > 0) {
+      setMerging({ source: { id, name }, impact: impact.data });
+      return;
+    }
+    if (!confirm(t("suppliers.deleteConfirm", { name }))) return;
     // Rule 19: was a raw, optional-chained
     // `window.api?.inventory.deleteProductSupplier(...)` — silently no-op'd
     // on the web. `api.deleteProductSupplier` routes IPC/REST for both
@@ -315,8 +349,7 @@ export default function CategoriesManager() {
       const res = await api.deleteProductSupplier(id);
       if (!res?.success) failed++;
     }
-    if (failed > 0)
-      setSuppError(t("suppliers.batchFailed", { count: failed }));
+    if (failed > 0) setSuppError(t("suppliers.batchFailed", { count: failed }));
     loadSuppliers();
   };
 
@@ -463,7 +496,9 @@ export default function CategoriesManager() {
                         className="w-full bg-slate-800 border border-violet-500 rounded px-2 py-1 text-white text-sm focus:outline-none"
                       />
                     ) : (
-                      <span className="text-sm text-slate-200">{shown(cat.name)}</span>
+                      <span className="text-sm text-slate-200">
+                        {shown(cat.name)}
+                      </span>
                     )}
                   </td>
 
@@ -507,7 +542,9 @@ export default function CategoriesManager() {
                           }
                           className="bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-xs text-white"
                         >
-                          <option value="IMEI">{t("categories.calledImei")}</option>
+                          <option value="IMEI">
+                            {t("categories.calledImei")}
+                          </option>
                           <option value="Serial">
                             {t("categories.calledSerial")}
                           </option>
@@ -652,7 +689,9 @@ export default function CategoriesManager() {
                     className="inline-flex items-center gap-1.5 rounded-lg bg-red-600/20 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-600/30 transition-colors cursor-pointer"
                   >
                     <Trash2 size={14} />
-                    {t("categories.deleteSelected", { n: suppSelectedIds.size })}
+                    {t("categories.deleteSelected", {
+                      n: suppSelectedIds.size,
+                    })}
                   </button>
                 </div>
               ) : undefined
@@ -794,6 +833,20 @@ export default function CategoriesManager() {
           />
         </div>
       </div>
+
+      {merging && (
+        <MergeSupplierDialog
+          source={merging.source}
+          impact={merging.impact}
+          initialTargetId={merging.targetId}
+          targets={suppliers.filter((s) => s.id !== merging.source.id)}
+          onClose={() => setMerging(null)}
+          onMerged={() => {
+            setMerging(null);
+            loadSuppliers();
+          }}
+        />
+      )}
     </div>
   );
 }

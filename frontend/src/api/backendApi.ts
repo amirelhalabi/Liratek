@@ -185,6 +185,7 @@ import type {
   MobileServiceItemUpdatePayload,
   PreviewLotSettlementPayload,
   ReceiveStockPayload,
+  MergeProductSupplierPayload,
   RegisterProductUnitsPayload,
   ServicePresetCreatePayload,
   ServicePresetUpdatePayload,
@@ -1102,6 +1103,49 @@ export async function deleteProductSupplier(
         `/api/inventory/product-suppliers/${id}`,
         { method: "DELETE" },
       ),
+  );
+}
+
+// LIRA-361 — what deleting a supplier would orphan (drives "Merge into…").
+export type ProductSupplierImpact = {
+  product_count: number;
+  ledger_entry_count: number;
+  balance_usd: number;
+  balance_lbp: number;
+};
+
+export async function getProductSupplierImpact(
+  id: number,
+): Promise<{ success: boolean; data?: ProductSupplierImpact; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().inventory.getProductSupplierImpact(id),
+    async () =>
+      requestJson<{
+        success: boolean;
+        data?: ProductSupplierImpact;
+        error?: string;
+      }>(`/api/inventory/product-suppliers/${id}/impact`),
+  );
+}
+
+export async function mergeProductSupplier(
+  payload: MergeProductSupplierPayload,
+): Promise<{
+  success: boolean;
+  data?: { moved_products: number; moved_ledger_entries: number };
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().inventory.mergeProductSupplier(payload),
+    async () =>
+      requestJson<{
+        success: boolean;
+        data?: { moved_products: number; moved_ledger_entries: number };
+        error?: string;
+      }>("/api/inventory/product-suppliers/merge", {
+        method: "POST",
+        body: payload,
+      }),
   );
 }
 

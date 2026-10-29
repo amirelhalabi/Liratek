@@ -8187,3 +8187,20 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 **Pending:** web e2e `lira-web-083-partner-settle-other-currency` written but not run (another session's unfinished work stopped the web server) — run it, then add the What's new card with its screenshot.
 
 **What users will notice:** on the Settle sheet for partners and suppliers (not OMT), each payment box can be paid in dollars or lira, and a Total line shows what you pay in all.
+
+## LIRA-361: Merge a supplier entered twice — BUILT 2026-10-29
+
+**Ask (owner 2026-10-29):** "reacall" and "recall" are the same supplier, entered twice. Fix it from the app: when deleting a supplier, offer to merge its products into another supplier, and move its debt too (debt depends on whether products were added as old stock).
+
+**Owner decisions 2026-10-29:**
+- A merge moves everything: product labels, stock batches, all ledger rows (debt, payments, credits), settlements, purchases, supplier returns. The duplicate is removed and the balances add up. Old-stock products booked no debt, so for them only the label moves.
+- Changing ONE product's supplier in the product form moves the label only; its debt stays where it was booked.
+- Plain delete is allowed only for a supplier with no products and no ledger history (before, delete left the debt behind, unlinked).
+
+**Built:** `ProductSupplierRepository.merge` / `getDeleteImpact` (one transaction, every `suppliers(id)` reference re-pointed; a missed table fails the final delete and rolls back), `delete` now refuses a supplier with products or history. Shared `mergeProductSupplierSchema`; IPC `inventory:merge-product-supplier` (online_only) + `inventory:product-supplier-impact` (read); REST `POST /api/inventory/product-suppliers/merge` + `GET /api/inventory/product-suppliers/:id/impact`; Settings "Merge into…" window (on delete, and on rename to a taken name). Transaction summaries keep the old name as a snapshot of the saving time (rule 31).
+
+**Tests:** core `ProductSupplierRepository.merge` — the first 6 cases proven failing first (merge missing, delete not refused); they cover balances adding up per currency and a void after merge reversing on the target (rule 20). Written after the code (not proven failing-first): the 7th merge case (a pre-merge payment shows on the target's ledger and settle queue, and its void reverses there), guard `ProductSupplierRepository.mergeReferences.guard` (every supplier reference in create_db.sql is moved by the merge; two of those FKs CASCADE, so a missed table would lose rows silently), `CategoriesManager.supplierMerge` (4), backend `inventorySupplierMerge.api` (5), web e2e `lira-web-084-supplier-merge` (passed, took the What's new screenshot). Channel policy counts updated; tenant-scoping, bind-arity, transport-parity and i18n checks pass.
+
+**Limits:** batch delete of several suppliers does not open the merge window; a supplier with products or a balance fails there with a hint to use its row's delete button.
+
+**What users will notice:** in Settings → Categories & Suppliers, deleting a supplier that has products or a balance opens a "Merge into" window; its products, stock and balance move to the supplier you pick.

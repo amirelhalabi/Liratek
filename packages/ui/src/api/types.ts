@@ -252,6 +252,7 @@ import type {
   MobileServiceItemUpdatePayload,
   PreviewLotSettlementPayload,
   ReceiveStockPayload,
+  MergeProductSupplierPayload,
   RegisterProductUnitsPayload,
   ServicePresetCreatePayload,
   ServicePresetUpdatePayload,
@@ -1326,6 +1327,23 @@ export type ApiAdapter = {
   deleteProductSupplier: (
     id: number,
   ) => Promise<{ success: boolean; error?: string }>;
+  /** LIRA-361 — products and debt a supplier delete would orphan. */
+  getProductSupplierImpact: (id: number) => Promise<{
+    success: boolean;
+    data?: {
+      product_count: number;
+      ledger_entry_count: number;
+      balance_usd: number;
+      balance_lbp: number;
+    };
+    error?: string;
+  }>;
+  /** LIRA-361 — fold a duplicate supplier into another; everything moves. */
+  mergeProductSupplier: (payload: MergeProductSupplierPayload) => Promise<{
+    success: boolean;
+    data?: { moved_products: number; moved_ledger_entries: number };
+    error?: string;
+  }>;
   createProduct: (payload: CreateProductPayload) => Promise<ProductWriteResult>;
   /** `id` travels as the first argument, so the payload omits it. */
   updateProduct: (

@@ -12,6 +12,8 @@ import {
   batchUpdateProductsSchema,
   stockAdjustSchema,
   receiveStockSchema,
+  mergeProductSupplierSchema,
+  type MergeProductSupplierInput,
   resolveScanCodeSchema,
   createCategorySchema,
   updateCategorySchema,
@@ -162,6 +164,47 @@ router.post(
     }
   },
 );
+
+// LIRA-361 — POST /api/inventory/product-suppliers/merge mirrors IPC
+// `inventory:merge-product-supplier`. Static path, before `/:id` routes.
+router.post(
+  "/product-suppliers/merge",
+  requireRole(["admin", "staff"]),
+  validateRequest(mergeProductSupplierSchema),
+  (req, res) => {
+    const { sourceId, targetId } = req.body as MergeProductSupplierInput;
+    try {
+      const result = getProductSupplierRepository().merge(sourceId, targetId);
+      auditRest(req, {
+        action: "update",
+        entity_type: "product_supplier",
+        entity_id: String(targetId),
+        summary: `Merged product supplier #${sourceId} into #${targetId} (${result.moved_products} products, ${result.moved_ledger_entries} ledger rows)`,
+      });
+      res.json({ success: true, data: result });
+    } catch (err) {
+      res.json({ success: false, error: errMessage(err) });
+    }
+  },
+);
+
+// GET /api/inventory/product-suppliers/:id/impact — mirrors IPC
+// `inventory:product-supplier-impact` (read, router-level auth only).
+router.get("/product-suppliers/:id/impact", (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.json({ success: false, error: "Invalid id" });
+    return;
+  }
+  try {
+    res.json({
+      success: true,
+      data: getProductSupplierRepository().getDeleteImpact(id),
+    });
+  } catch (err) {
+    res.json({ success: false, error: errMessage(err) });
+  }
+});
 
 router.put(
   "/product-suppliers/:id",

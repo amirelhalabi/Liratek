@@ -124,6 +124,7 @@ import type {
   MobileServiceItemUpdatePayload,
   PreviewLotSettlementPayload,
   ReceiveStockPayload,
+  MergeProductSupplierPayload,
   RegisterProductUnitsPayload,
   ServicePresetCreatePayload,
   ServicePresetUpdatePayload,
@@ -245,6 +246,9 @@ export class ElectronApiAdapter implements ApiAdapter {
   updateProductSupplier = (id: number, name: string) =>
     api.updateProductSupplier(id, name);
   deleteProductSupplier = (id: number) => api.deleteProductSupplier(id);
+  getProductSupplierImpact = (id: number) => api.getProductSupplierImpact(id);
+  mergeProductSupplier = (payload: MergeProductSupplierPayload) =>
+    api.mergeProductSupplier(payload);
   createProduct = (payload: CreateProductPayload) => api.createProduct(payload);
   updateProduct = (id: number, payload: Omit<UpdateProductPayload, "id">) =>
     api.updateProduct(id, payload);

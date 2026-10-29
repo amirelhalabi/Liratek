@@ -1,7 +1,8 @@
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
-import { DatabaseError } from "../utils/errors.js";
+import { DatabaseError, ValidationError } from "../utils/errors.js";
+import { ledgerNotRefunded } from "./SupplierRepository.js";
 
 export interface ProductSupplier {
   id: number;
@@ -24,6 +25,46 @@ export interface ProductSupplierItem {
   total: number;
   created_at: string;
 }
+
+/** LIRA-361 — what deleting (or merging away) one supplier would touch. */
+export interface ProductSupplierImpact {
+  /** Active products whose supplier is this name. */
+  product_count: number;
+  /** supplier_ledger rows of the linked supplier, voided ones included. */
+  ledger_entry_count: number;
+  balance_usd: number;
+  balance_lbp: number;
+}
+
+export interface ProductSupplierMergeResult {
+  moved_products: number;
+  moved_ledger_entries: number;
+}
+
+/**
+ * LIRA-361 — every table that points at a `suppliers` row by id, and the
+ * column it uses. A merge re-points all of them from the source supplier to
+ * the target. A table added later that references `suppliers(id)` must be
+ * listed here: `supplier_ledger` and `supplier_purchases` are
+ * `ON DELETE CASCADE`, so a missed table of that kind would lose its rows
+ * silently on the final DELETE instead of failing. The guard test
+ * `ProductSupplierRepository.mergeReferences.guard.test.ts` reads
+ * create_db.sql and fails on any supplier reference missing from this list.
+ */
+export const SUPPLIER_REFERENCES: ReadonlyArray<{
+  table: string;
+  column: string;
+}> = [
+  { table: "supplier_ledger", column: "supplier_id" },
+  { table: "supplier_settlements", column: "supplier_id" },
+  { table: "supplier_settlement_coverage", column: "member_supplier_id" },
+  { table: "supplier_purchases", column: "supplier_id" },
+  { table: "product_stock_batches", column: "supplier_id" },
+  { table: "supplier_returns", column: "supplier_id" },
+  { table: "products", column: "supplier_id" },
+  { table: "product_suppliers", column: "supplier_id" },
+  { table: "suppliers", column: "account_supplier_id" },
+];
 
 const COLUMNS = "id, name, sort_order, is_active, supplier_id, created_at";
 
@@ -139,6 +180,137 @@ export class ProductSupplierRepository {
     })();
   }
 
+  /** LIRA-361 — products and debt history a delete would orphan. */
+  getDeleteImpact(id: number): ProductSupplierImpact {
+    const tenantId = getCurrentTenantId();
+    const row = this._getRow(id);
+    const products = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM products WHERE LOWER(supplier) = LOWER(?) AND is_active = 1 AND tenant_id = ?`,
+      )
+      .get(row.name, tenantId) as { n: number };
+    const ledger = row.supplier_id
+      ? (this.db
+          .prepare(
+            `SELECT COUNT(*) AS n,
+                    COALESCE(SUM(CASE WHEN ${ledgerNotRefunded()} THEN amount_usd ELSE 0 END), 0) AS usd,
+                    COALESCE(SUM(CASE WHEN ${ledgerNotRefunded()} THEN amount_lbp ELSE 0 END), 0) AS lbp
+               FROM supplier_ledger WHERE supplier_id = ? AND tenant_id = ?`,
+          )
+          .get(row.supplier_id, tenantId) as {
+          n: number;
+          usd: number;
+          lbp: number;
+        })
+      : { n: 0, usd: 0, lbp: 0 };
+    return {
+      product_count: products.n,
+      ledger_entry_count: ledger.n,
+      balance_usd: ledger.usd,
+      balance_lbp: ledger.lbp,
+    };
+  }
+
+  /**
+   * LIRA-361 — fold a duplicate supplier (`sourceId`) into the real one
+   * (`targetId`), in ONE transaction. Everything moves: product labels,
+   * stock batches, every supplier_ledger row (debt, payments, credits),
+   * settlements, purchases and returns — so the target's balance becomes
+   * the sum of both, per currency. Old-stock products booked no debt, so
+   * for them only the label moves; no branching on is_old_stock is needed.
+   * Voids still work after a merge: they find the ledger row by id and read
+   * its (now re-pointed) supplier_id.
+   *
+   * Transaction summaries ("Stock received: … — reacall") are a snapshot of
+   * the name at saving time and are NOT rewritten (rule 31).
+   */
+  merge(sourceId: number, targetId: number): ProductSupplierMergeResult {
+    if (sourceId === targetId) {
+      throw new ValidationError("Cannot merge a supplier into itself");
+    }
+    const tenantId = getCurrentTenantId();
+
+    return this.db.transaction(() => {
+      const source = this._getRow(sourceId);
+      const target = this._getRow(targetId);
+      const targetSupplierId =
+        target.supplier_id ?? this._findOrCreateLinkedSupplier(target.name);
+      if (target.supplier_id === null) {
+        this.db
+          .prepare(
+            `UPDATE product_suppliers SET supplier_id = ? WHERE id = ? AND tenant_id = ?`,
+          )
+          .run(targetSupplierId, target.id, tenantId);
+      }
+
+      const movedProducts = this.db
+        .prepare(
+          `UPDATE products SET supplier = ? WHERE LOWER(supplier) = LOWER(?) AND tenant_id = ?`,
+        )
+        .run(target.name, source.name, tenantId).changes;
+
+      let movedLedger = 0;
+      const sourceSupplierId = source.supplier_id;
+      if (sourceSupplierId !== null && sourceSupplierId !== targetSupplierId) {
+        const flags = this.db
+          .prepare(
+            `SELECT is_system FROM suppliers WHERE id IN (?, ?) AND tenant_id = ?`,
+          )
+          .all(sourceSupplierId, targetSupplierId, tenantId) as {
+          is_system: number;
+        }[];
+        if (flags.some((f) => f.is_system === 1)) {
+          throw new ValidationError("System suppliers cannot be merged");
+        }
+
+        for (const ref of SUPPLIER_REFERENCES) {
+          const changes = this.db
+            .prepare(
+              `UPDATE ${ref.table} SET ${ref.column} = ? WHERE ${ref.column} = ? AND tenant_id = ?`,
+            )
+            .run(targetSupplierId, sourceSupplierId, tenantId).changes;
+          if (ref.table === "supplier_ledger") movedLedger = changes;
+        }
+        // Keep contact details the target is missing.
+        this.db
+          .prepare(
+            `UPDATE suppliers SET
+               contact_name = COALESCE(contact_name, (SELECT contact_name FROM suppliers WHERE id = ? AND tenant_id = ?)),
+               phone = COALESCE(phone, (SELECT phone FROM suppliers WHERE id = ? AND tenant_id = ?)),
+               note = COALESCE(note, (SELECT note FROM suppliers WHERE id = ? AND tenant_id = ?))
+             WHERE id = ? AND tenant_id = ?`,
+          )
+          .run(
+            sourceSupplierId,
+            tenantId,
+            sourceSupplierId,
+            tenantId,
+            sourceSupplierId,
+            tenantId,
+            targetSupplierId,
+            tenantId,
+          );
+        this.db
+          .prepare(`DELETE FROM suppliers WHERE id = ? AND tenant_id = ?`)
+          .run(sourceSupplierId, tenantId);
+      }
+
+      this.db
+        .prepare(`DELETE FROM product_suppliers WHERE id = ? AND tenant_id = ?`)
+        .run(source.id, tenantId);
+
+      return {
+        moved_products: movedProducts,
+        moved_ledger_entries: movedLedger,
+      };
+    })();
+  }
+
+  /**
+   * Plain delete — only for a supplier with no active products and no
+   * ledger history (LIRA-361). Anything else must be merged into another
+   * supplier, or its debt would be left behind unlinked.
+   */
   delete(id: number): boolean {
     const tenantId = getCurrentTenantId();
     const row = this.db
@@ -148,6 +320,12 @@ export class ProductSupplierRepository {
       .get(id, tenantId) as { name: string } | undefined;
 
     if (row) {
+      const impact = this.getDeleteImpact(id);
+      if (impact.product_count > 0 || impact.ledger_entry_count > 0) {
+        throw new ValidationError(
+          "This supplier has products or debt history — merge it into another supplier instead of deleting it",
+        );
+      }
       this.db
         .prepare(
           `UPDATE products SET supplier = NULL WHERE LOWER(supplier) = LOWER(?) AND tenant_id = ?`,
@@ -193,6 +371,22 @@ export class ProductSupplierRepository {
       )
       .all(getCurrentTenantId()) as { name: string }[];
     return rows.map((r) => r.name);
+  }
+
+  private _getRow(id: number): {
+    id: number;
+    name: string;
+    supplier_id: number | null;
+  } {
+    const row = this.db
+      .prepare(
+        `SELECT id, name, supplier_id FROM product_suppliers WHERE id = ? AND tenant_id = ?`,
+      )
+      .get(id, getCurrentTenantId()) as
+      | { id: number; name: string; supplier_id: number | null }
+      | undefined;
+    if (!row) throw new ValidationError(`Supplier #${id} not found`);
+    return row;
   }
 
   /** Find or create a suppliers row (is_system=0) for the given product supplier name. */

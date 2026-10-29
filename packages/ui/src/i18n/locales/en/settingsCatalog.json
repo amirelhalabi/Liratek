@@ -35,11 +35,11 @@
   },
   "suppliers": {
     "createFailed": "Failed to create supplier",
-    "deleteConfirm": "Delete supplier \"{{name}}\"? Products will keep their current supplier label.",
-    "batchDeleteConfirm_one": "Delete {{count}} selected supplier? Products will keep their current labels.",
-    "batchDeleteConfirm_other": "Delete {{count}} selected suppliers? Products will keep their current labels.",
-    "batchFailed_one": "{{count}} supplier failed to delete.",
-    "batchFailed_other": "{{count}} suppliers failed to delete.",
+    "deleteConfirm": "Delete supplier \"{{name}}\"?",
+    "batchDeleteConfirm_one": "Delete {{count}} selected supplier?",
+    "batchDeleteConfirm_other": "Delete {{count}} selected suppliers?",
+    "batchFailed_one": "{{count}} supplier failed to delete. A supplier with products or a balance must be merged: use the delete button on its row.",
+    "batchFailed_other": "{{count}} suppliers failed to delete. A supplier with products or a balance must be merged: use the delete button on its row.",
     "title": "Product Suppliers",
     "count": "({{count}} suppliers)",
     "newPlaceholder": "New supplier name...",
@@ -48,7 +48,21 @@
       "products": "Products"
     },
     "empty": "No product suppliers yet. Add one above or import from a .toon file.",
-    "pageLabel": "suppliers"
+    "pageLabel": "suppliers",
+    "merge": {
+      "title": "Merge \"{{name}}\" into another supplier",
+      "intro": "\"{{name}}\" has products or debt, so it can't just be deleted. Pick the supplier it really is. Everything moves there, then \"{{name}}\" is removed.",
+      "products_one": "{{count}} product moves",
+      "products_other": "{{count}} products move",
+      "debt": "Balance that moves:",
+      "noDebt": "No balance owed",
+      "into": "Merge into",
+      "pick": "Choose a supplier…",
+      "result": "\"{{target}}\" will show everything from both, and its balance becomes the two added together. \"{{source}}\" is removed.",
+      "confirm": "Merge",
+      "cancel": "Cancel",
+      "failed": "Could not merge the suppliers"
+    }
   },
   "mobile": {
     "loadFailed": "Failed to load mobile service items",

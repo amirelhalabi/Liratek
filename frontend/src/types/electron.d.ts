@@ -1135,6 +1135,24 @@ export interface ElectronAPI {
     deleteProductSupplier: (
       id: number,
     ) => Promise<{ success: boolean; error?: string }>;
+    getProductSupplierImpact: (id: number) => Promise<{
+      success: boolean;
+      data?: {
+        product_count: number;
+        ledger_entry_count: number;
+        balance_usd: number;
+        balance_lbp: number;
+      };
+      error?: string;
+    }>;
+    mergeProductSupplier: (data: {
+      sourceId: number;
+      targetId: number;
+    }) => Promise<{
+      success: boolean;
+      data?: { moved_products: number; moved_ledger_entries: number };
+      error?: string;
+    }>;
   };
 
   // Clients
