@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { idSchema } from "./common.js";
 import { counterpartyDiscountInputSchema } from "./counterparty.js";
+import { settleLegsCrossCurrency } from "../utils/settleLegConversion.js";
 
 /**
  * Partner System validation schemas (LIRA-037).
@@ -310,16 +311,35 @@ export const partnerSettleDaysSchema = z
     message: "Enter at least one currency",
     path: ["per_currency"],
   })
+  // LIRA-359 (owner decision 2026-10-29) — a box may be paid in the other
+  // currency, converted at the box's rate: every leg is USD or LBP, and a
+  // leg in the other currency needs the rate it is converted at.
   .refine(
     (d) =>
       (["USD", "LBP"] as const).every(
         (c) =>
           !d.per_currency[c] ||
-          d.per_currency[c]!.payments.every((l) => l.currency_code === c),
+          d.per_currency[c]!.payments.every(
+            (l) => l.currency_code === "USD" || l.currency_code === "LBP",
+          ),
       ),
     {
-      message: "Every payment leg must be in its section's currency",
+      message: "Every payment leg must be in USD or LBP",
       path: ["per_currency"],
+    },
+  )
+  .refine(
+    (d) =>
+      !!d.exchange_rate ||
+      (["USD", "LBP"] as const).every(
+        (c) =>
+          !d.per_currency[c] ||
+          !settleLegsCrossCurrency(d.per_currency[c]!.payments, c),
+      ),
+    {
+      message:
+        "A payment in the other currency needs the exchange rate it is converted at",
+      path: ["exchange_rate"],
     },
   )
   .refine((d) => new Set(d.selections).size === d.selections.length, {

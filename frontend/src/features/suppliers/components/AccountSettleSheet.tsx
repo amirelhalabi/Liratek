@@ -13,6 +13,9 @@ import {
   isSettleRowWaiting,
   monthLeft as sumMonthLeft,
   openDaysBefore,
+  settleLegsNetIn,
+  settleLegsTotalByCurrency,
+  splitBoxLinesAcrossCurrencies,
   type AccountSettleAllocResult,
   type DaySelectionsResult,
   type OmtCoveredType,
@@ -147,6 +150,13 @@ function sumAmounts(lines: PaymentLine[], currency?: SettleCurrency): number {
     .reduce((s, l) => s + l.amount, 0);
 }
 
+/** LIRA-359 — payment lines as settle legs for the core conversion. */
+function toLegs(lines: readonly PaymentLine[]) {
+  return lines
+    .filter((l) => l.amount > 0)
+    .map((l) => ({ currency_code: l.currencyCode, amount: l.amount }));
+}
+
 /** `YYYY-MM` shifted by `delta` months. Pure arithmetic, no clock. */
 function shiftMonth(month: string, delta: number): string {
   const [y, m] = month.split("-").map(Number);
@@ -227,6 +237,10 @@ export interface AccountSettleSheetProps {
   canSettleOldHistory?: boolean | undefined;
   /** LIRA-344 — offer "Remove credit" on each open account credit (admin). */
   canRemoveCredit?: boolean | undefined;
+  /** LIRA-359 — a box may be paid in the other currency, converted at the
+   *  box rate (`settleBoxConvertsCurrency`: every calendar supplier but the
+   *  OMT account). Default false: each currency on its own (OMT). */
+  convertsCurrency?: boolean | undefined;
 }
 
 /** Old-history (T041) preview of one picked day. */
@@ -244,6 +258,7 @@ export function AccountSettleSheet({
   canRemoveCredit = false,
   showStatementTypes = true,
   showCommission = true,
+  convertsCurrency = false,
 }: AccountSettleSheetProps) {
   const { t } = useTranslation("suppliers");
   const { t: tc } = useTranslation("common");
@@ -254,6 +269,9 @@ export function AccountSettleSheet({
   // payment box (hand-edited or not; reported on mount too). Stamp-only —
   // the server settles each currency natively.
   const [paymentRate, setPaymentRate] = useState<number | undefined>();
+  // LIRA-359 — the rate a line in the other currency is converted at
+  // (preview and server alike; the payload sends the same figure).
+  const rate = paymentRate ?? exchangeRate;
 
   // LIRA-343 — the shop's today from THIS device (rule 27), fixed while the
   // sheet is open.
@@ -556,7 +574,27 @@ export function AccountSettleSheet({
   // Lines and change legs per currency section, from whichever box owns it.
   const linesByCurrency: PerCurrency<PaymentLine[]> = { USD: [], LBP: [] };
   const returnLegsByCurrency: PerCurrency<PaymentLine[]> = { USD: [], LBP: [] };
-  if (mainCurrencies.length > 0) {
+  if (mainCurrencies.length > 0 && convertsCurrency) {
+    // LIRA-359 — each currency is paid by its own lines first; what one
+    // currency's lines pay beyond its amount covers the other, converted at
+    // the box rate (the ONE split, core). Extra stays in its own currency.
+    const split = splitBoxLinesAcrossCurrencies(
+      mainLines,
+      Object.fromEntries(mainTotals.map((tot) => [tot.currency, tot.amount])),
+      rate,
+    );
+    const extras: Partial<Record<SettleCurrency, number>> = {};
+    for (const tot of mainTotals) {
+      extras[tot.currency] =
+        settleLegsNetIn(toLegs(split[tot.currency]), tot.currency, rate) -
+        tot.amount;
+    }
+    const change = assignChangeLegs(mainReturnLegs, extras, mainCurrencies[0]);
+    for (const c of mainCurrencies) {
+      linesByCurrency[c] = split[c];
+      returnLegsByCurrency[c] = change[c];
+    }
+  } else if (mainCurrencies.length > 0) {
     const extras: Partial<Record<SettleCurrency, number>> = {};
     for (const tot of mainTotals) {
       extras[tot.currency] = sumAmounts(mainLines, tot.currency) - tot.amount;
@@ -591,9 +629,15 @@ export function AccountSettleSheet({
         commission,
       };
     }
+    // LIRA-359 — when converting, every line counts toward its section at
+    // the box rate, as the server counts it (settleLegsNetIn).
     const moneyOf = (c: SettleCurrency) => ({
-      inSame: sumAmounts(lines[c], c),
-      outSame: sumAmounts(returnLegs[c], c),
+      inSame: convertsCurrency
+        ? settleLegsNetIn(toLegs(lines[c]), c, rate)
+        : sumAmounts(lines[c], c),
+      outSame: convertsCurrency
+        ? settleLegsNetIn(toLegs(returnLegs[c]), c, rate)
+        : sumAmounts(returnLegs[c], c),
       commission: withMoney[c].commission,
     });
     // A currency goes in the payload when money or commission was entered
@@ -638,6 +682,28 @@ export function AccountSettleSheet({
   const includedSections = SETTLE_CURRENCIES.map((c) => sections[c]).filter(
     (s) => s.included,
   );
+  // LIRA-359 (owner 2026-10-29) — one line under the boxes: what every box
+  // is paid, added up by the currency it is paid in ("$200.00 + 700,000 LBP").
+  const paidTotal = (() => {
+    const total = settleLegsTotalByCurrency(
+      SETTLE_CURRENCIES.flatMap((c) => [
+        ...toLegs(linesByCurrency[c]),
+        ...toLegs(returnLegsByCurrency[c]).map((l) => ({
+          ...l,
+          direction: "OUT" as const,
+        })),
+      ]),
+    );
+    const parts = [
+      ...(Math.abs(total.usd) >= SETTLE_EPS.USD
+        ? [formatMoney(total.usd, "USD")]
+        : []),
+      ...(Math.abs(total.lbp) >= SETTLE_EPS.LBP
+        ? [formatMoney(total.lbp, "LBP")]
+        : []),
+    ];
+    return parts.length > 0 ? parts.join(" + ") : null;
+  })();
   const hasCommissionProblem = includedSections.some(
     (s) => s.commissionProblem !== null,
   );
@@ -671,7 +737,7 @@ export function AccountSettleSheet({
       include_account_credits: true,
       credit_used: creditUsed,
       expected_owed: sel.expected_owed,
-      exchange_rate: paymentRate ?? exchangeRate,
+      exchange_rate: rate,
       ...(trimmedNote ? { note: trimmedNote } : {}),
       // LIRA-256 — only when the statement covers some types.
       ...(coveredTypes ? { covered_omt_service_types: coveredTypes } : {}),
@@ -698,7 +764,12 @@ export function AccountSettleSheet({
               .map((l) => ({
                 method: l.method,
                 currency_code: l.currencyCode,
-                amount: roundMoney(l.amount, c),
+                // LIRA-359 — a line may be in the other currency: round
+                // it in its own currency.
+                amount: roundMoney(
+                  l.amount,
+                  l.currencyCode === "LBP" ? "LBP" : "USD",
+                ),
               })),
             ...returnLegsByCurrency[c]
               .filter((l) => l.amount > 0)
@@ -1274,7 +1345,8 @@ export function AccountSettleSheet({
                   }
                   // LIRA-322 — each currency on its own: a line counts only
                   // toward its own currency, never converted or netted.
-                  perCurrencyTotals
+                  // LIRA-359 — other suppliers convert across currencies.
+                  perCurrencyTotals={!convertsCurrency}
                   totals={mainTotals}
                   // LIRA-343 — pre-filled with what the picked days owe
                   // minus the credit set, one Cash line per currency.
@@ -1297,8 +1369,12 @@ export function AccountSettleSheet({
                   showPmFee={false}
                   showDiscount={false}
                   paymentMethods={methods}
-                  // FR-001 — only the currencies this box settles.
-                  currencies={mainCurrencies.map((c) =>
+                  // FR-001 — only the currencies this box settles; LIRA-359:
+                  // both when the box converts (not OMT).
+                  currencies={(convertsCurrency
+                    ? SETTLE_CURRENCIES
+                    : mainCurrencies
+                  ).map((c) =>
                     c === "USD"
                       ? { code: "USD", symbol: "$" }
                       : { code: "LBP", symbol: "LBP" },
@@ -1390,12 +1466,16 @@ export function AccountSettleSheet({
                       showPmFee={false}
                       showDiscount={false}
                       paymentMethods={methods}
-                      // FR-001 — money in this section is in its own currency.
-                      currencies={[
-                        s.currency === "USD"
+                      // FR-001 — money in this section is in its own currency;
+                      // LIRA-359: either currency when the box converts.
+                      currencies={(convertsCurrency
+                        ? SETTLE_CURRENCIES
+                        : [s.currency]
+                      ).map((c) =>
+                        c === "USD"
                           ? { code: "USD", symbol: "$" }
                           : { code: "LBP", symbol: "LBP" },
-                      ]}
+                      )}
                       returnCurrencies={["USD", "LBP"]}
                       exchangeRate={exchangeRate}
                       onExchangeRateChange={setPaymentRate}
@@ -1438,6 +1518,20 @@ export function AccountSettleSheet({
                   />
                 </div>
               ))}
+            </div>
+          )}
+
+          {unsettledQuery.isSuccess && paidTotal && (
+            <div
+              data-testid="supplier-account-settle-paid-total"
+              className="flex items-center justify-between gap-2 rounded-xl bg-slate-800 px-4 py-3"
+            >
+              <span className="text-sm font-bold text-white">
+                {t("accountSettle.paidTotal")}
+              </span>
+              <span className="font-mono text-base font-bold text-white">
+                {paidTotal}
+              </span>
             </div>
           )}
 

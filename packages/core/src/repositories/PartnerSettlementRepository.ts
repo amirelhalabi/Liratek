@@ -60,10 +60,10 @@ import {
   insertPaymentRow,
 } from "./moneyPosting.js";
 import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
+import { settleLegsNetIn } from "../utils/settleLegConversion.js";
 import { buildCounterpartyMetadata } from "../validators/counterparty.js";
 import {
   partnerSettlementMethod,
-  partnerSettlementNet,
   type PartnerSettleDaysInput,
 } from "../validators/partner.js";
 
@@ -960,7 +960,14 @@ export class PartnerSettlementRepository extends BaseRepository<{
         cashout_commission: 0,
       });
       const plans = sections.map((s) => {
-        const net = partnerSettlementNet(s.payments);
+        // LIRA-359 — a box may be paid in the other currency: its lines
+        // count converted at the box rate (the schema requires the rate
+        // whenever a line is in the other currency).
+        const net = settleLegsNetIn(
+          s.payments,
+          s.currency,
+          data.exchange_rate ?? 0,
+        );
         if (net < -EPS[s.currency]) {
           throw new DatabaseError(
             `The change handed back is more than what was paid in ${s.currency}.`,

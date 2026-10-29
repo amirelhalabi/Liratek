@@ -283,3 +283,53 @@ describe("planPartnerSettle / buildPartnerSettleDaysPayload (LIRA-346)", () => {
     expect(oldHistoryWouldSettle([FOR_20], "2026-10-01")).toBe(false);
   });
 });
+
+// LIRA-359 (owner decision 2026-10-29) — a box may be paid in the other
+// currency, converted at the box rate. Failing-first (rule 17).
+describe("buildPartnerSettleDaysPayload — a box paid in the other currency (LIRA-359)", () => {
+  // The shop owes the partner $8 on 29 Oct (RAWAD HMAIDI, Cornertech).
+  const OWES_8 = row({
+    id: 41,
+    shop_day: "2026-10-29",
+    amount_usd: -8,
+    transaction_type: "THROUGH_CUSTOM_SERVICE",
+  });
+  const OWES_700K = row({
+    id: 42,
+    shop_day: "2026-10-29",
+    amount_lbp: -700000,
+    transaction_type: "ADJUSTMENT",
+  });
+
+  it("an LBP line in the $ box keeps its whole-lira amount and the rate is sent; the schema accepts it", () => {
+    const payload = buildPartnerSettleDaysPayload({
+      partnerId: 7,
+      openRows: [OWES_8],
+      pickedDays: ["2026-10-29"],
+      money: {
+        USD: { lines: [{ method: "CASH", currencyCode: "LBP", amount: 712000 }] },
+      },
+      exchangeRate: 89000,
+    });
+    const parsed = parse(payload);
+    expect(parsed.per_currency.USD?.payments).toEqual([
+      { method: "CASH", currency_code: "LBP", amount: 712000 },
+    ]);
+    expect(parsed.exchange_rate).toBe(89000);
+  });
+
+  it("a $ line in the LBP box keeps its cents (not rounded to a whole lira)", () => {
+    const payload = buildPartnerSettleDaysPayload({
+      partnerId: 7,
+      openRows: [OWES_700K],
+      pickedDays: ["2026-10-29"],
+      money: {
+        LBP: { lines: [{ method: "CASH", currencyCode: "USD", amount: 7.87 }] },
+      },
+      exchangeRate: 89000,
+    });
+    expect(parse(payload).per_currency.LBP?.payments).toEqual([
+      { method: "CASH", currency_code: "USD", amount: 7.87 },
+    ]);
+  });
+});

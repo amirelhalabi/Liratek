@@ -160,6 +160,7 @@ Settle Account on the OMT card now opens on a calendar of the month. Settled day
 ## 💸 OMT / Whish & suppliers
 
 - Loto: settled from Suppliers → Loto → Settle Account with the day calendar. Cash prizes count against the day they were paid. Days already settled through Loto checkpoints show as paid. The Loto page no longer has its own Settle button, and Loto has no Pay / Receive tab.
+- Partners: on the settle calendar, each payment box can now be paid in dollars or lira: a dollar amount can be paid in LBP (and the other way round), converted at the rate shown on the box. A "Total" line under the boxes shows what you pay in all, for example "$2,984.00 + 710,000 LBP".
 - Settle Account: when the chosen time is too early for the days picked, the message now names the day the way you read it (for example "Sun 25 Oct").
 - Suppliers: "Check against OMT's statement" with "Up to" a past day now shows the account as it stood at the end of that day, even after later payments were recorded.
 - Suppliers: Add Credit / Debt has "Set custom time", so an entry can be dated to the day it really belongs to. A cash entry dated before a drawer count explains that count's Short or Over instead of moving the money a second time.
@@ -285,6 +286,7 @@ Settle Account on the OMT card now opens on a calendar of the month. Settled day
 - Partners: the old way of settling, by amount (including a settlement on paper with no cash moved), is still there: "Settle by amount (old way)" at the bottom of the calendar.
 - Partners: in a partner's Transactions and Payments windows, the From / To dates now include the whole "To" day and follow your shop's own day.
 - Partners: on the settle calendar, "See transactions" opens a table of the picked days' entries next to the calendar (For / Through, notes, amount, what is left). Untick an entry there to leave it out of this settlement.
+- Suppliers: on Settle Account, product suppliers, Katsh, Whish and Loto can now be paid in dollars or lira, whatever the amount's currency, converted at the rate shown on the payment box. A "Total" line shows what you pay in all. OMT is unchanged: its dollars are paid in dollars and its lira in lira.
 
 ## 📒 Accounts
 

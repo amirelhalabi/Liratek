@@ -8167,3 +8167,23 @@ What users will notice: a price change shows on every open recharge screen witho
 
 Follow-ups: the audit row for a mobile item update records no old/new values; decide whether to correct sale #13753's cost.
 
+
+---
+
+## LIRA-359: Pay a settle box in the other currency (+ a Total line) — BUILT 2026-10-29 (spec `specs/359-settle-one-payment-box/`)
+
+**Found on Cornertech 2026-10-29:** Rayan owed partner RAWAD HMAIDI $8 (a via-partner custom service) and wanted to pay everything in LBP. The $ box only took dollars, so he worked around it with a hand-added credit and an expense, which left the books wrong (fixed by hand on Cornertech the same day).
+
+**Owner decisions 2026-10-29:** first planned as one payment box for both currencies; the owner switched to the simpler design the same day:
+- Each settle box keeps paying only its own currency's amount, but offers USD and LBP lines; a line in the other currency is converted at the box rate. The drawer moves in the currency actually paid.
+- Partners and every calendar supplier (product suppliers, Katsh, Whish, Loto) **except the OMT account** (exact USD and LBP; the server refuses a line in the other currency).
+- Extra paid stays as credit in the box's currency; converted amounts round to the cent / whole lira.
+- One "Total" line under the boxes: what every box is paid, added up by the currency it is paid in.
+
+**Built:** `utils/settleLegConversion.ts` (the ONE conversion, browser-safe, both entries); partner schema + `PartnerSettlementRepository.settleDays`; supplier schema + `SupplierRepository._planAmountFirstSection` (`settleBoxConvertsCurrency`, OMT refused); both sheets (currency list, converted preview, Total line).
+
+**Tests:** `PartnerSettlement.lira359CrossCurrencyBox` (6) and the 2 new `partnerSettleDaysPayload` cases were proven failing first. `SupplierRepository.lira359CrossCurrencyBox` (4) and `settleLegConversion` (9) were written after the code (not proven failing-first). Rule 24 rewrite: `supplierSettleAccount.lira322` now accepts a line in the other currency. Affected suites green (partners 56, suppliers 74 core + 96 sheet).
+
+**Pending:** web e2e `lira-web-083-partner-settle-other-currency` written but not run (another session's unfinished work stopped the web server) — run it, then add the What's new card with its screenshot.
+
+**What users will notice:** on the Settle sheet for partners and suppliers (not OMT), each payment box can be paid in dollars or lira, and a Total line shows what you pay in all.

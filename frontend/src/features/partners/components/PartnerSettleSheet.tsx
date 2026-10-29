@@ -17,6 +17,8 @@ import {
   isSettleStaleMessage,
   monthLeft as sumMonthLeft,
   openDaysBefore,
+  settleLegsNetIn,
+  settleLegsTotalByCurrency,
   type PartnerSettleRow,
   type SettleAccountMark,
 } from "@liratek/core";
@@ -109,10 +111,16 @@ function parseAmount(raw: string): number {
   return parseFloat(raw.replace(/,/g, "")) || 0;
 }
 
-function sumLines(lines: readonly PaymentLine[], c: PartnerSettleCurrency) {
+/** LIRA-359 — a box's lines as settle legs (a line may be in the other
+ *  currency; the shared core conversion decides what it pays). */
+function toLegs(lines: readonly PaymentLine[], direction?: "OUT") {
   return lines
-    .filter((l) => l.amount > 0 && l.currencyCode === c)
-    .reduce((s, l) => s + l.amount, 0);
+    .filter((l) => l.amount > 0)
+    .map((l) => ({
+      currency_code: l.currencyCode,
+      amount: l.amount,
+      ...(direction ? { direction } : {}),
+    }));
 }
 
 /** `YYYY-MM` shifted by `delta` months. Pure arithmetic, no clock. */
@@ -149,8 +157,10 @@ export function PartnerSettleSheet({
   const fmt = useFormat();
   const name = partner.name;
   const { buyRate: exchangeRate } = useSellRate();
-  // The rate the cashier used on a payment box (stamp only).
+  // The rate the cashier used on a payment box. LIRA-359: a line in the
+  // other currency is converted at it (preview and server alike).
   const [paymentRate, setPaymentRate] = useState<number | undefined>();
+  const rate = paymentRate ?? exchangeRate;
 
   const today = useMemo(() => localDay(), []);
   const currentMonth = today.slice(0, 7);
@@ -295,7 +305,13 @@ export function PartnerSettleSheet({
       const boxShown = p.touched && due >= PARTNER_SETTLE_EPS[c];
       const shownLines = boxShown ? lines[c] : [];
       const shownReturn = boxShown ? returnLegs[c] : [];
-      const net = sumLines(shownLines, c) - sumLines(shownReturn, c);
+      // LIRA-359 — lines in the other currency count converted at the
+      // box rate, by the same core function the server uses (rule 14).
+      const net = settleLegsNetIn(
+        [...toLegs(shownLines), ...toLegs(shownReturn, "OUT")],
+        c,
+        rate,
+      );
       const partnerPays = p.payer === "PARTNER";
       const forgiveRaw = partnerPays
         ? Math.max(0, parseAmount(forgiveInput[c]))
@@ -321,7 +337,7 @@ export function PartnerSettleSheet({
       };
     }
     return out;
-  }, [plan, lines, returnLegs, forgiveInput]);
+  }, [plan, lines, returnLegs, forgiveInput, rate]);
 
   const sectionMoney = (): Partial<
     PerCurrency<PartnerSettleSectionMoney>
@@ -348,6 +364,25 @@ export function PartnerSettleSheet({
   const touched = PARTNER_SETTLE_CURRENCIES.filter(
     (c) => plan.currencies[c].touched,
   );
+  // LIRA-359 (owner 2026-10-29) — one line under the boxes: what every box
+  // is paid, added up by the currency it is paid in ("$8.00 + 700,000 LBP").
+  const paidTotal = useMemo(() => {
+    const total = settleLegsTotalByCurrency(
+      PARTNER_SETTLE_CURRENCIES.flatMap((c) => [
+        ...toLegs(money[c].lines),
+        ...toLegs(money[c].returnLegs, "OUT"),
+      ]),
+    );
+    const parts = [
+      ...(Math.abs(total.usd) >= PARTNER_SETTLE_EPS.USD
+        ? [formatMoney(total.usd, "USD")]
+        : []),
+      ...(Math.abs(total.lbp) >= PARTNER_SETTLE_EPS.LBP
+        ? [formatMoney(total.lbp, "LBP")]
+        : []),
+    ];
+    return parts.length > 0 ? parts.join(" + ") : null;
+  }, [money]);
   const confirmDisabled =
     submitting ||
     !openQuery.isSuccess ||
@@ -374,7 +409,7 @@ export function PartnerSettleSheet({
         creditUsed: typedCredit,
         money: sectionMoney(),
         notes,
-        exchangeRate: paymentRate ?? exchangeRate,
+        exchangeRate: rate,
       });
       const result = await settleMutation.mutateAsync(payload);
       if (!result.success) {
@@ -924,8 +959,8 @@ export function PartnerSettleSheet({
                       unreturnedChangeTo="ACCOUNT_BALANCE"
                       accountLabel={t("settle.partnerAccount")}
                       cashOnlyReturn
-                      // Every leg, change included, in this currency.
-                      returnCurrencies={[c]}
+                      // LIRA-359 — a box may be paid in either currency.
+                      returnCurrencies={["USD", "LBP"]}
                       payer={partnerPays ? "customer" : "shop"}
                       // Waive only when money comes IN (owner 2026-10-12).
                       waiveDisabled={!partnerPays}
@@ -934,10 +969,11 @@ export function PartnerSettleSheet({
                       paymentMethods={partnerLegMethods(
                         t("common:payment.CASH"),
                       )}
+                      // LIRA-359 (owner 2026-10-29) — either currency;
+                      // the other one is converted at the box rate.
                       currencies={[
-                        c === "USD"
-                          ? { code: "USD", symbol: "$" }
-                          : { code: "LBP", symbol: "LBP" },
+                        { code: "USD", symbol: "$" },
+                        { code: "LBP", symbol: "LBP" },
                       ]}
                       exchangeRate={exchangeRate}
                       onExchangeRateChange={setPaymentRate}
@@ -960,6 +996,20 @@ export function PartnerSettleSheet({
                 </div>
               );
             })}
+
+          {openQuery.isSuccess && paidTotal && (
+            <div
+              data-testid="partner-settle-paid-total"
+              className="flex items-center justify-between gap-2 rounded-xl bg-slate-800 px-4 py-3"
+            >
+              <span className="text-sm font-bold text-white">
+                {t("settleDays.paidTotal")}
+              </span>
+              <span className="font-mono text-base font-bold text-white">
+                {paidTotal}
+              </span>
+            </div>
+          )}
 
           {canSettleOldHistory && openQuery.isSuccess && (
             <OldHistoryPanel

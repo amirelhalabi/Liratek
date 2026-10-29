@@ -244,12 +244,16 @@ const settleAccountPerCurrencySchema = z
         path: [],
       });
     }
+    // LIRA-359 (owner decision 2026-10-29) — a box may be paid in the
+    // other currency (converted at the box rate): every leg is USD or LBP.
+    // Whether THIS supplier may convert is the server's call — the OMT
+    // account refuses it (settleBoxConvertsCurrency).
     for (const currency of SETTLE_ACCOUNT_CURRENCIES) {
       pc[currency]?.payments.forEach((leg, i) => {
-        if (leg.direction !== "OUT" && leg.currency_code !== currency) {
+        if (leg.currency_code !== "USD" && leg.currency_code !== "LBP") {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message: `A ${currency} amount is paid in ${currency} only`,
+            message: "A settlement is paid in USD or LBP",
             path: [currency, "payments", i, "currency_code"],
           });
         }

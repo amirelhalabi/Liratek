@@ -80,7 +80,10 @@ describe("supplierSettleAccountSchema — amount-first (per_currency)", () => {
     ]);
   });
 
-  it("refuses an IN leg in LBP inside the USD section", () => {
+  // Rule 24 rewrite (LIRA-359, owner decision 2026-10-29): a box may now be
+  // paid in the other currency, so the schema accepts it; the OMT account
+  // still refuses it on the server (SupplierRepository.lira359…).
+  it("accepts an IN leg in LBP inside the USD section (LIRA-359)", () => {
     expect(
       issuePaths({
         ...amountFirst,
@@ -91,10 +94,24 @@ describe("supplierSettleAccountSchema — amount-first (per_currency)", () => {
           },
         },
       }),
+    ).toEqual([]);
+  });
+
+  it("refuses a leg that is neither USD nor LBP (LIRA-359)", () => {
+    expect(
+      issuePaths({
+        ...amountFirst,
+        per_currency: {
+          USD: {
+            direction: "PAY",
+            payments: [{ method: "CASH", currency_code: "EUR", amount: 1 }],
+          },
+        },
+      }),
     ).toEqual(["per_currency.USD.payments.0.currency_code"]);
   });
 
-  it("refuses an IN leg in USD inside the LBP section (explicit direction IN too)", () => {
+  it("accepts an IN leg in USD inside the LBP section (explicit direction IN too; LIRA-359)", () => {
     expect(
       issuePaths({
         ...amountFirst,
@@ -108,7 +125,7 @@ describe("supplierSettleAccountSchema — amount-first (per_currency)", () => {
           },
         },
       }),
-    ).toEqual(["per_currency.LBP.payments.1.currency_code"]);
+    ).toEqual([]);
   });
 
   it("accepts an OUT (change) leg in LBP inside the USD section", () => {

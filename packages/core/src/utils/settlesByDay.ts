@@ -69,6 +69,16 @@ export function calendarTakesCommission(s: SettlesByDayInput): boolean {
 }
 
 /**
+ * LIRA-359 (owner decision 2026-10-29) — may a settle box of this supplier
+ * be paid in the other currency (converted at the box rate)? Every
+ * calendar supplier except the OMT account: OMT is always given exact USD
+ * and LBP amounts. The ONE rule for the sheet and the server.
+ */
+export function settleBoxConvertsCurrency(s: SettlesByDayInput): boolean {
+  return settlesByDay(s) && !s.is_account_member;
+}
+
+/**
  * LIRA-345 — the stale-sheet refusal names the supplier being settled
  * ("Katsh's balance changed…"), and the sheet recognises it whatever the
  * name. ONE wording for both sides (rule 14).

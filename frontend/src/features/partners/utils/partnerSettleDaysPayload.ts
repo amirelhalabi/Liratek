@@ -173,9 +173,17 @@ export interface BuildPartnerSettleDaysInput extends PartnerSettlePlanOptions {
   openRows: readonly PartnerSettleRow[];
   money?: Partial<Record<PartnerSettleCurrency, PartnerSettleSectionMoney>>;
   notes?: string;
-  /** The rate on the payment box (stamp only, never converts). */
+  /** The rate on the payment boxes: a line in the other currency is
+   *  converted at it (LIRA-359); otherwise only stamped. */
   exchangeRate?: number;
 }
+
+/** The currency a line is rounded in: its own when USD/LBP, else the box's. */
+const legCurrency = (
+  l: PartnerSettleLeg,
+  box: PartnerSettleCurrency,
+): PartnerSettleCurrency =>
+  l.currencyCode === "USD" || l.currencyCode === "LBP" ? l.currencyCode : box;
 
 type Section = NonNullable<
   PartnerSettleDaysPayload["per_currency"]["USD"]
@@ -198,14 +206,16 @@ export function buildPartnerSettleDaysPayload(
         .map((l) => ({
           method: l.method,
           currency_code: l.currencyCode,
-          amount: roundPartnerMoney(l.amount, c),
+          // LIRA-359 — a line may be in the other currency: round it in
+          // its own currency (cents for $, whole lira for LBP).
+          amount: roundPartnerMoney(l.amount, legCurrency(l, c)),
         })),
       ...(money?.returnLegs ?? [])
         .filter((l) => l.amount > 0)
         .map((l) => ({
           method: l.method,
           currency_code: l.currencyCode,
-          amount: roundPartnerMoney(l.amount, c),
+          amount: roundPartnerMoney(l.amount, legCurrency(l, c)),
           direction: "OUT" as const,
         })),
     ];

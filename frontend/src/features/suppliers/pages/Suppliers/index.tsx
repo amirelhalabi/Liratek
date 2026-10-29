@@ -57,6 +57,7 @@ import {
 import {
   billsStayOnTickList,
   calendarTakesCommission,
+  settleBoxConvertsCurrency,
   isOmtRowCovered,
   settlesByDay,
   type OmtCoveredType,
@@ -1021,7 +1022,12 @@ export default function SuppliersPage() {
   // calendar (an "account of one"): `omtAccount` false, then no OMT
   // statement types, and the commission field only where it applies.
   const [settlingAccount, setSettlingAccount] = useState<
-    | (SettleSheetAccount & { omtAccount: boolean; takesCommission: boolean })
+    | (SettleSheetAccount & {
+        omtAccount: boolean;
+        takesCommission: boolean;
+        /** LIRA-359 — a box may be paid in the other currency. */
+        convertsCurrency: boolean;
+      })
     | null
   >(null);
   useModalFocusFix(!!settlingAccount);
@@ -2309,6 +2315,8 @@ export default function SuppliersPage() {
                         account_supplier_id: a.account_supplier_id,
                         account_name: a.account_name,
                         omtAccount: true,
+                        // LIRA-359 — OMT is given exact USD and LBP.
+                        convertsCurrency: false,
                         takesCommission: true,
                       })
                     }
@@ -2452,6 +2460,8 @@ export default function SuppliersPage() {
                             account_supplier_id: selectedSupplier.id,
                             account_name: selectedSupplier.name,
                             omtAccount: false,
+                            convertsCurrency:
+                              settleBoxConvertsCurrency(settleByDayInput),
                             takesCommission:
                               calendarTakesCommission(settleByDayInput),
                           })
@@ -4173,6 +4183,7 @@ export default function SuppliersPage() {
         <AccountSettleSheet
           account={settlingAccount}
           showStatementTypes={settlingAccount.omtAccount}
+          convertsCurrency={settlingAccount.convertsCurrency}
           showCommission={settlingAccount.takesCommission}
           onClose={() => setSettlingAccount(null)}
           onSettled={() => setSettlingAccount(null)}

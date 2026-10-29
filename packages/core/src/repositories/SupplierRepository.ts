@@ -58,9 +58,14 @@ import { isSettleRowOpen, isSettleRowWaiting } from "../utils/settleDays.js";
 import {
   billsStayOnTickList,
   settleStaleMessage,
+  settleBoxConvertsCurrency,
   settlesByDay as settlesByDayRule,
   type SettlesByDayInput,
 } from "../utils/settlesByDay.js";
+import {
+  settleLegsCrossCurrency,
+  settleLegsInBoxCurrency,
+} from "../utils/settleLegConversion.js";
 import {
   OMT_COVERED_TYPE_VALUES,
   coveredTypeLabel,
@@ -321,7 +326,7 @@ export interface SupplierLedgerEntryEntity {
  * that keeps the sign-bucketed FIFO pools correct — a compensating row of
  * either sign lands in the wrong pool.
  */
-const ledgerNotRefunded = (alias = ""): string =>
+export const ledgerNotRefunded = (alias = ""): string =>
   `COALESCE(${alias}is_refunded, 0) = 0`;
 
 /**
@@ -6874,6 +6879,42 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       const byKey = new Map(scoped.map((r) => [`${r.kind}:${r.id}`, r]));
       const rate =
         data.exchange_rate && data.exchange_rate > 0 ? data.exchange_rate : 89000;
+      // LIRA-359 (owner decision 2026-10-29) — a box of any calendar
+      // supplier but the OMT account may be paid in the other currency,
+      // converted at the box rate. OMT keeps exact amounts per currency.
+      const settlesInput = this._settlesByDayInput(accountId, tenantId);
+      const convert =
+        settlesInput !== null && settleBoxConvertsCurrency(settlesInput);
+      if (
+        !convert &&
+        sections.some((s) =>
+          settleLegsCrossCurrency(
+            s.payments.filter((l) => !isReturnLeg(l)),
+            s.currency,
+          ),
+        )
+      ) {
+        throw new DatabaseError(
+          `${parent.name} is paid in each currency on its own: pay the USD ` +
+            "amount in USD and the LBP amount in LBP. (Account settlement: " +
+            "an IN leg in the other currency)",
+        );
+      }
+      if (
+        convert &&
+        !(data.exchange_rate && data.exchange_rate > 0) &&
+        sections.some((s) =>
+          settleLegsCrossCurrency(
+            s.payments.filter((l) => !isReturnLeg(l)),
+            s.currency,
+          ),
+        )
+      ) {
+        throw new DatabaseError(
+          "A payment in the other currency needs the exchange rate it is " +
+            "converted at. (Account settlement: exchange_rate missing)",
+        );
+      }
       // Extra per currency in LEDGER sign (+ shop owes OMT more, − OMT
       // owes the shop) — each section converts its own before adding.
       const ledgerExtra = { usd: 0, lbp: 0 };
@@ -6887,6 +6928,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             rate,
             ledgerExtra,
             parent.name,
+            convert,
           ),
         );
       }
@@ -7493,6 +7535,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     ledgerExtra: { usd: number; lbp: number },
     /** LIRA-345 — the supplier settled, named in the refusals. */
     name: string,
+    /** LIRA-359 — lines in the other currency pay this box, converted at
+     *  `rate` (every calendar supplier but the OMT account). */
+    convert = false,
   ): AmountFirstSectionPlan {
     const { currency } = section;
     const eps = AMOUNT_FIRST_EPS[currency];
@@ -7565,9 +7610,15 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       );
     }
 
+    // LIRA-359 — when converting, every line counts toward this box at the
+    // box rate (the ONE conversion, shared with the sheet); otherwise only
+    // lines in the box's own currency do (OMT, LIRA-322).
+    const boxLegs = convert
+      ? settleLegsInBoxCurrency(section.payments, currency, rate)
+      : section.payments;
     let inSame = 0;
     let outSame = 0;
-    for (const leg of section.payments) {
+    for (const leg of boxLegs) {
       if (leg.currency_code !== currency) continue;
       if (isReturnLeg(leg)) outSame += Math.abs(leg.amount);
       else inSame += Math.abs(leg.amount);
@@ -7678,7 +7729,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     const flowExtra = dirSign * alloc.extra;
     if (section.payments.length > 0) {
       const legs = this._resolveSettlementLegs(
-        section.payments,
+        boxLegs,
         currency === "USD"
           ? { usd: moneyApplied, lbp: 0 }
           : { usd: 0, lbp: moneyApplied },
