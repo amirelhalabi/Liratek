@@ -41,6 +41,8 @@ export const POLL_MS = {
   dashboard: desktop ? 30_000 : 120_000,
   /** Top bar drawer balances and threshold notifications. */
   topBar: desktop ? 60_000 : 180_000,
+  /** Mobile services price list — safety net under the push refresh. */
+  catalog: desktop ? 60_000 : 300_000,
 } as const;
 
 /**

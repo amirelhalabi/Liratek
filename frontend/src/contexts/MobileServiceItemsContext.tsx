@@ -5,10 +5,13 @@ import React, {
   useEffect,
   useCallback,
   useMemo,
+  useRef,
 } from "react";
 import { useApi } from "@liratek/ui";
 import { catalogItemKey } from "@liratek/core";
 import { useAuth } from "@/features/auth/context/AuthContext";
+import { subscribeToInvalidation } from "@/api/realtime";
+import { POLL_MS, isTabVisible } from "@/api/pollingCadence";
 import type { MobileServiceItem } from "@/types/electron";
 import { parseCatalogToSeedData } from "@/features/recharge/utils/parseCatalogToSeedData";
 
@@ -370,6 +373,34 @@ export function MobileServiceItemsProvider({
       // silently ignore
     }
   }, [api]);
+
+  // Owner report 2026-10-29 (Cornertech): a price edited in Settings on one
+  // till never reached a recharge screen already open on another, which kept
+  // selling at the old prices until reloaded. The catalog now refreshes when
+  // the server says it changed (pushed after every write to these three
+  // tables), when the cashier comes back to the tab, and on a slow safety
+  // poll (push can be missed). Read through a ref (rule 25) so a new `api`
+  // identity never re-subscribes.
+  const refreshRef = useRef(refresh);
+  useEffect(() => {
+    refreshRef.current = refresh;
+  });
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const onChange = () => {
+      if (isTabVisible()) void refreshRef.current();
+    };
+    const offs = ["mobile_service_items", "item_costs", "voucher_images"].map(
+      (entity) => subscribeToInvalidation(entity, onChange),
+    );
+    document.addEventListener("visibilitychange", onChange);
+    const timer = setInterval(onChange, POLL_MS.catalog);
+    return () => {
+      offs.forEach((off) => off());
+      document.removeEventListener("visibilitychange", onChange);
+      clearInterval(timer);
+    };
+  }, [isAuthenticated]);
 
   return (
     <MobileServiceItemsContext.Provider

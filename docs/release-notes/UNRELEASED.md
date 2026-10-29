@@ -243,6 +243,7 @@ Settle Account on the OMT card now opens on a calendar of the month. Settled day
 
 ## 📱 MTC / Alfa
 
+- Mobile Recharge: a price changed in Settings → Mobile services now reaches recharge screens already open on other tills (web app), within moments, instead of only after they reload.
 - Checkpoint for MTC or Alfa alone: Save works again. It used to stop with "At least one drawer amount is required" and save nothing.
 - Checkpoint: the Credits box for each line now shows the amount rounded to cents (705.3), instead of a long number like 705.3000000000001.
 - Card recharged onto the wrong number: on the Transactions page, an iPick, Katsh or Whish App card sale now has a "Wrong number…" button. Type the customer's right number; the wrong number is optional. The sale stays as it is (it counts as the recharge of the right number), and the wasted card is recorded as a loss from the iPick / Katsh / Whish App balance.

@@ -8150,3 +8150,11 @@ The Dashboard no longer shows profit to any role: the "Net profit — last 30 da
 
 What users will notice: the Dashboard has no profit tile and no Sales/Profit switch on the trend chart.
 
+## LIRA-358: Price edits never reach a recharge screen already open — DONE (2026-10-29)
+
+Found on Cornertech (2026-10-28): "OS 80GB Free night" was repriced in Settings → Mobile services (597,000 / 700,000) at 15:55, but a till open since earlier kept the old price list; at 21:14 the cashier sold the similar "4MB 80GB Free night" (cost 690,000) with a 60,000 discount (sale #13753). MobileServiceItemsContext loaded the catalog once at sign-in and only the editing screen called refresh(); the server's mobile_service_items invalidation had no listener. The catalog now refreshes on the pushed invalidation (mobile_service_items, item_costs, voucher_images), on returning to the tab, and on a slow safety poll (POLL_MS.catalog). Guarded by MobileServiceItemsContext.staleCatalog.test.tsx, seen failing first.
+
+What users will notice: a price change shows on every open recharge screen without reloading.
+
+Follow-ups: the audit row for a mobile item update records no old/new values; decide whether to correct sale #13753's cost.
+
