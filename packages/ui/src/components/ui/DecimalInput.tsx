@@ -22,7 +22,11 @@ import { normalizeDigits } from "../../i18n/digits";
 
 export interface DecimalInputProps {
   value: number;
-  onChange: (value: number) => void;
+  /**
+   * `raw` is the cleaned typed text. Use it when an empty field and a typed
+   * "0" mean different things (e.g. "use the auto fee" vs "waive the fee").
+   */
+  onChange: (value: number, raw: string) => void;
   /** Allow a leading minus sign. Default false. */
   allowNegative?: boolean;
   /** Max number of fraction digits (e.g. 2 for USD). Omit for unlimited. */
@@ -117,7 +121,7 @@ export function DecimalInput({
     caretRef.current = caretAfterFormat(formatted, significantLeft);
 
     setRaw(cleaned);
-    onChange(parseDecimal(cleaned));
+    onChange(parseDecimal(cleaned), cleaned);
   };
 
   const input = (

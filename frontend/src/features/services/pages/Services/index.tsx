@@ -2290,7 +2290,12 @@ export default function Services() {
                           id="service-omt-fee"
                           data-testid="service-omt-fee-input"
                           value={parseFloat(omtFee) || 0}
-                          onChange={(n) => setOmtFee(n ? String(n) : "")}
+                          // A typed "0" waives the fee; only an EMPTY field
+                          // falls back to the auto fee (resolvedOmtFee).
+                          onChange={(n, raw) =>
+                            setOmtFee(raw === "" ? "" : String(n))
+                          }
+                          zeroAsEmpty={omtFee === ""}
                           className={INPUT_CLASS + (isLbp ? "" : " ps-8")}
                           placeholder={
                             autoFee != null

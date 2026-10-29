@@ -159,6 +159,7 @@ Settle Account on the OMT card now opens on a calendar of the month. Settled day
 
 ## 💸 OMT / Whish & suppliers
 
+- OMT/Whish: typing 0 in "OMT fee (charged by OMT)" now really waives the fee. Before, 0 was ignored and the automatic fee was still added. Leave the box empty to use the automatic fee.
 - Loto: settled from Suppliers → Loto → Settle Account with the day calendar. Cash prizes count against the day they were paid. Days already settled through Loto checkpoints show as paid. The Loto page no longer has its own Settle button, and Loto has no Pay / Receive tab.
 - Partners: on the settle calendar, each payment box can now be paid in dollars or lira: a dollar amount can be paid in LBP (and the other way round), converted at the rate shown on the box. A "Total" line under the boxes shows what you pay in all, for example "$2,984.00 + 710,000 LBP".
 - Settle Account: when the chosen time is too early for the days picked, the message now names the day the way you read it (for example "Sun 25 Oct").
