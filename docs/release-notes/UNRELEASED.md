@@ -348,6 +348,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 - From now on Custom Services and Hold Money keep every detail you enter on the transaction itself: category, product, insurance status, partner (For or Via), notes and how the customer paid.
 - Services: from now on, text you type in "Search Item or Service" is saved as the service's description even if you press Submit without pressing Enter first. Before, it was dropped and the service was saved as plain "Custom Service".
 - Hold Money: the payment method now shows Cash straight away when you hold money or return a hold. Before, the list could stay empty for a few seconds.
+- Services: new "Free — no charge" tick next to the selling price. The job saves at price 0 with nothing to collect. If a partner did the job, the partner is still owed the cost and it shows on their account.
 
 ## 🧾 Transactions
 

@@ -15,6 +15,7 @@ import {
   INSURANCE_CATEGORY,
   INSURANCE_TYPES,
 } from "../utils/insuranceRenewal.js";
+import { freeJobProblem } from "../utils/customServiceSellingPrice.js";
 
 /**
  * Custom Service validation schemas
@@ -137,6 +138,11 @@ export const createCustomServiceSchema = z
     // optional (an untyped insurance is matched by customer only) so a tab
     // opened before the update, or an offline-queued sale, is not refused.
     insurance_type: z.enum(INSURANCE_TYPES).optional(),
+    // LIRA-363 — the cashier ticked "Free — no charge": the job saves with
+    // price 0 and collects nothing (see `freeJobProblem`). Optional, no
+    // default: an older client never sends it and keeps the 2026-10-07
+    // "a sale needs a selling price" rule.
+    is_free: z.boolean().optional(),
   })
   .refine(
     (data) =>
@@ -227,7 +233,14 @@ export const createCustomServiceSchema = z
       message: "An insurance type can only be set on an insurance",
       path: ["insurance_type"],
     },
-  );
+  )
+  // LIRA-363 — the repository checks the same rule (rule 14).
+  .superRefine((data, ctx) => {
+    const problem = freeJobProblem(data);
+    if (problem) {
+      ctx.addIssue({ code: "custom", message: problem, path: ["is_free"] });
+    }
+  });
 
 /**
  * LIRA-319 FR-006 — the extra may not exceed the selling price, per

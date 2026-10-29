@@ -226,6 +226,9 @@ export default function CustomServices() {
   // handlePartnerModeChange) so it can never linger into a "none"/FOR
   // submission.
   const [isPayout, setIsPayout] = useState(false);
+  // LIRA-363 — "Free — no charge": the job saves with price 0 and collects
+  // nothing. Never For Partner or a payout (the server refuses both).
+  const [isFree, setIsFree] = useState(false);
 
   // Partner-mode change — every side effect of the two checkboxes this
   // control replaced, pinned per transition in partnerModeTransition.
@@ -394,8 +397,10 @@ export default function CustomServices() {
   // selling price, so with none they would be booked nothing). Not for a
   // payout (its own Arrived/Paid Out rule). The server refuses the same case
   // (CustomServiceRepository.createService).
+  // LIRA-363: a job ticked "Free" is priced 0 on purpose, so it never waits.
+  const freeJob = isFree && !isForPartner && !isPayout;
   const awaitingSellingPrice =
-    !isPayout && priceUsdVal <= 0 && priceLbpVal <= 0;
+    !isPayout && !freeJob && priceUsdVal <= 0 && priceLbpVal <= 0;
   // The payment sheet unmounts while it waits for a price; what it held
   // (legs, change legs, kept change) belonged to the old price, so drop it
   // rather than letting it ride into the next sale. Fires only when the
@@ -505,7 +510,7 @@ export default function CustomServices() {
     // a CUSTOMER_ACCOUNT (debt) leg counts too, it's still a paymentLines
     // entry, just settled later instead of collected now. A payout takes no
     // counter leg at all (like FOR), so it's excluded here too.
-    if (isViaPartner && !isPayout && paymentLines.length === 0) {
+    if (isViaPartner && !isPayout && !freeJob && paymentLines.length === 0) {
       alert(t("msg.addPayment"));
       return;
     }
@@ -628,6 +633,9 @@ export default function CustomServices() {
         // so an upgraded desktop app talking to an un-upgraded core still
         // round-trips the existing behaviour byte-for-byte.
         ...(isPayout ? { direction: "OUT" as const } : {}),
+        // LIRA-363: price 0 on purpose (the payment sheet is not mounted,
+        // so no legs ride along).
+        ...(freeJob ? { is_free: true } : {}),
       };
       if (finalClientId) payload.client_id = finalClientId;
       if (clientName.trim()) payload.client_name = clientName.trim();
@@ -666,7 +674,9 @@ export default function CustomServices() {
       // basket to net against (owner's #11 netted-checkout note is about
       // cash PAID OUT of a session's own drawer, a different mechanism this
       // ticket does not build); a payout always posts immediately.
-      if (activeSession && !isForPartner && !isPayout) {
+      // LIRA-363: a free job has nothing to collect, so it never joins the
+      // basket — it is saved at once (the server refuses it in a basket).
+      if (activeSession && !isForPartner && !isPayout && !freeJob) {
         // Never the cost — a basket line always has a selling price here
         // (awaitingSellingPrice is checked above).
         // LIRA-310 US5: the charged (after-discount) price, as in `payload`.
@@ -748,6 +758,7 @@ export default function CustomServices() {
         setTransactionTime(undefined);
         setPartnerMode("none");
         setIsPayout(false);
+        setIsFree(false);
         setSelectedPartnerId(null);
         clearProduct();
         clearClient();
@@ -1229,6 +1240,7 @@ export default function CustomServices() {
                         )}
                         <DecimalInput
                           id="svc-price"
+                          disabled={freeJob}
                           value={
                             parseFloat(
                               currency === "USD" ? priceUsd : priceLbp,
@@ -1243,6 +1255,33 @@ export default function CustomServices() {
                           placeholder={currency === "USD" ? "0.00" : "0"}
                         />
                       </div>
+                      {!isForPartner && !isPayout && (
+                        <label className="flex items-center gap-2 mt-1.5 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            data-testid="custom-service-free-toggle"
+                            checked={isFree}
+                            onChange={(e) => {
+                              setIsFree(e.target.checked);
+                              // Free = price 0 and nothing collected: drop the
+                              // typed price and any payment lines.
+                              if (e.target.checked) {
+                                setPriceUsd("");
+                                setPriceLbp("");
+                                setPaymentLines([]);
+                                setReturnLegs([]);
+                                setKeptChange(null);
+                                setCsDiscount(0);
+                                setCsExtra(0);
+                              }
+                            }}
+                            className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                          />
+                          <span className="text-xs text-slate-400">
+                            {t("form.freeJob")}
+                          </span>
+                        </label>
+                      )}
                       {/* LIRA-260: warning only. Compared only in the saved
                           price's own currency (a currency switch clears the
                           field, so a cross-currency compare is meaningless),
@@ -1497,6 +1536,23 @@ export default function CustomServices() {
                     </span>{" "}
                     {t("notice.payoutAfter")}
                   </ForPartnerNotice>
+                ) : freeJob ? (
+                  // LIRA-363: nothing to collect, so no payment sheet.
+                  <ForPartnerNotice
+                    testId="custom-service-free-notice"
+                    tone="teal"
+                  >
+                    {t("notice.freeNoPayment")}
+                    {isViaPartner && (
+                      <>
+                        {" "}
+                        {t("notice.freeViaPartner")}{" "}
+                        <span className="font-bold">
+                          <Ltr>{formatServiceAmount(costUsdVal, costLbpVal)}</Ltr>
+                        </span>
+                      </>
+                    )}
+                  </ForPartnerNotice>
                 ) : (
                   <div className="space-y-4">
                     {isViaPartner && (
@@ -1633,7 +1689,10 @@ export default function CustomServices() {
                   // is a pre-emptive UX nicety, not a second guard. A
                   // payout (OWNER_NOTES_REMAINING_BUILD.md #16) never needs
                   // one — it pays out, it doesn't collect.
-                  (isViaPartner && !isPayout && paymentLines.length === 0) ||
+                  (isViaPartner &&
+                    !isPayout &&
+                    !freeJob &&
+                    paymentLines.length === 0) ||
                   (isPayout &&
                     !(
                       (priceUsdVal > 0 || priceLbpVal > 0) &&

@@ -60,3 +60,60 @@ export function customServiceCartLineHasSellingPrice(
   }
   return hasSellingPrice(fd);
 }
+
+/**
+ * LIRA-363 (owner decisions 2026-10-30) — a custom service the cashier ticks
+ * "Free — no charge" (`is_free`) saves with price 0: nothing is collected,
+ * profit is −cost, and a via-partner job still books the partner the cost.
+ * The tick is the only way to price 0 — an empty price without it is still
+ * "type it first" (the 2026-10-07 rule above).
+ *
+ * The ONE free-job rule (rule 14), used by the schema (both transports) and
+ * by `CustomServiceRepository.createService`. Returns why the job can't be
+ * free, or null when it can (or is not marked free).
+ */
+export function freeJobProblem(data: {
+  is_free?: boolean | undefined;
+  cost_usd?: number | undefined;
+  cost_lbp?: number | undefined;
+  price_usd?: number | undefined;
+  price_lbp?: number | undefined;
+  paid_by?: string | undefined;
+  payments?: readonly unknown[] | undefined;
+  kept_change_usd?: number | undefined;
+  kept_change_lbp?: number | undefined;
+  extra_usd?: number | undefined;
+  extra_lbp?: number | undefined;
+  discount_usd?: number | undefined;
+  discount_lbp?: number | undefined;
+  partnerMode?: string | undefined;
+  direction?: string | undefined;
+  deferPayment?: boolean | undefined;
+}): string | null {
+  if (!data.is_free) return null;
+  if (data.partnerMode === "FOR") {
+    return "A job done for a partner can't be free — the partner is booked its price.";
+  }
+  if (data.direction === "OUT") return "A payout can't be free.";
+  if (hasSellingPrice(data)) return "A free job has no selling price.";
+  if (!positive(data.cost_usd) && !positive(data.cost_lbp)) {
+    return "Enter the cost of the free job.";
+  }
+  if (
+    (data.payments?.length ?? 0) > 0 ||
+    data.paid_by === "CUSTOMER_ACCOUNT" ||
+    data.paid_by === "GIFT_CARD" ||
+    positive(data.kept_change_usd) ||
+    positive(data.kept_change_lbp) ||
+    positive(data.extra_usd) ||
+    positive(data.extra_lbp) ||
+    positive(data.discount_usd) ||
+    positive(data.discount_lbp)
+  ) {
+    return "A free job takes no payment.";
+  }
+  if (data.deferPayment) {
+    return "A free job is saved on its own, not in a session basket.";
+  }
+  return null;
+}

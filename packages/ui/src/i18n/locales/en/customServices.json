@@ -79,7 +79,8 @@
     "submitToPartner": "Submit to Partner",
     "submitPayout": "Submit Payout",
     "submitService": "Submit Service",
-    "insuranceType": "Insurance type"
+    "insuranceType": "Insurance type",
+    "freeJob": "Free — no charge"
   },
   "notice": {
     "forNoPrice": "No price is collected from a customer for a partner service.",
@@ -92,7 +93,9 @@
     "payoutAfter": "cash, now, from the General drawer — the difference is the shop's commission, booked as profit today.",
     "viaBefore": "The customer pays the full",
     "viaMiddle": "now, through the payment method below. You will owe the selected partner the cost,",
-    "viaAfter": ", settled later on the Partners page."
+    "viaAfter": ", settled later on the Partners page.",
+    "freeNoPayment": "Free job: nothing is collected from the customer.",
+    "freeViaPartner": "The partner is still owed the cost:"
   },
   "msg": {
     "enterCostOrPrice": "Please enter a cost or price.",

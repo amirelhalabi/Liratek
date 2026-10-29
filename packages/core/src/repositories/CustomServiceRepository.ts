@@ -11,6 +11,7 @@ import { getCurrentTenantId } from "../db/tenantContext.js";
 import { customServiceLogger } from "../utils/logger.js";
 import { BusinessRuleError } from "../utils/errors.js";
 import {
+  freeJobProblem,
   hasSellingPrice,
   NO_SELLING_PRICE_ERROR,
 } from "../utils/customServiceSellingPrice.js";
@@ -433,7 +434,17 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
         //     SessionCheckoutService refuses a no-price line that was never
         //     saved to the basket.
         // Runs before the first write, so nothing is rolled back.
-        if (!isPayout && !data.deferPayment && !hasSellingPrice(data)) {
+        // LIRA-363: a job ticked "Free — no charge" is the one exception —
+        // price 0, nothing collected (the schema checks the same rule; the
+        // session checkout calls this method without it).
+        const freeProblem = freeJobProblem(data);
+        if (freeProblem) throw new BusinessRuleError(freeProblem);
+        if (
+          !isPayout &&
+          !data.deferPayment &&
+          !data.is_free &&
+          !hasSellingPrice(data)
+        ) {
           throw new BusinessRuleError(NO_SELLING_PRICE_ERROR);
         }
         // LIRA-319: the extra is checked here, server-side, whatever the
@@ -747,6 +758,8 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
             // reads this to pick the IN/OUT badge — direction alone can't be
             // read off the type or partner_mode.
             direction: isPayout ? "OUT" : "IN",
+            // LIRA-363: a free job (price 0 on purpose, not a missing price).
+            ...(data.is_free ? { is_free: true } : {}),
             ...(hasExtraCharge(data)
               ? {
                   extra_usd: data.extra_usd ?? 0,

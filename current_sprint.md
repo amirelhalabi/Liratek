@@ -8221,3 +8221,24 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 **Limits:** batch delete of several suppliers does not open the merge window; a supplier with products or a balance fails there with a hint to use its row's delete button.
 
 **What users will notice:** in Settings → Categories & Suppliers, deleting a supplier that has products or a balance opens a "Merge into" window; its products, stock and balance move to the supplier you pick.
+
+---
+
+## LIRA-363: "Free — no charge" on Services (price 0 on purpose) — BUILT 2026-10-30
+
+**Ask (owner 2026-10-29/30, Cornertech):** Rayan had partner Rawad do a Sejel Adli for his sister and charged her nothing. Services refused price 0 (the 2026-10-07 rule: an empty price means "type it first"), so he booked an expense plus a hand-added partner credit, which split one job across Expenses and Partners.
+
+**Owner decisions 2026-10-30:**
+- An explicit "Free — no charge" tick next to the selling price. Price locks at 0, the payment sheet hides. An empty price without the tick still waits for a price.
+- Allowed for via-partner jobs and the shop's own jobs. Not For Partner (the partner would be booked nothing), not a payout.
+- A free job is saved at once, never added to a session basket (nothing to collect).
+
+**Money:** no payment row and no drawer move on save; profit = −cost (counts the same day, like any via-partner IN job); a via-partner free job books the partner the cost (THROUGH_CUSTOM_SERVICE CREDIT) exactly like a priced one, so settling the partner pays it. Void reverses the partner row through the existing path (rule 20). Insurance sold free still gets its renewal reminder.
+
+**Built:** one rule `freeJobProblem` (`utils/customServiceSellingPrice.ts`) used by `createCustomServiceSchema` (both transports) and `CustomServiceRepository.createService` (refuses price, payments, on-account, kept change/extra/discount, For Partner, payout, no cost, session basket). `is_free` stamped on the transaction's metadata. Services page: tick, free notice (shows what the partner is owed), Submit no longer needs a payment line for a free job.
+
+**Tests:** core `CustomServiceRepository.lira363FreeJob` (11) — proven failing first (9 failed on the unfixed code). Frontend `CustomServices.lira363FreeJob` (4) — written after the page change, not proven failing-first. Neighbours pass: core noSellingPrice; frontend noSellingPrice, viaPartner, payout, insurance, CustomServices. Pre-existing, not from this change: core `CustomServiceRepository.viaPartner` and `scenarioMatrix` fail with "has no column named insurance_type" (their hand-built tables predate LIRA-360).
+
+**Pending:** What's new card + screenshot (web e2e or test tenant).
+
+**What users will notice:** on Services, a "Free — no charge" tick saves a job at price 0 with no payment; done via a partner, the partner is still owed the cost.
