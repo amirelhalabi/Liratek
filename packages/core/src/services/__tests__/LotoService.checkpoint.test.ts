@@ -10,6 +10,7 @@ import { runWithTenant } from "../../db/tenantContext.js";
 describe("LotoService Checkpoint Functionality", () => {
   let db: Database.Database;
   let service: LotoService;
+  let checkpointRepo: LotoCheckpointRepository;
 
   beforeEach(() => {
     db = new Database(":memory:");
@@ -101,7 +102,7 @@ describe("LotoService Checkpoint Functionality", () => {
     const ticketRepo = new LotoTicketRepository(db);
     const settingsRepo = new LotoSettingsRepository(db);
     const monthlyFeeRepo = new LotoMonthlyFeeRepository(db);
-    const checkpointRepo = new LotoCheckpointRepository(db);
+    checkpointRepo = new LotoCheckpointRepository(db);
     const cashPrizeRepo = new LotoCashPrizeRepository(db);
     service = new LotoService(
       ticketRepo,
@@ -236,7 +237,9 @@ describe("LotoService Checkpoint Functionality", () => {
       });
 
       // Mark one as settled
-      service.markCheckpointAsSettled(settledCheckpoint.id!);
+      // LIRA-351: the service refuses this now; set up the state an old
+      // checkpoint settlement left, through the repository.
+      checkpointRepo.markCheckpointAsSettled(settledCheckpoint.id!);
 
       const unsettled = service.getUnsettledCheckpoints();
 
@@ -269,41 +272,23 @@ describe("LotoService Checkpoint Functionality", () => {
     });
   });
 
+  // LIRA-351 (owner decisions 2026-10-29): Loto is settled only on the day
+  // calendar; marking a checkpoint settled is refused (rule 24 — this block
+  // used to assert the flag flip).
   describe("markCheckpointAsSettled", () => {
-    it("should mark a checkpoint as settled", () => {
+    it("is refused: Loto is settled from Settle Account now", () => {
       const checkpoint = service.createCheckpoint({
         checkpoint_date: "2024-01-05",
         period_start: "2024-01-01",
         period_end: "2024-01-05",
         note: "Test checkpoint",
       });
-
-      const settledCheckpoint = service.markCheckpointAsSettled(checkpoint.id!);
-
-      expect(settledCheckpoint).toBeDefined();
-      expect(settledCheckpoint?.is_settled).toBe(1);
-      expect(settledCheckpoint?.settled_at).toBeDefined();
-    });
-
-    it("should accept custom settlement date and ID", () => {
-      const checkpoint = service.createCheckpoint({
-        checkpoint_date: "2024-01-05",
-        period_start: "2024-01-01",
-        period_end: "2024-01-05",
-        note: "Test checkpoint",
-      });
-
-      const customDate = "2024-02-01T10:00:00.000Z";
-      const settledCheckpoint = service.markCheckpointAsSettled(
-        checkpoint.id!,
-        customDate,
-        123,
+      expect(() => service.markCheckpointAsSettled(checkpoint.id!)).toThrow(
+        /Settle Account/,
       );
-
-      expect(settledCheckpoint).toBeDefined();
-      expect(settledCheckpoint?.is_settled).toBe(1);
-      expect(settledCheckpoint?.settled_at).toBe(customDate);
-      expect(settledCheckpoint?.settlement_id).toBe(123);
+      expect(service.getUnsettledCheckpoints().map((c) => c.id)).toContain(
+        checkpoint.id,
+      );
     });
   });
 
@@ -369,7 +354,9 @@ describe("LotoService Checkpoint Functionality", () => {
         note: "Settled checkpoint",
       });
 
-      service.markCheckpointAsSettled(settledCheckpoint.id!);
+      // LIRA-351: the service refuses this now; set up the state an old
+      // checkpoint settlement left, through the repository.
+      checkpointRepo.markCheckpointAsSettled(settledCheckpoint.id!);
 
       const totalSales = service.getTotalSalesFromUnsettledCheckpoints();
 

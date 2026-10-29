@@ -15126,7 +15126,140 @@ DROP TABLE IF EXISTS partner_settlement_coverage;`);
       }
     },
   },
+  {
+    version: 226,
+    name: "loto_checkpoint_backfill",
+    description:
+      "LIRA-351: Loto moves onto the settle calendar. A Loto checkpoint " +
+      "settlement wrote one SETTLEMENT ledger row for its net and never " +
+      "stamped the ticket (TOP_UP) / cash prize (CASH_PRIZE) rows it paid, so " +
+      "the calendar would list every old sale as open. Stamp settlement_id on " +
+      "the non-refunded rows of every settled checkpoint (and on the waive " +
+      "DISCOUNT a checkpoint settlement posted) with that settlement's " +
+      "SETTLEMENT row (or the row itself when none can be found). Data only: " +
+      "no row is inserted, deleted or changed in amount, so no balance moves " +
+      "(owner decision 2026-10-29).",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      for (const { tenant_id, cp, ledgerId } of lotoSettledCheckpoints(db)) {
+        for (const [entryType, sourceTable] of LOTO_V226_ROW_KINDS) {
+          db.prepare(
+            `UPDATE supplier_ledger
+                SET settlement_id = COALESCE(?, id)
+              WHERE tenant_id = ? AND entry_type = ? AND settlement_id IS NULL
+                AND COALESCE(is_refunded, 0) = 0
+                AND transaction_id IN (
+                  SELECT t.id FROM transactions t
+                    JOIN ${sourceTable} x ON x.id = t.source_id AND x.tenant_id = t.tenant_id
+                   WHERE t.tenant_id = ? AND t.source_table = '${sourceTable}'
+                     AND t.reverses_id IS NULL AND x.checkpoint_id = ?)`,
+          ).run(ledgerId, tenant_id, entryType, tenant_id, cp);
+        }
+      }
+      if (columnExists(db, "supplier_ledger", "source_ref_table")) {
+        db.exec(`UPDATE supplier_ledger
+                    SET settlement_id = source_ref_id
+                  WHERE entry_type = 'DISCOUNT' AND settlement_id IS NULL
+                    AND source_ref_table = 'supplier_ledger'
+                    AND source_ref_id IN (${LOTO_V226_SETTLEMENT_ROWS_SQL})`);
+      }
+    },
+    down(db: Database.Database) {
+      for (const { tenant_id, cp } of lotoSettledCheckpoints(db)) {
+        for (const [entryType, sourceTable] of LOTO_V226_ROW_KINDS) {
+          db.prepare(
+            `UPDATE supplier_ledger
+                SET settlement_id = NULL
+              WHERE tenant_id = ? AND entry_type = ?
+                AND (settlement_id = id OR settlement_id IN (${LOTO_V226_SETTLEMENT_ROWS_SQL}))
+                AND transaction_id IN (
+                  SELECT t.id FROM transactions t
+                    JOIN ${sourceTable} x ON x.id = t.source_id AND x.tenant_id = t.tenant_id
+                   WHERE t.tenant_id = ? AND t.source_table = '${sourceTable}'
+                     AND x.checkpoint_id = ?)`,
+          ).run(tenant_id, entryType, tenant_id, cp);
+        }
+      }
+      if (columnExists(db, "supplier_ledger", "source_ref_table")) {
+        db.exec(`UPDATE supplier_ledger
+                    SET settlement_id = NULL
+                  WHERE entry_type = 'DISCOUNT' AND settlement_id = source_ref_id
+                    AND source_ref_table = 'supplier_ledger'
+                    AND source_ref_id IN (${LOTO_V226_SETTLEMENT_ROWS_SQL})`);
+      }
+    },
+  },
 ];
+
+/** v226 — the Loto row kinds a checkpoint settlement paid, with the table
+ *  their link-mode transaction points at. */
+const LOTO_V226_ROW_KINDS = [
+  ["TOP_UP", "loto_tickets"],
+  ["CASH_PRIZE", "loto_cash_prizes"],
+] as const;
+
+/** v226 — every SETTLEMENT ledger row a Loto checkpoint settlement wrote. */
+const LOTO_V226_SETTLEMENT_ROWS_SQL = `SELECT l.id FROM supplier_ledger l
+  JOIN transactions t ON t.id = l.transaction_id AND t.tenant_id = l.tenant_id
+ WHERE l.entry_type = 'SETTLEMENT' AND t.type = 'LOTO_SETTLEMENT'`;
+
+/**
+ * v226 — every settled Loto checkpoint with the SETTLEMENT ledger row of the
+ * settlement that paid it (null when none can be found, e.g. a checkpoint
+ * only flagged settled). A batch settlement's transaction points at its LAST
+ * checkpoint; its loto_settlements row lists them all.
+ */
+function lotoSettledCheckpoints(
+  db: Database.Database,
+): Array<{ tenant_id: number; cp: number; ledgerId: number | null }> {
+  if (
+    !tableExists(db, "loto_checkpoints") ||
+    !tableExists(db, "supplier_ledger") ||
+    !tableExists(db, "transactions") ||
+    !columnExists(db, "supplier_ledger", "settlement_id")
+  ) {
+    return [];
+  }
+  const ledgerByCheckpoint = new Map<string, number>();
+  if (tableExists(db, "loto_settlements")) {
+    const settlements = db
+      .prepare(`SELECT tenant_id, checkpoint_ids FROM loto_settlements`)
+      .all() as Array<{ tenant_id: number; checkpoint_ids: string | null }>;
+    const findLedger = db.prepare(
+      `SELECT l.id FROM supplier_ledger l
+         JOIN transactions t ON t.id = l.transaction_id AND t.tenant_id = l.tenant_id
+        WHERE l.tenant_id = ? AND l.entry_type = 'SETTLEMENT'
+          AND t.type = 'LOTO_SETTLEMENT' AND t.source_table = 'loto_checkpoints'
+          AND t.source_id = ?
+        ORDER BY l.id DESC LIMIT 1`,
+    );
+    for (const s of settlements) {
+      let ids: number[] = [];
+      try {
+        const parsed: unknown = JSON.parse(s.checkpoint_ids ?? "[]");
+        if (Array.isArray(parsed)) ids = parsed.map(Number).filter((n) => n > 0);
+      } catch {
+        ids = [];
+      }
+      if (ids.length === 0) continue;
+      const row = findLedger.get(s.tenant_id, ids[ids.length - 1]) as
+        | { id: number }
+        | undefined;
+      if (!row) continue;
+      for (const id of ids) ledgerByCheckpoint.set(`${s.tenant_id}:${id}`, row.id);
+    }
+  }
+  const settled = db
+    .prepare(
+      `SELECT tenant_id, id FROM loto_checkpoints WHERE is_settled = 1 ORDER BY id`,
+    )
+    .all() as Array<{ tenant_id: number; id: number }>;
+  return settled.map((c) => ({
+    tenant_id: c.tenant_id,
+    cp: c.id,
+    ledgerId: ledgerByCheckpoint.get(`${c.tenant_id}:${c.id}`) ?? null,
+  }));
+}
 
 /** v219 — partner_ledger.settlement_method's allowed values. */
 const PARTNER_SETTLEMENT_METHODS_V219 = [

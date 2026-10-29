@@ -8106,13 +8106,22 @@ Owner decisions 2026-10-25: follow the Suppliers page. Payments = settlements, w
 
 What users will notice: on the Partners page, a partner's ledger no longer sits as one long table on the panel. Two buttons, "Transactions (N)" and "Payments (N)", open each list in its own window, like on the Suppliers page. Transactions keeps the date, mode, provider and direction filters; Payments lists settlements (a Cash + Whish one reads "via SPLIT"), write-offs and credit/debt entries, with a date filter. Desktop app and web app.
 
-## LIRA-351: Loto on Settle Account (day calendar), like every other supplier — TODO (owner, 2026-10-27)
+## LIRA-351: Loto on Settle Account (day calendar), like every other supplier — BUILT 2026-10-29 (spec `specs/351-loto-settle-calendar/`)
 
 Loto is the last supplier still paid through the Pay / Receive tab; OMT, Katsh, Whish and product suppliers all pay through Settle Account (LIRA-343/345). Because Loto has two tabs (Settle commission list + Pay / Receive), it is also the only supplier that still shows a tab bar after the one-tab strip was removed (2026-10-27).
 
 To do: put Loto on the day calendar (`settlesByDay` rule), drop its Pay / Receive tab, and decide what happens to its commission "Settle" list. Changes how Loto money moves, so it needs the FEATURE_GUIDE §13 checklist and its own spec. Owner parked it on 2026-10-27; see the "Every supplier type" table on the settle-by-day planning artifact.
 
 What users will notice (when built): Loto gets a Settle Account button with the day calendar, and its Pay / Receive tab goes away.
+
+**Owner decisions 2026-10-29:**
+1. History: every ticket and cash prize inside an already-settled checkpoint is marked paid on the calendar automatically; only sales not yet settled show. Balance unchanged.
+2. Settle Loto only on the calendar (Suppliers → Loto → Settle Account). The Loto page keeps its sales/prizes report but loses its settle buttons.
+3. Cash prizes net within their day (like OMT receives against sends).
+4. Pay / Receive tab removed for Loto; the waive (up to 450,000 LBP) stays inside Settle Account.
+Also: no commission at settlement (earned at the sale); the always-empty Loto "Settle" tick list goes. Code map: checkpoint settlement never stamps the ledger rows it settles, so the history step is required before the calendar can show Loto.
+
+**Built 2026-10-29:** migration v226 (data-only backfill of settled checkpoints; balance unchanged, proven); `settlesByDay` true for LOTO, no tick list, no settlement commission; checkpoint settle / batch / mark-settled and Pay / Receive refused in the services (both transports); Suppliers page shows Settle Account for Loto with no tabs; the Loto page's settle dialog and the dead `SettlementDrawerIntegration` removed; a voided calendar-paid ticket's share goes on the Loto account (relief planner now covers LOTO / LOTO_CASH_PRIZE link rows). Tests: v226 backfill, gates and the Loto page / Suppliers page guards seen failing first; the core settle / netting / waive / void cases were written after the gate change (not proven failing-first); web e2e lira-web-082 passes and took the What's new screenshot. Open: the Suppliers page sheet has no Waive in its UI (owner decision 2026-10-12, "no Waive on the Suppliers page"), so decision 4's "waive stays" needs the owner's call; a cash prize cannot be back-dated over REST (its schema has no time field).
 
 ## LIRA-352: "Set custom time" on Add Credit / Debt (suppliers) — DONE (owner, 2026-10-28)
 

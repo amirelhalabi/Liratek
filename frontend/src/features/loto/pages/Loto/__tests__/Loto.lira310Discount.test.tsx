@@ -163,9 +163,6 @@ jest.mock("../../../components/TicketHistoryModal", () => ({
 jest.mock("../../../components/CheckpointScheduler", () => ({
   CheckpointScheduler: () => null,
 }));
-jest.mock("../../../components/SettlementVerification", () => ({
-  SettlementVerification: () => null,
-}));
 
 
 function sellButton(): HTMLElement {

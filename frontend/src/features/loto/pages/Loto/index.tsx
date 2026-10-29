@@ -25,7 +25,6 @@ import { StatsCards } from "../../components/StatsCards";
 import { CheckpointHistory } from "../../components/CheckpointHistory";
 import { TicketHistoryModal } from "../../components/TicketHistoryModal";
 import { CheckpointScheduler } from "../../components/CheckpointScheduler";
-import { SettlementVerification } from "../../components/SettlementVerification";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { ensureRechargeClient } from "@/features/recharge/utils/ensureClient";
@@ -577,7 +576,6 @@ export function LotoPage() {
               <Receipt size={16} />
               <span className="font-medium">{t("header.ticketHistory")}</span>
             </button>
-            <SettlementVerification />
           </div>
         }
       />

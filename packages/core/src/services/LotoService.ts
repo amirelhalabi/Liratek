@@ -6,6 +6,12 @@
  */
 
 import {
+  LOTO_SETTLE_MOVED_MESSAGE,
+  LOTO_PAY_MOVED_MESSAGE,
+} from "../utils/settlesByDay.js";
+import { BusinessRuleError } from "../utils/errors.js";
+export { LOTO_SETTLE_MOVED_MESSAGE, LOTO_PAY_MOVED_MESSAGE };
+import {
   LotoTicketRepository,
   getLotoTicketRepository,
 } from "../repositories/LotoTicketRepository.js";
@@ -806,41 +812,28 @@ export class LotoService {
    * Mark a checkpoint as settled
    */
   markCheckpointAsSettled(
-    id: number,
-    settledAt?: string,
-    settlementId?: number,
+    _id: number,
+    _settledAt?: string,
+    _settlementId?: number,
   ): LotoCheckpoint | null {
-    try {
-      const checkpoint = this.checkpointRepo.markCheckpointAsSettled(
-        id,
-        settledAt,
-        settlementId,
-      );
-      if (checkpoint) {
-        lotoLogger.info(`Loto checkpoint ${id} marked as settled`);
-      }
-      return checkpoint;
-    } catch (error) {
-      lotoLogger.error(
-        { error: error instanceof Error ? error.message : String(error) },
-        "LotoService.markCheckpointAsSettled failed",
-      );
-      throw error;
-    }
+    // LIRA-351 (owner decisions 2026-10-29): Loto is settled only on the day
+    // calendar (Suppliers → Loto → Settle Account), so a payment is always
+    // tied to its days. Refused here so desktop and web refuse alike.
+    throw new BusinessRuleError(LOTO_SETTLE_MOVED_MESSAGE);
   }
 
   /**
    * Settle a checkpoint with full accounting (creates supplier_ledger entry, updates drawers)
    */
   settleCheckpoint(
-    id: number,
-    totalSales: number,
-    totalCommission: number,
-    totalPrizes: number,
-    totalCashPrizes: number,
-    settledAt: string | undefined,
-    userId: number,
-    payments?: Array<{
+    _id: number,
+    _totalSales: number,
+    _totalCommission: number,
+    _totalPrizes: number,
+    _totalCashPrizes: number,
+    _settledAt: string | undefined,
+    _userId: number,
+    _payments?: Array<{
       method: string;
       currency_code: string;
       amount: number;
@@ -848,44 +841,24 @@ export class LotoService {
     }>,
     /** The till's conversion rate for cross-currency legs (LIRA-258 G23 —
      *  the legs must reconcile to the net settlement at this rate). */
-    tenderExchangeRate?: number,
+    _tenderExchangeRate?: number,
     /** LIRA-310 — Waive (LBP): see the repository. */
-    discountLbp?: number,
+    _discountLbp?: number,
   ): LotoCheckpoint {
-    try {
-      const checkpoint = this.checkpointRepo.settleCheckpoint(
-        id,
-        totalSales,
-        totalCommission,
-        totalPrizes,
-        totalCashPrizes,
-        settledAt,
-        userId,
-        payments,
-        tenderExchangeRate,
-        discountLbp,
-      );
-      lotoLogger.info(
-        `Loto checkpoint ${id} settled: sales=${totalSales}, commission=${totalCommission}, cash_prizes=${totalCashPrizes}`,
-      );
-      return checkpoint;
-    } catch (error) {
-      lotoLogger.error(
-        { error: error instanceof Error ? error.message : String(error) },
-        "LotoService.settleCheckpoint failed",
-      );
-      throw error;
-    }
+    // LIRA-351 (owner decisions 2026-10-29): Loto is settled only on the day
+    // calendar (Suppliers → Loto → Settle Account), so a payment is always
+    // tied to its days. Refused here so desktop and web refuse alike.
+    throw new BusinessRuleError(LOTO_SETTLE_MOVED_MESSAGE);
   }
 
   settleCheckpoints(
-    checkpointIds: number[],
-    totalSales: number,
-    totalCommission: number,
-    settledAt: string | undefined,
-    userId: number,
+    _checkpointIds: number[],
+    _totalSales: number,
+    _totalCommission: number,
+    _settledAt: string | undefined,
+    _userId: number,
     /** One leg (legacy) or split legs — see the repository. */
-    payment?:
+    _payment?:
       | {
           method: string;
           drawer_name: string;
@@ -899,32 +872,14 @@ export class LotoService {
           direction?: "IN" | "OUT";
         }>,
     /** See settleCheckpoint's `tenderExchangeRate`. */
-    tenderExchangeRate?: number,
+    _tenderExchangeRate?: number,
     /** LIRA-310 — Waive (LBP) on the batch's combined net. */
-    discountLbp?: number,
+    _discountLbp?: number,
   ): LotoCheckpoint[] {
-    try {
-      const checkpoints = this.checkpointRepo.settleCheckpoints(
-        checkpointIds,
-        totalSales,
-        totalCommission,
-        settledAt,
-        userId,
-        payment,
-        tenderExchangeRate,
-        discountLbp,
-      );
-      lotoLogger.info(
-        `Loto batch settlement: ${checkpointIds.length} checkpoint(s) settled, sales=${totalSales}, commission=${totalCommission}`,
-      );
-      return checkpoints;
-    } catch (error) {
-      lotoLogger.error(
-        { error: error instanceof Error ? error.message : String(error) },
-        "LotoService.settleCheckpoints failed",
-      );
-      throw error;
-    }
+    // LIRA-351 (owner decisions 2026-10-29): Loto is settled only on the day
+    // calendar (Suppliers → Loto → Settle Account), so a payment is always
+    // tied to its days. Refused here so desktop and web refuse alike.
+    throw new BusinessRuleError(LOTO_SETTLE_MOVED_MESSAGE);
   }
 
   /**

@@ -124,9 +124,6 @@ jest.mock("../../../components/TicketHistoryModal", () => ({
 jest.mock("../../../components/CheckpointScheduler", () => ({
   CheckpointScheduler: () => null,
 }));
-jest.mock("../../../components/SettlementVerification", () => ({
-  SettlementVerification: () => null,
-}));
 
 describe("LotoPage — manual checkpoint period_start is TZ-independent", () => {
   beforeEach(() => {

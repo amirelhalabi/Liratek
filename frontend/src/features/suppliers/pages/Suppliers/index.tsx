@@ -1214,7 +1214,10 @@ export default function SuppliersPage() {
   // switched onto Pay / Receive: recording a payment is admin-only on both
   // transports, so the header's Transactions / Payments buttons are their
   // view, as the read-only history was before.
-  const showSettleTab = isAdmin && !isAccountMember;
+  // LIRA-351 — a calendar supplier with no bills on a tick list (Loto) has
+  // nothing to tick: its commission list would always be empty.
+  const showSettleTab =
+    isAdmin && !isAccountMember && (!isSettleByDay || billsOnlyTickList);
 
   // LIRA-343 (FR-016c) — the Transactions window's from–to filter. Held here
   // (it survives closing the window) and keyed by supplier: a range set for
@@ -2724,9 +2727,9 @@ export default function SuppliersPage() {
                   the read-only full history below. */}
               {selectedSupplier.is_active !== 0 &&
                 activeTab === "settle" &&
-                isAdmin &&
-                // LIRA-322 — account members settle from Settle Account.
-                !isAccountMember && (
+                // LIRA-322 — account members settle from Settle Account;
+                // LIRA-351 — so does Loto (no bills to tick).
+                showSettleTab && (
                   <div className="mb-4">
                     {/* Owner request (2026-08-13): this table settles
                         commission for whichever supplier is selected — not

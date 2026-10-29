@@ -509,7 +509,9 @@ describe("LIRA-345 — settle by day for suppliers outside the OMT account", () 
 
   // ── Loto (out of scope, S1) ──────────────────────────────────────────────
 
-  it("Loto is refused by the server gate (it keeps its checkpoints)", () => {
+  // LIRA-351 (owner decisions 2026-10-29): Loto is on the calendar now
+  // (rule 24 — this case used to assert the refusal).
+  it("Loto is accepted by the server gate", () => {
     const loto = supplierByProvider("LOTO");
     seedLedgerRow(db, loto, {
       entry_type: "TOP_UP",
@@ -518,7 +520,7 @@ describe("LIRA-345 — settle by day for suppliers outside the OMT account", () 
     });
     expect(() =>
       settle(payload(loto, { pickedDays: ["2026-10-04"], usd: 100 })),
-    ).toThrow(/settled from the day calendar/);
+    ).not.toThrow();
   });
 
   // ── Coordinator follow-up (1): detach count uses the open-row rule ──────

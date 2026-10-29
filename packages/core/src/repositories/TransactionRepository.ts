@@ -212,6 +212,9 @@ const SESSION_BATCH_CHUNK_SIZE = 400;
  */
 const LINKED_TOP_UP_LEDGER_WHERE = `transaction_id = ? AND entry_type = 'TOP_UP' AND COALESCE(is_refunded, 0) = 0`;
 
+/** LIRA-351 — the same, for a Loto cash prize's CASH_PRIZE row. */
+const LINKED_CASH_PRIZE_LEDGER_WHERE = `transaction_id = ? AND entry_type = 'CASH_PRIZE' AND COALESCE(is_refunded, 0) = 0`;
+
 function chunkIds<T>(ids: T[], size: number): T[][] {
   if (ids.length === 0) return [];
   const chunks: T[][] = [];
@@ -8017,9 +8020,19 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // in link mode (`transaction_id`, source 'recharges'); its void
     // soft-voids that row (`_reverseSupplierLedgerByTransactionLink`, the
     // SAME selector). What a settlement paid on it goes on the account.
-    if (original.type === "RECHARGE_TOPUP") {
+    // LIRA-351 — a Loto ticket's TOP_UP and a cash prize's CASH_PRIZE are
+    // link-mode rows too (`_reverseLotoSupplierLedger` / `_reverseLotoCashPrize`
+    // soft-void them by these same selectors): what a calendar settlement
+    // paid on them goes on the Loto account as credit, like any supplier.
+    const linkedWhere =
+      original.type === "RECHARGE_TOPUP" || original.type === "LOTO"
+        ? LINKED_TOP_UP_LEDGER_WHERE
+        : original.type === "LOTO_CASH_PRIZE"
+          ? LINKED_CASH_PRIZE_LEDGER_WHERE
+          : null;
+    if (linkedWhere) {
       for (const r of this.query<{ id: number }>(
-        `SELECT id FROM supplier_ledger WHERE ${LINKED_TOP_UP_LEDGER_WHERE} AND tenant_id = ?`,
+        `SELECT id FROM supplier_ledger WHERE ${linkedWhere} AND tenant_id = ?`,
         original.id,
         tenantId,
       )) {
@@ -11221,7 +11234,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // 1. Soft-void the link-mode CASH_PRIZE row this prize created.
     this.execute(
       `UPDATE supplier_ledger SET is_refunded = 1, refunded_at = ?
-        WHERE transaction_id = ? AND entry_type = 'CASH_PRIZE' AND COALESCE(is_refunded, 0) = 0 AND tenant_id = ?`,
+        WHERE ${LINKED_CASH_PRIZE_LEDGER_WHERE} AND tenant_id = ?`,
       // LIRA-306 FR-021: the event time on an offline replay.
       requestNow(),
       original.id,

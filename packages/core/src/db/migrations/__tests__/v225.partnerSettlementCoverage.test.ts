@@ -46,12 +46,8 @@ const indexes = (db: Database.Database): string[] =>
   ).map((r) => r.name);
 
 describe("v225 partner_settlement_coverage", () => {
-  it("is version 225, the latest migration", () => {
-    const m = mig();
-    expect(m.version).toBe(225);
-    expect(MIGRATIONS[MIGRATIONS.length - 1]?.name).toBe(
-      "partner_settlement_coverage",
-    );
+  it("is version 225", () => {
+    expect(mig().version).toBe(225);
   });
 
   it("create_db.sql declares the table, its indexes and the legacy column", () => {

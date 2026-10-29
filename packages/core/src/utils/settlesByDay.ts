@@ -32,7 +32,9 @@ export interface SettlesByDayInput {
 }
 
 export function settlesByDay(s: SettlesByDayInput): boolean {
-  if (s.provider === "LOTO") return false;
+  // LIRA-351 (owner decision 2026-10-29): Loto settles on the calendar too.
+  // Its old checkpoint settlements were stamped by migration v226.
+  if (s.provider === "LOTO") return true;
   if (s.is_account_member) return true;
   if (s.provider === "Katsh") return true;
   if (s.provider === "WHISH") return s.is_active !== 0;
@@ -46,7 +48,13 @@ export function settlesByDay(s: SettlesByDayInput): boolean {
  * that is not part of the OMT account (Katsh, Whish).
  */
 export function billsStayOnTickList(s: SettlesByDayInput): boolean {
-  return settlesByDay(s) && !s.is_account_member && !!s.provider;
+  // Loto has no bills: its tickets and prizes are the calendar's own rows.
+  return (
+    settlesByDay(s) &&
+    !s.is_account_member &&
+    !!s.provider &&
+    s.provider !== "LOTO"
+  );
 }
 
 /**
@@ -75,3 +83,14 @@ export function settleStaleMessage(name: string): string {
 export function isSettleStaleMessage(message: string): boolean {
   return message.includes(SETTLE_STALE_MARK);
 }
+
+/**
+ * LIRA-351 (owner decisions 2026-10-29) — Loto is settled only on the day
+ * calendar. The old paths that record a Loto payment tied to no shop day
+ * (checkpoint settle / batch / mark settled, and Pay / Receive) are refused
+ * with these words on both transports (ONE wording, rule 14).
+ */
+export const LOTO_SETTLE_MOVED_MESSAGE =
+  "Loto is now settled from Suppliers → Loto → Settle Account.";
+export const LOTO_PAY_MOVED_MESSAGE =
+  "Pay Loto from Settle Account so the payment is tied to its days.";

@@ -167,9 +167,6 @@ jest.mock("../../../components/TicketHistoryModal", () => ({
 jest.mock("../../../components/CheckpointScheduler", () => ({
   CheckpointScheduler: () => null,
 }));
-jest.mock("../../../components/SettlementVerification", () => ({
-  SettlementVerification: () => null,
-}));
 
 const TOGGLE = "loto-for-partner-toggle";
 const NOTICE = "loto-partner-no-payment-notice";

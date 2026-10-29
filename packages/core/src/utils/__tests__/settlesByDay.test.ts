@@ -42,11 +42,14 @@ describe("settlesByDay (LIRA-345)", () => {
     expect(settlesByDay(base)).toBe(true);
   });
 
-  it("Loto stays on its checkpoints, even if someone linked it to an account", () => {
-    expect(settlesByDay({ ...base, provider: "LOTO", is_system: 1 })).toBe(false);
-    expect(
-      settlesByDay({ ...base, provider: "LOTO", is_system: 1, is_account_member: true }),
-    ).toBe(false);
+  // LIRA-351 (owner decisions 2026-10-29): Loto settles on the calendar
+  // like every other supplier. It has no bills (no tick list) and its
+  // commission is earned at the sale (no settlement commission).
+  it("Loto settles by day, with no tick list and no settlement commission", () => {
+    const loto = { ...base, provider: "LOTO", is_system: 1 };
+    expect(settlesByDay(loto)).toBe(true);
+    expect(billsStayOnTickList(loto)).toBe(false);
+    expect(calendarTakesCommission(loto)).toBe(false);
   });
 
   it("other company suppliers outside the OMT account do not (yet)", () => {

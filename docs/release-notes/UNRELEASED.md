@@ -36,6 +36,11 @@
 
 ## ✨ Highlights
 
+### Settle Loto by day
+
+Loto is now settled like every other supplier: Suppliers → Loto → **Settle Account** opens the day calendar. Each day shows what you owe Loto for that day's tickets (after your commission), minus any cash prizes you paid out that day. Pick the days, pay, and they turn green. Everything you already settled through Loto checkpoints counts as paid, so only newer days show. The Pay / Receive tab for Loto and the Settle button on the Loto page are gone, so every Loto payment is tied to the days it pays.
+![Settle Loto Liban account: 3 tickets on Oct 28, 343,980 LBP to pay](whats-new/1.35.0/loto-settle-calendar.png)
+
 ### Discount the whole session basket
 
 At a customer session checkout, the line under "Total Amount" now has a **− Discount | + Extra** switch. Pick Discount and type an amount to take it off the whole basket: the payment box then expects the lower total. A basket takes a discount, an extra or a waived amount, one at a time. The discount can't be more than the shop's profit on the basket; if it is, the checkout says so and shows the limit. Discounts given this way show on the Profits page as "Session discounts".
@@ -154,6 +159,7 @@ Settle Account on the OMT card now opens on a calendar of the month. Settled day
 
 ## 💸 OMT / Whish & suppliers
 
+- Loto: settled from Suppliers → Loto → Settle Account with the day calendar. Cash prizes count against the day they were paid. Days already settled through Loto checkpoints show as paid. The Loto page no longer has its own Settle button, and Loto has no Pay / Receive tab.
 - Settle Account: when the chosen time is too early for the days picked, the message now names the day the way you read it (for example "Sun 25 Oct").
 - Suppliers: "Check against OMT's statement" with "Up to" a past day now shows the account as it stood at the end of that day, even after later payments were recorded.
 - Suppliers: Add Credit / Debt has "Set custom time", so an entry can be dated to the day it really belongs to. A cash entry dated before a drawer count explains that count's Short or Over instead of moving the money a second time.

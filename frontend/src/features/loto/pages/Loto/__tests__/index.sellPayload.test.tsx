@@ -167,9 +167,6 @@ jest.mock("../../../components/TicketHistoryModal", () => ({
 jest.mock("../../../components/CheckpointScheduler", () => ({
   CheckpointScheduler: () => null,
 }));
-jest.mock("../../../components/SettlementVerification", () => ({
-  SettlementVerification: () => null,
-}));
 
 async function sellWithStubLines(): Promise<Record<string, unknown>> {
   render(<LotoPage />);

@@ -3261,4 +3261,7 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (224, 'vouchers_redeemed_session_id'),
     -- v225 (LIRA-346) adds partner_settlement_coverage + its three indexes and
     -- partner_ledger.legacy_covered_amount, declared above.
-    (225, 'partner_settlement_coverage');
+    (225, 'partner_settlement_coverage'),
+    -- v226 (LIRA-351) is data only (stamps Loto rows of settled checkpoints);
+    -- a fresh database has none, so nothing to declare.
+    (226, 'loto_checkpoint_backfill');

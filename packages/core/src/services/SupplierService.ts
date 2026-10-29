@@ -1,6 +1,7 @@
 import type { OmtCoveredType } from "../utils/omtCoveredTypes.js";
 import type { SupplierDayRangeInput } from "../validators/supplier.js";
 import { toSqliteUtc } from "../utils/requestNow.js";
+import { LOTO_PAY_MOVED_MESSAGE } from "../utils/settlesByDay.js";
 import {
   getSupplierRepository,
   getProductSupplierRepository,
@@ -410,6 +411,10 @@ export class SupplierService {
     try {
       if (!data.supplier_id)
         return { success: false, error: "supplier_id is required" };
+      // LIRA-351: Loto is paid only from Settle Account (tied to its days);
+      // its old Pay / Receive and the cash side of Add Credit / Debt go.
+      if (this.repo.findById(data.supplier_id)?.provider === "LOTO")
+        return { success: false, error: LOTO_PAY_MOVED_MESSAGE };
       if (!data.payments?.length)
         return {
           success: false,

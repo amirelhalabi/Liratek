@@ -216,12 +216,18 @@ describe("Suppliers page — settle by day for suppliers outside the OMT account
     expect(title).toBeInTheDocument();
   });
 
-  it("Loto keeps Pay / Receive and gets no Settle Account button", async () => {
+  // LIRA-351 (owner decisions 2026-10-29): Loto settles on the calendar —
+  // rule 24, this case used to assert the opposite.
+  it("Loto gets the Settle Account button, no Pay / Receive and no Settle tick list", async () => {
     renderPage();
     fireEvent.click(await screen.findByTestId("supplier-tile-LOTO"));
-    expect(await screen.findByText("Pay / Receive")).toBeInTheDocument();
-    expect(screen.queryByTestId("supplier-settle-by-day-button")).toBeNull();
-    // Sanity: the header rendered for Loto.
+    expect(
+      await screen.findByTestId("supplier-settle-by-day-button"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Pay / Receive")).toBeNull();
+    expect(screen.queryByTestId("supplier-tab-settle")).toBeNull();
+    // Its always-empty commission tick list is gone too (no bills).
+    expect(screen.queryByText("Commission Settlement")).toBeNull();
     expect(
       within(document.body).getAllByText("Loto Liban").length,
     ).toBeGreaterThan(0);

@@ -33,7 +33,6 @@ import {
 import type { PaymentLine } from "@liratek/ui";
 import { i18n } from "@/i18n/setup";
 import { LotoPage } from "../pages/Loto/index";
-import { SettlementVerification } from "../components/SettlementVerification";
 
 const mockAddToCart = jest.fn();
 const mockSession: {
@@ -229,22 +228,6 @@ function clickLast(name: string) {
   fireEvent.click(all[all.length - 1]);
 }
 
-function cp(id: number, sales: number, commission: number, prizes: number) {
-  return {
-    id,
-    checkpoint_date: "2026-10-01",
-    period_start: "2026-10-01",
-    period_end: "2026-10-01",
-    total_sales: sales,
-    total_commission: commission,
-    total_tickets: 1,
-    total_prizes: 0,
-    total_cash_prizes: prizes,
-    total_cash_prizes_count: prizes > 0 ? 1 : 0,
-    is_settled: 0,
-  };
-}
-
 type Captured = {
   sell: unknown[];
   cart: unknown[];
@@ -258,7 +241,7 @@ type Captured = {
 type Scenario = {
   name: string;
   session?: boolean;
-  screen: "page" | "settle";
+  screen: "page";
   setup?: () => void;
   run: () => Promise<void>;
   check: (c: Captured) => void;
@@ -286,14 +269,6 @@ async function prizeSteps() {
   fireEvent.click(
     screen.getByRole("button", { name: tx("prize.submit", "Record Cash Prize") }),
   );
-}
-
-async function openSettle() {
-  fireEvent.click(screen.getByRole("button", { name: tx("settle.open", "Settle") }));
-  await waitFor(() =>
-    expect(mockApi.loto.cashPrize.getUnreimbursed).toHaveBeenCalled(),
-  );
-  await screen.findByText("stub-pay");
 }
 
 const SCENARIOS: Scenario[] = [
@@ -433,89 +408,8 @@ const SCENARIOS: Scenario[] = [
       });
     },
   },
-  {
-    name: "settlement: Settle All, short payment + Waive",
-    screen: "settle",
-    setup: () => {
-      mockApi.loto.checkpoint.getUnsettled.mockResolvedValue({
-        success: true,
-        checkpoints: [cp(1, 1_000_000, 50_000, 2_000_000), cp(2, 0, 0, 500_000)],
-      });
-      // net = 2,500,000 − 950,000 = 1,550,000 (LOTO pays us)
-      stubLines = [
-        { id: "l1", method: "CASH", currencyCode: "LBP", amount: 1_350_000 },
-      ];
-      stubWaive = 200_000;
-    },
-    run: async () => {
-      await openSettle();
-      fireEvent.click(screen.getByText("stub-pay"));
-      fireEvent.click(screen.getByText("stub-waive"));
-      fireEvent.click(
-        screen.getByRole("button", {
-          name: tx("settle.settleAll", "Settle All ({{count}})", { count: 2 }),
-        }),
-      );
-      await waitFor(() =>
-        expect(mockApi.loto.checkpoint.settleBatch).toHaveBeenCalled(),
-      );
-    },
-    check: (c) => {
-      expect(c.settleBatch[0]).toMatchObject({
-        checkpointIds: [1, 2],
-        payments: [{ method: "CASH", currency_code: "LBP", amount: 1_350_000 }],
-        discount_lbp: 200_000,
-        tender_exchange_rate: 89000,
-      });
-    },
-  },
-  {
-    name: "settlement: Create Checkpoint & Settle (unchecked activity)",
-    screen: "settle",
-    setup: () => {
-      mockApi.loto.checkpoint.getUnsettled.mockResolvedValue({
-        success: true,
-        checkpoints: [],
-      });
-      mockApi.loto.getUncheckpointed.mockResolvedValue({
-        success: true,
-        tickets: [{ sale_amount: 500_000, commission_amount: 22_250 }],
-      });
-      mockApi.loto.checkpoint.createScheduled.mockResolvedValue({
-        success: true,
-        checkpoint: {
-          id: 9,
-          total_sales: 500_000,
-          total_commission: 22_250,
-          total_prizes: 0,
-        },
-      });
-      stubLines = [
-        { id: "l1", method: "CASH", currencyCode: "LBP", amount: 477_750 },
-      ];
-    },
-    run: async () => {
-      await openSettle();
-      fireEvent.click(screen.getByText("stub-pay"));
-      fireEvent.click(
-        screen.getByRole("button", {
-          name: tx("settle.createAndSettle", "Create Checkpoint & Settle"),
-        }),
-      );
-      await waitFor(() =>
-        expect(mockApi.loto.checkpoint.settle).toHaveBeenCalled(),
-      );
-    },
-    check: (c) => {
-      expect(c.createScheduled).toHaveLength(1);
-      expect(c.settle[0]).toMatchObject({
-        id: 9,
-        totalSales: 500_000,
-        payments: [{ method: "CASH", currency_code: "LBP", amount: -477_750 }],
-      });
-      expect(c.settle[0]).not.toHaveProperty("discount_lbp");
-    },
-  },
+  // LIRA-351: the two Loto-page settlement scenarios were removed with the
+  // page's settle dialog (Loto settles on Suppliers → Settle Account now).
 ];
 
 function resetMocks() {
@@ -548,7 +442,7 @@ async function capture(s: Scenario): Promise<Captured> {
   mockSession.activeSession = s.session
     ? { id: 3, customer_name: "Rami" }
     : null;
-  render(s.screen === "page" ? <LotoPage /> : <SettlementVerification />);
+  render(<LotoPage />);
   await s.run();
   const l = mockApi.loto;
   const out: Captured = {

@@ -165,9 +165,6 @@ jest.mock("../../../components/TicketHistoryModal", () => ({
 jest.mock("../../../components/CheckpointScheduler", () => ({
   CheckpointScheduler: () => null,
 }));
-jest.mock("../../../components/SettlementVerification", () => ({
-  SettlementVerification: () => null,
-}));
 
 function sellButton(): HTMLElement {
   // The tab header is also a "Sell Ticket" button; the submit one is last.
