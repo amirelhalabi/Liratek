@@ -19,7 +19,6 @@ import {
   appEvents,
   PageHeader,
   useApi,
-  Select,
   ServiceTypeTabs,
   DataTable,
   PageAlerts,
@@ -445,7 +444,10 @@ export default function Dashboard() {
   };
   /** Full debtor list (uncapped, debt DESC) powering the Top Debtors table */
   const [debtors, setDebtors] = useState<Debtor[]>([]);
-  const [chartType, setChartType] = useState<ChartType>("Sales");
+  // Owner decision 2026-10-29: the Dashboard shows no profit for any role,
+  // so the trend chart is sales only (no Sales/Profit switch). Profit stays
+  // on the Profits page.
+  const chartType: ChartType = "Sales";
   const [activeTab, setActiveTab] = useState<DashboardTab>("trend");
   /**
    * Row cap for the Today's Sales / Top Debtors tables — editable, default 50.
@@ -580,7 +582,6 @@ export default function Dashboard() {
         drawerResult,
         debtResult,
         stockStatsResult,
-        netProfitResult,
         debtorsResult,
       ] = await Promise.allSettled([
         apiRef.current.getDashboardStats(),
@@ -589,11 +590,6 @@ export default function Dashboard() {
         apiRef.current.getSystemExpectedBalancesDynamic(),
         apiRef.current.getDebtSummary(),
         apiRef.current.getInventoryStockStats(),
-        // DC-11 (OWNER_NOTES_2026-09-21.md §7.2) — replaces
-        // getMonthlyPL(localMonth()): the tile is now a rolling 30-day
-        // window, composed (SalesService) from the SAME ProfitService
-        // .getByDate call family the chart above reads.
-        apiRef.current.getNetProfitLast30Days(),
         apiRef.current.getDebtors(),
       ]);
 
@@ -607,8 +603,6 @@ export default function Dashboard() {
       if (debtResult.status === "rejected") failedWidgets.push("debtSummary");
       if (stockStatsResult.status === "rejected")
         failedWidgets.push("inventoryStock");
-      if (netProfitResult.status === "rejected")
-        failedWidgets.push("netProfit");
       if (debtorsResult.status === "rejected")
         failedWidgets.push("topDebtors");
       setWidgetLoadErrors(failedWidgets);
@@ -619,20 +613,12 @@ export default function Dashboard() {
         stockStatsResult.status === "fulfilled"
           ? stockStatsResult.value
           : undefined;
-      const netProfit =
-        netProfitResult.status === "fulfilled"
-          ? netProfitResult.value
-          : undefined;
-      if (statsData || stockStats || netProfit) {
+      if (statsData || stockStats) {
         setStats((prev) => ({
           ...prev,
           ...(statsData ?? {}),
           stockBudgetUSD: stockStats?.stock_budget_usd ?? prev.stockBudgetUSD,
           stockCount: stockStats?.stock_count ?? prev.stockCount,
-          netProfitLast30USD:
-            netProfit?.netProfitUSD ?? prev.netProfitLast30USD,
-          netProfitLast30LBP:
-            netProfit?.netProfitLBP ?? prev.netProfitLast30LBP,
         }));
       }
 
@@ -1189,12 +1175,6 @@ export default function Dashboard() {
       id: "stockCount",
       label: t("cards.stockCount"),
       singleValue: t("cards.stockItems", { n: fmtNumber(stats.stockCount) }),
-    },
-    {
-      id: "netProfit",
-      label: t("cards.netProfit"),
-      usdValue: stats.netProfitLast30USD,
-      lbpValue: stats.netProfitLast30LBP,
     },
   ];
 
@@ -1821,21 +1801,6 @@ export default function Dashboard() {
                         type: t(CHART_TYPE_LABEL_KEYS[chartType]),
                       })}
                     </h3>
-                    <Select
-                      value={chartType}
-                      onChange={(v) => setChartType(v as ChartType)}
-                      options={[
-                        {
-                          value: "Sales",
-                          label: t(CHART_TYPE_LABEL_KEYS.Sales),
-                        },
-                        {
-                          value: "Profit",
-                          label: t(CHART_TYPE_LABEL_KEYS.Profit),
-                        },
-                      ]}
-                      buttonClassName="bg-slate-700 text-xs text-white rounded p-1 border border-slate-600 focus:ring-violet-500 focus:border-violet-500"
-                    />
                   </div>
                   {chartType === "Sales" && (
                     <p className="relative text-[11px] text-slate-500 mb-2">

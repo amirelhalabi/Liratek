@@ -21,9 +21,8 @@
  * recharts/ResponsiveContainer to lay out real SVG under jsdom).
  */
 
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import Dashboard from "../Dashboard";
-import { appEvents } from "@liratek/ui";
 
 jest.setTimeout(8000);
 
@@ -174,56 +173,21 @@ beforeEach(() => {
   mockApi.holdMoney.active.mockResolvedValue({ success: true, data: [] });
 });
 
-describe("Dashboard — chartData clears when a type switch's own load fails (CHART-STALE-ON-TYPE-SWITCH)", () => {
-  it("does not keep showing the previous type's rows under the new type's header after a failed switch", async () => {
+// Owner decision 2026-10-29: the trend chart shows sales only — no
+// Sales/Profit switch, for any role. The stale-rows-after-a-failed-switch
+// case this file guarded can no longer happen; it now guards that the
+// switch (and any Profit load) stays gone (rule 24).
+describe("Dashboard — sales trend has no Profit view (owner decision 2026-10-29)", () => {
+  it("offers no Sales/Profit switch and only ever loads the Sales series", async () => {
     render(<Dashboard />);
-
-    // Initial Sales load succeeds — the Sep 10 row is on screen.
     await waitFor(() =>
       expect(screen.getByTestId("chart-dates").textContent).toBe("Sep 10"),
     );
-
-    // Switch to Profit via the REAL Select (headlessui) — its fetch is
-    // mocked to reject.
-    const trigger = await screen.findByRole("button", {
-      name: "Product & Telecom Sales",
-    });
-    fireEvent.click(trigger);
-    fireEvent.click(await screen.findByRole("option", { name: "Profit" }));
-
-    // The Profit load rejects — chartData must clear, not keep drawing
-    // the OLD Sales rows under the new type.
-    await waitFor(() =>
-      expect(screen.getByTestId("chart-dates").textContent).toBe(""),
-    );
-    expect(mockApi.getProfitSalesChart).toHaveBeenCalledWith("Profit");
-  });
-
-  it("control: a same-type failure on a later poll still keeps the previous rows (DC-7 rule unchanged)", async () => {
-    render(<Dashboard />);
-
-    await waitFor(() =>
-      expect(screen.getByTestId("chart-dates").textContent).toBe("Sep 10"),
-    );
-
-    // A later Sales load fails for a transient reason (chartType unchanged)
-    // — the existing rows must be KEPT, not cleared. Trigger a reload the
-    // same way a completed sale does in production (`loadData` is
-    // subscribed to this event), rather than waiting out POLL_MS.
-    mockApi.getProfitSalesChart.mockImplementationOnce(() =>
-      Promise.reject(new Error("transient")),
-    );
-    const callsBefore = mockApi.getProfitSalesChart.mock.calls.length;
-    appEvents.emit("sale:completed");
-
-    await waitFor(() =>
-      expect(mockApi.getProfitSalesChart.mock.calls.length).toBeGreaterThan(
-        callsBefore,
-      ),
-    );
-
-    // The rows are still the original ones — never cleared for a
-    // same-type failure (DC-7's keep-previous-data-on-failure rule).
-    expect(screen.getByTestId("chart-dates").textContent).toBe("Sep 10");
+    expect(
+      screen.queryByRole("button", { name: "Product & Telecom Sales" }),
+    ).toBeNull();
+    expect(screen.queryByRole("option", { name: "Profit" })).toBeNull();
+    expect(mockApi.getProfitSalesChart).not.toHaveBeenCalledWith("Profit");
+    expect(mockApi.getProfitSalesChart).toHaveBeenCalledWith("Sales");
   });
 });

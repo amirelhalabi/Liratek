@@ -154,6 +154,8 @@ Settle Account on the OMT card now opens on a calendar of the month. Settled day
 
 ## 💸 OMT / Whish & suppliers
 
+- Settle Account: when the chosen time is too early for the days picked, the message now names the day the way you read it (for example "Sun 25 Oct").
+- Suppliers: "Check against OMT's statement" with "Up to" a past day now shows the account as it stood at the end of that day, even after later payments were recorded.
 - Suppliers: Add Credit / Debt has "Set custom time", so an entry can be dated to the day it really belongs to. A cash entry dated before a drawer count explains that count's Short or Over instead of moving the money a second time.
 - Suppliers: an OMT or Whish transfer, or a Loto entry, saved with "Set custom time" now also shows on that day in the supplier's ledger, not on the day it was typed (from now on).
 - Partners page: a partner's ledger now opens in two windows, "Transactions" and "Payments", from buttons that show how many entries each has, like on the Suppliers page. Payments holds settlements, write-offs and credit / debt entries; everything else is under Transactions.
@@ -304,6 +306,7 @@ Settle Account on the OMT card now opens on a calendar of the month. Settled day
 
 ## ⚙️ Settings
 
+- Settings → Users now lists admin users too, so an admin account can be seen, deactivated or given a new password there.
 - Reset Data: if the list of what will be removed can't load, you now see why, with a Retry button. If it takes long, a Retry button appears too. Before, "Reset All Data" just stayed greyed out.
 - Shop Config: if the shop settings can't load, you now see why, with a Retry button, instead of an empty form. If they take long, a Retry button appears too.
 
@@ -314,6 +317,7 @@ Settle Account on the OMT card now opens on a calendar of the month. Settled day
 
 ## 📊 Profits page
 
+- Dashboard: profit is no longer shown there, for any user. The "Net profit — last 30 days" tile and the trend chart's Profit view are gone; the chart shows product and telecom sales. Profit stays on the Profits page.
 - New "Wrong-number credits recovered" line: credits sent back for cards recharged onto the wrong number, which lower the loss from those cards.
 
 ## 🛠️ Custom Services

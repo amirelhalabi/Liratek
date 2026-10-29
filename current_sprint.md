@@ -8120,7 +8120,7 @@ Supplier adjustments (paper Add Credit / Debt) can't be voided; the app's way to
 
 What users will notice (when built): Add Credit / Debt on a supplier can be dated to the day it really belongs to.
 
-## LIRA-353: Settle Account "too early" message shows a raw date — TODO (owner, 2026-10-28)
+## LIRA-353: Settle Account "too early" message shows a raw date — DONE (2026-10-29)
 
 When the custom time is before the latest picked day, the refusal reads "…2026-10-25…". Show it in the shop's date format (e.g. "Sun 25 Oct").
 
@@ -8132,8 +8132,21 @@ SessionContext picks the first open session when the device has none ("Set first
 
 What users will notice (when built): a page no longer drops a sale into another customer's open session by itself.
 
-## LIRA-355: Settings → Users never lists admin users — TODO (owner, 2026-10-28)
+## LIRA-355: Settings → Users never lists admin users — DONE (2026-10-29)
 
 The Users page reads /api/users/non-admins, so admins (including a support user like liratek_sync) can't be seen, deactivated or have their password reset there.
 
 What users will notice (when built): every user, admins included, appears on the Users page.
+
+## LIRA-356: "Up to: past day" statement check is wrong after a later payment — DONE (2026-10-29)
+
+"Check against OMT's statement" with "Up to" a past day counted only rows still open, so once a later payment closed earlier transfers the figure was wrong (Cornertech, Wed 28: "up to Tue 27" showed +$6,464.54 instead of OMT's −$3,732.01). It now sums the account's ledger as it stood at the end of that shop day (every member, refunded lines excluded, one shop-day rule). Guarded by a failing-first case in SupplierRepository.expectedStatementUpToDay.test.ts.
+
+What users will notice: the "Up to" check gives the right figure for any past day.
+
+## LIRA-357: No profit on the Dashboard — DONE (owner decision 2026-10-29)
+
+The Dashboard no longer shows profit to any role: the "Net profit — last 30 days" tile and the trend chart's Profit view are removed; the chart shows product and telecom sales only. Profit stays on the Profits page.
+
+What users will notice: the Dashboard has no profit tile and no Sales/Profit switch on the trend chart.
+

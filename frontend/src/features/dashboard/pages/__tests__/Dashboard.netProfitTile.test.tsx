@@ -190,30 +190,19 @@ beforeEach(() => {
   mockApi.holdMoney.active.mockResolvedValue({ success: true, data: [] });
 });
 
-describe("Dashboard — Net Profit tile reads getNetProfitLast30Days, not getMonthlyPL (DC-11, CHART-M1)", () => {
-  it("shows the getNetProfitLast30Days values under the 'Net Profit — Last 30 Days' label", async () => {
+// Owner decision 2026-10-29: the Dashboard shows no profit at all, for every
+// role (admins included) — profit lives on the Profits page only. This file
+// used to prove the tile read the right 30-day source; with the tile gone it
+// guards that the tile and its fetch stay gone (rule 24).
+describe("Dashboard — no Net Profit tile (owner decision 2026-10-29)", () => {
+  it("shows no 'Net Profit — Last 30 Days' tile and never fetches it", async () => {
     render(<Dashboard />);
-
-    const label = await screen.findByText("Net Profit — Last 30 Days");
-    const card = label.closest("div.relative.bg-slate-800");
-    expect(card).not.toBeNull();
-
-    // Wait for the async setStats from loadData to land — the label above
-    // is static and renders before the fetched value does.
     await waitFor(() =>
-      expect(card!.textContent).toContain(`${NET_PROFIT_30D_USD} USD`),
+      expect(mockApi.getDashboardStats).toHaveBeenCalled(),
     );
-    expect(card!.textContent).toContain(`${NET_PROFIT_30D_LBP} LBP`);
-    // The old monthly-PL fixture values must NOT appear anywhere in the tile.
-    expect(card!.textContent).not.toContain(`${MONTHLY_PL_USD} USD`);
-    expect(card!.textContent).not.toContain(`${MONTHLY_PL_LBP} LBP`);
-  });
-
-  it("never calls getMonthlyPL — the tile's only source is getNetProfitLast30Days", async () => {
-    render(<Dashboard />);
-
-    await screen.findByText("Net Profit — Last 30 Days");
-    expect(mockApi.getNetProfitLast30Days).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mockApi.getDebtors).toHaveBeenCalled());
+    expect(screen.queryByText("Net Profit — Last 30 Days")).toBeNull();
+    expect(mockApi.getNetProfitLast30Days).not.toHaveBeenCalled();
     expect(mockApi.getMonthlyPL).not.toHaveBeenCalled();
   });
 });
