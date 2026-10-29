@@ -178,7 +178,14 @@ describe("Suppliers page — Refresh re-fetches the OMT account queries (LIRA-18
     // Initial mount fetch of the account rollup (always-on read) and the
     // account card's own unsettled read (SupplierAccountCard, always
     // rendered once the card exists).
-    await screen.findByTestId("supplier-account-card-OMT");
+    // The whole Suppliers page loads several queries before the card shows;
+    // under CI's coverage run that took longer than the default 1s and
+    // failed twice in a row on 2026-10-29 (passes locally in ~70ms).
+    await screen.findByTestId(
+      "supplier-account-card-OMT",
+      {},
+      { timeout: 5000 },
+    );
     await waitFor(() =>
       expect(mockGetSupplierAccountBalances).toHaveBeenCalledTimes(1),
     );
@@ -202,15 +209,15 @@ describe("Suppliers page — Refresh re-fetches the OMT account queries (LIRA-18
     fireEvent.click(await screen.findByText("Refresh"));
 
     await waitFor(() => {
-      expect(
-        mockGetSupplierAccountBalances.mock.calls.length,
-      ).toBeGreaterThan(balancesCallsBefore);
+      expect(mockGetSupplierAccountBalances.mock.calls.length).toBeGreaterThan(
+        balancesCallsBefore,
+      );
       expect(mockGetSupplierAccountLedger.mock.calls.length).toBeGreaterThan(
         ledgerCallsBefore,
       );
-      expect(
-        mockGetSupplierAccountUnsettled.mock.calls.length,
-      ).toBeGreaterThan(unsettledCallsBefore);
+      expect(mockGetSupplierAccountUnsettled.mock.calls.length).toBeGreaterThan(
+        unsettledCallsBefore,
+      );
     });
   });
 });
