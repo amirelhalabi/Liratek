@@ -6,6 +6,7 @@ import { useFormat } from "@/i18n/useFormat";
 import {
   categoryLabel,
   fulfillmentLabel,
+  insuranceTypeLabel,
   workStatusLabel,
 } from "@/features/custom-services/utils/labels";
 import {
@@ -556,6 +557,14 @@ export function HistoryModal({
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-500/10 border border-purple-500/30 text-purple-400">
                             <Tag size={10} />
                             {categoryLabel(tx.category, t)}
+                            {/* LIRA-360 — the insurance type, when known */}
+                            {tx.insurance_type && (
+                              <span
+                                data-testid={`custom-service-insurance-type-${tx.id}`}
+                              >
+                                · {insuranceTypeLabel(tx.insurance_type, t)}
+                              </span>
+                            )}
                           </span>
                         ) : (
                           <span className="text-xs text-slate-600">—</span>

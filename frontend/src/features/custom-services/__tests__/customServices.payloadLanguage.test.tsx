@@ -413,12 +413,17 @@ const SCENARIOS: Scenario[] = [
       type("svc-price", "30");
       click("stub-partner");
       click("stub-pay");
+      // LIRA-360: an insurance sale needs its type.
+      fireEvent.change(screen.getByTestId("insurance-type-select"), {
+        target: { value: "ALL_RISK" },
+      });
       await submit("form.submitService", "Submit Service");
       await waitFor(() => expect(mockApi.addCustomService).toHaveBeenCalled());
     },
     check: (c) => {
       expect(c.add[0]).toMatchObject({
         category: "insurance",
+        insurance_type: "ALL_RISK",
         fulfillment_status: "ORDERED",
         partnerId: 21,
         partnerMode: "VIA",

@@ -26,6 +26,7 @@ declare global {
     message: string;
     type: "success" | "error" | "info" | "warning";
     duration?: number;
+    href?: string;
   };
 
   interface Window {

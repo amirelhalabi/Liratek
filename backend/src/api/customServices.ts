@@ -9,6 +9,9 @@ import {
   customServiceUpdateMetadataSchema,
   customServiceIdParamSchema,
   isWorkStatus,
+  insuranceRenewalsQuerySchema,
+  dismissInsuranceRenewalSchema,
+  clientDay,
 } from "@liratek/core";
 import { auditRest } from "../middleware/audit.js";
 import { logger } from "../server.js";
@@ -55,6 +58,53 @@ router.get("/summary", (_req, res): void => {
     res.status(500).json({ success: false, error: "Failed to fetch summary" });
   }
 });
+
+// GET /api/custom-services/insurance-renewals - LIRA-360 insurances to
+// remind about (Dashboard card + bell). Every signed-in user, like the
+// desktop channel. `client_day` is the browser's own day (rule 27); a
+// malformed or absent value falls back to clientDay() instead of failing.
+router.get("/insurance-renewals", (req, res): void => {
+  try {
+    const parsed = insuranceRenewalsQuerySchema.safeParse({
+      client_day: req.query.client_day,
+    });
+    const day = (parsed.success ? parsed.data.client_day : undefined) ?? clientDay();
+    const renewals = getCustomServiceService().getInsuranceRenewals(day);
+    res.json({ success: true, renewals });
+  } catch (error) {
+    logger.error({ error }, "Get insurance renewals error");
+    res.json({ success: false, error: "Failed to load insurance renewals" });
+  }
+});
+
+// POST /api/custom-services/insurance-renewals/:id/dismiss - LIRA-360
+// "Won't renew". Admin + staff, matching the IPC channel; actor from JWT.
+router.post(
+  "/insurance-renewals/:id/dismiss",
+  requireRole(["admin", "staff"]),
+  validateParams(dismissInsuranceRenewalSchema),
+  (req, res): void => {
+    try {
+      const id = Number(req.params.id);
+      const result = getCustomServiceService().dismissInsuranceRenewal(
+        id,
+        req.user!.username,
+      );
+      if (result.success) {
+        auditRest(req, {
+          action: "edit_metadata",
+          entity_type: "custom_service",
+          entity_id: String(id),
+          summary: `Insurance #${id} marked won't renew`,
+        });
+      }
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Dismiss insurance renewal error");
+      res.json({ success: false, error: "Failed to update insurance" });
+    }
+  },
+);
 
 // POST /api/custom-services/fulfillment - Advance fulfilment status
 // Matches customServiceHandlers.ts's "custom-services:advance-fulfillment"

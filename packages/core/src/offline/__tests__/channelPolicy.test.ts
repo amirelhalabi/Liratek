@@ -23,8 +23,8 @@ const recordable = (): ChannelPolicyEntry[] =>
   CHANNEL_POLICY.filter((e) => e.cls === "offline" || e.cls === "checkpoint");
 
 describe("channel policy — recordable entries", () => {
-  it("has 77 recordable channels (70 offline + 7 checkpoint; voucher:cancel moved online-only, O-impl-C-1)", () => {
-    expect(recordable()).toHaveLength(77);
+  it("has 78 recordable channels (71 offline + 7 checkpoint; voucher:cancel moved online-only, O-impl-C-1; LIRA-360 dismiss-insurance-renewal)", () => {
+    expect(recordable()).toHaveLength(78);
   });
 
   it("each carries a family, a plain label and the handler's roles", () => {

@@ -10,12 +10,15 @@ import {
   customServiceLogger,
   getUserRepository,
   getServicePresetService,
+  clientDay,
 } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
 import type {
   CreateCustomServiceInput,
   CreateCustomServicePayload,
+  InsuranceRenewalsQueryPayload,
+  DismissInsuranceRenewalPayload,
 } from "@liratek/core";
 import type {
   CreateServicePresetInput,
@@ -30,6 +33,8 @@ import {
   CustomServiceUpdateFulfillmentSchema,
   CustomServiceUpdateWorkStatusSchema,
   CustomServiceUpdateMetadataSchema,
+  InsuranceRenewalsQuerySchema,
+  DismissInsuranceRenewalSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -59,6 +64,50 @@ export function registerCustomServiceHandlers(): void {
   ipcMain.handle("custom-services:summary", () => {
     return service.getTodaySummary();
   });
+
+  // LIRA-360 — insurances to remind about (Dashboard card + bell). Read
+  // only, every signed-in user, like the other Dashboard reads. A malformed
+  // `client_day` degrades to the machine's day rather than failing the read.
+  ipcMain.handle(
+    "custom-services:insurance-renewals",
+    (_event: IpcMainInvokeEvent, query?: InsuranceRenewalsQueryPayload) => {
+      const v = validatePayload(InsuranceRenewalsQuerySchema, query ?? {});
+      const day = (v.ok ? v.data.client_day : undefined) ?? clientDay();
+      return service.getInsuranceRenewals(day);
+    },
+  );
+
+  // LIRA-360 — "Won't renew" (staff and admin, like the other counter
+  // steps on an insurance). The actor is the signed-in user.
+  ipcMain.handle(
+    "custom-services:dismiss-insurance-renewal",
+    (event: IpcMainInvokeEvent, data: DismissInsuranceRenewalPayload) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(DismissInsuranceRenewalSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
+      let username = `user-${auth.userId}`;
+      try {
+        const user = getUserRepository().findById(auth.userId);
+        if (user) username = user.username;
+      } catch {
+        // fallback to user-{id}
+      }
+
+      const result = service.dismissInsuranceRenewal(v.data.id, username);
+      if (result.success) {
+        audit(event.sender.id, {
+          action: "edit_metadata",
+          entity_type: "custom_service",
+          entity_id: String(v.data.id),
+          summary: `Insurance #${v.data.id} marked won't renew`,
+        });
+      }
+      return result;
+    },
+  );
 
   // Add custom service (admin only)
   ipcMain.handle(

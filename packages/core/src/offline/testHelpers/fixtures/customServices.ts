@@ -12,6 +12,9 @@ export const FIXTURES: readonly BindingFixture[] = [
       -- 11002: a booked CASH sale ($1 cost, $6 price) exactly as addService writes it, so the delete's void reverses real money
       INSERT INTO custom_services (id, tenant_id, description, cost_usd, price_usd, paid_by, status, created_by, created_at)
         VALUES (11002, 1, 'Typing', 1, 6, 'CASH', 'completed', 1, '2026-10-09 10:05:00');
+      -- 11003: a live insurance sale for "Won't renew" (LIRA-360)
+      INSERT INTO custom_services (id, tenant_id, description, price_usd, paid_by, status, created_by, category, insurance_type, created_at)
+        VALUES (11003, 1, 'Car insurance', 0, 'CASH', 'completed', 1, 'insurance', 'COMPULSORY', '2025-10-09 10:00:00');
       INSERT INTO transactions (id, tenant_id, type, status, source_table, source_id, user_id, amount_usd, amount_lbp, exchange_rate, profit_usd, profit_lbp, summary, metadata_json, created_at)
         VALUES (11001, 1, 'CUSTOM_SERVICE', 'ACTIVE', 'custom_services', 11002, 1, 6, 0, 89750, 5, 0, 'Custom Service: Typing',
           '{"cost_usd":1,"cost_lbp":0,"price_usd":6,"price_lbp":0,"paid_by":"CASH","direction":"IN"}', '2026-10-09 10:05:00');
@@ -33,4 +36,5 @@ export const FIXTURES: readonly BindingFixture[] = [
   { channel: "custom-services:update-metadata", payload: { id: 11001, note: "edited offline", client_name: "Rami" } },
   { channel: "custom-services:advance-fulfillment", payload: { id: 11001, fulfillment_status: "ISSUED" } },
   { channel: "custom-services:set-work-status", payload: { id: 11001, work_status: "In_Progress" } },
+  { channel: "custom-services:dismiss-insurance-renewal", payload: { id: 11003 } },
 ];

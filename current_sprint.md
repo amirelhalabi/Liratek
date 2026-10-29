@@ -8188,6 +8188,23 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 
 **What users will notice:** on the Settle sheet for partners and suppliers (not OMT), each payment box can be paid in dollars or lira, and a Total line shows what you pay in all.
 
+## LIRA-360: Insurance expiry reminders — Dashboard card + daily bell — TODO (owner decisions 2026-10-29)
+
+**Ask (owner 2026-10-29):** tell staff whose insurance is about to expire (sale day + 1 year) so they can call the customer and sell the renewal. Small card in the Dashboard "Credits & Stock" row (list, or a message when empty) plus a notification.
+
+**Owner decisions 2026-10-29:**
+- Listed from 7 days before expiry; once expired, stays listed until renewed or marked "Won't renew".
+- Renewal = newer insurance for the same customer (saved client or same phone) AND same insurance type; a refunded/voided renewal does not count.
+- New required "Insurance type" picker on the insurance sale: Compulsory / إلزامي, Third party / ضد الغير, Domestic worker / عاملة منزلية, All risk / شامل, Life / حياة. Older untyped insurances renew by customer only.
+- Everyone with Dashboard access; no money figures.
+- Bell: one summary line per day ("Insurance: 3 expire this week, 12 expired").
+- "Won't renew" button on the card.
+- No server cron: worked out on read (desktop has no server; rule 27 shop day).
+
+**Status 2026-10-29:** built on both transports, not committed. Spec/plan/tasks in `specs/360-insurance-expiry-reminders/`. Core: `utils/insuranceRenewal.ts` (one rule), migration v227 (`insurance_type`, `renewal_dismissed_at/_by`), repository/service methods, schemas; IPC `custom-services:insurance-renewals` + `:dismiss-insurance-renewal`, REST `GET /api/custom-services/insurance-renewals` + `POST …/:id/dismiss`, offline binding for the dismiss. Frontend: type picker, History type, `InsuranceRenewalsCard`, TopBar daily summary (bell entries can now carry a link). Verified: affected core/backend/frontend jest files green, web e2e `lira-web-085` green, `yarn typecheck` + `yarn lint` clean (0 errors). Not proven failing-first: type-picker tests, REST route test, v227 migration test.
+
+**What users will notice:** a new "Insurance renewals" card on the Dashboard lists customers whose insurance expires within a week or has expired, with a daily reminder in the bell; selling an insurance now asks for its type.
+
 ## LIRA-361: Merge a supplier entered twice — BUILT 2026-10-29
 
 **Ask (owner 2026-10-29):** "reacall" and "recall" are the same supplier, entered twice. Fix it from the app: when deleting a supplier, offer to merge its products into another supplier, and move its debt too (debt depends on whether products were added as old stock).

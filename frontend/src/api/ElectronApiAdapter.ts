@@ -137,6 +137,8 @@ import type {
   RemoveAccountCreditPayload,
   UpdateCustomServiceFulfillmentPayload,
   UpdateCustomServiceWorkStatusPayload,
+  InsuranceRenewalsQueryPayload,
+  DismissInsuranceRenewalPayload,
   UpdateServiceProviderPayload,
   CreateClientPayload,
   RecordCarrierLineUsagePayload,
@@ -1191,6 +1193,11 @@ export class ElectronApiAdapter implements ApiAdapter {
   /** LIRA-083 — set a custom service's WORK status. */
   setCustomServiceWorkStatus = (data: UpdateCustomServiceWorkStatusPayload) =>
     api.setCustomServiceWorkStatus(data);
+  /** LIRA-360 — insurance renewal reminders + "Won't renew". */
+  getInsuranceRenewals = (query?: InsuranceRenewalsQueryPayload) =>
+    api.getInsuranceRenewals(query);
+  dismissInsuranceRenewal = (data: DismissInsuranceRenewalPayload) =>
+    api.dismissInsuranceRenewal(data);
   /** Edit non-financial metadata (description/client name/phone/note) on a
    *  custom_services row (the History modal's inline edit). */
   updateCustomServiceMetadata = (data: CustomServiceUpdateMetadataPayload) =>

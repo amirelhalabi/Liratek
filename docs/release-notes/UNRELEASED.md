@@ -124,6 +124,11 @@ When a sale was paid in dollars and the change was given in Lebanese pounds (or 
 Settle Account on the OMT card now opens on a calendar of the month. Settled days are green; open days show what is still owed in $ and LBP. Every open day before today is already picked: add or remove days, choose how much OMT credit to use, and only the picked days are settled. Tap a day to pick or skip it; "See transactions" lists the picked days' transfers, where you can untick one.
 ![Settle Account: the month calendar with settled days in green and open days with what is left](whats-new/1.35.0/omt-settle-calendar.png)
 
+### Insurance renewals on the Dashboard
+
+A new "Insurance renewals" card on the Dashboard lists every customer whose insurance ends within a week, or has ended and was not renewed, with their phone number, the insurance type and how many days are left. Once a day the bell sums it up ("Insurance: 3 expire this week, 2 expired"). Selling a new insurance of the same type to the same customer takes them off the list; "Won't renew" takes them off by hand.
+![Dashboard: Insurance renewals card with Ali Haddad's Compulsory insurance ending in 5 days, and the bell's daily summary](whats-new/1.35.0/insurance-renewals.png)
+
 ## 🛒 POS
 
 - After a sale, and from any past sale's details, you can now send the receipt to the customer on WhatsApp. WhatsApp opens on their chat with the receipt already written; you press Send. Works on the desktop app and the web app.
@@ -166,7 +171,7 @@ Settle Account on the OMT card now opens on a calendar of the month. Settled day
 
 - OMT/Whish: typing 0 in "OMT fee (charged by OMT)" now really waives the fee. Before, 0 was ignored and the automatic fee was still added. Leave the box empty to use the automatic fee.
 - Loto: settled from Suppliers → Loto → Settle Account with the day calendar. Cash prizes count against the day they were paid. Days already settled through Loto checkpoints show as paid. The Loto page no longer has its own Settle button, and Loto has no Pay / Receive tab.
-- Partners: on the settle calendar, each payment box can now be paid in dollars or lira: a dollar amount can be paid in LBP (and the other way round), converted at the rate shown on the box. A "Total" line under the boxes shows what you pay in all, for example "$2,984.00 + 710,000 LBP".
+- Suppliers: on Settle Account, product suppliers, Katsh, Whish and Loto can now be paid in dollars or lira, whatever the amount's currency, converted at the rate shown on the payment box. A "Total" line shows what you pay in all. OMT is unchanged: its dollars are paid in dollars and its lira in lira.
 - Settle Account: when the chosen time is too early for the days picked, the message now names the day the way you read it (for example "Sun 25 Oct").
 - Suppliers: "Check against OMT's statement" with "Up to" a past day now shows the account as it stood at the end of that day, even after later payments were recorded.
 - Suppliers: Add Credit / Debt has "Set custom time", so an entry can be dated to the day it really belongs to. A cash entry dated before a drawer count explains that count's Short or Over instead of moving the money a second time.
@@ -292,7 +297,7 @@ Settle Account on the OMT card now opens on a calendar of the month. Settled day
 - Partners: the old way of settling, by amount (including a settlement on paper with no cash moved), is still there: "Settle by amount (old way)" at the bottom of the calendar.
 - Partners: in a partner's Transactions and Payments windows, the From / To dates now include the whole "To" day and follow your shop's own day.
 - Partners: on the settle calendar, "See transactions" opens a table of the picked days' entries next to the calendar (For / Through, notes, amount, what is left). Untick an entry there to leave it out of this settlement.
-- Suppliers: on Settle Account, product suppliers, Katsh, Whish and Loto can now be paid in dollars or lira, whatever the amount's currency, converted at the rate shown on the payment box. A "Total" line shows what you pay in all. OMT is unchanged: its dollars are paid in dollars and its lira in lira.
+- Partners: on the settle calendar, each payment box can now be paid in dollars or lira: a dollar amount can be paid in LBP (and the other way round), converted at the rate shown on the box. A "Total" line under the boxes shows what you pay in all, for example "$2,984.00 + 710,000 LBP".
 
 ## 📒 Accounts
 
@@ -338,6 +343,8 @@ Settle Account on the OMT card now opens on a calendar of the month. Settled day
 
 ## 🛠️ Custom Services
 
+- Selling an insurance now asks for its type: Compulsory, Third party, Domestic worker, All risk or Life. The type shows in History.
+- New "Insurance renewals" card on the Dashboard: customers whose insurance ends within 7 days or has ended without renewal, with a daily reminder in the bell and a "Won't renew" button. Insurance sold before this update is matched by customer only.
 - From now on Custom Services and Hold Money keep every detail you enter on the transaction itself: category, product, insurance status, partner (For or Via), notes and how the customer paid.
 - Services: from now on, text you type in "Search Item or Service" is saved as the service's description even if you press Submit without pressing Enter first. Before, it was dropped and the service was saved as plain "Custom Service".
 - Hold Money: the payment method now shows Cash straight away when you hold money or return a hold. Before, the list could stay empty for a few seconds.

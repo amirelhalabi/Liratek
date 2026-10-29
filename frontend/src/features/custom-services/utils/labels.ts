@@ -1,5 +1,9 @@
 import type { TFunction } from "i18next";
-import type { FulfillmentStatus, WorkStatus } from "@liratek/core";
+import type {
+  FulfillmentStatus,
+  InsuranceType,
+  WorkStatus,
+} from "@liratek/core";
 
 /**
  * LIRA-331: category, work-status and fulfilment CODES are stored, sent and
@@ -43,4 +47,12 @@ export function fulfillmentLabel(
   t: TFunction<"customServices">,
 ): string {
   return t(`fulfillment.${status}`);
+}
+
+/** LIRA-360 — an insurance type's label ("DOMESTIC_WORKER" → "Domestic worker"). */
+export function insuranceTypeLabel(
+  type: InsuranceType,
+  t: TFunction<"customServices">,
+): string {
+  return t(`insuranceType.${type}`);
 }

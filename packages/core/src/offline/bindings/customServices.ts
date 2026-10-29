@@ -75,10 +75,21 @@ const setWorkStatus: OfflineBinding = {
   },
 };
 
+// LIRA-360 — "Won't renew"; the actor is the event's, never the payload's.
+const dismissInsuranceRenewal: OfflineBinding = {
+  channel: "custom-services:dismiss-insurance-renewal",
+  run: (payload, ctx) =>
+    getCustomServiceService().dismissInsuranceRenewal(
+      (payload as { id: number }).id,
+      actorUsername(ctx.actorUserId),
+    ),
+};
+
 export const CUSTOM_SERVICES_BINDINGS: readonly OfflineBinding[] = [
   add,
   remove,
   updateMetadata,
   advanceFulfillment,
   setWorkStatus,
+  dismissInsuranceRenewal,
 ];

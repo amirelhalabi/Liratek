@@ -122,6 +122,7 @@ export * from "./utils/lineGiveBack.js";
 // LIRA-338 — which providers' cards can be charged to the shop's own lines.
 export * from "./constants/lineChargeProviders.js";
 export * from "./utils/insuranceFulfillment.js";
+export * from "./utils/insuranceRenewal.js";
 export * from "./utils/customServiceWorkStatus.js";
 export * from "./utils/phoneNumber.js";
 export * from "./utils/lotMarketRate.js";

@@ -49,6 +49,11 @@ import {
   type FulfillmentStatus,
 } from "../utils/insuranceFulfillment.js";
 import { type WorkStatus } from "../utils/customServiceWorkStatus.js";
+import {
+  INSURANCE_CATEGORY,
+  type InsuranceRenewalCandidate,
+  type InsuranceType,
+} from "../utils/insuranceRenewal.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { resolveBackTimedDrawerMovement } from "./checkpointResolution.js";
 import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
@@ -209,6 +214,9 @@ export interface CustomServiceEntity {
    * every row that pre-dates v190 was backfilled to 'Delivered' by the
    * migration itself. */
   work_status: WorkStatus;
+  /** LIRA-360 (v227) — which insurance this is; NULL for every other
+   * category and for insurance sold before v227. */
+  insurance_type: InsuranceType | null;
 }
 
 export interface CustomServiceSummary {
@@ -246,7 +254,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
     // project-it-here" shape as fulfillment_status just above — every
     // pre-v190 row reads 'Delivered' (the migration's backfill), every new
     // row reads 'Received' (the column's DB default).
-    return "id, description, cost_usd, cost_lbp, price_usd, price_lbp, profit_usd, profit_lbp, paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at, edited_by, edited_at, product_id, is_refunded, refunded_at, partner_mode, fulfillment_status, fulfilled_at, direction, work_status";
+    return "id, description, cost_usd, cost_lbp, price_usd, price_lbp, profit_usd, profit_lbp, paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at, edited_by, edited_at, product_id, is_refunded, refunded_at, partner_mode, fulfillment_status, fulfilled_at, direction, work_status, insurance_type";
   }
 
   /**
@@ -478,8 +486,8 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
         const insertService = this.db.prepare(`
           INSERT INTO custom_services (
             tenant_id, description, cost_usd, cost_lbp, price_usd, price_lbp,
-            paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at, product_id, partner_mode, fulfillment_status, direction
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, ?), ?, ?, ?, ?)
+            paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at, product_id, partner_mode, fulfillment_status, direction, insurance_type
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, ?), ?, ?, ?, ?, ?)
         `);
         const serviceResult = insertService.run(
           tenantId,
@@ -517,6 +525,8 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           // ever stamped by updateFulfillmentStatus, on reaching DELIVERED.
           data.fulfillment_status ?? null,
           isPayout ? "OUT" : "IN",
+          // LIRA-360: the schema only lets it through on an insurance.
+          data.insurance_type ?? null,
         );
         const serviceId = Number(serviceResult.lastInsertRowid);
 
@@ -1467,6 +1477,55 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
       )
       .run(status, id, tenantId);
     return this.findById(id);
+  }
+
+  /**
+   * LIRA-360 — every live insurance sale of this tenant, with its sale day
+   * on the shop's calendar (rule 27: `created_at` is UTC; `localDayExpr`
+   * shifts it by the request's client offset on web, the machine's zone on
+   * desktop). Dismissed sales are included — a dismissed LATER sale still
+   * proves a renewal; `selectInsuranceRenewals` drops them from the list.
+   * Refunded (= cancelled), voided, pending and pay-out rows never count.
+   */
+  getInsuranceRenewalCandidates(): InsuranceRenewalCandidate[] {
+    return this.db
+      .prepare(
+        `SELECT id, client_id, client_name, phone_number, description,
+                insurance_type, ${localDayExpr("created_at")} AS sale_day,
+                renewal_dismissed_at
+           FROM custom_services
+          WHERE tenant_id = ? AND category = ? AND status = 'completed'
+            AND ${notRefunded("custom_services")}
+            AND COALESCE(direction, 'IN') = 'IN'`,
+      )
+      .all(getCurrentTenantId(), INSURANCE_CATEGORY) as InsuranceRenewalCandidate[];
+  }
+
+  /**
+   * LIRA-360 — "Won't renew": take a live insurance off the reminders for
+   * good. Moves no money and touches no other row.
+   */
+  dismissInsuranceRenewal(
+    id: number,
+    username: string,
+  ): { success: boolean; error?: string } {
+    const result = this.db
+      .prepare(
+        `UPDATE custom_services
+            SET renewal_dismissed_at = ?, renewal_dismissed_by = ?
+          WHERE id = ? AND tenant_id = ? AND category = ?
+            AND status = 'completed' AND ${notRefunded("custom_services")}
+            AND renewal_dismissed_at IS NULL`,
+      )
+      .run(requestNow(), username, id, getCurrentTenantId(), INSURANCE_CATEGORY);
+    if (result.changes === 0) {
+      return {
+        success: false,
+        error: "This insurance is not on the renewal list",
+      };
+    }
+    customServiceLogger.info({ id, username }, "Insurance marked won't renew");
+    return { success: true };
   }
 }
 

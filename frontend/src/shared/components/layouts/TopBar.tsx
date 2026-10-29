@@ -33,6 +33,39 @@ import { localDay } from "@/shared/utils/localDay";
  *  each `resale:<id>:<status>:<day>` key is emitted once. */
 const shownLineAlertKeys = new Set<string>();
 
+/** LIRA-360 — the insurance renewal summary goes in the bell once per day.
+ *  The bell's history lives in memory only, so the shown day is also kept
+ *  in localStorage (a reload must not repeat it); the in-memory set covers
+ *  a browser where storage is unavailable. */
+const INSURANCE_BELL_DAY_KEY = "liratek.insuranceRenewals.lastBellDay";
+const shownInsuranceBellDays = new Set<string>();
+
+function insuranceBellShown(day: string): boolean {
+  try {
+    return window.localStorage.getItem(INSURANCE_BELL_DAY_KEY) === day;
+  } catch {
+    return shownInsuranceBellDays.has(day);
+  }
+}
+
+function markInsuranceBellShown(day: string): void {
+  try {
+    window.localStorage.setItem(INSURANCE_BELL_DAY_KEY, day);
+  } catch {
+    // storage unavailable — limit it per page load instead
+    shownInsuranceBellDays.add(day);
+  }
+}
+
+/** "Insurance: 3 expire this week, 2 expired", leaving out a 0 part. */
+function insuranceBellText(upcoming: number, expired: number): string {
+  if (upcoming > 0 && expired > 0)
+    return i18n.t("layout:topBar.insuranceBoth", { count: upcoming, expired });
+  if (upcoming > 0)
+    return i18n.t("layout:topBar.insuranceUpcoming", { count: upcoming });
+  return i18n.t("layout:topBar.insuranceExpired", { count: expired });
+}
+
 /** Notification filter codes; the code is the state, the label is translated. */
 const NOTIFICATION_FILTERS = [
   "all",
@@ -55,6 +88,7 @@ interface TopBarProps {
 
 function NotificationHistory() {
   const { t } = useTranslation("layout");
+  const navigate = useNavigate();
   const [items, setItems] = useState<UINotification[]>(
     () => window.notificationHistory || [],
   );
@@ -98,12 +132,28 @@ function NotificationHistory() {
             .reverse()
             .map((n, idx) => (
               <li key={n.id + "_" + idx} className="p-3 text-sm text-slate-200">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`w-2 h-2 rounded-full ${n.type === "success" ? "bg-emerald-500" : n.type === "error" ? "bg-red-500" : n.type === "warning" ? "bg-amber-500" : "bg-blue-500"}`}
-                  ></span>
-                  <span>{n.message}</span>
-                </div>
+                {(() => {
+                  const content = (
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`w-2 h-2 rounded-full shrink-0 ${n.type === "success" ? "bg-emerald-500" : n.type === "error" ? "bg-red-500" : n.type === "warning" ? "bg-amber-500" : "bg-blue-500"}`}
+                      ></span>
+                      <span>{n.message}</span>
+                    </div>
+                  );
+                  // LIRA-360: an entry with a route opens it.
+                  return n.href ? (
+                    <button
+                      type="button"
+                      onClick={() => navigate(n.href as string)}
+                      className="w-full text-start hover:text-white underline-offset-2 hover:underline"
+                    >
+                      {content}
+                    </button>
+                  ) : (
+                    content
+                  );
+                })()}
               </li>
             ))}
         </ul>
@@ -311,6 +361,28 @@ export default function TopBar({
           shownLineAlertKeys.add(a.key);
           appEvents.emit("notification:show", resaleLineAlertText(a), "warning");
         }
+      } catch {
+        // non-critical
+      }
+      // LIRA-360 — one insurance renewal summary per day. Its own try, like
+      // the line alerts above.
+      try {
+        if (!isModuleEnabledRef.current("custom_services")) return;
+        const day = localDay();
+        if (insuranceBellShown(day)) return;
+        const renewals = await api.getInsuranceRenewals({ client_day: day });
+        if (!mounted || !Array.isArray(renewals) || renewals.length === 0)
+          return;
+        const expired = renewals.filter((r) => r.days_left < 0).length;
+        const upcoming = renewals.length - expired;
+        markInsuranceBellShown(day);
+        appEvents.emit(
+          "notification:show",
+          insuranceBellText(upcoming, expired),
+          "warning",
+          undefined,
+          "/dashboard",
+        );
       } catch {
         // non-critical
       }

@@ -8,6 +8,8 @@ export type UINotification = {
   message: string;
   type: NotificationType;
   duration?: number;
+  /** In-app route the bell entry opens when clicked (LIRA-360). */
+  href?: string;
 };
 
 // Map of known events to their argument tuples
@@ -16,6 +18,7 @@ type EventMap = {
     message: string,
     type: NotificationType,
     duration?: number,
+    href?: string,
   ];
   "notification:history": [history: UINotification[]];
   "sale:completed": [data?: unknown];

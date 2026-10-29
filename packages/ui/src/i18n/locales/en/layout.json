@@ -47,7 +47,13 @@
     "logout": "Logout",
     "lowStock": "{{count}} products are low on stock",
     "generalDrawerLimit": "General Drawer exceeds limit: {{amount}} > {{limit}}",
-    "omtDrawerLimit": "OMT Drawer exceeds limit: {{amount}} > {{limit}}"
+    "omtDrawerLimit": "OMT Drawer exceeds limit: {{amount}} > {{limit}}",
+    "insuranceBoth_one": "Insurance: {{count}} expires this week, {{expired}} expired",
+    "insuranceBoth_other": "Insurance: {{count}} expire this week, {{expired}} expired",
+    "insuranceUpcoming_one": "Insurance: {{count}} expires this week",
+    "insuranceUpcoming_other": "Insurance: {{count}} expire this week",
+    "insuranceExpired_one": "Insurance: {{count}} expired",
+    "insuranceExpired_other": "Insurance: {{count}} expired"
   },
   "voiceBot": {
     "open": "Voice assistant",

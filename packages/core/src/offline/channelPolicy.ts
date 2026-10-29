@@ -82,6 +82,8 @@ const RECORDABLE: readonly ChannelPolicyEntry[] = [
   { channel: "custom-services:update-metadata", cls: "offline", family: "customServices", label: "Custom service details edited", roles: ["admin", "staff"], coreSchema: "customServiceUpdateMetadataSchema" },
   { channel: "custom-services:advance-fulfillment", cls: "offline", family: "customServices", label: "Custom service fulfilment step", roles: ["admin", "staff"], coreSchema: "updateCustomServiceFulfillmentSchema" },
   { channel: "custom-services:set-work-status", cls: "offline", family: "customServices", label: "Custom service work status", roles: ["admin", "staff"], coreSchema: "updateCustomServiceWorkStatusSchema" },
+  // LIRA-360 — "Won't renew" on an insurance reminder.
+  { channel: "custom-services:dismiss-insurance-renewal", cls: "offline", family: "customServices", label: "Insurance won't renew", roles: ["admin", "staff"], coreSchema: "dismissInsuranceRenewalSchema" },
   { channel: "db:add-expense", cls: "offline", family: "expenses", label: "Expense", roles: ["admin", "staff"], coreSchema: "createExpenseSchema" },
   { channel: "expenses:add-stock-use", cls: "offline", family: "expenses", label: "Stock used as an expense", roles: ["admin", "staff"], coreSchema: "createStockExpenseSchema" },
   { channel: "db:delete-expense", cls: "offline", family: "expenses", label: "Expense deleted", roles: ["admin"], coreSchema: "expenseIdParamSchema", argNames: ["id"], body: "none" },
@@ -362,6 +364,8 @@ const READ: readonly string[] = [
   "currencies:getModules",
   "currencies:list",
   "custom-services:get",
+  // LIRA-360: insurance renewal reminders (Dashboard card + bell).
+  "custom-services:insurance-renewals",
   "custom-services:list",
   "custom-services:summary",
   "dashboard:get-debt-summary",

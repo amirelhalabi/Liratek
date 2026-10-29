@@ -146,6 +146,34 @@
   "stock": {
     "title": "الأرصدة والمخزون"
   },
+  "insurance": {
+    "title": "تجديد التأمين",
+    "empty": "لا يوجد تأمين بحاجة للتجديد",
+    "inDays_zero": "بعد {{count}} يوم",
+    "inDays_one": "بعد يوم واحد",
+    "inDays_two": "بعد يومين",
+    "inDays_few": "بعد {{count}} أيام",
+    "inDays_many": "بعد {{count}} يوماً",
+    "inDays_other": "بعد {{count}} يوم",
+    "today": "اليوم",
+    "expiredAgo_zero": "انتهى منذ {{count}} يوم",
+    "expiredAgo_one": "انتهى منذ يوم واحد",
+    "expiredAgo_two": "انتهى منذ يومين",
+    "expiredAgo_few": "انتهى منذ {{count}} أيام",
+    "expiredAgo_many": "انتهى منذ {{count}} يوماً",
+    "expiredAgo_other": "انتهى منذ {{count}} يوم",
+    "expires": "ينتهي في {{date}}",
+    "wontRenew": "لن يجدد",
+    "confirmWontRenew": "إزالة تأمين {{name}} من قائمة التجديد؟ لن يعود إلا إذا اشترى تأميناً جديداً.",
+    "dismissFailed": "تعذر تحديث هذا التأمين",
+    "loadFailed": "تعذر تحميل تجديدات التأمين",
+    "total_zero": "لا زبائن",
+    "total_one": "زبون واحد",
+    "total_two": "زبونان",
+    "total_few": "{{count}} زبائن",
+    "total_many": "{{count}} زبوناً",
+    "total_other": "{{count}} زبون"
+  },
   "holds": {
     "holdingFor": "أمانة لـ {{name}}",
     "collect": "تسليم"

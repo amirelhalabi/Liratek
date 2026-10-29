@@ -95,6 +95,10 @@ import type {
   WrongNumberCreditsResultData,
   WrongNumberCardItem,
   WrongNumberSaleCardQueryInput,
+  InsuranceType,
+  InsuranceRenewal,
+  InsuranceRenewalsQueryPayload,
+  DismissInsuranceRenewalPayload,
 } from "@liratek/core";
 
 /** LIRA-306 — the plain envelope the offline:* channels reply with. */
@@ -1505,7 +1509,10 @@ export interface ElectronAPI {
     /** LIRA-304 — open debt items (repayment picker / preview). */
     getOpenItems: (clientId: number) => Promise<unknown[]>;
     /** LIRA-347 — one month of debt items for the settle calendar. */
-    getMonthRows: (data: { clientId: number; month: string }) => Promise<unknown>;
+    getMonthRows: (data: {
+      clientId: number;
+      month: string;
+    }) => Promise<unknown>;
     updateMetadata: (data: {
       id: number;
       note?: string;
@@ -3954,6 +3961,8 @@ export interface ElectronAPI {
         /** LIRA-083 — work-in-progress lifecycle, separate from `status`
          *  (accounting). Defaults to 'Received' for new rows. */
         work_status: "Received" | "In_Progress" | "Ready" | "Delivered";
+        /** LIRA-360 — NULL for non-insurance and pre-v227 insurance. */
+        insurance_type: InsuranceType | null;
       }>
     >;
     get: (id: number) => Promise<{
@@ -3986,6 +3995,8 @@ export interface ElectronAPI {
       /** LIRA-083 — work-in-progress lifecycle, separate from `status`
        *  (accounting). Defaults to 'Received' for new rows. */
       work_status: "Received" | "In_Progress" | "Ready" | "Delivered";
+      /** LIRA-360 — NULL for non-insurance and pre-v227 insurance. */
+      insurance_type: InsuranceType | null;
     } | null>;
     summary: () => Promise<{
       count: number;
@@ -4023,6 +4034,13 @@ export interface ElectronAPI {
       id: number;
       work_status: "Received" | "In_Progress" | "Ready" | "Delivered";
     }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+    /** LIRA-360 — insurance renewal reminders + "Won't renew". */
+    insuranceRenewals: (
+      query?: InsuranceRenewalsQueryPayload,
+    ) => Promise<InsuranceRenewal[]>;
+    dismissInsuranceRenewal: (
+      data: DismissInsuranceRenewalPayload,
+    ) => Promise<{ success: boolean; error?: string }>;
   };
 
   // LIRA-326 — Mobile Recharge basket checkout (automatic walk-in session).

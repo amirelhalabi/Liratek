@@ -265,6 +265,9 @@ import type {
   RemoveAccountCreditPayload,
   UpdateCustomServiceFulfillmentPayload,
   UpdateCustomServiceWorkStatusPayload,
+  InsuranceRenewal,
+  InsuranceRenewalsQueryPayload,
+  DismissInsuranceRenewalPayload,
   UpdateServiceProviderPayload,
   CreateClientPayload,
   RecordCarrierLineUsagePayload,
@@ -2857,6 +2860,15 @@ export type ApiAdapter = {
   setCustomServiceWorkStatus: (
     data: UpdateCustomServiceWorkStatusPayload,
   ) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+  /** LIRA-360 — insurances expiring within 7 days or expired and not
+   *  renewed/dismissed, for the shop's `client_day`. */
+  getInsuranceRenewals: (
+    query?: InsuranceRenewalsQueryPayload,
+  ) => Promise<InsuranceRenewal[]>;
+  /** LIRA-360 — "Won't renew". */
+  dismissInsuranceRenewal: (
+    data: DismissInsuranceRenewalPayload,
+  ) => Promise<ApiResult>;
   /** Edit non-financial metadata (description/client name/phone/note) on a
    *  custom_services row (the History modal's inline edit). */
   updateCustomServiceMetadata: (

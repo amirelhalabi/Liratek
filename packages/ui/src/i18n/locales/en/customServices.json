@@ -32,6 +32,13 @@
     "RECEIVED": "Received",
     "DELIVERED": "Delivered"
   },
+  "insuranceType": {
+    "COMPULSORY": "Compulsory",
+    "THIRD_PARTY": "Third party",
+    "DOMESTIC_WORKER": "Domestic worker",
+    "ALL_RISK": "All risk",
+    "LIFE": "Life"
+  },
   "partnerMode": {
     "ariaLabel": "Who is this service for",
     "customer": "Customer",
@@ -71,7 +78,8 @@
     "submitting": "Submitting...",
     "submitToPartner": "Submit to Partner",
     "submitPayout": "Submit Payout",
-    "submitService": "Submit Service"
+    "submitService": "Submit Service",
+    "insuranceType": "Insurance type"
   },
   "notice": {
     "forNoPrice": "No price is collected from a customer for a partner service.",
@@ -98,7 +106,8 @@
     "error": "Error: {{error}}",
     "recordFailed": "Failed to record service.",
     "voidConfirm": "Void this service? Payments will be reversed.",
-    "voidFailed": "Failed to void service."
+    "voidFailed": "Failed to void service.",
+    "selectInsuranceType": "Pick the insurance type"
   },
   "hold": {
     "loadFailed": "Failed to load holds",

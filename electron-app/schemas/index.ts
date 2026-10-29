@@ -1438,7 +1438,11 @@ export const ManifestSchema =
 // LIRA-306 T041 — named payloads for the positional transactions:void /
 // transactions:refund channels (core validators/transaction.ts).
 export const TransactionVoidSchema =
-  coreTransactionVoidSchema as unknown as z.ZodSchema<{ transactionId: number }, z.ZodTypeDef, TransactionVoidInput>;
+  coreTransactionVoidSchema as unknown as z.ZodSchema<
+    { transactionId: number },
+    z.ZodTypeDef,
+    TransactionVoidInput
+  >;
 export const TransactionRefundSchema =
   coreTransactionRefundSchema as unknown as z.ZodSchema<
     {
@@ -1518,6 +1522,10 @@ import {
   type CreateCustomServiceInput as CoreCreateCustomServiceInput,
   customServiceIdParamSchema as coreCustomServiceIdParamSchema,
   type CustomServiceIdParamInput,
+  insuranceRenewalsQuerySchema as coreInsuranceRenewalsQuerySchema,
+  type InsuranceRenewalsQueryPayload,
+  dismissInsuranceRenewalSchema as coreDismissInsuranceRenewalSchema,
+  type DismissInsuranceRenewalPayload,
 } from "@liratek/core";
 export const CustomServiceCreateSchema =
   coreCreateCustomServiceSchema as unknown as z.ZodSchema<CoreCreateCustomServiceInput>;
@@ -1526,6 +1534,20 @@ export const CustomServiceIdParamSchema =
     { id: number },
     z.ZodTypeDef,
     CustomServiceIdParamInput
+  >;
+// LIRA-360 — insurance renewal list + "Won't renew" (new channels, no
+// local copy to diff against).
+export const InsuranceRenewalsQuerySchema =
+  coreInsuranceRenewalsQuerySchema as unknown as z.ZodSchema<
+    { client_day?: string },
+    z.ZodTypeDef,
+    InsuranceRenewalsQueryPayload
+  >;
+export const DismissInsuranceRenewalSchema =
+  coreDismissInsuranceRenewalSchema as unknown as z.ZodSchema<
+    { id: number },
+    z.ZodTypeDef,
+    DismissInsuranceRenewalPayload
   >;
 // END LIRA-306 Phase 6 (Agent C — custom-services + loto)
 

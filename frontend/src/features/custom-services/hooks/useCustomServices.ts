@@ -6,7 +6,11 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useApi } from "@liratek/ui";
-import type { FulfillmentStatus, WorkStatus } from "@liratek/core";
+import type {
+  FulfillmentStatus,
+  InsuranceType,
+  WorkStatus,
+} from "@liratek/core";
 import logger from "@/utils/logger";
 
 export interface CustomServiceEntry {
@@ -44,6 +48,8 @@ export interface CustomServiceEntry {
    *  (accounting). Imports the ONE type definition (rule 14) from
    *  `@liratek/core` rather than re-typing the four literals here. */
   work_status?: WorkStatus;
+  /** LIRA-360 — which insurance; NULL for non-insurance and older sales. */
+  insurance_type?: InsuranceType | null;
 }
 
 export interface CustomServiceSummary {

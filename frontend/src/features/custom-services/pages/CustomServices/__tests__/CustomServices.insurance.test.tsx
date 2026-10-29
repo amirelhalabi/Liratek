@@ -27,6 +27,7 @@
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { createCustomServiceSchema } from "@liratek/core";
 import CustomServices from "../index";
 
 // ── Mock useApi ──
@@ -388,6 +389,10 @@ describe("CustomServices — Insurance category (LIRA-155)", () => {
     fireEvent.change(screen.getByTestId("paid-by-select"), {
       target: { value: "CASH" },
     });
+    // LIRA-360: an insurance sale needs its type before it can be submitted.
+    fireEvent.change(screen.getByTestId("insurance-type-select"), {
+      target: { value: "COMPULSORY" },
+    });
 
     const submitButton = screen.getByText("Submit Service").closest("button");
     await waitFor(() => expect(submitButton).not.toBeDisabled());
@@ -420,5 +425,73 @@ describe("CustomServices — Insurance category (LIRA-155)", () => {
     await waitFor(() => expect(mockAddCustomService).toHaveBeenCalled());
     const call = mockAddCustomService.mock.calls[0][0];
     expect(call.fulfillment_status).toBeUndefined();
+  });
+});
+
+/**
+ * LIRA-360 — the insurance type picker. Not proven failing-first: written
+ * after the picker was added (rule 17 — said plainly, not re-broken).
+ */
+describe("CustomServices — insurance type (LIRA-360)", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("shows the type picker only for the Insurance category", () => {
+    render(<CustomServices />);
+    expect(screen.queryByTestId("insurance-type-select")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Insurance"));
+    expect(screen.getByTestId("insurance-type-select")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Domestic worker" })).toBeInTheDocument();
+  });
+
+  it("blocks the sale until a type is picked, then sends it in the schema's shape", async () => {
+    mockPartnersGetAll.mockResolvedValue([SOLE_PARTNER]);
+    render(<CustomServices />);
+    fireEvent.click(screen.getByText("Insurance"));
+    await screen.findByText("Partner: Fixit Co");
+    fillCostAndPrice("20", "35");
+    fireEvent.change(screen.getByTestId("paid-by-select"), {
+      target: { value: "CASH" },
+    });
+
+    const submitButton = screen.getByText("Submit Service").closest("button");
+    expect(submitButton).toBeDisabled();
+
+    fireEvent.change(screen.getByTestId("insurance-type-select"), {
+      target: { value: "LIFE" },
+    });
+    await waitFor(() => expect(submitButton).not.toBeDisabled());
+    fireEvent.click(submitButton as HTMLElement);
+
+    await waitFor(() => expect(mockAddCustomService).toHaveBeenCalled());
+    // Rule 24: read the field back through the real schema, not by hand.
+    const parsed = createCustomServiceSchema.parse(
+      mockAddCustomService.mock.calls[0][0],
+    );
+    expect(parsed.insurance_type).toBe("LIFE");
+  });
+
+  it("never sends a type for another category", async () => {
+    render(<CustomServices />);
+    fireEvent.click(screen.getByText("Insurance"));
+    fireEvent.change(screen.getByTestId("insurance-type-select"), {
+      target: { value: "LIFE" },
+    });
+    fireEvent.click(screen.getByText("Repair"));
+    // Insurance pre-selected Via Partner; this repair is a plain sale.
+    fireEvent.click(screen.getByTestId("custom-service-partner-mode-none"));
+    fillCostAndPrice("2", "6");
+    fireEvent.change(screen.getByTestId("paid-by-select"), {
+      target: { value: "CASH" },
+    });
+    fireEvent.click(
+      screen.getByText("Submit Service").closest("button") as HTMLElement,
+    );
+    await waitFor(() => expect(mockAddCustomService).toHaveBeenCalled());
+    expect(
+      createCustomServiceSchema.safeParse(mockAddCustomService.mock.calls[0][0])
+        .success,
+    ).toBe(true);
   });
 });

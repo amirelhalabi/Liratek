@@ -146,6 +146,22 @@
   "stock": {
     "title": "Credits & Stock"
   },
+  "insurance": {
+    "title": "Insurance renewals",
+    "empty": "No insurance renewals due",
+    "inDays_one": "in {{count}} day",
+    "inDays_other": "in {{count}} days",
+    "today": "today",
+    "expiredAgo_one": "expired {{count}} day ago",
+    "expiredAgo_other": "expired {{count}} days ago",
+    "expires": "Expires {{date}}",
+    "wontRenew": "Won't renew",
+    "confirmWontRenew": "Take {{name}}'s insurance off the renewal list? It will not come back unless they buy a new one.",
+    "dismissFailed": "Could not update this insurance",
+    "loadFailed": "Could not load insurance renewals",
+    "total_one": "{{count}} customer",
+    "total_other": "{{count}} customers"
+  },
   "holds": {
     "holdingFor": "Holding for {{name}}",
     "collect": "Collect"

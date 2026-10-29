@@ -19,6 +19,10 @@ import {
   type FulfillmentStatus,
 } from "../utils/insuranceFulfillment.js";
 import type { WorkStatus } from "../utils/customServiceWorkStatus.js";
+import {
+  selectInsuranceRenewals,
+  type InsuranceRenewal,
+} from "../utils/insuranceRenewal.js";
 
 // =============================================================================
 // Types
@@ -258,6 +262,26 @@ export class CustomServiceService {
     );
 
     return { success: true, entity: updated };
+  }
+
+  /**
+   * LIRA-360 — insurances to remind about on the shop's `today` (the
+   * caller resolves it: `client_day ?? clientDay()`, rule 27). Shared by
+   * the Dashboard card and the top-bar bell on both transports.
+   */
+  getInsuranceRenewals(today: string): InsuranceRenewal[] {
+    return selectInsuranceRenewals(
+      this.repo.getInsuranceRenewalCandidates(),
+      today,
+    );
+  }
+
+  /** LIRA-360 — "Won't renew". `username` comes from the session/JWT. */
+  dismissInsuranceRenewal(
+    id: number,
+    username: string,
+  ): { success: boolean; error?: string } {
+    return this.repo.dismissInsuranceRenewal(id, username);
   }
 }
 

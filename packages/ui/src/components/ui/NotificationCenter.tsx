@@ -8,6 +8,8 @@ export type NotificationItem = {
   message: string;
   type: "success" | "error" | "info" | "warning";
   duration?: number; // in milliseconds, defaults to 5000
+  /** In-app route the bell entry opens when clicked (LIRA-360). */
+  href?: string;
 };
 
 const NotificationCenter: React.FC = () => {
@@ -33,6 +35,7 @@ const NotificationCenter: React.FC = () => {
       message: string,
       type: "success" | "error" | "info" | "warning",
       duration?: number,
+      href?: string,
     ) => {
       const key = `${type}:${message}`;
       const now = Date.now();
@@ -40,10 +43,13 @@ const NotificationCenter: React.FC = () => {
       if (now - last < dedupeMs) return; // suppress duplicate
       recent.set(key, now);
       const id = now.toString();
-      const newNotification: NotificationItem =
-        duration === undefined
-          ? { id, message, type }
-          : { id, message, type, duration };
+      const newNotification: NotificationItem = {
+        id,
+        message,
+        type,
+        ...(duration === undefined ? {} : { duration }),
+        ...(href === undefined ? {} : { href }),
+      };
       setNotifications((prev) => [...prev, newNotification]);
 
       // Record in history

@@ -198,6 +198,9 @@ import type {
   RemoveAccountCreditPayload,
   UpdateCustomServiceFulfillmentPayload,
   UpdateCustomServiceWorkStatusPayload,
+  InsuranceRenewal,
+  InsuranceRenewalsQueryPayload,
+  DismissInsuranceRenewalPayload,
   UpdateServiceProviderPayload,
   CreateClientPayload,
   UpdateClientPayload,
@@ -2234,9 +2237,10 @@ export async function partnersGetSettleOpenRows(
   return ipcOrHttp(
     async () => getElectronApi().partners.getSettleOpenRows(partnerId),
     async () => {
-      const res = await requestJson<{ success: boolean; rows?: PartnerSettleRow[] }>(
-        `/api/partners/${partnerId}/settle-open-rows`,
-      );
+      const res = await requestJson<{
+        success: boolean;
+        rows?: PartnerSettleRow[];
+      }>(`/api/partners/${partnerId}/settle-open-rows`);
       return res.rows || [];
     },
   );
@@ -2250,9 +2254,10 @@ export async function partnersGetSettleMonthRows(
     async () => getElectronApi().partners.getSettleMonthRows(partnerId, month),
     async () => {
       const qs = new URLSearchParams({ month });
-      const res = await requestJson<{ success: boolean; rows?: PartnerSettleRow[] }>(
-        `/api/partners/${partnerId}/settle-month-rows?${qs.toString()}`,
-      );
+      const res = await requestJson<{
+        success: boolean;
+        rows?: PartnerSettleRow[];
+      }>(`/api/partners/${partnerId}/settle-month-rows?${qs.toString()}`);
       return res.rows || [];
     },
   );
@@ -2266,9 +2271,10 @@ export async function partnersGetSettleDayDetail(
     async () => getElectronApi().partners.getSettleDayDetail(partnerId, day),
     async () => {
       const qs = new URLSearchParams({ day });
-      const res = await requestJson<{ success: boolean; rows?: PartnerDayDetailRow[] }>(
-        `/api/partners/${partnerId}/settle-day-detail?${qs.toString()}`,
-      );
+      const res = await requestJson<{
+        success: boolean;
+        rows?: PartnerDayDetailRow[];
+      }>(`/api/partners/${partnerId}/settle-day-detail?${qs.toString()}`);
       return res.rows || [];
     },
   );
@@ -7350,6 +7356,43 @@ export async function setCustomServiceWorkStatus(
           method: "POST",
           body: data,
         },
+      ),
+  );
+}
+
+// LIRA-360 — insurances to remind about (Dashboard card + bell). Reads
+// return the raw IPC shape (the array); `client_day` is the shop's own day
+// (rule 27), never the server's.
+export async function getInsuranceRenewals(
+  query: InsuranceRenewalsQueryPayload = { client_day: localDay() },
+): Promise<InsuranceRenewal[]> {
+  return ipcOrHttp(
+    async () => getElectronApi().customServices.insuranceRenewals(query),
+    async () => {
+      const qs = new URLSearchParams(
+        query.client_day ? { client_day: query.client_day } : {},
+      );
+      const res = await requestJson<{
+        success: boolean;
+        renewals?: InsuranceRenewal[];
+        error?: string;
+      }>(`/api/custom-services/insurance-renewals?${qs.toString()}`);
+      if (!res.success) throw new Error(res.error ?? "Failed to load");
+      return res.renewals ?? [];
+    },
+  );
+}
+
+// LIRA-360 — "Won't renew": take an insurance off the reminders.
+export async function dismissInsuranceRenewal(
+  data: DismissInsuranceRenewalPayload,
+): Promise<{ success: boolean; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().customServices.dismissInsuranceRenewal(data),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/custom-services/insurance-renewals/${encodeURIComponent(String(data.id))}/dismiss`,
+        { method: "POST" },
       ),
   );
 }

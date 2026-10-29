@@ -7,9 +7,14 @@ import {
   extraNotBothRefineOptions,
   NO_EXTRA_FOR_PARTNER_MESSAGE,
   EXTRA_ABOVE_TOTAL_MESSAGE,
+  clientDayInputSchema,
 } from "./common.js";
 import { FULFILLMENT_STATUSES } from "../utils/insuranceFulfillment.js";
 import { WORK_STATUSES } from "../utils/customServiceWorkStatus.js";
+import {
+  INSURANCE_CATEGORY,
+  INSURANCE_TYPES,
+} from "../utils/insuranceRenewal.js";
 
 /**
  * Custom Service validation schemas
@@ -127,6 +132,11 @@ export const createCustomServiceSchema = z
     // exactly like today. Reuses FULFILLMENT_STATUSES from the one pure
     // module (rule 14) instead of re-typing the four literals here.
     fulfillment_status: z.enum(FULFILLMENT_STATUSES).optional(),
+    // LIRA-360 — which insurance this is, so a renewal can be matched to
+    // the policy it renews. The form requires it; the server keeps it
+    // optional (an untyped insurance is matched by customer only) so a tab
+    // opened before the update, or an offline-queued sale, is not refused.
+    insurance_type: z.enum(INSURANCE_TYPES).optional(),
   })
   .refine(
     (data) =>
@@ -208,7 +218,16 @@ export const createCustomServiceSchema = z
   .refine((data) => !exceedsCustomServicePrice(data), {
     message: EXTRA_ABOVE_TOTAL_MESSAGE,
     path: ["extra_usd"],
-  });
+  })
+  .refine(
+    (data) =>
+      data.insurance_type === undefined ||
+      data.category === INSURANCE_CATEGORY,
+    {
+      message: "An insurance type can only be set on an insurance",
+      path: ["insurance_type"],
+    },
+  );
 
 /**
  * LIRA-319 FR-006 — the extra may not exceed the selling price, per
@@ -365,4 +384,27 @@ export const customServiceIdParamSchema = z.object({
 });
 export type CustomServiceIdParamInput = z.input<
   typeof customServiceIdParamSchema
+>;
+
+/**
+ * LIRA-360 — the insurance renewal list. `client_day` is the browser's own
+ * day (rule 27); the server falls back to `clientDay()` when it is absent.
+ */
+export const insuranceRenewalsQuerySchema = z.object({
+  client_day: clientDayInputSchema,
+});
+export type InsuranceRenewalsQueryPayload = z.input<
+  typeof insuranceRenewalsQuerySchema
+>;
+
+/**
+ * LIRA-360 — "Won't renew". `id` only: the actor comes from the session
+ * (desktop) or the JWT (web), never from the payload. `z.coerce` because
+ * the REST route reads it from the path.
+ */
+export const dismissInsuranceRenewalSchema = z.object({
+  id: z.coerce.number<number>().int().positive(),
+});
+export type DismissInsuranceRenewalPayload = z.input<
+  typeof dismissInsuranceRenewalSchema
 >;

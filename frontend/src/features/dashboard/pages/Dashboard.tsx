@@ -48,6 +48,7 @@ import { DrawerCashoutModal } from "../components/DrawerCashoutModal";
 import { InitialDrawerAmountsModal } from "../../closing/components/InitialDrawerAmountsModal";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { useModules } from "@/contexts/ModuleContext";
+import { InsuranceRenewalsCard } from "../components/InsuranceRenewalsCard";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useShopBase } from "@/hooks/useShopBase";
@@ -1534,6 +1535,8 @@ export default function Dashboard() {
                   </div>
                 );
               })}
+              {/* LIRA-360 — hides itself when Custom Services is off */}
+              <InsuranceRenewalsCard />
             </div>
           </div>
 

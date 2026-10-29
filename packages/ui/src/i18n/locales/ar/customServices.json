@@ -32,6 +32,13 @@
     "RECEIVED": "مُستلَم",
     "DELIVERED": "مُسلَّم"
   },
+  "insuranceType": {
+    "COMPULSORY": "إلزامي",
+    "THIRD_PARTY": "ضد الغير",
+    "DOMESTIC_WORKER": "عاملة منزلية",
+    "ALL_RISK": "شامل",
+    "LIFE": "حياة"
+  },
   "partnerMode": {
     "ariaLabel": "لمن هذه الخدمة",
     "customer": "زبون",
@@ -71,7 +78,8 @@
     "submitting": "جارٍ الإرسال...",
     "submitToPartner": "تسجيل على الشريك",
     "submitPayout": "تسجيل الدفع",
-    "submitService": "تسجيل الخدمة"
+    "submitService": "تسجيل الخدمة",
+    "insuranceType": "نوع التأمين"
   },
   "notice": {
     "forNoPrice": "لا يُقبض سعر من الزبون في خدمة لصالح شريك.",
@@ -98,7 +106,8 @@
     "error": "خطأ: {{error}}",
     "recordFailed": "تعذّر تسجيل الخدمة.",
     "voidConfirm": "إلغاء هذه الخدمة؟ ستُعكس الدفعات.",
-    "voidFailed": "تعذّر إلغاء الخدمة."
+    "voidFailed": "تعذّر إلغاء الخدمة.",
+    "selectInsuranceType": "اختر نوع التأمين"
   },
   "hold": {
     "loadFailed": "تعذّر تحميل الأمانات",

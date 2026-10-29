@@ -15189,7 +15189,41 @@ DROP TABLE IF EXISTS partner_settlement_coverage;`);
       }
     },
   },
+  {
+    version: 227,
+    name: "custom_services_insurance_renewal",
+    description:
+      "LIRA-360: insurance renewal reminders. Adds custom_services.insurance_type " +
+      "(one of COMPULSORY, THIRD_PARTY, DOMESTIC_WORKER, ALL_RISK, LIFE; NULL for " +
+      "every other category and for insurance sold before this version) and the " +
+      "\"Won't renew\" mark renewal_dismissed_at / renewal_dismissed_by. Columns " +
+      "only: no existing row changes.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "custom_services")) return;
+      for (const col of INSURANCE_V227_COLUMNS) {
+        if (!columnExists(db, "custom_services", col)) {
+          db.exec(`ALTER TABLE custom_services ADD COLUMN ${col} TEXT DEFAULT NULL`);
+        }
+      }
+    },
+    down(db: Database.Database) {
+      if (!tableExists(db, "custom_services")) return;
+      for (const col of INSURANCE_V227_COLUMNS) {
+        if (columnExists(db, "custom_services", col)) {
+          db.exec(`ALTER TABLE custom_services DROP COLUMN ${col}`);
+        }
+      }
+    },
+  },
 ];
+
+/** v227 — the custom_services columns LIRA-360 adds (fixed names, no input). */
+const INSURANCE_V227_COLUMNS = [
+  "insurance_type",
+  "renewal_dismissed_at",
+  "renewal_dismissed_by",
+] as const;
 
 /** v226 — the Loto row kinds a checkpoint settlement paid, with the table
  *  their link-mode transaction points at. */

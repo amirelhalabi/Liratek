@@ -1510,6 +1510,13 @@ CREATE TABLE IF NOT EXISTS custom_services (
     -- description for why a table rebuild wasn't used for this column. A
     -- fresh install has no pre-existing rows to backfill.
     work_status TEXT NOT NULL DEFAULT 'Received',
+    -- v227 (LIRA-360): insurance renewal reminders. insurance_type is one of
+    -- COMPULSORY / THIRD_PARTY / DOMESTIC_WORKER / ALL_RISK / LIFE (checked
+    -- by createCustomServiceSchema), NULL for every other category.
+    -- renewal_dismissed_* = the "Won't renew" mark.
+    insurance_type TEXT DEFAULT NULL,
+    renewal_dismissed_at TEXT DEFAULT NULL,
+    renewal_dismissed_by TEXT DEFAULT NULL,
     FOREIGN KEY (client_id) REFERENCES clients(id),
     FOREIGN KEY (created_by) REFERENCES users(id)
 );
@@ -3264,4 +3271,7 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (225, 'partner_settlement_coverage'),
     -- v226 (LIRA-351) is data only (stamps Loto rows of settled checkpoints);
     -- a fresh database has none, so nothing to declare.
-    (226, 'loto_checkpoint_backfill');
+    (226, 'loto_checkpoint_backfill'),
+    -- v227 (LIRA-360) adds custom_services.insurance_type +
+    -- renewal_dismissed_at / renewal_dismissed_by, declared above.
+    (227, 'custom_services_insurance_renewal');

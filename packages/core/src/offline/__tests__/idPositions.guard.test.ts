@@ -35,8 +35,8 @@ function leafKey(path: string): string {
 }
 
 describe("id-position guard over recorded core schemas", () => {
-  it("covers every recorded schema (77 recordable − PENDING_LIFT)", () => {
-    expect(recorded.length).toBe(77 - PENDING_LIFT.length);
+  it("covers every recorded schema (78 recordable − PENDING_LIFT)", () => {
+    expect(recorded.length).toBe(78 - PENDING_LIFT.length);
     expect(recorded.length).toBeGreaterThanOrEqual(55);
   });
 

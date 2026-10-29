@@ -11,7 +11,10 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { formatNumber } from "@liratek/ui/i18n/format";
-import { categoryLabel } from "@/features/custom-services/utils/labels";
+import {
+  categoryLabel,
+  insuranceTypeLabel,
+} from "@/features/custom-services/utils/labels";
 import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import {
   Plus,
@@ -34,7 +37,11 @@ import {
   useApi,
   DecimalInput,
 } from "@liratek/ui";
-import type { FulfillmentStatus } from "@liratek/core";
+import {
+  INSURANCE_TYPES,
+  type FulfillmentStatus,
+  type InsuranceType,
+} from "@liratek/core";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
@@ -171,6 +178,9 @@ export default function CustomServices() {
   // LIRA-155: derived, not its own state — resets for free whenever
   // `category` resets on submit/switch, same as HOLD_MONEY_CATEGORY's check.
   const isInsurance = category === INSURANCE_CATEGORY;
+  // LIRA-360: which insurance — required on an insurance sale so a renewal
+  // can be matched to the policy it renews. Cleared with `category`.
+  const [insuranceType, setInsuranceType] = useState<InsuranceType | "">("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
 
@@ -449,6 +459,10 @@ export default function CustomServices() {
       alert(t("msg.enterSellingPrice"));
       return;
     }
+    if (isInsurance && !insuranceType) {
+      alert(t("msg.selectInsuranceType"));
+      return;
+    }
     const hasDebtLine = paymentLines.some(
       (l) => l.method === "CUSTOMER_ACCOUNT",
     );
@@ -635,6 +649,9 @@ export default function CustomServices() {
       // insurance item carries it too — both branches read this SAME
       // `payload` object.
       if (isInsurance) payload.fulfillment_status = "ORDERED";
+      // LIRA-360: same single payload for the walk-in and session-cart
+      // branches below (rule 22).
+      if (isInsurance && insuranceType) payload.insurance_type = insuranceType;
 
       // If session is active, add to cart instead of submitting — never for
       // a FOR-partner service (no walk-in customer, mirrors every other
@@ -684,6 +701,7 @@ export default function CustomServices() {
         setPriceLbp("");
         setNote("");
         setCategory("");
+        setInsuranceType("");
         setPaymentLines([]);
         setReturnLegs([]);
         setKeptChange(null);
@@ -723,6 +741,7 @@ export default function CustomServices() {
         setPriceLbp("");
         setNote("");
         setCategory("");
+        setInsuranceType("");
         setPaymentLines([]);
         setReturnLegs([]);
         setKeptChange(null);
@@ -834,6 +853,7 @@ export default function CustomServices() {
                     type="button"
                     onClick={() => {
                       setCategory(cat.value);
+                      setInsuranceType("");
                       // If switching to digital_account, clear product selection for fresh preset pick
                       if (cat.value === "digital_account" && selectedProduct) {
                         clearProduct();
@@ -867,6 +887,40 @@ export default function CustomServices() {
                 ))}
               </div>
             </div>
+
+            {/* LIRA-360: insurance type — required, drives renewal reminders */}
+            {isInsurance && (
+              <div>
+                <label
+                  htmlFor="insurance-type-select"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+                >
+                  <Shield size={12} className="inline me-1" />
+                  {t("form.insuranceType")}
+                </label>
+                <select
+                  id="insurance-type-select"
+                  data-testid="insurance-type-select"
+                  required
+                  value={insuranceType}
+                  onChange={(e) =>
+                    setInsuranceType(e.target.value as InsuranceType | "")
+                  }
+                  className={`w-full bg-slate-900/50 border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-teal-500 ${
+                    insuranceType ? "border-slate-700" : "border-amber-500/60"
+                  }`}
+                >
+                  <option value="" disabled>
+                    {t("msg.selectInsuranceType")}
+                  </option>
+                  {INSURANCE_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {insuranceTypeLabel(type, t)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Hold Money: special category — swap in its own UI */}
             {category === HOLD_MONEY_CATEGORY && <HoldMoneySection />}
@@ -1570,6 +1624,7 @@ export default function CustomServices() {
                 disabled={
                   isSubmitting ||
                   awaitingSellingPrice ||
+                  (isInsurance && !insuranceType) ||
                   (hasPartnerMode && !selectedPartnerId) ||
                   // LIRA-154: VIA additionally needs a real payment leg —
                   // the alert-based guard in handleSubmit is the source of

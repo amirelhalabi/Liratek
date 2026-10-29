@@ -35,6 +35,9 @@ import type {
   // LIRA-327 — basket-wide For Partner submit payload (rule 21).
   RechargePartnerOrderPayload,
   CreateCustomServicePayload,
+  // LIRA-360 — insurance renewal list + "Won't renew" (rule 21).
+  InsuranceRenewalsQueryPayload,
+  DismissInsuranceRenewalPayload,
   // LIRA-293 — change your own password (core schema input, rule 21).
   ChangeOwnPasswordInput,
   // LIRA-331 — a user's own UI language (core schema input, rule 21).
@@ -2056,6 +2059,11 @@ contextBridge.exposeInMainWorld("api", {
       id: number;
       work_status: "Received" | "In_Progress" | "Ready" | "Delivered";
     }) => ipcRenderer.invoke("custom-services:set-work-status", data),
+    // LIRA-360 — insurance renewal reminders + "Won't renew".
+    insuranceRenewals: (query?: InsuranceRenewalsQueryPayload) =>
+      ipcRenderer.invoke("custom-services:insurance-renewals", query),
+    dismissInsuranceRenewal: (data: DismissInsuranceRenewalPayload) =>
+      ipcRenderer.invoke("custom-services:dismiss-insurance-renewal", data),
   },
 
   // LIRA-326 — Mobile Recharge basket across providers: paid once, recorded
