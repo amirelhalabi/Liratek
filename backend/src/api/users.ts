@@ -80,6 +80,18 @@ function validateUserIdParam(
   next();
 }
 
+// GET /api/users — mirrors users:list (LIRA-355): every active user, admins
+// included, admin-only. Static path, declared before any "/:id" route.
+router.get("/", requireAuth, requireRole(["admin"]), async (_req, res) => {
+  try {
+    const users = getAuthService().getAllUsers();
+    res.json({ success: true, users });
+  } catch (error) {
+    logger.error({ error }, "Get users error");
+    res.status(500).json({ success: false, error: "Failed to get users" });
+  }
+});
+
 // GET /api/users/non-admins — mirrors users:get-non-admins
 // (getAllUsers().filter(u => u.role !== "admin")), admin-only.
 router.get(

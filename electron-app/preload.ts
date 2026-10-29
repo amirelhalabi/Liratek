@@ -154,6 +154,8 @@ contextBridge.exposeInMainWorld("api", {
     changeOwnPassword: (data: ChangeOwnPasswordInput) =>
       ipcRenderer.invoke("auth:change-own-password", data),
     getNonAdminUsers: () => ipcRenderer.invoke("users:get-non-admins"),
+    // LIRA-355: every user, admins included.
+    getUsers: () => ipcRenderer.invoke("users:list"),
     setUserActive: (id: number, is_active: number) =>
       ipcRenderer.invoke("users:set-active", { id, is_active }),
     setUserRole: (id: number, role: "admin" | "staff") =>

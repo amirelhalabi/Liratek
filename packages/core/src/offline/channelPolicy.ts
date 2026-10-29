@@ -543,6 +543,8 @@ const READ: readonly string[] = [
   "transactions:session-basket-item-refund-preview",
   "updater:get-status",
   "users:get-non-admins",
+  // LIRA-355: every user, admins included (Settings → Users).
+  "users:list",
   "voicebot:execute",
   "voicebot:parse",
   "voucher-images:get-all",

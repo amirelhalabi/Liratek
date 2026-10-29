@@ -775,6 +775,27 @@ export function registerAuthHandlers(): void {
   });
 
   // ---------------------------------------------------------------------------
+  // List Users Handler (Admin only) — LIRA-355
+  // ---------------------------------------------------------------------------
+  // Every active user, admins included, so Settings → Users can show (and
+  // deactivate / reset) an admin such as a support account. The service
+  // already refuses deactivating yourself or the last administrator.
+  ipcMain.handle("users:list", (e) => {
+    const authCheck = requireAdminRole(e.sender.id);
+    if (!authCheck.ok) return [];
+
+    try {
+      return authService.getAllUsers();
+    } catch (error) {
+      authLogger.error(
+        { error: error instanceof Error ? error.message : String(error) },
+        "List users error",
+      );
+      return [];
+    }
+  });
+
+  // ---------------------------------------------------------------------------
   // Set User Active Status Handler (Admin only)
   // ---------------------------------------------------------------------------
   ipcMain.handle(

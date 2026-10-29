@@ -4397,6 +4397,21 @@ export type NonAdminUser = {
  * adapter's read contract (CLAUDE.md Dual-Transport section: reads return
  * the raw shape, writes return the envelope).
  */
+/** LIRA-355: every active user, admins included (Settings → Users). Same
+ *  read contract as `getNonAdminUsers`: the raw array on both transports. */
+export async function getUsers(): Promise<NonAdminUser[]> {
+  return ipcOrHttp(
+    async () => getElectronApi().auth.getUsers(),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        users: NonAdminUser[];
+      }>("/api/users");
+      return res.users || [];
+    },
+  );
+}
+
 export async function getNonAdminUsers(): Promise<NonAdminUser[]> {
   return ipcOrHttp(
     async () => getElectronApi().auth.getNonAdminUsers(),

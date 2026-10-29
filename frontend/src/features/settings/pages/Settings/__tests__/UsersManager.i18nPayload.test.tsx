@@ -22,13 +22,13 @@ import {
 import { i18n, loadLanguage } from "@/i18n/setup";
 import UsersManager from "../UsersManager";
 
-const getNonAdminUsers = jest.fn();
+const getUsers = jest.fn();
 const createUser = jest.fn();
 const setUserActive = jest.fn();
 const setUserRole = jest.fn();
 // Module-level: one stable identity (rule 25).
 const mockApi = {
-  getNonAdminUsers,
+  getUsers,
   createUser,
   setUserActive,
   setUserRole,
@@ -72,7 +72,7 @@ function userCells(): HTMLElement[] {
 
 async function runFlow(): Promise<unknown[][]> {
   jest.clearAllMocks();
-  getNonAdminUsers.mockResolvedValue(USERS);
+  getUsers.mockResolvedValue(USERS);
   listUserEmails.mockResolvedValue([
     { id: 11, email: null, emailVerifiedAt: null, hasPassword: true },
   ]);

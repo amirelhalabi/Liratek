@@ -16,9 +16,9 @@ import { render, screen, fireEvent, waitFor, within } from "@testing-library/rea
 import { appEvents } from "@liratek/ui";
 import UsersManager from "../UsersManager";
 
-const getNonAdminUsers = jest.fn();
+const getUsers = jest.fn();
 const mockApi = {
-  getNonAdminUsers,
+  getUsers,
   createUser: jest.fn(),
   setUserActive: jest.fn(),
   setUserRole: jest.fn(),
@@ -70,10 +70,10 @@ function rowFor(username: string): HTMLElement {
 
 beforeEach(() => {
   desktop = false;
-  for (const fn of [getNonAdminUsers, listUserEmails, listUserInvitations, adminRemoveUserGoogle]) {
+  for (const fn of [getUsers, listUserEmails, listUserInvitations, adminRemoveUserGoogle]) {
     fn.mockReset();
   }
-  getNonAdminUsers.mockResolvedValue(USERS);
+  getUsers.mockResolvedValue(USERS);
   listUserEmails.mockResolvedValue(EMAILS);
   listUserInvitations.mockResolvedValue({ emailConfigured: true, invitations: [] });
 });

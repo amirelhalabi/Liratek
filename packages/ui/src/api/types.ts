@@ -2178,6 +2178,10 @@ export type ApiAdapter = {
   // Users
   // ---------------------------------------------------------------------------
   getNonAdminUsers: () => Promise<any[]>;
+  /** LIRA-355: every active user, admins included. */
+  getUsers: () => Promise<
+    Array<{ id: number; username: string; role: string; is_active: number }>
+  >;
   /**
    * Payload type is DERIVED from `createUserSchema`
    * (packages/core/src/validators/user.ts), not hand-copied (rule 21): the

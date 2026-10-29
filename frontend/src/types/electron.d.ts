@@ -886,6 +886,10 @@ export interface ElectronAPI {
     getNonAdminUsers: () => Promise<
       Array<{ id: number; username: string; role: string; is_active: number }>
     >;
+    // LIRA-355: every user, admins included.
+    getUsers: () => Promise<
+      Array<{ id: number; username: string; role: string; is_active: number }>
+    >;
     setUserActive: (
       id: number,
       is_active: number,

@@ -24,7 +24,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { appEvents } from "@liratek/ui";
 import UsersManager from "../UsersManager";
 
-const getNonAdminUsers = jest.fn();
+const getUsers = jest.fn();
 const createUser = jest.fn();
 const setUserActive = jest.fn();
 const setUserRole = jest.fn();
@@ -33,7 +33,7 @@ const setUserPassword = jest.fn();
 // re-trigger any effect/callback with `api` in its dependency list (rule 25;
 // see SignedInDevices.test.tsx / ResetDataModal.test.tsx for the same note).
 const mockApi = {
-  getNonAdminUsers,
+  getUsers,
   createUser,
   setUserActive,
   setUserRole,
@@ -94,12 +94,12 @@ async function fillCreateForm() {
 
 describe("UsersManager — silent-failure regression guards", () => {
   beforeEach(() => {
-    getNonAdminUsers.mockReset();
+    getUsers.mockReset();
     createUser.mockReset();
     setUserActive.mockReset();
     setUserRole.mockReset();
     setUserPassword.mockReset();
-    getNonAdminUsers.mockResolvedValue([EXISTING_USER]);
+    getUsers.mockResolvedValue([EXISTING_USER]);
   });
 
   afterEach(() => {
@@ -134,7 +134,7 @@ describe("UsersManager — silent-failure regression guards", () => {
       expect(notifications.some((n) => n.type === "success")).toBe(true),
     );
     // The list must actually reflect the create, not just show a toast.
-    expect(getNonAdminUsers).toHaveBeenCalledTimes(2); // initial load + refresh
+    expect(getUsers).toHaveBeenCalledTimes(2); // initial load + refresh
   });
 
   it("shows the server's reason when createUser resolves {success:false,error}", async () => {
@@ -159,8 +159,8 @@ describe("UsersManager — silent-failure regression guards", () => {
   });
 
   it("surfaces an error notification when the list load fails, instead of silently rendering an empty table — fails pre-fix (no catch around load())", async () => {
-    getNonAdminUsers.mockReset();
-    getNonAdminUsers.mockRejectedValue(apiThrow("User store unreachable"));
+    getUsers.mockReset();
+    getUsers.mockRejectedValue(apiThrow("User store unreachable"));
     const notifications = captureNotifications();
 
     render(<UsersManager />);
@@ -186,5 +186,18 @@ describe("UsersManager — silent-failure regression guards", () => {
         notifications.some((n) => n.message === "Cannot deactivate last admin"),
       ).toBe(true),
     );
+  });
+
+  // LIRA-355: the page lists EVERY user, admins included, so an admin (for
+  // example a support account) can be seen, deactivated or given a new
+  // password here. It used to read a non-admin-only list.
+  it("lists admin users next to staff", async () => {
+    getUsers.mockResolvedValue([
+      EXISTING_USER,
+      { id: 2, username: "support_admin", role: "admin" as const, is_active: 1 },
+    ]);
+    render(<UsersManager />);
+    expect(await screen.findByText("cashier1")).toBeInTheDocument();
+    expect(await screen.findByText("support_admin")).toBeInTheDocument();
   });
 });

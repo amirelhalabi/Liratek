@@ -106,6 +106,36 @@ function buildApp(): Express {
   return app;
 }
 
+// LIRA-355: Settings → Users lists every user, admins included.
+describe("GET /api/users", () => {
+  const app = buildApp();
+
+  beforeEach(() => {
+    getAllUsers.mockReset();
+  });
+
+  it("requires the admin role — a staff JWT is rejected, service never called", async () => {
+    const res = await request(app)
+      .get("/api/users")
+      .set("x-test-role", "staff");
+    expect(res.status).toBe(403);
+    expect(getAllUsers).not.toHaveBeenCalled();
+  });
+
+  it("returns every user, admins included", async () => {
+    const users = [
+      { id: 1, username: "admin", role: "admin", is_active: 1, tenant_id: 1 },
+      { id: 2, username: "staff1", role: "staff", is_active: 1, tenant_id: 1 },
+    ];
+    getAllUsers.mockReturnValue(users);
+    const res = await request(app)
+      .get("/api/users")
+      .set("x-test-role", "admin");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true, users });
+  });
+});
+
 describe("GET /api/users/non-admins", () => {
   const app = buildApp();
   let logSpy: ReturnType<typeof jest.spyOn>;

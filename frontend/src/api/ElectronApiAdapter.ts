@@ -711,6 +711,7 @@ export class ElectronApiAdapter implements ApiAdapter {
   // Users
   // ---------------------------------------------------------------------------
   getNonAdminUsers = () => api.getNonAdminUsers();
+  getUsers = () => api.getUsers();
   createUser = (data: CreateUserInput) => api.createUser(data);
   setUserActive = (userId: number, is_active: boolean) =>
     api.setUserActive(userId, is_active);

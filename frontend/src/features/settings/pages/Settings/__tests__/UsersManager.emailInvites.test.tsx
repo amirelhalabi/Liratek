@@ -26,9 +26,9 @@ import {
 } from "@liratek/core";
 import UsersManager from "../UsersManager";
 
-const getNonAdminUsers = jest.fn();
+const getUsers = jest.fn();
 const mockApi = {
-  getNonAdminUsers,
+  getUsers,
   createUser: jest.fn(),
   setUserActive: jest.fn(),
   setUserRole: jest.fn(),
@@ -101,7 +101,7 @@ function rowFor(username: string): HTMLElement {
 beforeEach(() => {
   desktop = false;
   for (const fn of [
-    getNonAdminUsers,
+    getUsers,
     listUserEmails,
     setUserEmail,
     sendUserEmailVerification,
@@ -113,7 +113,7 @@ beforeEach(() => {
   ]) {
     fn.mockReset();
   }
-  getNonAdminUsers.mockResolvedValue(USERS);
+  getUsers.mockResolvedValue(USERS);
   listUserEmails.mockResolvedValue(EMAILS);
   listUserInvitations.mockResolvedValue({ emailConfigured: true, invitations: [PENDING] });
 });

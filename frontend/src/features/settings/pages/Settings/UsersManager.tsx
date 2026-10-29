@@ -160,7 +160,8 @@ export default function UsersManager() {
   const load = async () => {
     setLoading(true);
     try {
-      const rows = await api.getNonAdminUsers();
+      // LIRA-355: every user, admins included.
+      const rows = await api.getUsers();
       const normalized = rows.map((u: any) => ({
         ...u,
         role: (u.role === "admin" ? "admin" : "staff") as "admin" | "staff",
