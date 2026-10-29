@@ -40,6 +40,7 @@ import {
   seedSystemSuppliers,
 } from "../db/systemSuppliers.js";
 import { financialLogger } from "../utils/logger.js";
+import { shopDayLabel } from "../utils/calendarDate.js";
 import { buildCounterpartyMetadata } from "../validators/counterparty.js";
 import { isWithinShortfallMax, SHORTFALL_MAX } from "../validators/exchange.js";
 import { allocateFifo } from "../utils/fifoCoverage.js";
@@ -2977,15 +2978,39 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       let afterDay: { usd: number; lbp: number } | null = null;
       const laterFsIds = new Set<number>();
       if (upToDay !== undefined) {
-        afterDay = { usd: 0, lbp: 0 };
+        // B7 (Cornertech, 2026-10-28): the figure for a past day is the
+        // account's LEDGER as it stood at the end of that shop day — every
+        // non-refunded line of every member dated on or before it. The old
+        // cut ("open rows up to the day") went wrong as soon as a later
+        // payment closed earlier rows: Wednesday's payment made "up to
+        // Tuesday" read +$6,464.54 instead of OMT's −$3,732.01. The day of
+        // a line is the ONE shop-day rule (`localDayExpr`, rules 14 / 27).
+        const cut = this.db
+          .prepare(
+            `SELECT COALESCE(SUM(l.amount_usd), 0) AS usd,
+                    COALESCE(SUM(l.amount_lbp), 0) AS lbp
+               FROM supplier_ledger l
+               JOIN suppliers s
+                 ON s.id = l.supplier_id AND s.tenant_id = l.tenant_id
+              WHERE l.tenant_id = ?
+                AND (s.id = ? OR s.account_supplier_id = ?)
+                AND ${ledgerNotRefunded("l.")}
+                AND ${localDayExpr("l.created_at")} <= ?`,
+          )
+          .get(tenantId, accountSupplierId, accountSupplierId, upToDay) as {
+          usd: number;
+          lbp: number;
+        };
+        afterDay = { usd: grossUsd - cut.usd, lbp: grossLbp - cut.lbp };
+        grossUsd = cut.usd;
+        grossLbp = cut.lbp;
+        // Transfers of a later day are not in that SMS, so neither is their
+        // commission (skipped in the commission sum below).
         for (const row of this._accountRows(accountSupplierId, null)) {
-          if (row.shop_day <= upToDay) continue;
-          afterDay.usd += row.remaining_usd;
-          afterDay.lbp += row.remaining_lbp;
-          if (row.kind === "FINANCIAL_SERVICE") laterFsIds.add(row.id);
+          if (row.shop_day > upToDay && row.kind === "FINANCIAL_SERVICE") {
+            laterFsIds.add(row.id);
+          }
         }
-        grossUsd -= afterDay.usd;
-        grossLbp -= afterDay.lbp;
       }
 
       let commissionUsd = 0;
@@ -6886,10 +6911,16 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           }
         }
         if (latestCovered > settleDay) {
+          // LIRA-353: the cashier reads this message, so the day is written
+          // the way they read it ("Sun 25 Oct") and the technical detail
+          // goes to the log instead.
+          financialLogger.info(
+            { customTime, settleDay, latestCovered },
+            "Account settlement refused: dated before a day it covers",
+          );
           throw new DatabaseError(
-            `This payment covers ${latestCovered}, so it can't be dated before ${latestCovered}. ` +
-              `Pick a later time or leave out the later days. (Account settlement: ` +
-              `transaction_time ${customTime} is on ${settleDay})`,
+            `This payment covers ${shopDayLabel(latestCovered)}, so it can't be dated before that day. ` +
+              `Pick a later time or leave out the later days.`,
           );
         }
       }

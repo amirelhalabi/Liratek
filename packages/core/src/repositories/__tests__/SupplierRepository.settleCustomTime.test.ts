@@ -260,9 +260,17 @@ describe("Settle Account — Set custom time (core)", () => {
   it("a time before the latest picked day it covers is refused, nothing written", () => {
     const before = writeCounts(db);
     // Saturday 24 at 20:00 cannot pay for Sunday 25.
-    expect(() =>
-      settle(payload({ usd: 110, time: "2026-10-24T20:00:00.000Z" })),
-    ).toThrow(/can't be dated before 2026-10-25/);
+    // LIRA-353: the cashier reads the day as "Sun 25 Oct", not as raw
+    // "2026-10-25", and sees no internal field names.
+    let message = "";
+    try {
+      settle(payload({ usd: 110, time: "2026-10-24T20:00:00.000Z" }));
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toBe(
+      "This payment covers Sun 25 Oct, so it can't be dated before that day. Pick a later time or leave out the later days.",
+    );
     expect(writeCounts(db)).toEqual(before);
   });
 

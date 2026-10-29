@@ -66,3 +66,33 @@ export function daysBetweenDateStrings(fromStr: string, toStr: string): number {
   const toMs = Date.UTC(ty, tm - 1, td);
   return Math.round((toMs - fromMs) / 86_400_000);
 }
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
+/**
+ * A `YYYY-MM-DD` shop day as a cashier reads it: "Sun 25 Oct" (LIRA-353).
+ * Worked out in UTC like every other helper here, so the weekday never
+ * depends on the machine's timezone (rule 27). Anything that is not a valid
+ * calendar date comes back unchanged rather than as a wrong day.
+ */
+export function shopDayLabel(day: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!m) return day;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  if (isNaN(d.getTime()) || d.getUTCDate() !== Number(m[3])) return day;
+  return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+}

@@ -12,10 +12,14 @@ import Database from "better-sqlite3";
 import {
   initFixedTenantContext,
   resetTenantContext,
+  runWithTenant,
 } from "../../db/tenantContext";
 import { SupplierRepository } from "../SupplierRepository";
+import { buildDaySelections } from "../../utils/settleDaySelections";
+import { supplierSettleAccountSchema } from "../../validators/supplier";
 import {
   buildDb,
+  fundDrawer,
   omtAccount,
   resetAll,
   seedLedgerRow,
@@ -130,5 +134,64 @@ describe("getAccountExpectedStatement — up to a shop day", () => {
     expect(st.unsettled_commission_usd).toBeCloseTo(3, 6);
     expect(st.after_day_usd).toBe(0);
     expect(st.after_day_lbp).toBe(0);
+  });
+
+  // B7 (Cornertech, 2026-10-28): a payment recorded AFTER the day must not
+  // change that day's figure. Before: the cut was "everything open on or
+  // before the day", so once Wednesday's payment closed Monday's transfers,
+  // "Up to: Tue" showed $6,464.54 instead of OMT's −$3,732.01. The figure is
+  // the account's ledger as it stood at the end of that shop day.
+  it("a payment made after the day does not change that day's figure", () => {
+    const UTC = { clientTzOffsetMinutes: 0 };
+    fundDrawer(db, "OMT_System", "USD", 10_000);
+    const before = repo.getAccountExpectedStatement(
+      acc.omtId,
+      undefined,
+      "2026-10-27",
+    );
+    expect(before.gross_owed_usd).toBeCloseTo(150, 6);
+
+    // Wednesday 28: the shop pays OMT $100 for Monday 26.
+    runWithTenant(
+      1,
+      () => {
+        const built = buildDaySelections(repo.getAccountUnsettled(acc.omtId), {
+          pickedDays: ["2026-10-26"],
+          creditUsed: { usd: 0, lbp: 0 },
+        });
+        repo.settleAccount({
+          ...supplierSettleAccountSchema.parse({
+            account_supplier_id: acc.omtId,
+            per_currency: {
+              USD: {
+                direction: "PAY",
+                payments: [{ method: "CASH", currency_code: "USD", amount: 100 }],
+              },
+            },
+            selections: built.selections,
+            include_account_credits: true,
+            credit_used: built.credit_used,
+            expected_owed: built.expected_owed,
+            transaction_time: "2026-10-28T14:00:00.000Z",
+          }),
+          created_by: 1,
+        });
+      },
+      UTC,
+    );
+
+    const after = repo.getAccountExpectedStatement(
+      acc.omtId,
+      undefined,
+      "2026-10-27",
+    );
+    // Tuesday's figure is still Monday's $100 + Tuesday's $50.
+    expect(after.gross_owed_usd).toBeCloseTo(150, 6);
+    // Nothing lost: the cut + what came after = the account's balance now.
+    const full = repo.getAccountExpectedStatement(acc.omtId);
+    expect(after.gross_owed_usd + (after.after_day_usd ?? NaN)).toBeCloseTo(
+      full.gross_owed_usd,
+      6,
+    );
   });
 });
