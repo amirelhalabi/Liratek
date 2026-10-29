@@ -58,6 +58,7 @@ import {
   supplierPurchaseCreateSchema,
   // LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — same cast-bridge pattern.
   supplierAccountLinkSchema,
+  supplierArchiveSchema,
   // LIRA-087 (migration v189) — same cast-bridge pattern.
   supplierRecordDebtSchema,
   receiveStockSchema,
@@ -178,6 +179,7 @@ import {
   type SupplierCashflowInput,
   type SupplierPurchaseCreateInput,
   type SupplierAccountLinkInput,
+  type SupplierArchiveInput,
   type SupplierRecordDebtInput,
   type ReceiveStockInput,
   type MergeProductSupplierInput,
@@ -1105,6 +1107,9 @@ export const SupplierPurchaseCreateSchema =
 // supplierHandlers.ts's `suppliers:update-account-link` IPC channel.
 export const SupplierAccountLinkSchema =
   supplierAccountLinkSchema as unknown as z.ZodSchema<SupplierAccountLinkInput>;
+// LIRA-362 — consumed by supplierHandlers.ts's `suppliers:set-archived`.
+export const SupplierArchiveSchema =
+  supplierArchiveSchema as unknown as z.ZodSchema<SupplierArchiveInput>;
 // LIRA-087 (migration v189) — consumed by supplierHandlers.ts's
 // `suppliers:record-debt` IPC channel.
 export const SupplierRecordDebtSchema =

@@ -374,5 +374,17 @@
     "yesterday": "Yesterday",
     "thisMonth": "This month",
     "clear": "Clear"
+  },
+  "archive": {
+    "archive": "Archive",
+    "archiveTitle": "Hide this supplier from the list. Its history is kept.",
+    "settleFirst": "Settle this supplier to $0 before archiving it",
+    "unarchive": "Unarchive",
+    "archived": "Supplier archived",
+    "unarchived": "Supplier is back in the list",
+    "failed": "Could not update the supplier",
+    "badge": "Archived",
+    "showArchived": "Show archived ({{count}})",
+    "hideArchived": "Hide archived"
   }
 }

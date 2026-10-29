@@ -8242,3 +8242,23 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 **Pending:** What's new card + screenshot (web e2e or test tenant).
 
 **What users will notice:** on Services, a "Free — no charge" tick saves a job at price 0 with no payment; done via a partner, the partner is still owed the cost.
+
+---
+
+## LIRA-362: Archive a settled supplier — BUILT 2026-10-30
+
+**Ask (owner 2026-10-30, Corner Tech):** "JEQANGJB-382" was typed into a keyboard's supplier field by mistake. The keyboard's label was already cleared, but the supplier stays on the Suppliers page with its $15 purchase and $15 payment (Settled). Not worth tracking, and deleting it would break the two transactions that point at its history, so hide it instead.
+
+**Owner decisions 2026-10-30:**
+- Only a supplier settled at $0 USD and 0 LBP can be archived. Debt can never be hidden.
+- Archived suppliers leave the list; "Show archived (N)" at the bottom of the Products tab lists them with an Unarchive button and their full history.
+- Typing an archived supplier's name again (receiving stock, Settings → Suppliers) unarchives the same supplier; no duplicate is created.
+- Admin only.
+
+**Built:** `SupplierRepository.archiveSupplier` / `unarchiveSupplier` reuse `suppliers.is_active` (no migration). Archive refuses a non-zero balance (`getSupplierBalance`, refunded rows excluded), a system supplier and an account member (parent or child). `ProductSupplierRepository.getOrCreate` and `_findOrCreateLinkedSupplier` revive an archived supplier when its name is typed again, so stock or debt never lands on a hidden row. Shared `supplierArchiveSchema`; IPC `suppliers:set-archived` (online_only); REST `PUT /api/suppliers/:id/archived` (admin). Suppliers page: Archive / Unarchive in the header (Products tab, admin), "Show archived (N)" link, "Archived" badge. The Companies tab is unchanged.
+
+**Tests:** core `SupplierRepository.lira362Archive` (8): proven failing first (all 8 failed before the code). Two refusal cases were first passing vacuously on a TypeError and were tightened to check the message before the fix. The 7 `ProductSupplierRepository.merge` neighbours pass. Written after the code, not proven failing-first: backend `suppliers.lira362Archive.api` (4), frontend `Suppliers.lira362Archive` (4). Typecheck and lint clean. Channel policy counts updated, including LIRA-360's two channels (one offline, one read) that its commit left out of `channelPolicy.complete`.
+
+**Pending:** What's new card + screenshot (web e2e or test tenant).
+
+**What users will notice:** on Suppliers → Products, an admin can archive a settled supplier to hide it from the list, and bring it back from "Show archived".

@@ -40,6 +40,7 @@ import type {
   ProductListFilters,
   CreateUserInput,
   SupplierAccountLinkInput,
+  SupplierArchiveInput,
   TopUpFromClientInput,
   DailyStatsSnapshotQuery,
   HoldMoneyCreateInput,
@@ -652,6 +653,8 @@ export class ElectronApiAdapter implements ApiAdapter {
     );
   updateSupplierAccountLink = (data: SupplierAccountLinkInput) =>
     api.updateSupplierAccountLink(data);
+  setSupplierArchived = (data: SupplierArchiveInput) =>
+    api.setSupplierArchived(data);
   createSupplier = (data: SupplierCreatePayload) => api.createSupplier(data);
   addSupplierLedgerEntry = (
     supplierId: number,

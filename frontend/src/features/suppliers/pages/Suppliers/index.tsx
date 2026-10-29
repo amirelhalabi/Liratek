@@ -39,6 +39,7 @@ import {
   useSupplierAccountUnsettledQuery,
   useRefreshSupplierAccountQueries,
   useRecordSupplierDebtMutation,
+  useSetSupplierArchivedMutation,
   type UnsettledSupplierTransaction,
   type AccountBalance,
   type AccountLedgerEntry,
@@ -942,6 +943,8 @@ export default function SuppliersPage() {
   const [viewCategory, setViewCategory] = useState<"companies" | "products">(
     "companies",
   );
+  // LIRA-362 — archived product suppliers stay hidden until asked for.
+  const [showArchived, setShowArchived] = useState(false);
   const [selectedSupplierId, setSelectedSupplierId] = useState<number | null>(
     null,
   );
@@ -1347,6 +1350,19 @@ export default function SuppliersPage() {
     [suppliers, partnerSystem, viewCategory, accountChildSupplierIds],
   );
 
+  // LIRA-362 — on the Products tab an inactive supplier is an archived one:
+  // listed after the active ones, and only behind "Show archived (N)".
+  const archivedCount =
+    viewCategory === "products"
+      ? sortedSuppliers.filter((s) => s.is_active === 0).length
+      : 0;
+  const visibleSuppliers = useMemo(() => {
+    if (viewCategory !== "products") return sortedSuppliers;
+    const active = sortedSuppliers.filter((s) => s.is_active !== 0);
+    if (!showArchived) return active;
+    return [...active, ...sortedSuppliers.filter((s) => s.is_active === 0)];
+  }, [sortedSuppliers, viewCategory, showArchived]);
+
   const balanceBySupplier = useMemo(() => {
     const map = new Map<number, SupplierBalance>();
     for (const b of balances) map.set(b.supplier_id, b);
@@ -1611,6 +1627,39 @@ export default function SuppliersPage() {
     selectedSupplierId,
     selectedSupplier?.provider ?? null,
   );
+
+  // LIRA-362 — archive/unarchive the selected product supplier.
+  const setArchived = useSetSupplierArchivedMutation();
+  const selectedBalance = activeBalanceMap.get(selectedSupplierId ?? 0);
+  const selectedSettled =
+    Math.abs(Number(selectedBalance?.total_usd ?? 0)) <= BALANCE_EPS &&
+    Math.abs(Number(selectedBalance?.total_lbp ?? 0)) <= BALANCE_EPS;
+  const handleSetArchived = (archived: boolean) => {
+    if (!selectedSupplierId) return;
+    setArchived.mutate(
+      { supplier_id: selectedSupplierId, archived },
+      {
+        onSuccess: () => {
+          appEvents.emit(
+            "notification:show",
+            archived ? t("archive.archived") : t("archive.unarchived"),
+            "success",
+          );
+          if (archived) {
+            setShowArchived(false);
+            setSelectedSupplierId(null);
+          }
+        },
+        onError: (err) => {
+          appEvents.emit(
+            "notification:show",
+            err instanceof Error ? err.message : t("archive.failed"),
+            "error",
+          );
+        },
+      },
+    );
+  };
 
   // LIRA-087 (migration v189) — "Record Debt" (product suppliers only).
   const recordDebt = useRecordSupplierDebtMutation(selectedSupplierId);
@@ -2293,7 +2342,7 @@ export default function SuppliersPage() {
             ))}
           </div>
           <div className="space-y-1">
-            {sortedSuppliers.map((s) => {
+            {visibleSuppliers.map((s) => {
               // LIRA-188 (D6) — an account parent ('OMT') renders as a
               // rolled-up account card with sub-rows instead of the plain
               // tile below. Empty `accountByParentId` (no account parent on
@@ -2343,7 +2392,9 @@ export default function SuppliersPage() {
                       <span className="font-semibold text-white">{s.name}</span>
                       {s.is_active === 0 && (
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-900/50 text-amber-300">
-                          {t("list.inactive")}
+                          {viewCategory === "products"
+                            ? t("archive.badge")
+                            : t("list.inactive")}
                         </span>
                       )}
                     </div>
@@ -2367,10 +2418,22 @@ export default function SuppliersPage() {
                 </button>
               );
             })}
-            {sortedSuppliers.length === 0 && (
+            {visibleSuppliers.length === 0 && (
               <div className="text-slate-500 text-sm p-3">
                 {t("list.empty")}
               </div>
+            )}
+            {archivedCount > 0 && (
+              <button
+                type="button"
+                data-testid="supplier-show-archived"
+                onClick={() => setShowArchived((v) => !v)}
+                className="w-full text-start px-3 py-2 text-xs text-slate-400 hover:text-white"
+              >
+                {showArchived
+                  ? t("archive.hideArchived")
+                  : t("archive.showArchived", { count: archivedCount })}
+              </button>
             )}
           </div>
         </div>
@@ -2529,6 +2592,38 @@ export default function SuppliersPage() {
                       {allTxnsQuery.isLoading ? "" : ` (${allTxns.length})`}
                     </button>
                   )}
+                  {/* LIRA-362 — archive a settled product supplier (hides it
+                      from the list, history kept) or bring an archived one
+                      back. Admin-only; the server refuses anything owed. */}
+                  {isAdmin &&
+                    isProductSupplier &&
+                    !isAccountMember &&
+                    (selectedSupplier.is_active === 0 ? (
+                      <button
+                        type="button"
+                        data-testid="supplier-unarchive"
+                        disabled={setArchived.isPending}
+                        onClick={() => handleSetArchived(false)}
+                        className="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm disabled:opacity-50"
+                      >
+                        {t("archive.unarchive")}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        data-testid="supplier-archive"
+                        disabled={!selectedSettled || setArchived.isPending}
+                        onClick={() => handleSetArchived(true)}
+                        title={
+                          selectedSettled
+                            ? t("archive.archiveTitle")
+                            : t("archive.settleFirst")
+                        }
+                        className="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm disabled:opacity-50 disabled:hover:bg-slate-700"
+                      >
+                        {t("archive.archive")}
+                      </button>
+                    ))}
                   <button
                     type="button"
                     data-testid="supplier-open-payments"

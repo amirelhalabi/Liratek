@@ -19,6 +19,8 @@ import type {
   // LIRA-313 — supplier Pay/Receive payload incl. change legs (rule 21).
   SupplierCashflowPayload,
   SupplierLedgerEntryPayload,
+  // LIRA-362 — archive/unarchive a supplier (core schema input).
+  SupplierArchiveInput,
   // LIRA-322 — account settlement payload (rule 21).
   SupplierSettleAccountPayload,
   RemoveAccountCreditPayload,
@@ -2036,6 +2038,10 @@ export interface ElectronAPI {
       supplier_id: number;
       account_supplier_id: number | null;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    /** LIRA-362 — archive/unarchive a supplier. */
+    setArchived: (
+      data: SupplierArchiveInput,
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
     // Derived from the core schema (rule 21) — includes LIRA-352's
     // transaction_time.
     addLedgerEntry: (

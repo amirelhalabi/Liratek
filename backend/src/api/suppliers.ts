@@ -17,6 +17,7 @@ import {
   supplierCashflowSchema,
   supplierPurchaseCreateSchema,
   supplierAccountLinkSchema,
+  supplierArchiveSchema,
   supplierRecordDebtSchema,
   supplierCreateSchema,
   accountExpectedStatementParamsSchema,
@@ -827,6 +828,40 @@ router.put(
       res
         .status(500)
         .json({ success: false, error: "Failed to update account link" });
+    }
+  },
+);
+
+// PUT /api/suppliers/:id/archived — archive/unarchive a supplier (mirrors
+// suppliers:set-archived). Admin-only; the repository refuses one that is
+// still owed money, a system supplier and an account member.
+router.put(
+  "/:id/archived",
+  requireAuth,
+  requireRole(["admin"]),
+  (req: AuthRequest, _res, next) => {
+    req.body = { ...req.body, supplier_id: Number(req.params.id) };
+    next();
+  },
+  validateRequest(supplierArchiveSchema),
+  (req: AuthRequest, res) => {
+    try {
+      const result = supplierService.setSupplierArchived(req.body);
+      if (result.success) {
+        auditRest(req, {
+          action: "update",
+          entity_type: "supplier",
+          entity_id: String(req.body.supplier_id),
+          summary: `${req.body.archived ? "Archived" : "Unarchived"} supplier #${req.body.supplier_id}`,
+          metadata: { archived: req.body.archived },
+        });
+      }
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Set supplier archived error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to update supplier" });
     }
   },
 );

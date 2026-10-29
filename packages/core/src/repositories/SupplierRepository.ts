@@ -1871,6 +1871,60 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     }
   }
 
+  /**
+   * LIRA-362 — hide a supplier from the Suppliers page, keeping its whole
+   * history. Only a supplier settled at $0 USD and 0 LBP can be archived, so
+   * debt can never be hidden. System suppliers and account members (parent
+   * or child) are refused: their balances roll up elsewhere. A name typed
+   * again later revives the same row (`ProductSupplierRepository`), so a
+   * new debt never lands on a hidden supplier.
+   */
+  archiveSupplier(supplierId: number): void {
+    const tenantId = getCurrentTenantId();
+    this.db.transaction(() => {
+      const row = this._getArchivableRow(supplierId);
+      if (row.is_system === 1) {
+        throw new ValidationError("System suppliers cannot be archived");
+      }
+      if (this.isAccountMember(supplierId)) {
+        throw new ValidationError(
+          "A supplier that is part of an account cannot be archived",
+        );
+      }
+      const { balance_usd, balance_lbp } = this.getSupplierBalance(supplierId);
+      if (Math.abs(balance_usd) >= 0.005 || Math.abs(balance_lbp) >= 0.5) {
+        throw new ValidationError(
+          "Settle this supplier to $0 before archiving it",
+        );
+      }
+      this.db
+        .prepare(
+          `UPDATE suppliers SET is_active = 0 WHERE id = ? AND tenant_id = ?`,
+        )
+        .run(supplierId, tenantId);
+    })();
+  }
+
+  /** LIRA-362 — bring an archived supplier back to the Suppliers page. */
+  unarchiveSupplier(supplierId: number): void {
+    this._getArchivableRow(supplierId);
+    this.db
+      .prepare(
+        `UPDATE suppliers SET is_active = 1 WHERE id = ? AND tenant_id = ?`,
+      )
+      .run(supplierId, getCurrentTenantId());
+  }
+
+  private _getArchivableRow(supplierId: number): { is_system: number } {
+    const row = this.db
+      .prepare(`SELECT is_system FROM suppliers WHERE id = ? AND tenant_id = ?`)
+      .get(supplierId, getCurrentTenantId()) as
+      | { is_system: number }
+      | undefined;
+    if (!row) throw new ValidationError(`Supplier #${supplierId} not found`);
+    return row;
+  }
+
   getByProvider(provider: string): SupplierEntity | undefined {
     try {
       const rows = this.query<SupplierEntity>(

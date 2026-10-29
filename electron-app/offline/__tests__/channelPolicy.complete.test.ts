@@ -164,14 +164,17 @@ describe("channel policy completeness (FR-009)", () => {
   // LIRA-355 added users:list (read).
   // LIRA-361 added inventory:merge-product-supplier (online_only) and
   // inventory:product-supplier-impact (read).
-  it("matches the contract counts: offline 70 / online_only 120 / checkpoint 7 / read 231 / local 25 (453) — voucher:cancel online-only (O-impl-C-1)", () => {
+  // LIRA-360 added custom-services:dismiss-insurance-renewal (offline) and
+  // custom-services:insurance-renewals (read).
+  // LIRA-362 added suppliers:set-archived (online_only).
+  it("matches the contract counts: offline 71 / online_only 121 / checkpoint 7 / read 232 / local 25 (456) — voucher:cancel online-only (O-impl-C-1)", () => {
     expect(policyCounts()).toEqual({
-      offline: 70,
-      online_only: 120,
+      offline: 71,
+      online_only: 121,
       checkpoint: 7,
-      read: 231,
+      read: 232,
       local: 25,
-      total: 453,
+      total: 456,
     });
     expect(PLANNED_CHANNELS).toHaveLength(0); // T122 + T136 registered all 8 offline:* channels
   });

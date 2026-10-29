@@ -7,7 +7,9 @@ import {
 } from "@tanstack/react-query";
 import { useApi } from "@liratek/ui";
 import { normaliseCoveredTypes, type OmtCoveredType } from "@liratek/core";
+import { unwrapIpc } from "@/shared/api/unwrapIpc";
 import type {
+  SupplierArchiveInput,
   SupplierCashflowPayload,
   SupplierDayRangeInput,
   SupplierLedgerEntryPayload,
@@ -515,6 +517,24 @@ export function useAddLedgerEntryMutation(supplierId: number | null) {
         });
       }
       invalidateAccountQueries(queryClient);
+    },
+  });
+}
+
+/** LIRA-362 — archive/unarchive a supplier; throws the refusal message. */
+export function useSetSupplierArchivedMutation() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: SupplierArchiveInput) =>
+      unwrapIpc(api.setSupplierArchived(payload), (r) => r.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.all });
+      queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.balances });
+      queryClient.invalidateQueries({
+        queryKey: SUPPLIER_KEYS.productBalances,
+      });
     },
   });
 }

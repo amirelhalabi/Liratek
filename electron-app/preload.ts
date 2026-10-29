@@ -69,6 +69,8 @@ import type {
   // LIRA-313 — supplier Pay/Receive payload incl. change legs (rule 21).
   SupplierCashflowPayload,
   SupplierLedgerEntryPayload,
+  // LIRA-362 — archive/unarchive a supplier (core schema input).
+  SupplierArchiveInput,
   // LIRA-322 — account settlement payload (rule 21).
   SupplierSettleAccountPayload,
   // LIRA-344 — Remove credit payload (rule 21).
@@ -825,6 +827,9 @@ contextBridge.exposeInMainWorld("api", {
       supplier_id: number;
       account_supplier_id: number | null;
     }) => ipcRenderer.invoke("suppliers:update-account-link", data),
+    // LIRA-362 — archive/unarchive (admin-only; refused while owed).
+    setArchived: (data: SupplierArchiveInput) =>
+      ipcRenderer.invoke("suppliers:set-archived", data),
     // Derived from the core schema (rule 21) — includes drawer_name and
     // LIRA-352's transaction_time.
     addLedgerEntry: (data: SupplierLedgerEntryPayload) =>

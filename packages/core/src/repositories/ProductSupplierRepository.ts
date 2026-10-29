@@ -348,10 +348,17 @@ export class ProductSupplierRepository {
     return this.db.transaction(() => {
       const existing = this.db
         .prepare(
-          `SELECT id FROM product_suppliers WHERE name = ? COLLATE NOCASE AND tenant_id = ?`,
+          `SELECT id, supplier_id FROM product_suppliers WHERE name = ? COLLATE NOCASE AND tenant_id = ?`,
         )
-        .get(trimmed, tenantId) as { id: number } | undefined;
-      if (existing) return existing.id;
+        .get(trimmed, tenantId) as
+        | { id: number; supplier_id: number | null }
+        | undefined;
+      if (existing) {
+        if (existing.supplier_id !== null) {
+          this._unarchiveSupplier(existing.supplier_id);
+        }
+        return existing.id;
+      }
 
       const supplierId = this._findOrCreateLinkedSupplier(trimmed);
       const result = this.db
@@ -389,6 +396,19 @@ export class ProductSupplierRepository {
     return row;
   }
 
+  /**
+   * LIRA-362 — typing an archived supplier's name again brings that same
+   * supplier back to the Suppliers page, so new stock or debt never lands on
+   * a hidden row and no duplicate is created.
+   */
+  private _unarchiveSupplier(supplierId: number): void {
+    this.db
+      .prepare(
+        `UPDATE suppliers SET is_active = 1 WHERE id = ? AND tenant_id = ? AND is_system = 0 AND is_active = 0`,
+      )
+      .run(supplierId, getCurrentTenantId());
+  }
+
   /** Find or create a suppliers row (is_system=0) for the given product supplier name. */
   private _findOrCreateLinkedSupplier(name: string): number {
     const tenantId = getCurrentTenantId();
@@ -397,7 +417,10 @@ export class ProductSupplierRepository {
         `SELECT id FROM suppliers WHERE name = ? COLLATE NOCASE AND is_system = 0 AND tenant_id = ? LIMIT 1`,
       )
       .get(name, tenantId) as { id: number } | undefined;
-    if (existing) return existing.id;
+    if (existing) {
+      this._unarchiveSupplier(existing.id);
+      return existing.id;
+    }
 
     const result = this.db
       .prepare(

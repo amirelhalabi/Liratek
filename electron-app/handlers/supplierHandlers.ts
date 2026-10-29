@@ -17,6 +17,7 @@ import {
   SupplierCashflowSchema,
   SupplierPurchaseCreateSchema,
   SupplierAccountLinkSchema,
+  SupplierArchiveSchema,
   SupplierRecordDebtSchema,
   AccountExpectedStatementParamsSchema,
   AccountMonthSchema,
@@ -219,6 +220,28 @@ export function registerSupplierHandlers(): void {
         account_supplier_id: v.data.account_supplier_id,
       },
     });
+    return result;
+  });
+
+  // LIRA-362 — archive/unarchive a supplier. Admin-only, like every other
+  // supplier write here; the repository refuses one that still owes money.
+  ipcMain.handle("suppliers:set-archived", (e, data: unknown) => {
+    const auth = requireRole(e.sender.id, ["admin"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+
+    const v = validatePayload(SupplierArchiveSchema, data);
+    if (!v.ok) return { success: false, error: v.error };
+
+    const result = service.setSupplierArchived(v.data);
+    if (result.success) {
+      audit(e.sender.id, {
+        action: "update",
+        entity_type: "supplier",
+        entity_id: String(v.data.supplier_id),
+        summary: `${v.data.archived ? "Archived" : "Unarchived"} supplier #${v.data.supplier_id}`,
+        metadata: { archived: v.data.archived },
+      });
+    }
     return result;
   });
 

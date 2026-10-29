@@ -101,6 +101,7 @@ import type {
   AddRepaymentInput,
   CreateUserInput,
   SupplierAccountLinkInput,
+  SupplierArchiveInput,
   TopUpFromClientInput,
   CommissionsReport,
   CommissionProviderRow,
@@ -306,6 +307,7 @@ export type {
   AddRepaymentInput,
   CreateUserInput,
   SupplierAccountLinkInput,
+  SupplierArchiveInput,
   TopUpFromClientInput,
   CommissionsReport,
   CommissionProviderRow,
@@ -2090,6 +2092,10 @@ export type ApiAdapter = {
    */
   updateSupplierAccountLink: (
     data: SupplierAccountLinkInput,
+  ) => Promise<ApiResult & { id?: number }>;
+  /** LIRA-362 — archive/unarchive; refused while the supplier is owed. */
+  setSupplierArchived: (
+    data: SupplierArchiveInput,
   ) => Promise<ApiResult & { id?: number }>;
   addSupplierLedgerEntry: (
     supplierId: number,

@@ -1,5 +1,8 @@
 import type { OmtCoveredType } from "../utils/omtCoveredTypes.js";
-import type { SupplierDayRangeInput } from "../validators/supplier.js";
+import type {
+  SupplierArchiveInput,
+  SupplierDayRangeInput,
+} from "../validators/supplier.js";
 import { toSqliteUtc } from "../utils/requestNow.js";
 import { LOTO_PAY_MOVED_MESSAGE } from "../utils/settlesByDay.js";
 import {
@@ -214,6 +217,17 @@ export class SupplierService {
         return { success: false, error: "account_supplier_id is required" };
       const res = this.repo.updateAccountLink(data);
       return { success: true, id: res.id };
+    } catch (e) {
+      return { success: false, error: toErrorString(e) };
+    }
+  }
+
+  /** LIRA-362 — archive/unarchive; every rule lives in the repository. */
+  setSupplierArchived(data: SupplierArchiveInput): SupplierResult {
+    try {
+      if (data.archived) this.repo.archiveSupplier(data.supplier_id);
+      else this.repo.unarchiveSupplier(data.supplier_id);
+      return { success: true, id: data.supplier_id };
     } catch (e) {
       return { success: false, error: toErrorString(e) };
     }

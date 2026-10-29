@@ -562,6 +562,14 @@ export const supplierAccountLinkSchema = z.object({
   account_supplier_id: z.number().int().positive().nullable(),
 });
 
+// LIRA-362 — archive (hide) or unarchive a supplier on the Suppliers page.
+// The "settled at $0" and "not a system/account supplier" rules need other
+// rows, so they live in SupplierRepository.archiveSupplier (rule 13).
+export const supplierArchiveSchema = z.object({
+  supplier_id: z.number().int().positive(),
+  archived: z.boolean(),
+});
+
 /** Log a delivery batch for a product supplier (FIFO payment coverage). */
 export const supplierPurchaseCreateSchema = z.object({
   supplier_id: z.number().int().positive(),
@@ -611,6 +619,7 @@ export type SupplierCashflowInput = z.infer<typeof supplierCashflowSchema>;
 export type SupplierAccountLinkInput = z.infer<
   typeof supplierAccountLinkSchema
 >;
+export type SupplierArchiveInput = z.infer<typeof supplierArchiveSchema>;
 export type SupplierPurchaseCreateInput = z.infer<
   typeof supplierPurchaseCreateSchema
 >;

@@ -266,6 +266,8 @@ const ONLINE_ONLY: readonly string[] = [
   "setup:joinExistingShop",
   "suppliers:create",
   "suppliers:update-account-link",
+  // LIRA-362 — reads the live balance to refuse archiving a supplier that is owed.
+  "suppliers:set-archived",
   "suppliers:add-ledger-entry",
   "suppliers:settle-transactions",
   "suppliers:settle-account",

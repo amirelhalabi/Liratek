@@ -233,6 +233,7 @@ import type {
   TransactionPageFiltersInput,
   AuditPageFiltersInput,
   SupplierAccountLinkInput,
+  SupplierArchiveInput,
   TopUpFromClientInput,
   CommissionsReport,
   NetProfitWindowResult,
@@ -4030,6 +4031,18 @@ export async function updateSupplierAccountLink(
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         `/api/suppliers/${data.supplier_id}/account-link`,
+        { method: "PUT", body: data },
+      ),
+  );
+}
+
+// LIRA-362 — archive/unarchive a supplier (`supplierArchiveSchema`).
+export async function setSupplierArchived(data: SupplierArchiveInput) {
+  return ipcOrHttp(
+    async () => getElectronApi().suppliers.setArchived(data),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        `/api/suppliers/${data.supplier_id}/archived`,
         { method: "PUT", body: data },
       ),
   );
