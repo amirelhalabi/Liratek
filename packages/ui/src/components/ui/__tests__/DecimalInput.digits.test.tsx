@@ -13,7 +13,7 @@ describe("DecimalInput — Arabic-Indic digits", () => {
     const input = screen.getByLabelText("amount");
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: "١٢٣٫٥" } });
-    expect(onChange).toHaveBeenLastCalledWith(123.5);
+    expect(onChange).toHaveBeenLastCalledWith(123.5, expect.any(String));
     expect(input).toHaveValue("123.5");
   });
 
@@ -29,7 +29,7 @@ describe("DecimalInput — Arabic-Indic digits", () => {
       input.setSelectionRange(pos, pos);
       fireEvent.change(input, { target: { value: next } });
     }
-    expect(onChange).toHaveBeenLastCalledWith(123.5);
+    expect(onChange).toHaveBeenLastCalledWith(123.5, expect.any(String));
     expect(input).toHaveValue("123.5");
   });
 
@@ -39,7 +39,7 @@ describe("DecimalInput — Arabic-Indic digits", () => {
     const input = screen.getByLabelText("amount");
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: "١٬٢٣٤" } });
-    expect(onChange).toHaveBeenLastCalledWith(1234);
+    expect(onChange).toHaveBeenLastCalledWith(1234, expect.any(String));
     expect(input).toHaveValue("1,234");
   });
 });

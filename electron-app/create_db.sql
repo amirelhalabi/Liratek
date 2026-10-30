@@ -69,7 +69,9 @@ CREATE TABLE IF NOT EXISTS tenant_subscriptions (
     trial_ends_at DATETIME,
     -- v228 (LIRA-364): JSON array of opt-in features super admin switches on
     -- for this shop (e.g. "kpi_snapshots"). NULL = none -- the OPPOSITE of
-    -- entitled_modules, because an opt-in feature must never switch itself on.
+    -- entitled_modules: an opt-in feature must never switch itself on.
+    -- No commas in this comment: SQLite's DROP COLUMN (the v228 down) finds
+    -- the column's start by searching back for a comma and fails on one here.
     enabled_features TEXT DEFAULT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_subscriptions_tenant

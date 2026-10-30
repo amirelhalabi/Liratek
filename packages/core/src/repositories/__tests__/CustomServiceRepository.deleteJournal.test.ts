@@ -69,6 +69,7 @@ function createTestDb(): Database.Database {
     INSERT INTO clients (id, full_name) VALUES (${CLIENT_ID}, 'CS Client');
 
     CREATE TABLE custom_services (
+      insurance_type TEXT,
       tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       description TEXT NOT NULL,

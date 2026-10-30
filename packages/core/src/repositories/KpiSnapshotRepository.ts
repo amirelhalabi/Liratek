@@ -44,16 +44,6 @@ export class KpiSnapshotRepository {
       .get(getCurrentTenantId(), utc);
   }
 
-  /** The shop's current USD→LBP buy/sell rate; nulls when none is set. */
-  getUsdLbpRates(): { buy: number | null; sell: number | null } {
-    const row = this.db
-      .prepare(
-        `SELECT buy_rate AS buy, sell_rate AS sell FROM exchange_rates WHERE tenant_id = ? AND to_code = 'LBP'`,
-      )
-      .get(getCurrentTenantId()) as { buy: number; sell: number } | undefined;
-    return { buy: row?.buy ?? null, sell: row?.sell ?? null };
-  }
-
   /**
    * Saves a month with all its values in one transaction. Returns false when
    * the month already exists (`UNIQUE (tenant_id, month)`): a second run is a

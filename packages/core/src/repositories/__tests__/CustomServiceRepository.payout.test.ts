@@ -33,6 +33,7 @@ function createTestDb(): Database.Database {
 
   db.exec(`
     CREATE TABLE custom_services (
+      insurance_type TEXT,
       tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       description TEXT NOT NULL,

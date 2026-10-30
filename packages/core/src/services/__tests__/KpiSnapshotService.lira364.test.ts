@@ -26,6 +26,7 @@ import {
 import { resetDebtRepository } from "../../repositories/DebtRepository.js";
 import { resetPartnerRepository } from "../../repositories/PartnerRepository.js";
 import { resetCarrierLineRepository } from "../../repositories/CarrierLineRepository.js";
+import { resetRateRepository } from "../../repositories/RateRepository.js";
 import {
   initFixedTenantContext,
   resetTenantContext,
@@ -49,6 +50,7 @@ function resetAll(): void {
   resetDebtRepository();
   resetPartnerRepository();
   resetCarrierLineRepository();
+  resetRateRepository();
 }
 
 /** Super admin's per-shop switch (Plan window → Features). Off by default. */

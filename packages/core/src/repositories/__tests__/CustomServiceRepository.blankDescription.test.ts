@@ -59,6 +59,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE custom_services (
+      insurance_type TEXT,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id INTEGER,
       description TEXT NOT NULL,

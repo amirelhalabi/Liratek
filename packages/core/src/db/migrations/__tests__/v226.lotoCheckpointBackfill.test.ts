@@ -110,10 +110,9 @@ afterEach(() => {
 });
 
 describe("v226 loto_checkpoint_backfill", () => {
-  it("is the latest migration", () => {
-    expect(MIGRATIONS[MIGRATIONS.length - 1]?.name).toBe(
-      "loto_checkpoint_backfill",
-    );
+  // Was "is the latest migration" — true only until v227 landed after it.
+  it("is migration v226", () => {
+    expect(mig().version).toBe(226);
   });
 
   it("stamps exactly the rows of settled checkpoints, keeps the balance, and down() clears them", () => {

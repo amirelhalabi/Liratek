@@ -36,6 +36,10 @@ import {
   getSettingsRepository,
   type SettingsRepository,
 } from "../repositories/SettingsRepository.js";
+import {
+  getRateRepository,
+  type RateRepository,
+} from "../repositories/RateRepository.js";
 import { splitBySign } from "../utils/kpiSplit.js";
 import {
   beirutMonth,
@@ -68,6 +72,7 @@ export interface KpiSnapshotDeps {
   products: ProductRepository;
   carrierLines: CarrierLineRepository;
   settings: SettingsRepository;
+  rates: RateRepository;
   subscriptions: SubscriptionService;
 }
 
@@ -83,6 +88,7 @@ export class KpiSnapshotService {
       products: deps?.products ?? getProductRepository(),
       carrierLines: deps?.carrierLines ?? getCarrierLineRepository(),
       settings: deps?.settings ?? getSettingsRepository(),
+      rates: deps?.rates ?? getRateRepository(),
       subscriptions: deps?.subscriptions ?? getSubscriptionService(),
     };
   }
@@ -112,15 +118,16 @@ export class KpiSnapshotService {
     if (month < since) return { captured: null, reason: "not_due" };
     if (snapshots.exists(month)) return { captured: null, reason: "exists" };
 
-    const rates = snapshots.getUsdLbpRates();
+    // The one owner of exchange_rates reads (FR-021a guard); nulls when unset.
+    const lbp = this.deps.rates.findByCode("LBP");
     const saved = snapshots.insertSnapshot({
       month,
       taken_at: toUtcSqlTimestamp(now),
       is_late: snapshots.hasTransactionsSince(
         beirutMonthStartUtc(currentMonth),
       ),
-      usd_lbp_buy_rate: rates.buy,
-      usd_lbp_sell_rate: rates.sell,
+      usd_lbp_buy_rate: lbp?.buy_rate ?? null,
+      usd_lbp_sell_rate: lbp?.sell_rate ?? null,
       values: this.measure(),
     });
     if (!saved) return { captured: null, reason: "exists" };

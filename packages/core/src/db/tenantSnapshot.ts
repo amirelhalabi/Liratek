@@ -94,6 +94,7 @@ export const SNAPSHOT_KEPT_COLUMNS: Readonly<Record<string, string>> = {
   "financial_services.item_key": "catalogue item identifier, not a secret",
   "item_costs.item_key": "catalogue item identifier, not a secret",
   "voucher_images.item_key": "catalogue item identifier, not a secret",
+  "kpi_snapshot_values.kpi_key": "KPI identifier (e.g. stock_value), not a secret",
 };
 
 /** `system_settings.key_name`s matching this are deleted from a copy… */

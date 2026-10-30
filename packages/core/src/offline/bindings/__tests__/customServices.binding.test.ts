@@ -95,7 +95,7 @@ describe("custom-services bindings (T094)", () => {
       clientTzOffsetMinutes: 180,
     });
     expect(off.outcomes.map((o) => o.status)).toEqual(steps.map(() => "booked"));
-    expect({ t: "custom_services", days: daysOf(off.db, "custom_services", "created_at", "id NOT IN (11001, 11002)") }).toEqual({
+    expect({ t: "custom_services", days: daysOf(off.db, "custom_services", "created_at", "id NOT IN (11001, 11002, 11003)") }).toEqual({
       t: "custom_services",
       days: ["2026-10-01"],
     });

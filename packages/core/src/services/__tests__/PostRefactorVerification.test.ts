@@ -457,6 +457,7 @@ function buildSchema(db: Database.Database): void {
     -- ══════════════════════════════════════════
 
     CREATE TABLE IF NOT EXISTS custom_services (
+      insurance_type TEXT,
       tenant_id INTEGER DEFAULT 1,
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       description TEXT NOT NULL,
