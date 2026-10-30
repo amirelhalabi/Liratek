@@ -38,7 +38,7 @@
 
 ### Monthly progress
 
-Shops where it is switched on now have a **Monthly progress** page in the left menu (admins only). At the end of every month the app saves your balances by itself: what customers, suppliers and partners owe you, what you owe them, your stock value at cost, and your line credits. Each month is a column, newest first, with dollars and lira on their own lines and the change from the month before under each amount. The first month appears once the current month ends.
+Shops where it is switched on now have a **Monthly progress** page in the left menu (admins only). At the end of every month the app saves your balances by itself: what customers, suppliers and partners owe you, what you owe them, your stock value at cost, and your line credits. Each month is a column, newest first, with dollars and lira on their own lines and the change from the month before under each amount. The current month appears within an hour of switching on, and its figures are updated to the month-end ones when the month ends.
 ![Monthly progress: September next to August, with the change under each balance](whats-new/1.35.0/monthly-progress.png)
 
 ### Merge a supplier entered twice
@@ -349,7 +349,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 📈 Monthly progress
 
-- New "Monthly progress" page for admins, for shops where it has been switched on: at the end of every month the app saves what customers, suppliers and partners owe the shop, what the shop owes them, the stock value and the line credits, and shows the months side by side with the change from the month before. Dollars and lira stay separate. The first month appears after this month ends.
+- New "Monthly progress" page for admins, for shops where it has been switched on: at the end of every month the app saves what customers, suppliers and partners owe the shop, what the shop owes them, the stock value and the line credits, and shows the months side by side with the change from the month before. Dollars and lira stay separate. The current month appears within an hour of switching on and is updated to its month-end figures when the month ends.
 
 ## 🛠️ Custom Services
 

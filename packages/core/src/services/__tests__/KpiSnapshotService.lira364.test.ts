@@ -70,7 +70,12 @@ function setMarker(db: Database.Database, month: string): void {
 function snapshots(db: Database.Database) {
   return db
     .prepare(`SELECT * FROM kpi_snapshots WHERE tenant_id = 1 ORDER BY month`)
-    .all() as Array<{ id: number; month: string; is_late: number }>;
+    .all() as Array<{
+    id: number;
+    month: string;
+    taken_at: string;
+    is_late: number;
+  }>;
 }
 
 function value(db: Database.Database, key: string) {
@@ -135,12 +140,12 @@ describe("KpiSnapshotService.captureDue (LIRA-364)", () => {
     expect(marker).toBeUndefined();
   });
 
-  it("the first run only sets the start marker — a mid-month deploy saves nothing", () => {
+  it("the first run saves the current month right away and starts the clock", () => {
     const result = getKpiSnapshotService().captureDue(
       new Date("2026-11-15T10:00:00Z"),
     );
-    expect(result.reason).toBe("marker_set");
-    expect(snapshots(db)).toHaveLength(0);
+    expect(result).toEqual({ captured: "2026-11", reason: "started" });
+    expect(snapshots(db).map((s) => s.month)).toEqual(["2026-11"]);
     const marker = db
       .prepare(
         `SELECT value FROM system_settings WHERE key_name = 'kpi_snapshots_since' AND tenant_id = 1`,
@@ -149,11 +154,58 @@ describe("KpiSnapshotService.captureDue (LIRA-364)", () => {
     expect(marker.value).toBe("2026-11");
   });
 
+  it("a shop switched on earlier this month with no month yet gets it on the next run", () => {
+    // Corner Tech: the old first run only set the marker.
+    setMarker(db, "2026-10");
+    const result = getKpiSnapshotService().captureDue(
+      new Date("2026-10-30T10:00:00Z"),
+    );
+    expect(result).toEqual({ captured: "2026-10", reason: "started" });
+    expect(snapshots(db).map((s) => s.month)).toEqual(["2026-10"]);
+  });
+
+  it("only the start month gets an early save; later months wait for their month end", () => {
+    setMarker(db, "2026-10");
+    const service = getKpiSnapshotService();
+    service.captureDue(NOV_1_BEIRUT); // October, at its month end
+    const mid = service.captureDue(new Date("2026-11-15T10:00:00Z"));
+    expect(mid.reason).toBe("exists");
+    expect(snapshots(db).map((s) => s.month)).toEqual(["2026-10"]);
+  });
+
+  it("the month end replaces the early save with the month-end figures", () => {
+    const service = getKpiSnapshotService();
+    addProduct(db, { id: 101, name: "Cable", cost: 4, stock: 10 });
+    service.captureDue(new Date("2026-10-30T10:00:00Z"));
+    const early = value(db, "stock_value")!.usd;
+
+    addProduct(db, { id: 102, name: "Charger", cost: 5, stock: 2 });
+    expect(service.captureDue(NOV_1_BEIRUT)).toEqual({
+      captured: "2026-10",
+      reason: "captured",
+    });
+
+    const rows = snapshots(db);
+    expect(rows.map((s) => s.month)).toEqual(["2026-10"]);
+    expect(rows[0].taken_at).toBe("2026-10-31 23:00:00");
+    expect(value(db, "stock_value")!.usd).toBeGreaterThan(early);
+    expect(
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM kpi_snapshot_values WHERE kpi_key = 'stock_value'`,
+        )
+        .get(),
+    ).toEqual({ n: 1 });
+    // Replaced once; a later run leaves the month-end figures alone.
+    expect(service.captureDue(new Date("2026-11-02T08:00:00Z")).reason).toBe(
+      "exists",
+    );
+  });
+
   it("does not save a month before the marker", () => {
     setMarker(db, "2026-11");
-    const result = getKpiSnapshotService().captureDue(NOV_1_BEIRUT);
-    expect(result.reason).toBe("not_due");
-    expect(snapshots(db)).toHaveLength(0);
+    getKpiSnapshotService().captureDue(NOV_1_BEIRUT);
+    expect(snapshots(db).map((s) => s.month)).not.toContain("2026-10");
   });
 
   it("saves the month just ended once, at 01:00 Beirut on the 1st", () => {

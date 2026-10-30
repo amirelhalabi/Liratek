@@ -33,7 +33,9 @@ REST returns HTTP 200 with `{ success: false, error }` on failure (rule 6). A no
 
 ## Internal: capture (not exposed)
 
-`KpiSnapshotService.captureDue(nowUtc: Date): { captured: string | null; reason: 'marker_set' | 'not_due' | 'exists' | 'captured' }`
+`KpiSnapshotService.captureDue(nowUtc: Date): { captured: string | null; reason: 'started' | 'not_due' | 'exists' | 'captured' }`
+
+Owner decision 2026-10-30: the start month is saved straight away (`started`, no separate column, no mark on the page) and replaced once by its month-end balances; every later month is saved once at its month end.
 
 - Runs inside the caller's tenant context (`runWithTenant` on web, fixed tenant on desktop).
 - Never throws for "nothing to do". It throws only on a real failure, so the sweep logs it and retries next hour.

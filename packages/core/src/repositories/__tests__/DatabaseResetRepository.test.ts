@@ -427,6 +427,15 @@ function insertTenantFixture(db: Database.Database, tenantId: number): void {
       `INSERT INTO idempotency_keys (tenant_id, user_id, route, idem_key, response_json, created_at, updated_at)
        VALUES (?, ?, 'POST /api/services/transactions', 'fixture-key-0001', '{}', '2026-01-01', '2026-01-01')`,
     ).run(tenantId, userId);
+    // LIRA-364 v228 — one saved month with one KPI value.
+    const kpiSnapshotId = db
+      .prepare(
+        `INSERT INTO kpi_snapshots (tenant_id, month, taken_at) VALUES (?, '2026-01', '2026-01-31 22:00:00')`,
+      )
+      .run(tenantId).lastInsertRowid;
+    db.prepare(
+      `INSERT INTO kpi_snapshot_values (tenant_id, snapshot_id, kpi_key) VALUES (?, ?, 'stock_value')`,
+    ).run(tenantId, kpiSnapshotId);
     // LIRA-306 v210 — offline rows: devices/events (KEEP) and the five
     // tables a reset wipes (id map, review items, PC outbox tables).
     const T = "2026-01-01";

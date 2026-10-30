@@ -5,7 +5,7 @@
     "loading": "Loading…",
     "loadFailed": "Could not load monthly progress.",
     "disabled": "Monthly progress is not switched on for this shop.",
-    "empty": "No month saved yet. The first one is saved automatically when this month ends.",
+    "empty": "No month saved yet. The first one is saved automatically within the hour.",
     "balance": "Balance",
     "rate": "Rate {{rate}}",
     "late": "Saved late, on {{date}}",

@@ -59,7 +59,7 @@ export const KPI_SNAPSHOTS_SINCE_KEY = "kpi_snapshots_since";
 
 export type CaptureReason =
   | "disabled"
-  | "marker_set"
+  | "started"
   | "not_due"
   | "exists"
   | "captured";
@@ -95,10 +95,13 @@ export class KpiSnapshotService {
 
   /**
    * Saves the Beirut month that ended before `now`, if it is due and the
-   * shop has the feature switched on. Idempotent:
-   * "nothing to do" is a normal result, never an error. The very first run for
-   * a shop only records the current month as its start, so a mid-month deploy
-   * never saves today's balances as last month's.
+   * shop has the feature switched on. Idempotent: "nothing to do" is a normal
+   * result, never an error.
+   *
+   * The shop's first month (the month it was switched on) is saved straight
+   * away with today's balances, so the page is never empty for a month; when
+   * that month ends, its month-end balances replace them in the same column.
+   * Every later month is saved once, at its month end.
    */
   captureDue(now: Date): { captured: string | null; reason: CaptureReason } {
     const { snapshots, settings } = this.deps;
@@ -108,31 +111,57 @@ export class KpiSnapshotService {
       return { captured: null, reason: "disabled" };
     }
     const currentMonth = beirutMonth(now);
-    const since = settings.getSettingValue(KPI_SNAPSHOTS_SINCE_KEY);
+    const currentMonthStart = beirutMonthStartUtc(currentMonth);
+    let since = settings.getSettingValue(KPI_SNAPSHOTS_SINCE_KEY);
     if (!since) {
-      settings.upsertSetting(KPI_SNAPSHOTS_SINCE_KEY, currentMonth);
-      return { captured: null, reason: "marker_set" };
+      since = currentMonth;
+      settings.upsertSetting(KPI_SNAPSHOTS_SINCE_KEY, since);
     }
 
     const month = previousMonth(currentMonth);
-    if (month < since) return { captured: null, reason: "not_due" };
-    if (snapshots.exists(month)) return { captured: null, reason: "exists" };
+    if (month >= since) {
+      // A save taken before this month began is the early first save of the
+      // start month: the month-end balances replace it. One taken after is
+      // already the month end.
+      const takenAt = snapshots.getTakenAt(month);
+      if (takenAt !== null && takenAt >= currentMonthStart) {
+        return { captured: null, reason: "exists" };
+      }
+      this.save(month, now, {
+        isLate: snapshots.hasTransactionsSince(currentMonthStart),
+        replace: takenAt !== null,
+      });
+      kpiLogger.info({ month }, "Monthly KPI snapshot saved");
+      return { captured: month, reason: "captured" };
+    }
 
+    if (currentMonth !== since) return { captured: null, reason: "not_due" };
+    if (snapshots.getTakenAt(currentMonth) !== null) {
+      return { captured: null, reason: "exists" };
+    }
+    this.save(currentMonth, now, { isLate: false, replace: false });
+    kpiLogger.info({ month: currentMonth }, "First monthly KPI snapshot saved");
+    return { captured: currentMonth, reason: "started" };
+  }
+
+  private save(
+    month: string,
+    now: Date,
+    opts: { isLate: boolean; replace: boolean },
+  ): void {
     // The one owner of exchange_rates reads (FR-021a guard); nulls when unset.
     const lbp = this.deps.rates.findByCode("LBP");
-    const saved = snapshots.insertSnapshot({
-      month,
-      taken_at: toUtcSqlTimestamp(now),
-      is_late: snapshots.hasTransactionsSince(
-        beirutMonthStartUtc(currentMonth),
-      ),
-      usd_lbp_buy_rate: lbp?.buy_rate ?? null,
-      usd_lbp_sell_rate: lbp?.sell_rate ?? null,
-      values: this.measure(),
-    });
-    if (!saved) return { captured: null, reason: "exists" };
-    kpiLogger.info({ month }, "Monthly KPI snapshot saved");
-    return { captured: month, reason: "captured" };
+    this.deps.snapshots.saveSnapshot(
+      {
+        month,
+        taken_at: toUtcSqlTimestamp(now),
+        is_late: opts.isLate,
+        usd_lbp_buy_rate: lbp?.buy_rate ?? null,
+        usd_lbp_sell_rate: lbp?.sell_rate ?? null,
+        values: this.measure(),
+      },
+      opts.replace,
+    );
   }
 
   listSnapshots(): KpiSnapshotView[] {

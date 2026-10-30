@@ -1,7 +1,8 @@
 /**
  * LIRA-364 — storage for the monthly KPI snapshot: one `kpi_snapshots` row
- * per shop per Beirut month, one `kpi_snapshot_values` row per KPI. Snapshots
- * are written once and never updated or deleted by the app.
+ * per shop per Beirut month, one `kpi_snapshot_values` row per KPI. A month is
+ * written once, except the shop's first month: its early save is replaced
+ * once by the month-end balances. The app never deletes a month.
  */
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
@@ -29,10 +30,14 @@ export class KpiSnapshotRepository {
     return this._db ?? getDatabase();
   }
 
-  exists(month: string): boolean {
-    return !!this.db
-      .prepare(`SELECT 1 FROM kpi_snapshots WHERE tenant_id = ? AND month = ?`)
-      .get(getCurrentTenantId(), month);
+  /** When `month` was saved (UTC `YYYY-MM-DD HH:MM:SS`); null when it was not. */
+  getTakenAt(month: string): string | null {
+    const row = this.db
+      .prepare(
+        `SELECT taken_at FROM kpi_snapshots WHERE tenant_id = ? AND month = ?`,
+      )
+      .get(getCurrentTenantId(), month) as { taken_at: string } | undefined;
+    return row?.taken_at ?? null;
   }
 
   /** Any transaction saved at or after `utc` (`YYYY-MM-DD HH:MM:SS`). */
@@ -45,18 +50,26 @@ export class KpiSnapshotRepository {
   }
 
   /**
-   * Saves a month with all its values in one transaction. Returns false when
-   * the month already exists (`UNIQUE (tenant_id, month)`): a second run is a
-   * no-op, never a second row.
+   * Saves a month with all its values in one transaction. With `replace`, an
+   * existing month takes the new time, rates and values (the start month's
+   * early save, at its month end); without it, an existing month is left as
+   * it is (`UNIQUE (tenant_id, month)`), never saved twice.
    */
-  insertSnapshot(snapshot: NewKpiSnapshot): boolean {
+  saveSnapshot(snapshot: NewKpiSnapshot, replace: boolean): void {
     const tenantId = getCurrentTenantId();
-    return this.db.transaction(() => {
+    this.db.transaction(() => {
       const res = this.db
         .prepare(
           `INSERT INTO kpi_snapshots (tenant_id, month, taken_at, is_late, usd_lbp_buy_rate, usd_lbp_sell_rate)
            VALUES (?, ?, ?, ?, ?, ?)
-           ON CONFLICT (tenant_id, month) DO NOTHING`,
+           ON CONFLICT (tenant_id, month) DO ${
+             replace
+               ? `UPDATE SET taken_at = excluded.taken_at, is_late = excluded.is_late,
+                  usd_lbp_buy_rate = excluded.usd_lbp_buy_rate,
+                  usd_lbp_sell_rate = excluded.usd_lbp_sell_rate,
+                  updated_at = datetime('now')`
+               : "NOTHING"
+           }`,
         )
         .run(
           tenantId,
@@ -66,16 +79,23 @@ export class KpiSnapshotRepository {
           snapshot.usd_lbp_buy_rate,
           snapshot.usd_lbp_sell_rate,
         );
-      if (res.changes === 0) return false;
-      const snapshotId = Number(res.lastInsertRowid);
-      const insertValue = this.db.prepare(
+      // Already saved and not replaced: kept exactly as it is.
+      if (res.changes === 0) return;
+      const row = this.db
+        .prepare(
+          `SELECT id FROM kpi_snapshots WHERE tenant_id = ? AND month = ?`,
+        )
+        .get(tenantId, snapshot.month) as { id: number };
+      const saveValue = this.db.prepare(
         `INSERT INTO kpi_snapshot_values (tenant_id, snapshot_id, kpi_key, amount_usd, amount_lbp)
-         VALUES (?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (snapshot_id, kpi_key) DO UPDATE SET
+           amount_usd = excluded.amount_usd, amount_lbp = excluded.amount_lbp,
+           updated_at = datetime('now')`,
       );
       for (const [key, amount] of Object.entries(snapshot.values)) {
-        insertValue.run(tenantId, snapshotId, key, amount.usd, amount.lbp);
+        saveValue.run(tenantId, row.id, key, amount.usd, amount.lbp);
       }
-      return true;
     })();
   }
 
