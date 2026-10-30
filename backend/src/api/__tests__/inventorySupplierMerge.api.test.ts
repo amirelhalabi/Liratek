@@ -102,7 +102,7 @@ describe("product supplier merge over REST (LIRA-361)", () => {
   it("DELETE passes the 'merge instead' refusal through as the error", async () => {
     jest.spyOn(repo, "delete").mockImplementation(() => {
       throw new Error(
-        "This supplier has products or debt history — merge it into another supplier instead of deleting it",
+        "This supplier has products or an open balance — merge it into another supplier instead of deleting it",
       );
     });
     const res = await request(buildApp())

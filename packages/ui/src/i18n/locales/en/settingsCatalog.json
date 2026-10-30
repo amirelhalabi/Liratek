@@ -36,6 +36,7 @@
   "suppliers": {
     "createFailed": "Failed to create supplier",
     "deleteConfirm": "Delete supplier \"{{name}}\"?",
+    "archiveConfirm": "Delete supplier \"{{name}}\"? It has past purchases or payments, so it will be archived: hidden on the Suppliers page and kept under \"Show archived\".",
     "batchDeleteConfirm_one": "Delete {{count}} selected supplier?",
     "batchDeleteConfirm_other": "Delete {{count}} selected suppliers?",
     "batchFailed_one": "{{count}} supplier failed to delete. A supplier with products or a balance must be merged: use the delete button on its row.",

@@ -135,6 +135,31 @@ describe("CategoriesManager — supplier merge (LIRA-361)", () => {
     expect(screen.queryByTestId("merge-supplier-dialog")).toBeNull();
   });
 
+  // Owner decision 2026-10-30: history but settled at $0 and no products →
+  // Delete archives it on the Suppliers page; no merge. Written failing-first.
+  it("delete of a settled supplier with history asks to archive, then deletes", async () => {
+    mockGetImpact.mockResolvedValue({
+      success: true,
+      data: {
+        product_count: 0,
+        ledger_entry_count: 2,
+        balance_usd: 0,
+        balance_lbp: 0,
+      },
+    });
+    render(<CategoriesManager />);
+    await screen.findByText("nobody");
+    fireEvent.click(rowButtons("nobody")[1]);
+
+    await waitFor(() =>
+      expect(mockDeleteProductSupplier).toHaveBeenCalledWith(3),
+    );
+    expect(screen.queryByTestId("merge-supplier-dialog")).toBeNull();
+    expect(window.confirm).toHaveBeenCalledWith(
+      expect.stringContaining("Show archived"),
+    );
+  });
+
   it("renaming to an existing name offers the merge with that supplier picked", async () => {
     mockGetImpact.mockResolvedValue({ success: true, data: IMPACT_WITH_DEBT });
     render(<CategoriesManager />);

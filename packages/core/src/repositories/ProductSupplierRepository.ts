@@ -2,7 +2,10 @@ import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { DatabaseError, ValidationError } from "../utils/errors.js";
-import { ledgerNotRefunded } from "./SupplierRepository.js";
+import {
+  getSupplierRepository,
+  ledgerNotRefunded,
+} from "./SupplierRepository.js";
 
 export interface ProductSupplier {
   id: number;
@@ -307,36 +310,72 @@ export class ProductSupplierRepository {
   }
 
   /**
-   * Plain delete — only for a supplier with no active products and no
-   * ledger history (LIRA-361). Anything else must be merged into another
-   * supplier, or its debt would be left behind unlinked.
+   * Settings → Delete. The Settings list and the Suppliers page must never
+   * disagree (owner decision 2026-10-30), so a delete acts on both:
+   * - products or an open balance: refused — merge it into another supplier
+   *   instead (LIRA-361), or its debt would be left behind unlinked;
+   * - history but settled at $0 (e.g. bought $15, paid $15): the supplier is
+   *   archived on the Suppliers page, history kept (LIRA-362's archive, with
+   *   its own refusals); typing the name again brings it back;
+   * - no history at all: deleted in both places.
    */
   delete(id: number): boolean {
     const tenantId = getCurrentTenantId();
     const row = this.db
       .prepare(
-        `SELECT name FROM product_suppliers WHERE id = ? AND tenant_id = ?`,
+        `SELECT name, supplier_id FROM product_suppliers WHERE id = ? AND tenant_id = ?`,
       )
-      .get(id, tenantId) as { name: string } | undefined;
+      .get(id, tenantId) as
+      | { name: string; supplier_id: number | null }
+      | undefined;
+    if (!row) return false;
 
-    if (row) {
-      const impact = this.getDeleteImpact(id);
-      if (impact.product_count > 0 || impact.ledger_entry_count > 0) {
-        throw new ValidationError(
-          "This supplier has products or debt history — merge it into another supplier instead of deleting it",
-        );
-      }
+    const impact = this.getDeleteImpact(id);
+    const settled =
+      Math.abs(impact.balance_usd) < 0.005 &&
+      Math.abs(impact.balance_lbp) < 0.5;
+    if (impact.product_count > 0 || !settled) {
+      throw new ValidationError(
+        "This supplier has products or an open balance — merge it into another supplier instead of deleting it",
+      );
+    }
+
+    return this.db.transaction(() => {
       this.db
         .prepare(
           `UPDATE products SET supplier = NULL WHERE LOWER(supplier) = LOWER(?) AND tenant_id = ?`,
         )
         .run(row.name, tenantId);
-    }
+      this.db
+        .prepare(`DELETE FROM product_suppliers WHERE id = ? AND tenant_id = ?`)
+        .run(id, tenantId);
+      if (row.supplier_id !== null) {
+        if (this._hasHistory(row.supplier_id)) {
+          getSupplierRepository().archiveSupplier(row.supplier_id);
+        } else {
+          this.db
+            .prepare(
+              `DELETE FROM suppliers WHERE id = ? AND tenant_id = ? AND is_system = 0`,
+            )
+            .run(row.supplier_id, tenantId);
+        }
+      }
+      return true;
+    })();
+  }
 
-    const result = this.db
-      .prepare(`DELETE FROM product_suppliers WHERE id = ? AND tenant_id = ?`)
-      .run(id, tenantId);
-    return result.changes > 0;
+  /** Any row anywhere still pointing at this supplier (picklist row excluded). */
+  private _hasHistory(supplierId: number): boolean {
+    const tenantId = getCurrentTenantId();
+    return SUPPLIER_REFERENCES.some(
+      (ref) =>
+        ref.table !== "product_suppliers" &&
+        !!this.db
+          .prepare(
+            `SELECT 1 FROM ${ref.table} WHERE ${ref.column} = ? AND tenant_id = ? LIMIT 1`,
+          )
+          .get(supplierId, tenantId),
+    );
   }
 
   /** Find supplier by name (case-insensitive), or create it if missing. Returns id. */

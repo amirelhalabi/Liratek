@@ -308,18 +308,28 @@ export default function CategoriesManager() {
 
   const handleDeleteSupplier = async (id: number, name: string) => {
     setSuppError("");
-    // LIRA-361 — a supplier with products or debt history is merged into
+    // LIRA-361 — a supplier with products or an open balance is merged into
     // another one, never deleted (its debt would be left behind).
     const impact = await api.getProductSupplierImpact(id);
     if (!impact?.success || !impact.data) {
       setSuppError(impact?.error ?? t("categories.deleteFailed"));
       return;
     }
-    if (impact.data.product_count > 0 || impact.data.ledger_entry_count > 0) {
+    const { product_count, ledger_entry_count, balance_usd, balance_lbp } =
+      impact.data;
+    const settled =
+      Math.abs(balance_usd) < 0.005 && Math.abs(balance_lbp) < 0.5;
+    if (product_count > 0 || !settled) {
       setMerging({ source: { id, name }, impact: impact.data });
       return;
     }
-    if (!confirm(t("suppliers.deleteConfirm", { name }))) return;
+    // Owner decision 2026-10-30: settled with history → the delete archives
+    // it on the Suppliers page too, so the two lists never disagree.
+    const confirmKey =
+      ledger_entry_count > 0
+        ? "suppliers.archiveConfirm"
+        : "suppliers.deleteConfirm";
+    if (!confirm(t(confirmKey, { name }))) return;
     // Rule 19: was a raw, optional-chained
     // `window.api?.inventory.deleteProductSupplier(...)` — silently no-op'd
     // on the web. `api.deleteProductSupplier` routes IPC/REST for both
