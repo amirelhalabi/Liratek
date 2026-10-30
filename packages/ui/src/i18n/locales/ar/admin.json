@@ -130,7 +130,13 @@
     "extended": "تم تمديد التجربة",
     "history": "السجلّ",
     "historyLoading": "جارٍ التحميل…",
-    "historyEmpty": "لا تغييرات بعد."
+    "historyEmpty": "لا تغييرات بعد.",
+    "featuresTitle": "الميزات",
+    "featuresHint": "ميزات إضافية لهذا المحل فقط. مُطفأة لكل المحلات حتى تشغّلها هنا.",
+    "feature_kpi_snapshots": "التقدّم الشهري",
+    "feature_kpi_snapshots_hint": "يحفظ أرصدة المحل في آخر كل شهر (الديون في الاتجاهين، قيمة البضاعة، رصيد الخطوط) ويعرضها لمديريه.",
+    "saveFeatures": "حفظ الميزات",
+    "featuresSaved": "تم حفظ الميزات"
   },
   "invite": {
     "title": "إرسال دعوة",

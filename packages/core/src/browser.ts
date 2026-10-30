@@ -68,6 +68,11 @@ export * from "./constants/subscription.js";
 // link, while the server enforces with the same calendar (rule 14, rule 29).
 export * from "./utils/trialCalendar.js";
 export * from "./utils/activationLink.js";
+// LIRA-364 — monthly KPI snapshot: the KPI list, the per-currency sign split
+// and the Beirut month helpers. Pure leaves, in BOTH entry points (rule 29).
+export * from "./constants/kpiDefinitions.js";
+export * from "./utils/kpiSplit.js";
+export * from "./utils/kpiMonth.js";
 
 // Validators — zod schemas, no Node.js deps
 export * from "./validators/index.js";

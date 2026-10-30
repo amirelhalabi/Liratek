@@ -138,6 +138,12 @@ export async function syncLicense(): Promise<LicenseCheckOutcome> {
           ? null
           : JSON.stringify(view.entitledModules),
     });
+    // LIRA-364: super admin's per-shop switches (e.g. the monthly KPI
+    // snapshot). Missing from an older server's answer = none on.
+    repo.setEnabledFeatures(
+      DESKTOP_TENANT_ID,
+      JSON.stringify(view.enabledFeatures),
+    );
   } catch (error) {
     authLogger.error({ error }, "licence sync: could not store the answer");
     return { checked: false, detail: "Could not save the server's answer" };
@@ -172,6 +178,7 @@ function readStatus(payload: unknown): {
   currentPeriodEnd: string | null;
   graceEndsAt: string | null;
   entitledModules: string[] | null;
+  enabledFeatures: string[];
 } | null {
   if (typeof payload !== "object" || payload === null) return null;
   const envelope = payload as { success?: unknown; data?: unknown };
@@ -197,6 +204,10 @@ function readStatus(payload: unknown): {
       typeof d.currentPeriodEnd === "string" ? d.currentPeriodEnd : null,
     graceEndsAt: typeof d.graceEndsAt === "string" ? d.graceEndsAt : null,
     entitledModules,
+    // Unknown keys are dropped again when the service reads the row.
+    enabledFeatures: Array.isArray(d.enabledFeatures)
+      ? d.enabledFeatures.filter((f): f is string => typeof f === "string")
+      : [],
   };
 }
 

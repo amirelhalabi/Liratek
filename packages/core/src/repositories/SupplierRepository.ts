@@ -2892,6 +2892,37 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   }
 
   /**
+   * LIRA-364 — one balance per counterparty, per currency (positive = the
+   * shop owes). Reuses `_ledgerBalanceQuery` (rule 14) and rolls an account's
+   * members up under its parent, so the OMT account counts once. Every
+   * supplier, archived ones too (they are settled at $0), except the hidden
+   * secondary system whose obligations live in partner_ledger.
+   */
+  getCounterpartyBalances(): { usd: number; lbp: number }[] {
+    try {
+      const tenantId = getCurrentTenantId();
+      const root = this._suppliersHasAccountLinkColumn()
+        ? "COALESCE(s.account_supplier_id, s.id)"
+        : "s.id";
+      return this.query<{ usd: number; lbp: number }>(
+        `SELECT COALESCE(SUM(b.total_usd), 0) AS usd,
+                COALESCE(SUM(b.total_lbp), 0) AS lbp
+           FROM (${this._ledgerBalanceQuery(
+             `s.tenant_id = ? AND ${this._secondarySystemHideClause("s")}`,
+           )}) b
+           JOIN suppliers s ON s.id = b.supplier_id AND s.tenant_id = ?
+          GROUP BY ${root}`,
+        tenantId,
+        tenantId,
+      );
+    } catch (e) {
+      throw new DatabaseError("Failed to get supplier counterparty balances", {
+        cause: e,
+      });
+    }
+  }
+
+  /**
    * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-187/188) — the OMT open-credit
    * account, rolled up per parent: every supplier that either IS a parent
    * (some other supplier points at it via `account_supplier_id`) or IS a

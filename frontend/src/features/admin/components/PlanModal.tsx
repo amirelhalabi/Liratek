@@ -19,10 +19,13 @@ import {
   useIssueLicenseKeyMutation,
   useActivateSubscriptionMutation,
   useExtendTrialMutation,
+  useSetEnabledFeaturesMutation,
   useSubscriptionHistoryQuery,
 } from "../hooks/useSubscriptions";
 import {
+  OPT_IN_FEATURES,
   UNGATEABLE_MODULES,
+  type OptInFeature,
   type ActivateSubscriptionInput,
   type ExtendTrialInput,
 } from "@liratek/core";
@@ -73,6 +76,15 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
   const activate = useActivateSubscriptionMutation();
   const extend = useExtendTrialMutation();
   const history = useSubscriptionHistoryQuery(subscription.tenant_id);
+  // LIRA-364: per-shop opt-in features (Monthly progress). Off by default.
+  const setFeatures = useSetEnabledFeaturesMutation();
+  const [features, setFeatureList] = useState<OptInFeature[]>(
+    subscription.enabledFeatures ?? [],
+  );
+  const toggleFeature = (key: OptInFeature) =>
+    setFeatureList((prev) =>
+      prev.includes(key) ? prev.filter((f) => f !== key) : [...prev, key],
+    );
   const [activateOpenEnded, setActivateOpenEnded] = useState(true);
   const [activateUntil, setActivateUntil] = useState("");
   const [extendLastDay, setExtendLastDay] = useState(
@@ -134,6 +146,14 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
       }),
     );
 
+  const saveFeatures = () =>
+    run(t("plan.featuresSaved"), () =>
+      setFeatures.mutateAsync({
+        tenantId: subscription.tenant_id,
+        body: { features },
+      }),
+    );
+
   const recordPayment = () =>
     run(t("plan.paymentRecorded"), () =>
       update.mutateAsync({
@@ -168,7 +188,8 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
     update.isPending ||
     issueKey.isPending ||
     activate.isPending ||
-    extend.isPending;
+    extend.isPending ||
+    setFeatures.isPending;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -353,6 +374,45 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
               className="px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-medium rounded-lg"
             >
               {t("plan.saveModules")}
+            </button>
+          </section>
+
+          {/* ── Features (LIRA-364) ─────────────────────────────────── */}
+          <section className="space-y-3 pt-6 border-t border-slate-700">
+            <div>
+              <h3 className="text-sm font-medium text-white">
+                {t("plan.featuresTitle")}
+              </h3>
+              <p className="text-xs text-slate-400 mt-1">
+                {t("plan.featuresHint")}
+              </p>
+            </div>
+            {OPT_IN_FEATURES.map((key) => (
+              <label key={key} className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  data-testid={`plan-feature-${key}`}
+                  checked={features.includes(key)}
+                  onChange={() => toggleFeature(key)}
+                  className="accent-violet-500 mt-0.5"
+                />
+                <span>
+                  <span className="text-slate-200">
+                    {t(`plan.feature_${key}`)}
+                  </span>
+                  <span className="block text-xs text-slate-400">
+                    {t(`plan.feature_${key}_hint`)}
+                  </span>
+                </span>
+              </label>
+            ))}
+            <button
+              onClick={saveFeatures}
+              disabled={busy}
+              data-testid="plan-save-features"
+              className="px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-medium rounded-lg"
+            >
+              {t("plan.saveFeatures")}
             </button>
           </section>
 

@@ -39,6 +39,7 @@ function view(
     currentPeriodEnd: null,
     graceEndsAt: null,
     entitledModules: null,
+    enabledFeatures: [],
     trial: null,
     shop: SHOP,
     ...over,

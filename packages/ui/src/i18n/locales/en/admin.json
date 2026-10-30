@@ -130,7 +130,13 @@
     "extended": "Trial extended",
     "history": "History",
     "historyLoading": "Loading…",
-    "historyEmpty": "No changes yet."
+    "historyEmpty": "No changes yet.",
+    "featuresTitle": "Features",
+    "featuresHint": "Extra features for this shop only. Off for every shop until you switch them on here.",
+    "feature_kpi_snapshots": "Monthly progress",
+    "feature_kpi_snapshots_hint": "Saves the shop's month-end balances (debts both ways, stock value, line credits) and shows them to its admins.",
+    "saveFeatures": "Save features",
+    "featuresSaved": "Features saved"
   },
   "invite": {
     "title": "Send invite",

@@ -3085,6 +3085,28 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
   }
 
   /**
+   * LIRA-364 — every client's own balance, per currency (positive = the
+   * client owes the shop, negative = credit the shop holds). Same base as
+   * getDebtSummary: the whole debt_ledger, tenant-scoped.
+   */
+  getClientBalances(): { client_id: number; usd: number; lbp: number }[] {
+    return this.db
+      .prepare(
+        `SELECT client_id,
+                COALESCE(SUM(amount_usd), 0) AS usd,
+                COALESCE(SUM(amount_lbp), 0) AS lbp
+           FROM debt_ledger
+          WHERE tenant_id = ?
+          GROUP BY client_id`,
+      )
+      .all(getCurrentTenantId()) as {
+      client_id: number;
+      usd: number;
+      lbp: number;
+    }[];
+  }
+
+  /**
    * Update non-financial metadata on a debt ledger entry.
    * Only metadata fields are allowed — financial data is immutable.
    */

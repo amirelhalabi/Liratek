@@ -553,6 +553,13 @@ export type {
   ProductSupplierImpact,
   ProductSupplierMergeResult,
 } from "./ProductSupplierRepository.js";
+// LIRA-364 — monthly KPI snapshot storage
+export {
+  KpiSnapshotRepository,
+  getKpiSnapshotRepository,
+  resetKpiSnapshotRepository,
+} from "./KpiSnapshotRepository.js";
+export type { NewKpiSnapshot } from "./KpiSnapshotRepository.js";
 
 // Supplier Purchase Repository
 export {

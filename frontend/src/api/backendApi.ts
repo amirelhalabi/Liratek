@@ -27,6 +27,8 @@ import type { UnitWarrantyDisplay } from "@liratek/core";
 import type {
   SubscriptionStatusView as CoreSubscriptionStatusView,
   ActivateSubscriptionInput,
+  SetEnabledFeaturesInput,
+  OptInFeature,
   ExtendTrialInput,
   TrialView,
   SubscriptionStanding,
@@ -8033,6 +8035,8 @@ export interface AdminSubscription {
   trial: TrialView | null;
   /** When the shop itself was created. */
   tenant_created_at: string;
+  /** LIRA-364: opt-in features super admin switched on; [] = none. */
+  enabledFeatures: OptInFeature[];
 }
 
 export interface AdminSubscriptionsPayload {
@@ -8152,6 +8156,29 @@ async function adminTrialAction(
     throw new Error(messageFrom(details?.error ?? err, fallback));
   }
   if (!res.success) throw new Error(messageFrom(res.error, fallback));
+}
+
+/** LIRA-364 — Plan window → Features: replace one shop's opt-in features. */
+export async function adminSetEnabledFeatures(
+  tenantId: number,
+  body: SetEnabledFeaturesInput,
+): Promise<void> {
+  assertWebOnly("Changing a shop's features");
+  let res: { success: boolean; error?: unknown };
+  try {
+    res = await requestJson<{ success: boolean; error?: unknown }>(
+      `/api/admin/subscriptions/${tenantId}/features`,
+      { method: "PUT", body },
+    );
+  } catch (err) {
+    const details = (err as { details?: { error?: unknown } } | null)?.details;
+    throw new Error(
+      messageFrom(details?.error ?? err, "Failed to save the features"),
+    );
+  }
+  if (!res.success) {
+    throw new Error(messageFrom(res.error, "Failed to save the features"));
+  }
 }
 
 export async function adminActivateSubscription(

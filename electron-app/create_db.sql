@@ -66,7 +66,11 @@ CREATE TABLE IF NOT EXISTS tenant_subscriptions (
     -- v220 (LIRA-332): free trial. UTC instants; NULL = not on a trial. The
     -- desktop is never on a trial (its seed row below leaves both NULL).
     trial_started_at DATETIME,
-    trial_ends_at DATETIME
+    trial_ends_at DATETIME,
+    -- v228 (LIRA-364): JSON array of opt-in features super admin switches on
+    -- for this shop (e.g. "kpi_snapshots"). NULL = none -- the OPPOSITE of
+    -- entitled_modules, because an opt-in feature must never switch itself on.
+    enabled_features TEXT DEFAULT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_subscriptions_tenant
     ON tenant_subscriptions(tenant_id);
@@ -2888,6 +2892,32 @@ CREATE TABLE IF NOT EXISTS offline_copy_meta (
     updated_at TEXT NOT NULL
 );
 
+-- v228 (LIRA-364): monthly KPI snapshot, one row per shop per Beirut month
+-- plus one row per KPI.
+CREATE TABLE IF NOT EXISTS kpi_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+    month TEXT NOT NULL,
+    taken_at TEXT NOT NULL,
+    is_late INTEGER NOT NULL DEFAULT 0 CHECK(is_late IN (0, 1)),
+    usd_lbp_buy_rate REAL,
+    usd_lbp_sell_rate REAL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (tenant_id, month)
+);
+CREATE TABLE IF NOT EXISTS kpi_snapshot_values (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+    snapshot_id INTEGER NOT NULL REFERENCES kpi_snapshots(id) ON DELETE CASCADE,
+    kpi_key TEXT NOT NULL,
+    amount_usd REAL NOT NULL DEFAULT 0,
+    amount_lbp REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (snapshot_id, kpi_key)
+);
+
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
@@ -3274,4 +3304,7 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (226, 'loto_checkpoint_backfill'),
     -- v227 (LIRA-360) adds custom_services.insurance_type +
     -- renewal_dismissed_at / renewal_dismissed_by, declared above.
-    (227, 'custom_services_insurance_renewal');
+    (227, 'custom_services_insurance_renewal'),
+    -- v228 (LIRA-364) adds kpi_snapshots + kpi_snapshot_values and
+    -- tenant_subscriptions.enabled_features, declared above.
+    (228, 'kpi_snapshots');

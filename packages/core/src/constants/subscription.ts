@@ -33,3 +33,10 @@ export const UNGATEABLE_MODULES: readonly string[] = [
 export function isUngateableModule(moduleKey: string): boolean {
   return UNGATEABLE_MODULES.includes(moduleKey);
 }
+
+/**
+ * LIRA-364 — features super admin switches on per shop (Plan window →
+ * Features). Unlike modules, OPT-IN: no list means nothing is on.
+ */
+export const OPT_IN_FEATURES = ["kpi_snapshots"] as const;
+export type OptInFeature = (typeof OPT_IN_FEATURES)[number];

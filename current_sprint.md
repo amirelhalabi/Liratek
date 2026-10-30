@@ -8262,3 +8262,23 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 **Pending:** What's new card + screenshot (web e2e or test tenant).
 
 **What users will notice:** on Suppliers → Products, an admin can archive a settled supplier to hide it from the list, and bring it back from "Show archived".
+
+---
+
+## LIRA-364: Monthly KPI snapshot — SPEC 2026-10-30
+
+**Ask (owner 2026-10-30):** save the shop's stock value and debt totals every month, so after a year the owner can see how the shop progressed. KPIs split into generic and phone-shop.
+
+**Owner decisions 2026-10-30:** month-end balances only (no revenue/profit totals). Eight KPIs: shop owes customers / suppliers / partners, customers / suppliers / partners owe shop, stock value, carrier total credits. USD and LBP kept separately. Drawers left out (checkpoints cover them). Automatic only, every shop, from deploy; no backfill. Admin-only "Monthly progress" page.
+
+**Spec:** `specs/364-monthly-kpi-snapshot/spec.md`. Defaults accepted by the owner: hold money and gift cards not in "shop owes customers"; OMT/Whish/iPick/Katsh/Loto included in the supplier KPIs; USDT partner balances not included.
+
+**Owner decision (later 2026-10-30):** a per-shop switch. Super admin turns it on in the shop's Plan window (Features → Monthly progress); off for every shop by default, Corner Tech first. Off means nothing is saved.
+
+**Built so far (automatic saving + switch; page not yet):** migration v228 (`kpi_snapshots`, `kpi_snapshot_values`, `tenant_subscriptions.enabled_features`); `KpiSnapshotService.captureDue` (eight KPIs, each counterparty judged per currency, Beirut months, start marker so a mid-month deploy saves nothing, idempotent, "taken late"); web hourly sweep over every active/suspended shop; desktop capture at start-up before handlers (standalone only) + hourly; super admin `PUT /api/admin/subscriptions/:tenantId/features` + Plan window Features section; desktop licence sync carries the switch.
+
+**Tests:** proven failing first: core `kpiSplit`, `kpiMonth`, `KpiSnapshotService.lira364` (12), `SubscriptionService.lira364Features` (7); backend `kpiSnapshotSweep` (3), `admin.lira364Features.api` (6 of 7; the role-gate case already passed); electron `kpiSnapshotTimer` (3), `licenseSync.lira364Features` (1 of 3; the two "off" cases already passed); frontend `PlanModal.lira364Features` (4). Neighbours pass (subscription, trial, PlanModal, TenantsPage, SubscriptionBanner, supplier balances, browser-entry guard). `subscriptionStatus.trial.api` pinned desktop shape updated with `enabledFeatures`. Typecheck, lint, tenant-scoping, bind-arity, schema-equivalence and transport-parity pass. Desktop start-up not run in a real Electron app (no Electron on this Mac).
+
+**Next:** US2, the Monthly progress page (hidden while the switch is off).
+
+**What users will notice:** (after the page) a "Monthly progress" page for admins of switched-on shops, showing each month's balances and the change from the month before.

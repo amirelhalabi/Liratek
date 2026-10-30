@@ -289,6 +289,46 @@ export class SubscriptionRepository {
   }
 
   /**
+   * LIRA-364 — the shop's opt-in features, RAW JSON text (NULL = none).
+   * Read and written on their own, behind a column check, so a connection
+   * older than v228 (or a hand-built test table) reads "none" instead of
+   * failing every subscription query.
+   */
+  getEnabledFeatures(tenantId: number): string | null {
+    return runWithoutTenant(() => {
+      if (!this._hasEnabledFeaturesColumn()) return null;
+      const row = this.db
+        .prepare(
+          `SELECT enabled_features FROM tenant_subscriptions WHERE tenant_id = ?`,
+        )
+        .get(tenantId) as { enabled_features: string | null } | undefined;
+      return row?.enabled_features ?? null;
+    });
+  }
+
+  /** LIRA-364 — replace the opt-in feature list. Returns false without a row. */
+  setEnabledFeatures(tenantId: number, json: string | null): boolean {
+    return runWithoutTenant(() => {
+      if (!this._hasEnabledFeaturesColumn()) {
+        throw new DatabaseError("Opt-in features need migration v228");
+      }
+      const res = this.db
+        .prepare(
+          `UPDATE tenant_subscriptions SET enabled_features = ?, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ?`,
+        )
+        .run(json, tenantId);
+      return res.changes > 0;
+    });
+  }
+
+  private _hasEnabledFeaturesColumn(): boolean {
+    const cols = this.db
+      .prepare(`PRAGMA table_info(tenant_subscriptions)`)
+      .all() as { name: string }[];
+    return cols.some((c) => c.name === "enabled_features");
+  }
+
+  /**
    * Every subscription, for the control-plane list and the lapse sweep.
    *
    * Joined to `tenants` for the name/slug so the admin screen does not fan out

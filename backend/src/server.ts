@@ -109,6 +109,7 @@ import { invalidateOnMutation } from "./middleware/invalidateOnMutation.js";
 import { requireWritableSubscription } from "./middleware/requireWritableSubscription.js";
 import { requireOpenTrial } from "./middleware/requireOpenTrial.js";
 import { startLapseSweep } from "./services/lapseSweep.js";
+import { startKpiSnapshotSweep } from "./services/kpiSnapshotSweep.js";
 import { startSessionSweep } from "./services/sessionSweep.js";
 import { startAuthCleanupSweep } from "./services/authCleanupSweep.js";
 import { scheduleSigninDirectoryCheck } from "./database/signinDirectoryCheck.js";
@@ -346,6 +347,10 @@ httpServer.listen(PORT, HOST, () => {
   // Move lapsed subscriptions along. Idempotent and hourly, so a missed run
   // or a double run both equal one run -- see lapseSweep.ts.
   startLapseSweep();
+
+  // LIRA-364: save each shop's month-end KPI snapshot. Idempotent and
+  // hourly, like the lapse sweep -- see kpiSnapshotSweep.ts.
+  startKpiSnapshotSweep();
 
   // Purge expired/idle auth sessions from every database this process
   // serves (platform + every tenant file in per-tenant mode). Idempotent

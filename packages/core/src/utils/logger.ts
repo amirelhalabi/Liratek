@@ -169,6 +169,7 @@ export const customServiceLogger = logger.child({ module: "custom-service" });
 export const settingsLogger = logger.child({ module: "settings" });
 export const expenseLogger = logger.child({ module: "expense" });
 export const closingLogger = logger.child({ module: "closing" });
+export const kpiLogger = logger.child({ module: "kpi" });
 export const syncLogger = logger.child({ module: "sync" });
 // LIRA-306 offline desktop fallback (uploads, merge rounds, replay).
 export const offlineLogger = logger.child({ module: "offline" });

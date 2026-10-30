@@ -1,11 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ActivateSubscriptionInput, ExtendTrialInput } from "@liratek/core";
+import type {
+  ActivateSubscriptionInput,
+  ExtendTrialInput,
+  SetEnabledFeaturesInput,
+} from "@liratek/core";
 import {
   adminListSubscriptions,
   adminUpdateSubscription,
   adminIssueLicenseKey,
   adminActivateSubscription,
   adminExtendTrial,
+  adminSetEnabledFeatures,
   adminSubscriptionHistory,
   type AdminSubscriptionPatch,
 } from "@/api/backendApi";
@@ -107,4 +112,11 @@ export function useActivateSubscriptionMutation() {
 
 export function useExtendTrialMutation() {
   return useTrialActionMutation<ExtendTrialInput>(adminExtendTrial);
+}
+
+/** LIRA-364 — Plan window → Features (e.g. Monthly progress). */
+export function useSetEnabledFeaturesMutation() {
+  return useTrialActionMutation<SetEnabledFeaturesInput>(
+    adminSetEnabledFeatures,
+  );
 }

@@ -38,6 +38,10 @@ jest.mock("../../hooks/useSubscriptions", () => ({
   useIssueLicenseKeyMutation: () => issueMutation,
   useActivateSubscriptionMutation: () => activateMutation,
   useExtendTrialMutation: () => extendMutation,
+  useSetEnabledFeaturesMutation: () => ({
+    mutateAsync: jest.fn(),
+    isPending: false,
+  }),
   useSubscriptionHistoryQuery: () => historyQuery,
 }));
 
@@ -66,6 +70,7 @@ function makeSub(over: Partial<AdminSubscription> = {}): AdminSubscription {
     standing: "trial",
     trial: TRIAL,
     tenant_created_at: "2026-10-19 09:00:00",
+    enabledFeatures: [],
     ...over,
   };
 }

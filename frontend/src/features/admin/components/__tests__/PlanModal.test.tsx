@@ -37,10 +37,12 @@ jest.mock("../../hooks/useSubscriptions", () => ({
   }),
   useActivateSubscriptionMutation: () => idleMutation,
   useExtendTrialMutation: () => idleMutation,
+  useSetEnabledFeaturesMutation: () => idleMutation,
   useSubscriptionHistoryQuery: () => emptyHistory,
 }));
 
 jest.mock("@liratek/core", () => ({
+  OPT_IN_FEATURES: ["kpi_snapshots"],
   UNGATEABLE_MODULES: ["dashboard", "settings", "audit", "closing"],
 }));
 
@@ -64,6 +66,7 @@ function makeSub(over: Partial<AdminSubscription> = {}): AdminSubscription {
     standing: "active",
     trial: null,
     tenant_created_at: "2026-01-01 00:00:00",
+    enabledFeatures: [],
     ...over,
   };
 }

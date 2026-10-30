@@ -14,6 +14,7 @@ import {
   shell,
 } from "electron";
 import { startLicenseSync } from "./licenseSync.js";
+import { startKpiSnapshotTimer } from "./handlers/kpiSnapshotTimer.js";
 import * as licenseHandlers from "./handlers/licenseHandlers.js";
 import {
   ELECTRON_RENDERER_URL,
@@ -258,6 +259,13 @@ app.whenReady().then(async () => {
 
   // Initialize database and services
   initializeBackend();
+
+  // LIRA-364: save last month's KPI snapshot before any handler can save a
+  // sale of the new month; then hourly. Standalone shops only: a paired PC's
+  // shop is snapshotted by the server.
+  startKpiSnapshotTimer({
+    standalone: offlineBoot.decision.mode === "standalone",
+  });
 
   // LIRA-306: the recorder wraps ipcMain.handle BEFORE any handler registers
   // (standalone: every call passes through untouched).

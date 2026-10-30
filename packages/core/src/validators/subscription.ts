@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isCalendarDay } from "../utils/trialCalendar.js";
+import { OPT_IN_FEATURES } from "../constants/subscription.js";
 
 /**
  * LIRA-332 — the owner's trial actions (research R10). Both are separate
@@ -29,3 +30,13 @@ export type ActivateSubscriptionInput = z.input<
   typeof activateSubscriptionSchema
 >;
 export type ExtendTrialInput = z.input<typeof extendTrialSchema>;
+
+/**
+ * LIRA-364 — super admin's per-shop opt-in features (Plan window →
+ * Features), its own validated route like the trial actions above. The full
+ * list replaces the stored one; an empty list switches everything off.
+ */
+export const setEnabledFeaturesSchema = z.object({
+  features: z.array(z.enum(OPT_IN_FEATURES)),
+});
+export type SetEnabledFeaturesInput = z.input<typeof setEnabledFeaturesSchema>;

@@ -262,6 +262,15 @@ export {
 } from "./SupplierService.js";
 export type { SupplierResult } from "./SupplierService.js";
 
+// LIRA-364 — monthly KPI snapshot
+export {
+  KpiSnapshotService,
+  getKpiSnapshotService,
+  resetKpiSnapshotService,
+  KPI_SNAPSHOTS_SINCE_KEY,
+} from "./KpiSnapshotService.js";
+export type { CaptureReason } from "./KpiSnapshotService.js";
+
 // Customer Session Service
 export { CustomerSessionService } from "./CustomerSessionService.js";
 

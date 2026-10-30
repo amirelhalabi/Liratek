@@ -44,7 +44,9 @@ export interface SubscriptionChange {
 }
 import {
   GRACE_PERIOD_DAYS,
+  OPT_IN_FEATURES,
   UNGATEABLE_MODULES,
+  type OptInFeature,
 } from "../constants/subscription.js";
 
 const log = createChildLogger({ module: "subscription" });
@@ -87,6 +89,8 @@ export interface SubscriptionStatusView {
   graceEndsAt: string | null;
   /** null means every module — see `entitledModules` handling below. */
   entitledModules: string[] | null;
+  /** LIRA-364: opt-in features switched on by super admin; [] = none. */
+  enabledFeatures: OptInFeature[];
   /** LIRA-332: null unless standing is `trial` or `trial_ended`. */
   trial: TrialView | null;
 }
@@ -107,6 +111,8 @@ export interface DesktopSubscriptionView {
   currentPeriodEnd: string | null;
   graceEndsAt: string | null;
   entitledModules: string[] | null;
+  /** LIRA-364: so a desktop shop follows super admin's per-shop switches. */
+  enabledFeatures: OptInFeature[];
 }
 
 export function toDesktopView(
@@ -119,6 +125,7 @@ export function toDesktopView(
     currentPeriodEnd: view.currentPeriodEnd,
     graceEndsAt: view.graceEndsAt,
     entitledModules: view.entitledModules,
+    enabledFeatures: view.enabledFeatures,
   };
 }
 
@@ -162,6 +169,46 @@ export class SubscriptionService {
       );
       return null;
     }
+  }
+
+  /**
+   * LIRA-364 — parse the opt-in feature list. Fails CLOSED, the opposite of
+   * `parseModules`: an opt-in feature must never switch itself on because a
+   * column is NULL or corrupt. Unknown keys are dropped.
+   */
+  private parseFeatures(raw: string | null): OptInFeature[] {
+    if (raw === null || raw.trim() === "") return [];
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((f): f is OptInFeature =>
+        (OPT_IN_FEATURES as readonly unknown[]).includes(f),
+      );
+    } catch (error) {
+      log.error({ error, raw }, "enabled_features is not valid JSON; none on");
+      return [];
+    }
+  }
+
+  /** LIRA-364 — is this opt-in feature switched on for the shop? No row = off. */
+  isFeatureEnabled(tenantId: number, feature: OptInFeature): boolean {
+    return this.statusFor(tenantId)?.enabledFeatures.includes(feature) ?? false;
+  }
+
+  /**
+   * LIRA-364 — super admin's Plan window. Replaces the shop's opt-in feature
+   * list; unknown keys are dropped. Returns before/after for the audit row.
+   */
+  setEnabledFeatures(
+    tenantId: number,
+    features: readonly string[],
+  ): SubscriptionChange {
+    const before = this.requireView(tenantId);
+    const known = OPT_IN_FEATURES.filter((f) => features.includes(f));
+    this.repo.setEnabledFeatures(tenantId, JSON.stringify(known));
+    const after = this.requireView(tenantId);
+    log.info({ tenantId, features: known }, "enabled features updated");
+    return { before, after };
   }
 
   /** The view for one tenant, or null when it has no subscription row. */
@@ -226,6 +273,9 @@ export class SubscriptionService {
       currentPeriodEnd: row.current_period_end,
       graceEndsAt: row.grace_ends_at,
       entitledModules: this.parseModules(row.entitled_modules),
+      enabledFeatures: this.parseFeatures(
+        this.repo.getEnabledFeatures(row.tenant_id),
+      ),
       trial,
     };
   }
@@ -333,7 +383,8 @@ export class SubscriptionService {
     const before = this.requireView(tenantId);
     const row = this.repo.getByTenantId(tenantId);
     if (!row) throw new NotFoundError("Subscription for tenant", tenantId);
-    const onTrial = before.standing === "trial" || before.standing === "trial_ended";
+    const onTrial =
+      before.standing === "trial" || before.standing === "trial_ended";
     const freeNoPeriod =
       row.status === "active" &&
       row.current_period_end === null &&
@@ -403,7 +454,13 @@ export class SubscriptionService {
   listAll() {
     return this.repo.listAll().map((row) => {
       const view = this.toView(row);
-      return { ...row, standing: view.standing, trial: view.trial };
+      return {
+        ...row,
+        standing: view.standing,
+        trial: view.trial,
+        // LIRA-364: the Plan window's Features switches.
+        enabledFeatures: view.enabledFeatures,
+      };
     });
   }
 

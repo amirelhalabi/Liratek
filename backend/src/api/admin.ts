@@ -45,6 +45,7 @@ import {
   EMAIL_NOT_CONFIGURED,
   activateSubscriptionSchema,
   extendTrialSchema,
+  setEnabledFeaturesSchema,
   type SubscriptionStatusView,
   type SubscriptionChange,
 } from "@liratek/core";
@@ -889,6 +890,63 @@ router.post(
     (tenantId, body) =>
       `Extended the free trial of tenant ${tenantId} to ${String(body.lastDay)}`,
   ),
+);
+
+// PUT /api/admin/subscriptions/:tenantId/features — body { features }.
+// LIRA-364: super admin's per-shop opt-in features (Plan window → Features).
+router.put(
+  "/subscriptions/:tenantId/features",
+  validateRequest(setEnabledFeaturesSchema),
+  (req, res) => {
+    const tenantId = tenantIdParam(req.params.tenantId);
+    if (tenantId === null) {
+      res
+        .status(400)
+        .json(
+          createErrorResponse(ErrorCodes.VALIDATION_ERROR, "Invalid tenant id"),
+        );
+      return;
+    }
+    try {
+      const features = req.body.features as string[];
+      const { before, after } = runWithoutTenant(() =>
+        getSubscriptionService().setEnabledFeatures(tenantId, features),
+      );
+      getAuditService().logAdminAction({
+        actorUserId: req.user!.userId,
+        actorUsername: req.user!.username,
+        actorRole: req.user!.role,
+        targetTenantId: tenantId,
+        action: "update",
+        entityType: "subscription",
+        entityId: String(tenantId),
+        summary: `Set features for tenant ${tenantId}: ${
+          after.enabledFeatures.join(", ") || "none"
+        }`,
+        oldValues: { enabledFeatures: before.enabledFeatures },
+        newValues: { enabledFeatures: after.enabledFeatures },
+      });
+      res.json(createSuccessResponse({ subscription: after }));
+    } catch (error) {
+      if (error instanceof AppError && error.code === "NOT_FOUND") {
+        res
+          .status(404)
+          .json(
+            createErrorResponse(
+              ErrorCodes.NOT_FOUND,
+              "That tenant has no subscription record",
+            ),
+          );
+        return;
+      }
+      logger.error({ error, tenantId }, "Set features failed");
+      res
+        .status(500)
+        .json(
+          createErrorResponse(ErrorCodes.INTERNAL_ERROR, "Failed to update"),
+        );
+    }
+  },
 );
 
 // GET /api/admin/subscriptions/:tenantId/history — FR-022

@@ -15216,6 +15216,61 @@ DROP TABLE IF EXISTS partner_settlement_coverage;`);
       }
     },
   },
+  {
+    version: 228,
+    name: "kpi_snapshots",
+    description:
+      "LIRA-364: monthly KPI snapshot. kpi_snapshots holds one row per shop " +
+      "per Beirut month (when taken, taken late or not, the USD/LBP rate of " +
+      "the day); kpi_snapshot_values one row per KPI with its USD and LBP " +
+      "amounts, so a new KPI needs no migration. Also adds " +
+      "tenant_subscriptions.enabled_features: a JSON array of opt-in " +
+      "features super admin switches on per shop (NULL = none).",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`CREATE TABLE IF NOT EXISTS kpi_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+    month TEXT NOT NULL,
+    taken_at TEXT NOT NULL,
+    is_late INTEGER NOT NULL DEFAULT 0 CHECK(is_late IN (0, 1)),
+    usd_lbp_buy_rate REAL,
+    usd_lbp_sell_rate REAL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (tenant_id, month)
+);
+CREATE TABLE IF NOT EXISTS kpi_snapshot_values (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+    snapshot_id INTEGER NOT NULL REFERENCES kpi_snapshots(id) ON DELETE CASCADE,
+    kpi_key TEXT NOT NULL,
+    amount_usd REAL NOT NULL DEFAULT 0,
+    amount_lbp REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (snapshot_id, kpi_key)
+);`);
+      if (
+        tableExists(db, "tenant_subscriptions") &&
+        !columnExists(db, "tenant_subscriptions", "enabled_features")
+      ) {
+        db.exec(
+          `ALTER TABLE tenant_subscriptions ADD COLUMN enabled_features TEXT DEFAULT NULL`,
+        );
+      }
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP TABLE IF EXISTS kpi_snapshot_values;
+DROP TABLE IF EXISTS kpi_snapshots;`);
+      if (
+        tableExists(db, "tenant_subscriptions") &&
+        columnExists(db, "tenant_subscriptions", "enabled_features")
+      ) {
+        db.exec(`ALTER TABLE tenant_subscriptions DROP COLUMN enabled_features`);
+      }
+    },
+  },
 ];
 
 /** v227 — the custom_services columns LIRA-360 adds (fixed names, no input). */

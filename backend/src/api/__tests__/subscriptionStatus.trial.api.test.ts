@@ -188,6 +188,8 @@ describe("GET /api/subscription/by-key — desktop channel unchanged (FR-021)", 
           "canWrite",
           "currentPeriodEnd",
           "entitledModules",
+          // LIRA-364: super admin's per-shop opt-in switches.
+          "enabledFeatures",
           "graceEndsAt",
           "plan",
           "status",
