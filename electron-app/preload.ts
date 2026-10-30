@@ -71,6 +71,8 @@ import type {
   SupplierLedgerEntryPayload,
   // LIRA-362 — archive/unarchive a supplier (core schema input).
   SupplierArchiveInput,
+  // LIRA-364 — the Monthly progress read (core type).
+  KpiProgressResponse,
   // LIRA-322 — account settlement payload (rule 21).
   SupplierSettleAccountPayload,
   // LIRA-344 — Remove credit payload (rule 21).
@@ -1869,6 +1871,11 @@ contextBridge.exposeInMainWorld("api", {
   // Carrier Lines (LIRA W6.a — shop SIM-line tracking; informational only,
   // no drawer legs, no checkout/closing involvement)
 
+  // LIRA-364 — Monthly progress (admin-only, read-only).
+  kpi: {
+    listSnapshots: (): Promise<KpiProgressResponse> =>
+      ipcRenderer.invoke("kpi:list-snapshots"),
+  },
   /**
    * Licence / subscription. Admin-only in the main process.
    *

@@ -36,6 +36,11 @@
 
 ## ✨ Highlights
 
+### Monthly progress
+
+Shops where it is switched on now have a **Monthly progress** page in the left menu (admins only). At the end of every month the app saves your balances by itself: what customers, suppliers and partners owe you, what you owe them, your stock value at cost, and your line credits. Each month is a column, newest first, with dollars and lira on their own lines and the change from the month before under each amount. The first month appears once the current month ends.
+![Monthly progress: September next to August, with the change under each balance](whats-new/1.35.0/monthly-progress.png)
+
 ### Merge a supplier entered twice
 
 If the same supplier was typed in two ways (for example "reacall" and "recall"), you can now merge them. In Settings → Categories & Suppliers, delete the wrong one: if it has products or a balance, a **Merge into** window opens instead. It shows how many products and how much balance will move. Pick the right supplier and press Merge. Its products, stock, debt and payments all move over, and its balance is added to the other supplier's. Renaming a supplier to a name that already exists offers the same merge.
@@ -341,6 +346,10 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 - Dashboard: profit is no longer shown there, for any user. The "Net profit — last 30 days" tile and the trend chart's Profit view are gone; the chart shows product and telecom sales. Profit stays on the Profits page.
 - New "Wrong-number credits recovered" line: credits sent back for cards recharged onto the wrong number, which lower the loss from those cards.
+
+## 📈 Monthly progress
+
+- New "Monthly progress" page for admins, for shops where it has been switched on: at the end of every month the app saves what customers, suppliers and partners owe the shop, what the shop owes them, the stock value and the line credits, and shows the months side by side with the change from the month before. Dollars and lira stay separate. The first month appears after this month ends.
 
 ## 🛠️ Custom Services
 

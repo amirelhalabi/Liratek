@@ -16,7 +16,8 @@
     "collapseSidebar": "طيّ القائمة الجانبية",
     "adminActions": "إجراءات المدير",
     "addFavorite": "إضافة إلى المفضلة",
-    "removeFavorite": "إزالة من المفضلة"
+    "removeFavorite": "إزالة من المفضلة",
+    "monthlyProgress": "التقدّم الشهري"
   },
   "topBar": {
     "home": "الرئيسية",

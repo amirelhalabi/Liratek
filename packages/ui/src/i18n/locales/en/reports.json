@@ -1,1 +1,25 @@
-{}
+{
+  "kpi": {
+    "title": "Monthly progress",
+    "subtitle": "Your balances at the end of each month, saved automatically. Dollars and lira are shown separately.",
+    "loading": "Loading…",
+    "loadFailed": "Could not load monthly progress.",
+    "disabled": "Monthly progress is not switched on for this shop.",
+    "empty": "No month saved yet. The first one is saved automatically when this month ends.",
+    "balance": "Balance",
+    "rate": "Rate {{rate}}",
+    "late": "Saved late, on {{date}}",
+    "lateHint": "Saved after the new month's first sale, so it may include a little of the new month.",
+    "notRecorded": "Not recorded",
+    "names": {
+      "customers_owe_shop": "Customers owe the shop",
+      "suppliers_owe_shop": "Suppliers owe the shop",
+      "partners_owe_shop": "Partners owe the shop",
+      "shop_owes_customers": "Shop owes customers",
+      "shop_owes_suppliers": "Shop owes suppliers",
+      "shop_owes_partners": "Shop owes partners",
+      "stock_value": "Stock value (cost)",
+      "carrier_credits": "Line credits (MTC + Alfa)"
+    }
+  }
+}

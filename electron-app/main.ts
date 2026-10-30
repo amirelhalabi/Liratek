@@ -628,6 +628,7 @@ async function registerHandlers() {
     const salesHandlers = await import("./handlers/salesHandlers.js");
     const lotoHandlers = await import("./handlers/lotoHandlers.js");
     const supplierHandlers = await import("./handlers/supplierHandlers.js");
+    const kpiHandlers = await import("./handlers/kpiHandlers.js");
     const updaterHandlers = await import("./handlers/updaterHandlers.js");
     const sessionHandlers = await import("./handlers/sessionHandlers.js");
     const moduleHandlers = await import("./handlers/moduleHandlers.js");
@@ -699,6 +700,7 @@ async function registerHandlers() {
     salesHandlers.registerSalesHandlers();
     lotoHandlers.registerLotoHandlers();
     supplierHandlers.registerSupplierHandlers();
+    kpiHandlers.registerKpiHandlers();
     updaterHandlers.registerUpdaterHandlers();
     sessionHandlers.registerSessionHandlers();
     moduleHandlers.registerModuleHandlers();

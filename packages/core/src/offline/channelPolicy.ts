@@ -418,6 +418,8 @@ const READ: readonly string[] = [
   "inventory:get-stock-stats",
   "inventory:resolve-scan-code",
   "item-costs:get-all",
+  // LIRA-364: the Monthly progress page (admin, read-only).
+  "kpi:list-snapshots",
   "license:status",
   "loto:cash-prize:get-by-date-range",
   "loto:cash-prize:get-total-unreimbursed",

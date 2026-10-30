@@ -41,6 +41,7 @@ import type {
   CreateUserInput,
   SupplierAccountLinkInput,
   SupplierArchiveInput,
+  KpiProgressResponse,
   TopUpFromClientInput,
   DailyStatsSnapshotQuery,
   HoldMoneyCreateInput,
@@ -655,6 +656,7 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.updateSupplierAccountLink(data);
   setSupplierArchived = (data: SupplierArchiveInput) =>
     api.setSupplierArchived(data);
+  getKpiSnapshots = (): Promise<KpiProgressResponse> => api.getKpiSnapshots();
   createSupplier = (data: SupplierCreatePayload) => api.createSupplier(data);
   addSupplierLedgerEntry = (
     supplierId: number,

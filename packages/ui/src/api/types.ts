@@ -102,6 +102,7 @@ import type {
   CreateUserInput,
   SupplierAccountLinkInput,
   SupplierArchiveInput,
+  KpiProgressResponse,
   TopUpFromClientInput,
   CommissionsReport,
   CommissionProviderRow,
@@ -308,6 +309,7 @@ export type {
   CreateUserInput,
   SupplierAccountLinkInput,
   SupplierArchiveInput,
+  KpiProgressResponse,
   TopUpFromClientInput,
   CommissionsReport,
   CommissionProviderRow,
@@ -2097,6 +2099,8 @@ export type ApiAdapter = {
   setSupplierArchived: (
     data: SupplierArchiveInput,
   ) => Promise<ApiResult & { id?: number }>;
+  /** LIRA-364 — the Monthly progress read (admin-only). */
+  getKpiSnapshots: () => Promise<KpiProgressResponse>;
   addSupplierLedgerEntry: (
     supplierId: number,
     data: Omit<SupplierLedgerEntryPayload, "supplier_id">,

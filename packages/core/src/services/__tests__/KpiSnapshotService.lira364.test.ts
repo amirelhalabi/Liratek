@@ -299,4 +299,22 @@ describe("KpiSnapshotService.captureDue (LIRA-364)", () => {
     expect(list[0].values.stock_value).toBeDefined();
     expect(list[0].is_late).toBe(false);
   });
+
+  it("getProgress: switched on → enabled, with the saved months", () => {
+    setMarker(db, "2026-10");
+    getKpiSnapshotService().captureDue(NOV_1_BEIRUT);
+    const progress = getKpiSnapshotService().getProgress();
+    expect(progress.enabled).toBe(true);
+    expect(progress.snapshots.map((s) => s.month)).toEqual(["2026-10"]);
+  });
+
+  it("getProgress: switched off → not enabled and no months, even if some were saved", () => {
+    setMarker(db, "2026-10");
+    getKpiSnapshotService().captureDue(NOV_1_BEIRUT);
+    enableFeature(db, false);
+    expect(getKpiSnapshotService().getProgress()).toEqual({
+      enabled: false,
+      snapshots: [],
+    });
+  });
 });

@@ -39,6 +39,7 @@ import { useTranslation } from "react-i18next";
 import { moduleLabel } from "@/shared/utils/moduleLabel";
 import { DirIcon } from "@liratek/ui/components/ui/DirIcon";
 import { useAuth } from "@/features/auth/context/AuthContext";
+import { MonthlyProgressNavLink } from "@/features/kpi/components/MonthlyProgressNavLink";
 import { useModules } from "@/contexts/ModuleContext";
 import { useShopName } from "@/hooks/useShopName";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
@@ -355,6 +356,9 @@ export default function Sidebar({
             )}
           </NavLink>
         )}
+
+        {/* LIRA-364 — Monthly progress: admins, shops with the switch on. */}
+        {isAdmin && <MonthlyProgressNavLink isCollapsed={isCollapsed} />}
 
         {/* LIRA-306 US3 — offline work to review: web app, admins (E1). */}
         {isAdmin && !isElectron() && (

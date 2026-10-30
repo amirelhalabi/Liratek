@@ -16,7 +16,8 @@
     "collapseSidebar": "Collapse Sidebar",
     "adminActions": "Admin Actions",
     "addFavorite": "Add to favorites",
-    "removeFavorite": "Remove from favorites"
+    "removeFavorite": "Remove from favorites",
+    "monthlyProgress": "Monthly progress"
   },
   "topBar": {
     "home": "Home",

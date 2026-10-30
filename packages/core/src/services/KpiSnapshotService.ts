@@ -95,12 +95,10 @@ export class KpiSnapshotService {
    * never saves today's balances as last month's.
    */
   captureDue(now: Date): { captured: string | null; reason: CaptureReason } {
-    const { snapshots, settings, subscriptions } = this.deps;
+    const { snapshots, settings } = this.deps;
     // Super admin switches this on per shop (Plan window → Features). Off
     // means off: nothing saved, and the start clock does not run either.
-    if (
-      !subscriptions.isFeatureEnabled(getCurrentTenantId(), "kpi_snapshots")
-    ) {
+    if (!this.isEnabled()) {
       return { captured: null, reason: "disabled" };
     }
     const currentMonth = beirutMonth(now);
@@ -132,6 +130,23 @@ export class KpiSnapshotService {
 
   listSnapshots(): KpiSnapshotView[] {
     return this.deps.snapshots.listSnapshots();
+  }
+
+  /**
+   * What the Monthly progress page reads, on both transports. The ONE place
+   * the per-shop switch gates the read: while off, the page and its menu
+   * item hide and no month is returned, even ones saved earlier.
+   */
+  getProgress(): { enabled: boolean; snapshots: KpiSnapshotView[] } {
+    if (!this.isEnabled()) return { enabled: false, snapshots: [] };
+    return { enabled: true, snapshots: this.listSnapshots() };
+  }
+
+  private isEnabled(): boolean {
+    return this.deps.subscriptions.isFeatureEnabled(
+      getCurrentTenantId(),
+      "kpi_snapshots",
+    );
   }
 
   /** The eight KPIs as they stand right now. */

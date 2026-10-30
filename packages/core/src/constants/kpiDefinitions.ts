@@ -24,6 +24,8 @@ export interface KpiDefinition {
   group: "generic" | "phone_shop";
   /** Module that must be on for the row to show. The value is saved anyway. */
   requiresModule?: "recharge";
+  /** Kept in dollars only (cost prices, line credits): its LBP is always 0. */
+  usdOnly?: true;
 }
 
 /** In page order. */
@@ -34,8 +36,13 @@ export const KPI_DEFINITIONS: readonly KpiDefinition[] = [
   { key: "shop_owes_customers", group: "generic" },
   { key: "shop_owes_suppliers", group: "generic" },
   { key: "shop_owes_partners", group: "generic" },
-  { key: "stock_value", group: "generic" },
-  { key: "carrier_credits", group: "phone_shop", requiresModule: "recharge" },
+  { key: "stock_value", group: "generic", usdOnly: true },
+  {
+    key: "carrier_credits",
+    group: "phone_shop",
+    requiresModule: "recharge",
+    usdOnly: true,
+  },
 ];
 
 /** One saved month, as both transports return it. */
@@ -51,3 +58,11 @@ export interface KpiSnapshotView {
   /** A missing key means the KPI did not exist yet: "not recorded". */
   values: Partial<Record<KpiKey, { usd: number; lbp: number }>>;
 }
+
+/**
+ * The Monthly progress read, on both transports. `enabled: false` while super
+ * admin has not switched the feature on for the shop (no months then).
+ */
+export type KpiProgressResponse =
+  | { success: true; enabled: boolean; snapshots: KpiSnapshotView[] }
+  | { success: false; error: string };

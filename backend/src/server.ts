@@ -145,6 +145,7 @@ import maintenanceRoutes from "./api/maintenance.js";
 import currenciesRoutes from "./api/currencies.js";
 import closingRoutes from "./api/closing.js";
 import suppliersRoutes from "./api/suppliers.js";
+import kpiRoutes from "./api/kpi.js";
 import ratesRoutes from "./api/rates.js";
 import usersRoutes from "./api/users.js";
 import activityRoutes from "./api/activity.js";
@@ -229,6 +230,8 @@ app.use("/api/maintenance", maintenanceRoutes);
 app.use("/api/currencies", currenciesRoutes);
 app.use("/api/closing", closingRoutes);
 app.use("/api/suppliers", suppliersRoutes);
+// LIRA-364 — Monthly progress (admin, read-only).
+app.use("/api/kpi", kpiRoutes);
 app.use("/api/rates", ratesRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/activity", activityRoutes);

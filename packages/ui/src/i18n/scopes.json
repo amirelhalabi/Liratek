@@ -123,7 +123,9 @@
       "frontend/src/shared/utils/receiptWrap.ts",
       "frontend/src/features/sales/utils/receiptFormatter.ts"
     ],
-    "reports": [],
+    "reports": [
+      "frontend/src/features/kpi"
+    ],
     "mobile": []
   }
 }

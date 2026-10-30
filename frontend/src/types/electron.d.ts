@@ -21,6 +21,8 @@ import type {
   SupplierLedgerEntryPayload,
   // LIRA-362 — archive/unarchive a supplier (core schema input).
   SupplierArchiveInput,
+  // LIRA-364 — the Monthly progress read.
+  KpiProgressResponse,
   // LIRA-322 — account settlement payload (rule 21).
   SupplierSettleAccountPayload,
   RemoveAccountCreditPayload,
@@ -3693,6 +3695,10 @@ export interface ElectronAPI {
   };
 
   // Carrier Lines (LIRA W6.a — shop SIM-line tracking; informational only)
+  /** LIRA-364 — Monthly progress (admin-only, read-only). */
+  kpi: {
+    listSnapshots: () => Promise<KpiProgressResponse>;
+  };
   /**
    * Licence / subscription (desktop only).
    *

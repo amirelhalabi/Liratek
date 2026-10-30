@@ -236,6 +236,7 @@ import type {
   AuditPageFiltersInput,
   SupplierAccountLinkInput,
   SupplierArchiveInput,
+  KpiProgressResponse,
   TopUpFromClientInput,
   CommissionsReport,
   NetProfitWindowResult,
@@ -4035,6 +4036,15 @@ export async function updateSupplierAccountLink(
         `/api/suppliers/${data.supplier_id}/account-link`,
         { method: "PUT", body: data },
       ),
+  );
+}
+
+// LIRA-364 — the Monthly progress read (admin-only; `enabled: false` while
+// super admin has not switched the feature on for the shop).
+export async function getKpiSnapshots(): Promise<KpiProgressResponse> {
+  return ipcOrHttp(
+    async () => getElectronApi().kpi.listSnapshots(),
+    async () => requestJson<KpiProgressResponse>(`/api/kpi/snapshots`),
   );
 }
 

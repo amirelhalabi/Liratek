@@ -59,7 +59,7 @@
 - [x] T019b [US1] Super admin route `PUT /api/admin/subscriptions/:tenantId/features` with `setEnabledFeaturesSchema` (own validated route, LIRA-332 R10) + audit row; list rows carry `enabledFeatures` (`admin.lira364Features.api.test.ts`)
 - [x] T019c [US1] Desktop licence sync stores `enabledFeatures` (`licenseSync.lira364Features.test.ts`); `/by-key` shape pinned with the new key
 - [x] T019d [US1] Plan window → Features section with its own Save (`PlanModal.lira364Features.test.tsx`)
-- [ ] T019e [US2] Page/menu/read route also refuse while the switch is off (with T022–T028)
+- [x] T019e [US2] Page/menu/read route also refuse while the switch is off (with T022–T028)
 
 **Checkpoint**: snapshots are saved on both transports for switched-on shops; nothing is visible to the shop yet. This alone must ship first (missed months are unrecoverable).
 
@@ -72,19 +72,19 @@
 
 ### Tests (write first, see them fail)
 
-- [ ] T020 [P] [US2] Write failing test `backend/src/api/__tests__/kpi.lira364.api.test.ts` (harness from `suppliers.lira362Archive.api.test.ts`): `GET /api/kpi/snapshots` as admin returns `{ success: true, snapshots }` from `KpiSnapshotService.listSnapshots` (spied); staff gets 403 and the service is not called; a thrown error returns HTTP 500 `{ success:false }` like sibling routes
-- [ ] T021 [P] [US2] Write failing test `frontend/src/features/kpi/pages/MonthlyProgress/__tests__/MonthlyProgress.lira364.test.tsx` (module-level stable `useApi` mock, rule 25): two months render as columns newest first; stock value $9,500 vs $8,000 shows "+$1,500"; USD and LBP on separate lines; a missing KPI key shows "not recorded"; `is_late` shows the "taken late" mark; zero snapshots show the "first snapshot at the end of this month" text
+- [x] T020 [P] [US2] Write failing test `backend/src/api/__tests__/kpi.lira364.api.test.ts` (harness from `suppliers.lira362Archive.api.test.ts`): `GET /api/kpi/snapshots` as admin returns `{ success: true, snapshots }` from `KpiSnapshotService.listSnapshots` (spied); staff gets 403 and the service is not called; a thrown error returns HTTP 500 `{ success:false }` like sibling routes
+- [x] T021 [P] [US2] Write failing test `frontend/src/features/kpi/pages/MonthlyProgress/__tests__/MonthlyProgress.lira364.test.tsx` (module-level stable `useApi` mock, rule 25): two months render as columns newest first; stock value $9,500 vs $8,000 shows "+$1,500"; USD and LBP on separate lines; a missing KPI key shows "not recorded"; `is_late` shows the "taken late" mark; zero snapshots show the "first snapshot at the end of this month" text
 
 ### Implementation
 
-- [ ] T022 [P] [US2] Create `electron-app/handlers/kpiHandlers.ts` with `kpi:list-snapshots` (`requireRole(e.sender.id, ["admin"])`, try/catch, returns `{ success: true, snapshots }`), register it in `electron-app/main.ts`; add `kpi.listSnapshots` to `electron-app/preload.ts` and `frontend/src/types/electron.d.ts`
-- [ ] T023 [P] [US2] Add `"kpi:list-snapshots"` to the read list in `packages/core/src/offline/channelPolicy.ts` and bump `read` + `total` in `electron-app/offline/__tests__/channelPolicy.complete.test.ts` with a LIRA-364 comment
-- [ ] T024 [P] [US2] Create `backend/src/api/kpi.ts` (`authenticateJWT` → `requireRole(["admin"])`, IPC-identical envelope) and mount it at `/api/kpi` in `backend/src/server.ts`; make T020 pass
-- [ ] T025 [US2] Add `getKpiSnapshots()` to `frontend/src/api/backendApi.ts` (`ipcOrHttp`), `frontend/src/api/ElectronApiAdapter.ts` and `ApiAdapter` in `packages/ui/src/api/types.ts`, typed with core's `KpiSnapshotView` (rule 21)
-- [ ] T026 [US2] Create `frontend/src/features/kpi/hooks/useKpiSnapshots.ts` (TanStack `useQuery`, key `["kpi-snapshots"]`)
-- [ ] T027 [US2] Create `frontend/src/features/kpi/pages/MonthlyProgress/index.tsx` (default export): rows from `KPI_DEFINITIONS` order, months as columns newest first, each cell USD and LBP on separate lines (never combined: FR-003) with the delta vs the next-older saved month per currency, rate under each month heading, "taken late" mark, empty state; make T021 pass
-- [ ] T028 [US2] Add route `/monthly-progress` under `AdminRoute` (lazy) in `frontend/src/app/App.tsx` and an admin-only sidebar item next to Checkpoint timeline / Profits
-- [ ] T029 [P] [US2] Create `packages/ui/src/i18n/locales/en/kpi.json` and `ar/kpi.json` (page title, KPI names per key, "not recorded", "taken late", empty state, rate label) and register the namespace wherever namespaces are listed
+- [x] T022 [P] [US2] Create `electron-app/handlers/kpiHandlers.ts` with `kpi:list-snapshots` (`requireRole(e.sender.id, ["admin"])`, try/catch, returns `{ success: true, snapshots }`), register it in `electron-app/main.ts`; add `kpi.listSnapshots` to `electron-app/preload.ts` and `frontend/src/types/electron.d.ts`
+- [x] T023 [P] [US2] Add `"kpi:list-snapshots"` to the read list in `packages/core/src/offline/channelPolicy.ts` and bump `read` + `total` in `electron-app/offline/__tests__/channelPolicy.complete.test.ts` with a LIRA-364 comment
+- [x] T024 [P] [US2] Create `backend/src/api/kpi.ts` (`authenticateJWT` → `requireRole(["admin"])`, IPC-identical envelope) and mount it at `/api/kpi` in `backend/src/server.ts`; make T020 pass
+- [x] T025 [US2] Add `getKpiSnapshots()` to `frontend/src/api/backendApi.ts` (`ipcOrHttp`), `frontend/src/api/ElectronApiAdapter.ts` and `ApiAdapter` in `packages/ui/src/api/types.ts`, typed with core's `KpiSnapshotView` (rule 21)
+- [x] T026 [US2] Create `frontend/src/features/kpi/hooks/useKpiSnapshots.ts` (TanStack `useQuery`, key `["kpi-snapshots"]`)
+- [x] T027 [US2] Create `frontend/src/features/kpi/pages/MonthlyProgress/index.tsx` (default export): rows from `KPI_DEFINITIONS` order, months as columns newest first, each cell USD and LBP on separate lines (never combined: FR-003) with the delta vs the next-older saved month per currency, rate under each month heading, "taken late" mark, empty state; make T021 pass
+- [x] T028 [US2] Add route `/monthly-progress` under `AdminRoute` (lazy) in `frontend/src/app/App.tsx` and an admin-only sidebar item next to Checkpoint timeline / Profits
+- [x] T029 [P] [US2] Create `packages/ui/src/i18n/locales/en/kpi.json` and `ar/kpi.json` (page title, KPI names per key, "not recorded", "taken late", empty state, rate label) and register the namespace wherever namespaces are listed
 
 **Checkpoint**: an admin sees saved months on desktop and web; staff cannot.
 
@@ -95,17 +95,17 @@
 **Goal**: carrier credits are hidden for a shop without the recharge module, but still saved.
 **Independent test**: page test with recharge off.
 
-- [ ] T030 [US3] Extend `MonthlyProgress.lira364.test.tsx` with failing cases: recharge module off hides the `carrier_credits` row; on shows it with saved values (FR-013)
-- [ ] T031 [US3] In `MonthlyProgress/index.tsx`, filter rows whose `requiresModule` is disabled, using `ModuleContext` (`frontend/src/contexts/ModuleContext.tsx`); make T030 pass
+- [x] T030 [US3] Extend `MonthlyProgress.lira364.test.tsx` with failing cases: recharge module off hides the `carrier_credits` row; on shows it with saved values (FR-013)
+- [x] T031 [US3] In `MonthlyProgress/index.tsx`, filter rows whose `requiresModule` is disabled, using `ModuleContext` (`frontend/src/contexts/ModuleContext.tsx`); make T030 pass
 
 ---
 
 ## Phase 6: Polish & cross-cutting
 
-- [ ] T032 [P] Web e2e `frontend/tests/e2e-web/lira-web-0NN-monthly-progress.spec.ts` (next free number): seed two snapshots for the test tenant via the fixture's DB helper (there is no app channel by design), assert both months and one delta as admin, assert the menu item is absent for staff, save landscape screenshot `frontend/public/whats-new/<next version>/monthly-progress.png`. Ask the owner before running
-- [ ] T033 Release note in `docs/release-notes/UNRELEASED.md`: a `### Monthly progress` card under `## ✨ Highlights` with the screenshot, plus a bullet; run `node scripts/build-release-notes.cjs --check` (rule 30)
+- [x] T032 [P] Web e2e `frontend/tests/e2e-web/lira-web-086-monthly-progress.spec.ts` (done 2026-10-30; the staff-absence check was not added — the Sidebar's `isAdmin` gate is untested end to end) (next free number): seed two snapshots for the test tenant via the fixture's DB helper (there is no app channel by design), assert both months and one delta as admin, assert the menu item is absent for staff, save landscape screenshot `frontend/public/whats-new/<next version>/monthly-progress.png`. Ask the owner before running
+- [x] T033 Release note in `docs/release-notes/UNRELEASED.md`: a `### Monthly progress` card under `## ✨ Highlights` with the screenshot, plus a bullet; run `node scripts/build-release-notes.cjs --check` (rule 30)
 - [ ] T034 Update the LIRA-364 ticket in `current_sprint.md` (built, tests with failing-first status, desktop not run, "What users will notice")
-- [ ] T035 Gates: `yarn typecheck`, `yarn lint`, `yarn check:tenant-scoping`, `yarn check:bind-arity`, `yarn check:schema-equivalence`, `yarn check:transport-parity`; confirm the elapsed time shows they ran (rule 28)
+- [x] T035 Gates: `yarn typecheck`, `yarn lint`, `yarn check:tenant-scoping`, `yarn check:bind-arity`, `yarn check:schema-equivalence`, `yarn check:transport-parity`; confirm the elapsed time shows they ran (rule 28)
 
 ---
 

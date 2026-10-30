@@ -84,6 +84,10 @@ const Profits = lazyWithReload(
 const CheckpointTimeline = lazyWithReload(
   () => import("@/features/closing/pages/CheckpointTimeline"),
 );
+// LIRA-364 — Monthly progress (admins; shows "not switched on" otherwise).
+const MonthlyProgress = lazyWithReload(
+  () => import("@/features/kpi/pages/MonthlyProgress"),
+);
 const SetupWizard = lazyWithReload(
   () => import("@/features/setup/SetupWizard"),
 );
@@ -435,6 +439,14 @@ function AppRoutes() {
           element={
             <AdminRoute>
               <CheckpointTimeline />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/monthly-progress"
+          element={
+            <AdminRoute>
+              <MonthlyProgress />
             </AdminRoute>
           }
         />

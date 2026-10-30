@@ -39,6 +39,11 @@ jest.mock("@/contexts/FeatureFlagContext", () => ({
   }),
 }));
 
+// LIRA-364: the Monthly progress item fetches; not under test here.
+jest.mock("@/features/kpi/components/MonthlyProgressNavLink", () => ({
+  MonthlyProgressNavLink: () => null,
+}));
+
 jest.mock("@/hooks/useShopName", () => ({
   useShopName: () => "Corner Tech",
 }));
