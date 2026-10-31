@@ -83,6 +83,8 @@ const EXACT: ReadonlyMap<string, ExactTitleKey> = new Map(
       ["Telecom Credit Buyback", "telecomCreditBuyback"],
       ["Drawer Transfer", "drawerTransfer"],
       ["Custom Service", "customService"],
+      // LIRA-360: an insurance sale (a custom service with category insurance).
+      ["Insurance", "insurance"],
       ["Maintenance", "maintenance"],
       ["Expense", "expense"],
       ["Debt Repayment", "debtRepayment"],

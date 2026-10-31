@@ -27,6 +27,7 @@
 import { z } from "zod";
 import { OMT_SERVICE_TYPES } from "../utils/omtFees.js";
 import { FULFILLMENT_STATUSES } from "../utils/insuranceFulfillment.js";
+import { INSURANCE_TYPES } from "../utils/insuranceRenewal.js";
 
 // ── Field building blocks ───────────────────────────────────────────────
 
@@ -101,6 +102,8 @@ export const customServiceDetailsSchema = z.object({
   category: text.optional(),
   productId: id.optional(),
   fulfillmentStatus: z.enum(FULFILLMENT_STATUSES).optional(),
+  // LIRA-360 — which insurance (category "insurance" only).
+  insuranceType: z.enum(INSURANCE_TYPES).optional(),
   direction: z.enum(["IN", "OUT"]).optional(),
   cost: usdLbp.optional(),
   price: usdLbp.optional(),

@@ -351,6 +351,7 @@
       "transfer": "تحويل أموال",
       "bill": "دفع فاتورة",
       "custom_service": "خدمة",
+      "insurance": "تأمين",
       "maintenance": "صيانة",
       "loto": "ورقة لوتو",
       "exchange": "صرف",
@@ -387,7 +388,8 @@
       "rate": "السعر",
       "code": "الرمز",
       "value": "القيمة",
-      "expiry": "ينتهي في"
+      "expiry": "ينتهي في",
+      "insuranceType": "نوع التأمين"
     }
   },
   "statement": {

@@ -355,6 +355,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 ## 🛠️ Custom Services
 
 - Selling an insurance now asks for its type: Compulsory, Third party, Domestic worker, All risk or Life. The type shows in History.
+- Insurance sales now show as "Insurance" in the Type column of the Transactions page and as "Insurance" on the customer's account. From now on the summary and the account note also name the type, for example "Insurance (Compulsory): Car insurance".
 - New "Insurance renewals" card on the Dashboard: customers whose insurance ends within 7 days or has ended without renewal, with a daily reminder in the bell and a "Won't renew" button. Insurance sold before this update is matched by customer only.
 - From now on Custom Services and Hold Money keep every detail you enter on the transaction itself: category, product, insurance status, partner (For or Via), notes and how the customer paid.
 - Services: from now on, text you type in "Search Item or Service" is saved as the service's description even if you press Submit without pressing Enter first. Before, it was dropped and the service was saved as plain "Custom Service".

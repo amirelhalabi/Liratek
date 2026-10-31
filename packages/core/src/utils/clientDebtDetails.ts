@@ -27,6 +27,11 @@
 
 import { providerDisplayLabel } from "./financialServiceSummary.js";
 import {
+  INSURANCE_CATEGORY,
+  INSURANCE_TYPE_LABELS,
+  type InsuranceType,
+} from "./insuranceRenewal.js";
+import {
   buildSplitCheckoutLabel,
   type SplitCheckoutItem,
 } from "./splitCheckoutItems.js";
@@ -99,6 +104,7 @@ export type ClientDebtKind =
   | "transfer"
   | "bill"
   | "custom_service"
+  | "insurance"
   | "maintenance"
   | "loto"
   | "exchange"
@@ -136,7 +142,8 @@ export type ClientDebtFieldKey =
   | "rate"
   | "code"
   | "value"
-  | "expiry";
+  | "expiry"
+  | "insuranceType";
 
 export interface ClientDebtField {
   key: ClientDebtFieldKey;
@@ -557,9 +564,32 @@ function buildCustomService(
 ): Built {
   const description =
     str(d.description) ??
-    tx.summary?.replace(/^Custom Service:\s*/, "").trim() ??
+    tx.summary
+      ?.replace(/^(Custom Service|Insurance(?: \([^)]*\))?):\s*/, "")
+      .trim() ??
     "Service";
   const total = txTotal(tx);
+  // LIRA-360 (owner 2026-10-31): an insurance is its own kind ("Insurance"
+  // badge) and its type leads the line: "Compulsory · Car insurance — $100".
+  if (d.category === INSURANCE_CATEGORY) {
+    const t = str(d.insuranceType);
+    const typeLabel =
+      t && t in INSURANCE_TYPE_LABELS
+        ? INSURANCE_TYPE_LABELS[t as InsuranceType]
+        : null;
+    return {
+      kind: "insurance",
+      ref: null,
+      what: `${typeLabel ? `${typeLabel} · ` : ""}${description} — ${total}`,
+      fields: [
+        ...field("insuranceType", typeLabel),
+        ...field("description", description),
+        ...field("price", total),
+      ],
+      items: [],
+      note: str(d.note) ?? str(meta.note),
+    };
+  }
   return {
     kind: "custom_service",
     ref: null,

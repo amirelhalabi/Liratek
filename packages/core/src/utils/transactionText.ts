@@ -14,6 +14,7 @@
  * so renaming a provider reaches every past row too.
  */
 import type { TransactionType } from "../constants/transactionTypes.js";
+import { INSURANCE_CATEGORY } from "./insuranceRenewal.js";
 
 /** The fields of a transaction row the wording reads. */
 export interface TransactionTextRow {
@@ -189,6 +190,15 @@ function titleFromMetadata(type: string, meta: Record<string, unknown>): string 
     const drawerName = meta.drawer_name as string | undefined;
     const drawerLabel = drawerName === "Whish_App" ? "Whish App" : drawerName === "OMT_App" ? "OMT App" : "Wallet";
     return `${drawerLabel} Exchange`;
+  }
+
+  // LIRA-360 (owner 2026-10-31): an insurance sale is "Insurance" in the
+  // Type column; its type (Compulsory, Life…) is in the summary. Read from
+  // the sale's details, so every insurance with details (LIRA-329 on) shows
+  // it, and the saved type stays CUSTOM_SERVICE.
+  if (type === "CUSTOM_SERVICE") {
+    const details = meta.details as Record<string, unknown> | undefined;
+    if (details?.category === INSURANCE_CATEGORY) return "Insurance";
   }
 
   // A cashless supplier credit (e.g. bill commission) — distinct from a real

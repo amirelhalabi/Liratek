@@ -351,6 +351,7 @@
       "transfer": "Money transfer",
       "bill": "Bill payment",
       "custom_service": "Service",
+      "insurance": "Insurance",
       "maintenance": "Maintenance job",
       "loto": "Loto ticket",
       "exchange": "Exchange",
@@ -387,7 +388,8 @@
       "rate": "Rate",
       "code": "Code",
       "value": "Value",
-      "expiry": "Expires"
+      "expiry": "Expires",
+      "insuranceType": "Insurance type"
     }
   },
   "statement": {

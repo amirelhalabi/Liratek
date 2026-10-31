@@ -30,6 +30,22 @@ export const INSURANCE_TYPES = [
 
 export type InsuranceType = (typeof INSURANCE_TYPES)[number];
 
+/** English names, for text saved on the transaction and the account row
+ *  (summaries are stored in English; the screens translate their own labels). */
+export const INSURANCE_TYPE_LABELS: Record<InsuranceType, string> = {
+  COMPULSORY: "Compulsory",
+  THIRD_PARTY: "Third party",
+  DOMESTIC_WORKER: "Domestic worker",
+  ALL_RISK: "All risk",
+  LIFE: "Life",
+};
+
+/** "Insurance (Compulsory)", or "Insurance" for an untyped one — the head of
+ *  an insurance sale's summary and account note (owner 2026-10-31). */
+export function insuranceSaleLabel(type: InsuranceType | null | undefined): string {
+  return type ? `Insurance (${INSURANCE_TYPE_LABELS[type]})` : "Insurance";
+}
+
 /** Listed once the expiry is this many days away or less. */
 export const INSURANCE_RENEWAL_WARNING_DAYS = 7;
 

@@ -52,6 +52,7 @@ import {
 import { type WorkStatus } from "../utils/customServiceWorkStatus.js";
 import {
   INSURANCE_CATEGORY,
+  insuranceSaleLabel,
   type InsuranceRenewalCandidate,
   type InsuranceType,
 } from "../utils/insuranceRenewal.js";
@@ -134,6 +135,7 @@ export function buildCustomServiceDetails(
     ...(data.fulfillment_status
       ? { fulfillmentStatus: data.fulfillment_status }
       : {}),
+    ...(data.insurance_type ? { insuranceType: data.insurance_type } : {}),
     direction: ctx.isPayout ? "OUT" : "IN",
     cost: { usd: data.cost_usd ?? 0, lbp: data.cost_lbp ?? 0 },
     price: { usd: data.price_usd ?? 0, lbp: data.price_lbp ?? 0 },
@@ -624,10 +626,18 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
         // label instead. Defined ONCE and reused for BOTH the unified
         // transaction summary below AND the payment/drawer notes further
         // down (rule 14 — never paste this template twice).
+        // LIRA-360 (owner 2026-10-31): an insurance reads "Insurance
+        // (Compulsory): …" so the type is in the summary and every note.
+        // The saved transaction/debt types stay CUSTOM_SERVICE / "Custom
+        // Service Debt"; this text is a snapshot as at saving time.
+        const noteHead =
+          data.category === INSURANCE_CATEGORY
+            ? insuranceSaleLabel(data.insurance_type)
+            : "Custom Service";
         const noteText =
           data.description && data.description.trim()
-            ? `Custom Service: ${data.description}`
-            : "Custom Service";
+            ? `${noteHead}: ${data.description}`
+            : noteHead;
 
         // LIRA-329 — the partner's name, read once: the For-Partner client
         // label below and the service's details both use it (rule 14).
