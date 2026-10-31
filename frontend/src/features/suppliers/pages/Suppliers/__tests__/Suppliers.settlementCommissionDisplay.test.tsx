@@ -151,7 +151,7 @@ const KATSH_SUPPLIER = {
   note: null,
   is_active: 1,
   module_key: null,
-  provider: "Katsh",
+  provider: "Alfa",
   is_system: 1,
   created_at: "2026-08-01T00:00:00Z",
   commission_entry_mode: "RATE" as const,

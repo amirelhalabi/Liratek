@@ -57,6 +57,7 @@ import {
 } from "../../utils/omtCoveredTypesStorage";
 import {
   billsStayOnTickList,
+  showsTransactionsWindow,
   calendarTakesCommission,
   settleBoxConvertsCurrency,
   isOmtRowCovered,
@@ -2581,17 +2582,19 @@ export default function SuppliersPage() {
                       surviving forgiveness path. */}
                   {/* Owner request (2026-10-16) — the two long tables open
                       in their own modal; the count shows once loaded. */}
-                  {selectedSupplier.is_active !== 0 && !isProductSupplier && (
-                    <button
-                      type="button"
-                      data-testid="supplier-open-transactions"
-                      onClick={() => setOpenTable("transactions")}
-                      className="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm"
-                    >
-                      {t("header.transactions")}
-                      {allTxnsQuery.isLoading ? "" : ` (${allTxns.length})`}
-                    </button>
-                  )}
+                  {selectedSupplier.is_active !== 0 &&
+                    !isProductSupplier &&
+                    showsTransactionsWindow(selectedSupplier.provider) && (
+                      <button
+                        type="button"
+                        data-testid="supplier-open-transactions"
+                        onClick={() => setOpenTable("transactions")}
+                        className="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm"
+                      >
+                        {t("header.transactions")}
+                        {allTxnsQuery.isLoading ? "" : ` (${allTxns.length})`}
+                      </button>
+                    )}
                   {/* LIRA-362 — archive a settled product supplier (hides it
                       from the list, history kept) or bring an archived one
                       back. Admin-only; the server refuses anything owed. */}
@@ -3218,7 +3221,8 @@ export default function SuppliersPage() {
       {openTable === "transactions" &&
         selectedSupplier &&
         selectedSupplier.is_active !== 0 &&
-        !isProductSupplier && (
+        !isProductSupplier &&
+        showsTransactionsWindow(selectedSupplier.provider) && (
           // LIRA-343 T033 — a z-[60] stacking wrapper so the window sits
           // ABOVE the settle sheet (also z-50, rendered later) if both are
           // ever open together. (Its "See in Transactions ›" opener went

@@ -99,7 +99,7 @@ const KATSH = {
   note: null,
   is_active: 1,
   module_key: null,
-  provider: "Katsh",
+  provider: "MTC",
   is_system: 1,
   created_at: "2026-08-01T00:00:00Z",
 };
@@ -135,7 +135,7 @@ function renderPage() {
 }
 
 async function openKatshTransactions(): Promise<HTMLElement> {
-  fireEvent.click(await screen.findByTestId("supplier-tile-Katsh"));
+  fireEvent.click(await screen.findByTestId("supplier-tile-MTC"));
   return openSupplierTable("transactions");
 }
 
@@ -226,7 +226,7 @@ describe("Suppliers page — Transactions window date filter (LIRA-343 FR-016c)"
 
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    fireEvent.click(await screen.findByTestId("supplier-tile-Katsh"));
+    fireEvent.click(await screen.findByTestId("supplier-tile-MTC"));
     dialog = await openSupplierTable("transactions");
     expect(fields(dialog).from.value).toBe("");
   });

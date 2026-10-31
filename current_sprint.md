@@ -8302,3 +8302,17 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 **Pending:** What's new card (visible line on the settle calendar) + screenshot.
 
 **What users will notice:** on the partner settle calendar, money you already paid the partner beyond earlier days now pays for the next days you pick, and the calendar says so instead of asking for it again.
+
+---
+
+## LIRA-368: Katsh / iPick — no Transactions window — BUILT 2026-10-31
+
+**Ask (owner 2026-10-31, Cornertech):** Katsh's page showed "Transactions (147)", every row "0 LBP". Katsh and iPick sell from the shop's own prepaid balance, so their sends and bills owe the supplier nothing; only top-ups, payments and settlements touch the account.
+
+**Owner decision 2026-10-31:** keep Commission Settlement (the owner types the total commission collected on bills and the system splits it per bill). Hide only the Transactions button and window for Katsh and iPick. Loto keeps its transactions (tickets and prizes are the account).
+
+**Built:** core `showsTransactionsWindow(provider)` (`utils/settlesByDay.ts`), used by the Suppliers page for the button and the window.
+
+**Tests:** core `settlesByDay` LIRA-368 (6) — proven failing first. Frontend `Suppliers.tablesInModals` LIRA-368 (Katsh, iPick) — written after, not proven failing-first. Five Suppliers tests used Katsh as their example supplier for the Transactions window; they now use Alfa / MTC / Whish (same behaviour under test). Supplier + partner frontend tests: 327 pass.
+
+**What users will notice:** Katsh and iPick no longer show a Transactions button; their page keeps Settle Account, Payments and Commission Settlement.

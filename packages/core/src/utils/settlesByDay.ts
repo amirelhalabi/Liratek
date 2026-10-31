@@ -104,3 +104,15 @@ export const LOTO_SETTLE_MOVED_MESSAGE =
   "Loto is now settled from Suppliers → Loto → Settle Account.";
 export const LOTO_PAY_MOVED_MESSAGE =
   "Pay Loto from Settle Account so the payment is tied to its days.";
+
+/**
+ * LIRA-368 (owner 2026-10-31) — does the supplier page offer the
+ * Transactions window? Not for Katsh and iPick: they sell from the shop's
+ * own prepaid balance, so their sends and bills owe the supplier nothing
+ * (every row read "0 LBP"). Their account is only top-ups, payments,
+ * settlements (the Payments window) and the bills' commission (the
+ * Commission Settlement list, which stays).
+ */
+export function showsTransactionsWindow(provider: string | null): boolean {
+  return provider !== "Katsh" && provider !== "iPick";
+}

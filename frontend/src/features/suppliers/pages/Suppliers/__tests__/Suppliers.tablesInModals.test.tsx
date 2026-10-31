@@ -83,7 +83,10 @@ jest.mock("@/hooks/useSellRate", () => ({
 jest.mock("@/hooks/useShopBase", () => ({
   useShopBase: () => ({
     baseSystem: "OMT",
-    partnerSystem: "WHISH",
+    // LIRA-368: the example supplier is Whish (a calendar supplier that
+    // still has a Transactions window), so it must not be the hidden
+    // partner system here.
+    partnerSystem: null,
     loading: false,
   }),
 }));
@@ -96,7 +99,7 @@ const KATSH = {
   note: null,
   is_active: 1,
   module_key: null,
-  provider: "Katsh",
+  provider: "WHISH",
   is_system: 1,
   created_at: "2026-08-01T00:00:00Z",
 };
@@ -144,7 +147,7 @@ function renderPage() {
 }
 
 async function selectKatsh() {
-  fireEvent.click(await screen.findByTestId("supplier-tile-Katsh"));
+  fireEvent.click(await screen.findByTestId("supplier-tile-WHISH"));
 }
 
 describe("Suppliers page — Transactions and Payments open in their own modal", () => {
@@ -255,4 +258,37 @@ describe("Suppliers page — Transactions and Payments open in their own modal",
       await within(dialog).findByTestId("supplier-txn-row-801"),
     ).toBeInTheDocument();
   });
+});
+
+/**
+ * LIRA-368 (owner 2026-10-31) — Katsh and iPick sell from the shop's own
+ * prepaid balance: their sends and bills owe the supplier nothing, so their
+ * page has no Transactions window. Payments (top-ups, settlements) stays.
+ * Not proven failing-first: written after the page change (the core
+ * predicate's test was).
+ */
+describe("Suppliers page — Katsh / iPick have no Transactions window (LIRA-368)", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRole = "admin";
+    mockGetSupplierLedger.mockResolvedValue([LEDGER_ROW]);
+    mockGetAllSupplierTransactions.mockResolvedValue([TXN_A, TXN_B]);
+    mockGetUnsettledTransactions.mockResolvedValue([TXN_A]);
+  });
+
+  it.each(["Katsh", "iPick"])(
+    "%s: Payments shows, Transactions does not",
+    async (provider) => {
+      mockGetSuppliers.mockResolvedValue([
+        { ...KATSH, name: provider, provider },
+      ]);
+      renderPage();
+      fireEvent.click(await screen.findByTestId(`supplier-tile-${provider}`));
+
+      expect(
+        await screen.findByRole("button", { name: "Payments (1)" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByTestId("supplier-open-transactions")).toBeNull();
+    },
+  );
 });

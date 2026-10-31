@@ -6,6 +6,7 @@
  */
 import {
   billsStayOnTickList,
+  showsTransactionsWindow,
   calendarTakesCommission,
   isSettleStaleMessage,
   settleStaleMessage,
@@ -22,20 +23,34 @@ const base = {
 describe("settlesByDay (LIRA-345)", () => {
   it("OMT account parent and members settle by day", () => {
     expect(
-      settlesByDay({ ...base, provider: "OMT", is_system: 1, is_account_member: true }),
+      settlesByDay({
+        ...base,
+        provider: "OMT",
+        is_system: 1,
+        is_account_member: true,
+      }),
     ).toBe(true);
     expect(
-      settlesByDay({ ...base, provider: "iPick", is_system: 1, is_account_member: true }),
+      settlesByDay({
+        ...base,
+        provider: "iPick",
+        is_system: 1,
+        is_account_member: true,
+      }),
     ).toBe(true);
   });
 
   it("Katsh settles by day", () => {
-    expect(settlesByDay({ ...base, provider: "Katsh", is_system: 1 })).toBe(true);
+    expect(settlesByDay({ ...base, provider: "Katsh", is_system: 1 })).toBe(
+      true,
+    );
   });
 
   it("Whish settles by day only when active", () => {
     expect(settlesByDay({ ...base, provider: "WHISH" })).toBe(true);
-    expect(settlesByDay({ ...base, provider: "WHISH", is_active: 0 })).toBe(false);
+    expect(settlesByDay({ ...base, provider: "WHISH", is_active: 0 })).toBe(
+      false,
+    );
   });
 
   it("product suppliers (is_system 0, no provider) settle by day", () => {
@@ -59,20 +74,34 @@ describe("settlesByDay (LIRA-345)", () => {
   });
 
   it("bills stay on the tick list for calendar suppliers outside the OMT account", () => {
-    expect(billsStayOnTickList({ ...base, provider: "Katsh", is_system: 1 })).toBe(true);
+    expect(
+      billsStayOnTickList({ ...base, provider: "Katsh", is_system: 1 }),
+    ).toBe(true);
     expect(billsStayOnTickList({ ...base, provider: "WHISH" })).toBe(true);
     expect(
-      billsStayOnTickList({ ...base, provider: "OMT", is_system: 1, is_account_member: true }),
+      billsStayOnTickList({
+        ...base,
+        provider: "OMT",
+        is_system: 1,
+        is_account_member: true,
+      }),
     ).toBe(false);
     expect(billsStayOnTickList(base)).toBe(false);
   });
 
   it("the commission field is offered for the OMT account and Whish only (S4)", () => {
     expect(
-      calendarTakesCommission({ ...base, provider: "OMT", is_system: 1, is_account_member: true }),
+      calendarTakesCommission({
+        ...base,
+        provider: "OMT",
+        is_system: 1,
+        is_account_member: true,
+      }),
     ).toBe(true);
     expect(calendarTakesCommission({ ...base, provider: "WHISH" })).toBe(true);
-    expect(calendarTakesCommission({ ...base, provider: "Katsh", is_system: 1 })).toBe(false);
+    expect(
+      calendarTakesCommission({ ...base, provider: "Katsh", is_system: 1 }),
+    ).toBe(false);
     expect(calendarTakesCommission(base)).toBe(false);
   });
 
@@ -84,7 +113,31 @@ describe("settlesByDay (LIRA-345)", () => {
     expect(settleStaleMessage("OMT")).toBe(
       "OMT's balance changed since you opened this sheet.",
     );
-    expect(isSettleStaleMessage(`${settleStaleMessage("Acme")} Check the new amounts.`)).toBe(true);
+    expect(
+      isSettleStaleMessage(
+        `${settleStaleMessage("Acme")} Check the new amounts.`,
+      ),
+    ).toBe(true);
     expect(isSettleStaleMessage("There is nothing to settle")).toBe(false);
+  });
+});
+
+/**
+ * LIRA-368 (owner 2026-10-31) — Katsh and iPick sell from the shop's own
+ * prepaid balance, so their sends and bills owe the supplier nothing (each
+ * shows "0 LBP"). Only top-ups, payments, settlements and the bills'
+ * commission touch the account, so their page has no Transactions window.
+ * Failing-first (rule 17).
+ */
+describe("showsTransactionsWindow (LIRA-368)", () => {
+  it.each([
+    ["Katsh", false],
+    ["iPick", false],
+    ["OMT", true],
+    ["WHISH", true],
+    ["LOTO", true],
+    [null, true],
+  ] as const)("%s → %s", (provider, expected) => {
+    expect(showsTransactionsWindow(provider)).toBe(expected);
   });
 });
