@@ -90,8 +90,13 @@ export interface PartnerSettlePlanCurrency {
   payer: PartnerSettlePayer;
   /** Signed: what the picked days owe in this currency (+ the partner owes). */
   owed: number;
-  /** Signed pre-fill: owed − credit used. */
+  /** Signed pre-fill: owed − credit used + paid before. */
   prefill: number;
+  /** LIRA-367 — money the shop already paid the partner beyond the days an
+   *  earlier settlement closed (an open + ACCOUNT row), which the server
+   *  nets against the picked days the shop owes (allocator step 1c). It
+   *  covers them, so the shop is not asked to pay it again. Magnitude. */
+  paidBefore: number;
   /** Partner credit available (magnitude). */
   creditTotal: number;
   /** The most that may be used here. */
@@ -128,7 +133,10 @@ export function planPartnerSettle(
     const k = KEY[c];
     const total = roundPartnerMoney(Math.max(0, -base.account_credit[k]), c);
     const owed = base.owed[k];
-    const limit = roundPartnerMoney(owed > 0 ? Math.min(owed, total) : total, c);
+    const limit = roundPartnerMoney(
+      owed > 0 ? Math.min(owed, total) : total,
+      c,
+    );
     const wanted = opts.creditUsed?.[k] ?? base.credit_used[k];
     used[k] = roundPartnerMoney(Math.min(Math.max(wanted, 0), limit), c);
     limits[c] = [total, limit];
@@ -153,13 +161,23 @@ export function planPartnerSettle(
         Math.abs(c === "USD" ? r.remaining_usd : r.remaining_lbp) >= eps,
     );
     const owed = selection.owed[k];
-    const prefill = roundPartnerMoney(selection.prefill[k], c);
+    // LIRA-367: only when the shop owes on the picked days (owed < 0). The
+    // account rows' signed sum, as the server nets + against − first.
+    const paidBefore =
+      owed < 0
+        ? roundPartnerMoney(
+            Math.min(-owed, Math.max(0, selection.account_credit[k])),
+            c,
+          )
+        : 0;
+    const prefill = roundPartnerMoney(selection.prefill[k] + paidBefore, c);
     currencies[c] = {
       currency: c,
       touched: rowsHere || used[k] >= eps,
       payer: payerOf(prefill, owed, c),
       owed,
       prefill,
+      paidBefore,
       creditTotal: limits[c][0],
       creditLimit: limits[c][1],
       creditUsed: used[k],
@@ -185,9 +203,7 @@ const legCurrency = (
 ): PartnerSettleCurrency =>
   l.currencyCode === "USD" || l.currencyCode === "LBP" ? l.currencyCode : box;
 
-type Section = NonNullable<
-  PartnerSettleDaysPayload["per_currency"]["USD"]
->;
+type Section = NonNullable<PartnerSettleDaysPayload["per_currency"]["USD"]>;
 
 /** THE settle-picked-days payload (typed from the core schema, rule 21). */
 export function buildPartnerSettleDaysPayload(
@@ -220,9 +236,7 @@ export function buildPartnerSettleDaysPayload(
         })),
     ];
     const forgive = money?.forgive;
-    const forgiveAmount = forgive
-      ? roundPartnerMoney(forgive.amount, c)
-      : 0;
+    const forgiveAmount = forgive ? roundPartnerMoney(forgive.amount, c) : 0;
     const reason = forgive?.reason?.trim();
     const section: Section = {
       payer: p.payer,
@@ -278,7 +292,8 @@ function oldHistoryCredit(
   const out = { usd: 0, lbp: 0 };
   for (const c of PARTNER_SETTLE_CURRENCIES) {
     const p = base.currencies[c];
-    out[KEY[c]] = p.owed > 0 ? roundPartnerMoney(Math.min(p.owed, p.creditTotal), c) : 0;
+    out[KEY[c]] =
+      p.owed > 0 ? roundPartnerMoney(Math.min(p.owed, p.creditTotal), c) : 0;
   }
   return out;
 }
@@ -341,7 +356,10 @@ export function oldHistoryWouldSettle(
     const alloc = allocateAccountSettlement({
       currency: c,
       rows: openRows
-        .filter((r) => r.row_scope === "DAY" && ids.has(r.id) && Math.abs(rem(r)) >= eps)
+        .filter(
+          (r) =>
+            r.row_scope === "DAY" && ids.has(r.id) && Math.abs(rem(r)) >= eps,
+        )
         .map(toAlloc),
       paid: 0,
       commission: 0,

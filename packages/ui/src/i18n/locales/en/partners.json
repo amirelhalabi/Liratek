@@ -203,6 +203,7 @@
       "nothingCloses": "Nothing closes up to this date without money.",
       "confirm": "Settle old history",
       "done": "{{name}}: old history settled up to {{day}}."
-    }
+    },
+    "paidBefore": "{{amount}} you already paid {{name}} on an earlier settlement covers these days."
   }
 }

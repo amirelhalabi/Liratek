@@ -8286,3 +8286,19 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 **What's new card:** done, screenshot from web e2e `lira-web-086-monthly-progress` (passed 2026-10-30).
 
 **What users will notice:** a "Monthly progress" page for admins of shops where it is switched on, showing each month's balances (what customers, suppliers and partners owe the shop and the other way round, stock value, line credits) and the change from the month before.
+
+---
+
+## LIRA-367: Partner settle — money already paid covers the picked days — BUILT 2026-10-31
+
+**Found on Cornertech (SAMER, 31 Oct):** a settlement paid $4,072 for $3,088 of picked days. The extra $984 was for 24 Oct ($784) and 27 Oct ($200), two OMT receives that were voided and re-entered after the 28 Oct settlement, so they were not ticked. Ticking them later, the settle calendar asked the shop to pay $984 cash again, although the server already nets that extra against those days (allocator step 1c). Paying would have booked the money twice (as new extra).
+
+**Built:** `planPartnerSettle` (`frontend/src/features/partners/utils/partnerSettleDaysPayload.ts`) adds `paidBefore`: when the picked days are owed by the shop, the open + ACCOUNT rows (extra paid earlier) cover them up to their size, and the pre-fill drops by that much. The sheet shows "$X you already paid <partner> on an earlier settlement covers these days." No server change: the server already nets.
+
+**Cornertech:** SAMER 24 + 27 Oct settled from the $984 (settlement #14563, no cash). Balance unchanged at −$229.14 (31 Oct receives $40 + $189.14).
+
+**Tests:** frontend `partnerSettleDaysPayload` LIRA-367 (5) — 4 proven failing first. Core `PartnerSettlement.lira367PaidBefore` (Samer replay: $0 closes both days, drawer unchanged, void reopens days and the $984) — passed first run, it pins the server behaviour, not proven failing-first. Partner frontend tests (104) pass; frontend type check clean.
+
+**Pending:** What's new card (visible line on the settle calendar) + screenshot.
+
+**What users will notice:** on the partner settle calendar, money you already paid the partner beyond earlier days now pays for the next days you pick, and the calendar says so instead of asking for it again.

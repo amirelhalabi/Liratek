@@ -305,6 +305,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 - Partners: in a partner's Transactions and Payments windows, the From / To dates now include the whole "To" day and follow your shop's own day.
 - Partners: on the settle calendar, "See transactions" opens a table of the picked days' entries next to the calendar (For / Through, notes, amount, what is left). Untick an entry there to leave it out of this settlement.
 - Partners: on the settle calendar, each payment box can now be paid in dollars or lira: a dollar amount can be paid in LBP (and the other way round), converted at the rate shown on the box. A "Total" line under the boxes shows what you pay in all, for example "$2,984.00 + 710,000 LBP".
+- Partners: when an earlier settlement paid the partner more than the days it closed, that extra now pays for the next days you pick. The settle calendar says so ("$984 you already paid … covers these days") instead of asking you to pay it again.
 
 ## 📒 Accounts
 

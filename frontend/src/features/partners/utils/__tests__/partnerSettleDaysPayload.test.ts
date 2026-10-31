@@ -24,8 +24,7 @@ import {
 } from "../partnerSettleDaysPayload";
 
 function row(
-  over: Partial<PartnerSettleRow> &
-    Pick<PartnerSettleRow, "id" | "shop_day">,
+  over: Partial<PartnerSettleRow> & Pick<PartnerSettleRow, "id" | "shop_day">,
 ): PartnerSettleRow {
   const usd = over.amount_usd ?? 0;
   const lbp = over.amount_lbp ?? 0;
@@ -92,7 +91,9 @@ describe("planPartnerSettle / buildPartnerSettleDaysPayload (LIRA-346)", () => {
         openRows: rows,
         pickedDays: ["2026-10-20", "2026-10-21"],
         money: {
-          USD: { lines: [{ method: "CASH", currencyCode: "USD", amount: 200 }] },
+          USD: {
+            lines: [{ method: "CASH", currencyCode: "USD", amount: 200 }],
+          },
         },
         exchangeRate: 89000,
       }),
@@ -123,7 +124,9 @@ describe("planPartnerSettle / buildPartnerSettleDaysPayload (LIRA-346)", () => {
         openRows: rows,
         pickedDays: ["2026-10-20"],
         money: {
-          USD: { lines: [{ method: "CASH", currencyCode: "USD", amount: 100 }] },
+          USD: {
+            lines: [{ method: "CASH", currencyCode: "USD", amount: 100 }],
+          },
         },
       }),
     );
@@ -141,7 +144,9 @@ describe("planPartnerSettle / buildPartnerSettleDaysPayload (LIRA-346)", () => {
         pickedDays: ["2026-10-20", "2026-10-21"],
         untickedRows: new Set(["LEDGER:12"]),
         money: {
-          USD: { lines: [{ method: "CASH", currencyCode: "USD", amount: 100 }] },
+          USD: {
+            lines: [{ method: "CASH", currencyCode: "USD", amount: 100 }],
+          },
         },
       }),
     );
@@ -251,7 +256,10 @@ describe("planPartnerSettle / buildPartnerSettleDaysPayload (LIRA-346)", () => {
       }),
     );
     expect(payload.selections).toEqual([11, 14]);
-    expect(payload.per_currency.USD).toEqual({ payer: "PARTNER", payments: [] });
+    expect(payload.per_currency.USD).toEqual({
+      payer: "PARTNER",
+      payments: [],
+    });
   });
 
   it("old history: every open day up to the date, credit only where the days owe, no money", () => {
@@ -278,7 +286,9 @@ describe("planPartnerSettle / buildPartnerSettleDaysPayload (LIRA-346)", () => {
     // The partner's credit pays it.
     expect(oldHistoryWouldSettle([old, CREDIT], "2026-09-30")).toBe(true);
     // A For and a Through net against each other.
-    expect(oldHistoryWouldSettle([FOR_20, THROUGH_21], "2026-10-21")).toBe(true);
+    expect(oldHistoryWouldSettle([FOR_20, THROUGH_21], "2026-10-21")).toBe(
+      true,
+    );
     // No open day up to the date.
     expect(oldHistoryWouldSettle([FOR_20], "2026-10-01")).toBe(false);
   });
@@ -307,7 +317,9 @@ describe("buildPartnerSettleDaysPayload — a box paid in the other currency (LI
       openRows: [OWES_8],
       pickedDays: ["2026-10-29"],
       money: {
-        USD: { lines: [{ method: "CASH", currencyCode: "LBP", amount: 712000 }] },
+        USD: {
+          lines: [{ method: "CASH", currencyCode: "LBP", amount: 712000 }],
+        },
       },
       exchangeRate: 89000,
     });
@@ -331,5 +343,89 @@ describe("buildPartnerSettleDaysPayload — a box paid in the other currency (LI
     expect(parse(payload).per_currency.LBP?.payments).toEqual([
       { method: "CASH", currency_code: "USD", amount: 7.87 },
     ]);
+  });
+});
+
+/**
+ * LIRA-367 — an earlier settlement that paid the partner MORE than the
+ * days it closed leaves an ACCOUNT row the partner owes back (+). Found on
+ * Cornertech: SAMER was paid $4,072 on 31 Oct for $3,088 of days; the extra
+ * $984 was for 24 Oct ($784) and 27 Oct ($200), which were re-entered and
+ * not ticked. The server nets that +$984 against the picked days the shop
+ * owes (allocator step 1c), so the sheet must not ask the shop to pay it
+ * again. Failing-first (rule 17).
+ */
+describe("LIRA-367 — money already paid to the partner covers picked days", () => {
+  const OMT_24 = row({
+    id: 148,
+    shop_day: "2026-10-24",
+    amount_usd: -784,
+    transaction_type: "FOR_OMT_RECEIVE",
+  });
+  const OMT_27 = row({
+    id: 150,
+    shop_day: "2026-10-27",
+    amount_usd: -200,
+    transaction_type: "FOR_OMT_RECEIVE",
+  });
+  const EXTRA_PAID = row({
+    id: 170,
+    shop_day: "2026-10-31",
+    amount_usd: 984,
+    transaction_type: "SETTLEMENT",
+    row_scope: "ACCOUNT",
+    unit_class: "PAYER",
+  });
+  const TODAY = row({
+    id: 173,
+    shop_day: "2026-10-31",
+    amount_usd: -189.14,
+    transaction_type: "FOR_OMT_RECEIVE",
+  });
+  const rows = [OMT_24, OMT_27, EXTRA_PAID, TODAY];
+
+  it("Samer: 24 + 27 Oct ticked — $984 already paid covers them, the shop pays $0", () => {
+    const plan = planPartnerSettle(rows, {
+      pickedDays: ["2026-10-24", "2026-10-27"],
+    });
+    expect(plan.currencies.USD.owed).toBeCloseTo(-984, 2);
+    expect(plan.currencies.USD.paidBefore).toBeCloseTo(984, 2);
+    expect(plan.currencies.USD.prefill).toBeCloseTo(0, 2);
+    expect(plan.currencies.USD.touched).toBe(true);
+  });
+
+  it("Samer: 24 + 27 + 31 Oct ticked — only today's $189.14 is left to pay", () => {
+    const plan = planPartnerSettle(rows, {
+      pickedDays: ["2026-10-24", "2026-10-27", "2026-10-31"],
+    });
+    expect(plan.currencies.USD.paidBefore).toBeCloseTo(984, 2);
+    expect(plan.currencies.USD.prefill).toBeCloseTo(-189.14, 2);
+    expect(plan.currencies.USD.payer).toBe("SHOP");
+  });
+
+  it("the extra is bigger than the picked days: it covers them and the rest stays", () => {
+    const plan = planPartnerSettle(rows, { pickedDays: ["2026-10-27"] });
+    expect(plan.currencies.USD.paidBefore).toBeCloseTo(200, 2);
+    expect(plan.currencies.USD.prefill).toBeCloseTo(0, 2);
+  });
+
+  it("the partner owes on the picked days: nothing is netted here (unchanged)", () => {
+    const plan = planPartnerSettle([FOR_20, EXTRA_PAID], {
+      pickedDays: ["2026-10-20"],
+    });
+    expect(plan.currencies.USD.paidBefore).toBe(0);
+    expect(plan.currencies.USD.prefill).toBeCloseTo(100, 2);
+  });
+
+  it("the payload parses and carries the account scope ($0 sent, nothing to pay)", () => {
+    const payload = buildPartnerSettleDaysPayload({
+      partnerId: 24,
+      openRows: rows,
+      pickedDays: ["2026-10-24", "2026-10-27"],
+    });
+    const parsed = parse(payload);
+    expect(parsed.include_account_credits).toBe(true);
+    expect(parsed.selections).toEqual([148, 150]);
+    expect(parsed.expected_owed.usd).toBeCloseTo(0, 2);
   });
 });

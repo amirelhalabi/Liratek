@@ -339,9 +339,7 @@ export function PartnerSettleSheet({
     return out;
   }, [plan, lines, returnLegs, forgiveInput, rate]);
 
-  const sectionMoney = (): Partial<
-    PerCurrency<PartnerSettleSectionMoney>
-  > => {
+  const sectionMoney = (): Partial<PerCurrency<PartnerSettleSectionMoney>> => {
     const out: Partial<PerCurrency<PartnerSettleSectionMoney>> = {};
     for (const c of PARTNER_SETTLE_CURRENCIES) {
       const reason = forgiveReason[c].trim();
@@ -816,6 +814,26 @@ export function PartnerSettleSheet({
               );
             })}
 
+          {/* LIRA-367 — an earlier settlement's extra covers these days
+              (the server nets it); say so instead of asking for it again. */}
+          {openQuery.isSuccess &&
+            touched
+              .filter(
+                (c) => plan.currencies[c].paidBefore >= PARTNER_SETTLE_EPS[c],
+              )
+              .map((c) => (
+                <div
+                  key={c}
+                  data-testid={`partner-settle-paid-before-${c.toLowerCase()}`}
+                  className="bg-emerald-950/40 border border-emerald-800/60 rounded-xl px-3 py-2 text-xs text-emerald-300"
+                >
+                  {t("settleDays.paidBefore", {
+                    name,
+                    amount: formatMoney(plan.currencies[c].paidBefore, c),
+                  })}
+                </div>
+              ))}
+
           {openQuery.isSuccess &&
             touched.map((c) => {
               const lc = c.toLowerCase();
@@ -874,7 +892,7 @@ export function PartnerSettleSheet({
               const preview =
                 Math.abs(after) < eps
                   ? t("settleDays.previewClosed")
-                  : (after > 0) === (p.prefill > 0) || noMoney
+                  : after > 0 === p.prefill > 0 || noMoney
                     ? after > 0
                       ? t("settleDays.previewPartnerStillOwes", {
                           name,
@@ -936,7 +954,9 @@ export function PartnerSettleSheet({
                       {...(forgiveLine
                         ? {
                             discountRow: forgiveLine,
-                            totalBeforeDiscount: [{ amount: m.due, currency: c }],
+                            totalBeforeDiscount: [
+                              { amount: m.due, currency: c },
+                            ],
                             afterDiscountLabel: t("settle.afterForgive"),
                           }
                         : {})}
