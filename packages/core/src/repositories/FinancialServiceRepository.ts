@@ -96,6 +96,11 @@ import { resolveKeptChange } from "./keptChange.js";
 import { resolveRoundingGiven, type RoundingGiven } from "./roundingGiven.js";
 import { resolveAddedChange, type AddedChange } from "./addedChange.js";
 import { bookPayoutRoundingExpense } from "./changeRoundingExpense.js";
+import { bookDiscountGivenExpense } from "./discountGivenExpense.js";
+import {
+  DISCOUNT_ABOVE_TOTAL_MESSAGE,
+  financialDiscountRefusal,
+} from "../validators/discount.js";
 import { bookForgivenShortfallSibling } from "./forgivenShortfall.js";
 import {
   buildFinancialServiceSummary,
@@ -451,6 +456,11 @@ export interface CreateFinancialServiceData {
    *  WAIVED_SHORTFALL sibling (`bookForgivenShortfallSibling`, FR-012) —
    *  never taken off this row's profit stamp. */
   customer_waived_amount?: number;
+  /** LIRA-365 — the discount given on a walk-in OMT/Whish system SEND, in
+   *  the send's currency. Lowers what the legs must cover; never the fee,
+   *  the commission or what is owed to the provider. Booked as a books-only
+   *  "Discount given" expense (`bookDiscountGivenExpense`). */
+  discount_amount?: number;
   /** LIRA-321 — with `customerPayments`: the fee is paid over the counter
    *  (one of the lines) and the payout is the full amount (mode C). */
   feeCollectedSeparately?: boolean;
@@ -789,6 +799,15 @@ export function buildOmtWhishTransferDetails(
         }
       : {}),
     ...(note && note !== placeholderNote ? { note } : {}),
+    // LIRA-365 (FR-010) — the discount given on a system SEND.
+    ...((data.discount_amount ?? 0) > 0
+      ? {
+          discount: {
+            amount: data.discount_amount as number,
+            currency: data.currency ?? "USD",
+          },
+        }
+      : {}),
   };
 }
 
@@ -1915,6 +1934,14 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     drawer: string;
   } {
     this.assertValidProvider(data.provider);
+    // LIRA-365 — the same refusal the schema applies (offline replay skips
+    // Zod), checked before any other path can answer for it.
+    const discountRefusal = financialDiscountRefusal({
+      ...data,
+      hasPayments: (data.payments?.length ?? 0) > 0,
+      total: Math.abs(data.amount) + (data.omtFee ?? data.whishFee ?? 0),
+    });
+    if (discountRefusal) throw new BusinessRuleError(discountRefusal);
     const legacyDrawerLabel = this.mapDrawerName(data.provider);
     const useCostPriceFlow = data.cost !== undefined && data.cost > 0;
     const tenantId = getCurrentTenantId();
@@ -4943,9 +4970,19 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           // frontend payload shape (pre-netted amount + separate fee).
           const totalCollected = sentAmount + providerFeeAmt;
 
+          // LIRA-365 — the discount the cashier gave (refused above unless
+          // this is a walk-in system SEND paid with legs). It lowers only
+          // what the customer hands over; `totalCollected` (what is owed to
+          // the provider) stays whole, and the shop books the gap below as
+          // a "Discount given" expense.
+          const discountGiven = Math.max(0, data.discount_amount ?? 0);
+          if (discountGiven >= totalCollected) {
+            throw new BusinessRuleError(DISCOUNT_ABOVE_TOTAL_MESSAGE);
+          }
+
           // Amount the customer physically hands over = totalCollected + pmFee.
           // The pmFee stays in the payment method's wallet drawer as immediate shop profit.
-          const totalCustomerPays = totalCollected + pmFee;
+          const totalCustomerPays = totalCollected + pmFee - discountGiven;
 
           // Per-leg PM fee helper — defined here so it's available in both
           // the payment crediting block and the TRANSFER block below.
@@ -4990,6 +5027,22 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               exchangeRate: stampedExchangeRate,
               tenderExchangeRate: data.tender_exchange_rate,
               context: `${data.provider} SEND`,
+            });
+          }
+
+          // LIRA-365 — the discount is the shop's cost: one books-only,
+          // auto "Discount given" expense linked to this row. The generic
+          // void/refund cascade (`_cascadeExpenseSiblingVoid`) voids it.
+          if (discountGiven > 0) {
+            bookDiscountGivenExpense({
+              parentSourceTable: "financial_services",
+              parentSourceId: id,
+              parentLabel: `${providerDisplayLabel(data.provider)} send #${id}`,
+              amount: discountGiven,
+              currency,
+              exchangeRate: stampedExchangeRate,
+              userId: createdBy,
+              transactionTime: data.transaction_time,
             });
           }
 

@@ -37,7 +37,8 @@
     "Line_Usage": "Line Usage",
     "Other": "Other",
     "Drawer_shortage": "Drawer shortage",
-    "OMT_credit_not_accepted": "OMT credit not accepted"
+    "OMT_credit_not_accepted": "OMT credit not accepted",
+    "Discount_given": "Discount given"
   },
   "errors": {
     "wholeQuantity": "Please enter a whole quantity of 1 or more.",

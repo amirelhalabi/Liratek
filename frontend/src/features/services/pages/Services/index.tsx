@@ -64,6 +64,7 @@ import {
   lookupIntraLbpFee,
   isForPartnerPayload,
   OMT_SERVICE_TYPES,
+  SHORTFALL_MAX,
   type OmtServiceType,
 } from "@liratek/core";
 
@@ -354,6 +355,14 @@ export default function Services() {
   // exactly as without it.
   const [extraCharge, setExtraCharge] = useState(0);
   const extraApplies = serviceType === "SEND" && !activeSession && !forPartner;
+  // LIRA-365 (owner 2026-10-31) — the discount on a walk-in SEND. The
+  // whole transfer + fee is still owed to OMT/Whish, so core books it as a
+  // shop "Discount given" expense. Same exclusions as the extra: never on a
+  // RECEIVE payout, a For-Partner transaction or inside a session (the
+  // basket checkout's Waive owns it). Capped by the shared shortfall cap.
+  const [discount, setDiscount] = useState(0);
+  const discountApplies = extraApplies;
+  const discountGiven = discountApplies ? discount : 0;
   // Bumped after a successful submit so the payment box remounts empty
   // (its extra field is its own state).
   const [paymentBoxNonce, setPaymentBoxNonce] = useState(0);
@@ -942,6 +951,7 @@ export default function Services() {
         setBinanceSupplier("");
         setPaymentLines([]);
         setExtraCharge(0);
+        setDiscount(0);
         setPaymentBoxNonce((n) => n + 1);
         setReturnLegs([]);
         setKeptChange(null);
@@ -1406,6 +1416,16 @@ export default function Services() {
                       : {}),
                   }
                 : {}),
+              // LIRA-365: the discount rides its own field (walk-in SEND
+              // only), in the entry currency — whole lira, cents in USD.
+              ...(discountGiven > 0
+                ? {
+                    discount_amount:
+                      currency === "LBP"
+                        ? Math.round(discountGiven)
+                        : Math.round(discountGiven * 100) / 100,
+                  }
+                : {}),
               // LIRA-319: the extra rides its own field (walk-in SEND only).
               ...(extraApplies && extraCharge > 0
                 ? currency === "LBP"
@@ -1625,6 +1645,7 @@ export default function Services() {
     roundUpApplies,
     extraCharge,
     extraApplies,
+    discountGiven,
     feePaymentLines,
     feeSectionBlocksSubmit,
     addedChangeSectionBlocksSubmit,
@@ -2639,17 +2660,26 @@ export default function Services() {
                     // Remount on toggle so the seeded payment line re-opens in
                     // the newly selected currency (line currency is mount-only).
                     key={`${currency}-${paymentBoxNonce}`}
-                    // LIRA-319: an extra-only line on a walk-in SEND
-                    // (showDiscount stays false — see below).
+                    // LIRA-319: the extra on a walk-in SEND. With the
+                    // discount on too, the line is the "− Discount | + Extra"
+                    // switch.
                     {...(extraApplies ? { onExtraChange: setExtraCharge } : {})}
-                    // No discount on an OMT/Whish system transfer: the whole
-                    // fee is owed to the provider and the shop's commission
-                    // is only booked at settlement (Whish system: none), so
-                    // there is no margin at creation for a discount to come
-                    // out of. The input's default showed a field nothing
-                    // booked — the server then refused (or, under $0.05,
-                    // silently absorbed) the shortfall.
-                    showDiscount={false}
+                    // LIRA-365: a walk-in SEND takes a discount. There is no
+                    // margin at creation (the whole fee is owed to the
+                    // provider, the commission comes at settlement), so core
+                    // books it as a "Discount given" expense — never off the
+                    // fee. Off on a RECEIVE payout, in a session and For a
+                    // partner. Capped by the shared shortfall cap.
+                    showDiscount={discountApplies}
+                    {...(discountApplies
+                      ? {
+                          onDiscountChange: setDiscount,
+                          maxDiscount:
+                            currency === "LBP"
+                              ? SHORTFALL_MAX.LBP
+                              : SHORTFALL_MAX.USD,
+                        }
+                      : {})}
                     totals={[
                       {
                         // On SEND:

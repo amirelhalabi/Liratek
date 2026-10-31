@@ -8287,6 +8287,38 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 
 **What users will notice:** a "Monthly progress" page for admins of shops where it is switched on, showing each month's balances (what customers, suppliers and partners owe the shop and the other way round, stock value, line credits) and the change from the month before.
 
+## LIRA-365: Discount wherever a customer pays the shop — SPEC 2026-10-31
+
+**Ask (owner 2026-10-31):** "I cannot see the discount field in OMT system, why?" then "enable discount in all pages where we have a payment form".
+
+**Owner decisions 2026-10-31:** Discount only where a customer pays the shop: POS checkout, Exchange, OMT/Whish system send, voucher sale. Not on money-out pages (expenses, supplier/partner pay, hold pickup, refunds, voucher cancel, payouts) or settle sheets. Cap = the Waive cap ($5 / 450,000 LBP). OMT/Whish system send: full fee still owed to OMT/Whish, the discount is a shop expense "Discount given"; commission unchanged.
+
+**Spec:** `specs/365-discount-customer-pays/spec.md`. POS checkout keeps its existing uncapped discount (owner 2026-10-31).
+
+**Exchange decision 2026-10-31:** the customer-pays box's Forgive button becomes the standard Discount line (Exchange, Whish App, OMT App, Binance cash-outs), same booking and cap. Note box split out to LIRA-366.
+
+**Plan:** `specs/365-discount-customer-pays/plan.md` (no migration; Discount given = books-only auto expense; voucher sale amount = what was paid).
+
+**Built 2026-11-01 (US1, OMT/Whish system send):**
+- Core: `discount_amount` on the financial schema. The repository lowers what the legs must cover; the fee, commission and supplier ledger are unchanged. One books-only, auto "Discount given" expense is linked to the send and voided by the generic void/refund.
+- Page: the Discount line (the − Discount | + Extra switch) on a walk-in send, capped at $5 / 450,000 LBP; off on a receive, in a session and For a partner. The Expenses page shows the label in en/ar.
+- Tests: proven failing first: core `discountGivenExpense` (4), `FinancialServiceRepository.lira365Discount` (14), frontend `Services.sendDiscount` (18, renamed from `sendNoDiscount`). `Services.sendExtra` updated on purpose.
+- Typecheck and lint clean.
+- Still to do: the What's new card with a real screenshot (web e2e). US2 (customer-pays box) and US3 (vouchers) are not started.
+
+
+**What users will notice:** a Discount line on the payment form for OMT/Whish sends and voucher sales, up to $5 / 450,000 LBP; on Exchange and the Whish App, OMT App and Binance cash-outs the Forgive button becomes the same Discount line.
+
+## LIRA-366: Optional note on money-in payment forms — SPEC 2026-10-31
+
+**Ask (owner 2026-10-31):** "add note optional field in all payment forms that have direction in". Split out of LIRA-365 the same day.
+
+**Owner decisions 2026-10-31:** one optional Note box on every form where the customer pays the shop; shown in transaction details and marked in the Transactions list; copied onto the customer's debt entry when part is paid on account; edits keep both in step.
+
+**Spec:** `specs/366-payment-note/spec.md`; research done (`research.md`): new `typedNote` key so generated labels are never shown as typed notes; module note column from `typedNote ?? note`; debt note = system note + typed note, re-synced on edit (charge rows only).
+
+**What users will notice:** a Note box on every payment form where the customer pays, shown on the entry, in the Transactions list and on the customer's debt.
+
 ---
 
 ## LIRA-367: Partner settle — money already paid covers the picked days — BUILT 2026-10-31

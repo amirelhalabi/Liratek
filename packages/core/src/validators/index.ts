@@ -17,6 +17,7 @@ export * from "./common.js";
 export * from "./financial.js";
 export * from "./debt.js";
 export * from "./exchange.js";
+export * from "./discount.js";
 export * from "./recharge.js";
 export * from "./expense.js";
 export * from "./closing.js";

@@ -2,8 +2,8 @@
 
 /**
  * LIRA-319 T047/T048 (financial-send part) — the Services page OMT/Whish
- * SEND offers an extra-only line in the payment box (`onExtraChange`, with
- * `showDiscount` still false — no discount on a system transfer) and sends
+ * SEND offers an extra in the payment box (`onExtraChange`; since LIRA-365
+ * `showDiscount` is on too, so it is the − Discount | + Extra switch) and sends
  * the extra as its OWN field: `amount` (the transfer principal) and `omtFee`
  * are exactly what they are without it, so the provider fee and the supplier
  * amount never see the extra. Never on a RECEIVE (a payout).
@@ -216,12 +216,15 @@ async function submitSend(): Promise<ReturnType<typeof createFinancialServiceSch
 }
 
 describe("Services page — extra on an OMT/Whish system SEND", () => {
-  it("SEND: extra-only line (no discount) is wired", async () => {
+  it("SEND: the extra is wired, beside the discount (LIRA-365: the − Discount | + Extra switch)", async () => {
     await renderPage();
     typeAmountAndFee();
     await screen.findByTestId("stub-multi-payment-input");
     expect(typeof mockSeen.onExtraChange).toBe("function");
-    expect(mockSeen.showDiscount).toBe(false);
+    // LIRA-365 (owner 2026-10-31): a walk-in SEND now takes a discount too,
+    // booked by core as a "Discount given" expense, so the line is the
+    // shared switch rather than an extra-only line.
+    expect(mockSeen.showDiscount).toBe(true);
   });
 
   it("SEND with a $1 extra: extra_usd 1 on its own field; amount and fee unchanged vs the same send without it", async () => {

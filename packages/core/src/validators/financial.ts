@@ -17,6 +17,7 @@ import { customerPaymentsField } from "./customerLegs.js";
 // LIRA-336 phase 2: the one "is this payload FOR?" test (rule 14) — a
 // `partnerId` with `partnerMode` omitted is THROUGH, as in the repository.
 import { isForPartnerPayload } from "../utils/sessionForPartnerItem.js";
+import { financialDiscountRefusal } from "./discount.js";
 
 /**
  * Financial services validation schemas (OMT, WHISH, iPick, Katsh, Binance, etc.)
@@ -310,6 +311,12 @@ export const createFinancialServiceSchema = z
     // (offline replay, research R4). `checkoutTotal` stays the PRE-extra
     // total; the repository adds the extra to every total it reconciles.
     ...extraChargeFields,
+    // LIRA-365: the discount the cashier gave on a walk-in OMT/Whish system
+    // SEND, in the send's currency. Its own field — never folded into the
+    // fee or commission, so what is owed to OMT/Whish stays whole; the
+    // repository books it as a "Discount given" expense. Optional, no
+    // default (offline replay).
+    discount_amount: z.number().nonnegative().optional(),
     // LIRA-321: every line of the "Customer pays" section on a Whish App /
     // OMT App / Binance cash-out (transfer and fee lines alike), plus the
     // forgiven part. Replaces the single provider inflow row; the payout
@@ -626,6 +633,23 @@ export const createFinancialServiceSchema = z
       path: ["feePayments"],
     },
   )
+  // LIRA-365 — where a discount may go and how big it may be. The
+  // repository repeats this with the resolved provider fee (offline replay
+  // skips Zod); here the total is the principal plus any typed fee.
+  .superRefine((data, ctx) => {
+    const refusal = financialDiscountRefusal({
+      ...data,
+      hasPayments: (data.payments?.length ?? 0) > 0,
+      total: data.amount + (data.omtFee ?? data.whishFee ?? 0),
+    });
+    if (refusal) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: refusal,
+        path: ["discount_amount"],
+      });
+    }
+  })
   // LIRA-319 — where an extra may NOT go (the repository refuses the same,
   // plus the cap and the currency, whatever the caller). A discount on these
   // pages is folded into the price/fee on the client, so "discount or extra,

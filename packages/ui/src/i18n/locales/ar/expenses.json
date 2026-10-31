@@ -37,7 +37,8 @@
     "Line_Usage": "استهلاك الخط",
     "Other": "أخرى",
     "Drawer_shortage": "نقص الصندوق",
-    "OMT_credit_not_accepted": "رصيد OMT غير مقبول"
+    "OMT_credit_not_accepted": "رصيد OMT غير مقبول",
+    "Discount_given": "خصم ممنوح"
   },
   "errors": {
     "wholeQuantity": "الرجاء إدخال كمية صحيحة من 1 أو أكثر.",

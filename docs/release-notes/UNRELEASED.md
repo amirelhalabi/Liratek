@@ -174,6 +174,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 💸 OMT / Whish & suppliers
 
+- OMT/Whish: you can now give a discount on an OMT or Whish send, up to $5 or 450,000 LBP, on the payment box's Discount line. The customer pays less, OMT or Whish is still owed the full amount, and the discount shows on the Expenses page as "Discount given". Not on a receive, a partner's transfer or inside a customer session.
 - Suppliers: Katsh and iPick no longer show a Transactions button. Their sales and bills come out of your own prepaid balance and owe them nothing; their page keeps Settle Account, Payments and Commission Settlement.
 - OMT/Whish: typing 0 in "OMT fee (charged by OMT)" now really waives the fee. Before, 0 was ignored and the automatic fee was still added. Leave the box empty to use the automatic fee.
 - Loto: settled from Suppliers → Loto → Settle Account with the day calendar. Cash prizes count against the day they were paid. Days already settled through Loto checkpoints show as paid. The Loto page no longer has its own Settle button, and Loto has no Pay / Receive tab.

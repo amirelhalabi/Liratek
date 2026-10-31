@@ -1,5 +1,6 @@
 import type { TFunction } from "i18next";
 import {
+  DISCOUNT_GIVEN_EXPENSE_CATEGORY,
   DRAWER_SHORTAGE_EXPENSE_CATEGORY,
   OMT_CREDIT_REMOVED_EXPENSE_CATEGORY,
 } from "@liratek/core";
@@ -39,5 +40,8 @@ export function expenseCategoryLabel(
   // LIRA-344: written by "Remove credit" on the OMT Settle Account sheet.
   if (code === OMT_CREDIT_REMOVED_EXPENSE_CATEGORY)
     return t("category.OMT_credit_not_accepted");
+  // LIRA-365: written for a discount on an OMT/Whish send or voucher sale.
+  if (code === DISCOUNT_GIVEN_EXPENSE_CATEGORY)
+    return t("category.Discount_given");
   return code.replace(/_/g, " ");
 }
