@@ -203,6 +203,8 @@ export default function MobileRecharge() {
   const [telecomTransactionTime, setTelecomTransactionTime] = useState<
     string | undefined
   >();
+  // LIRA-366: the optional note typed under the MTC/Alfa sale sheet.
+  const [telecomTypedNote, setTelecomTypedNote] = useState("");
   const [giftTierKey, setGiftTierKey] = useState<
     keyof typeof import("../../types").ALFA_GIFT_TIERS | ""
   >("");
@@ -955,6 +957,8 @@ export default function MobileRecharge() {
       ...(rechargeType === "DAYS"
         ? daysTypedUsdField(telecomDaysCostUsd, telecomDaysPriceUsd)
         : {}),
+      // LIRA-366: the cashier's note (never on a buy-back — money out).
+      ...(!isBuyback && telecomTypedNote ? { typedNote: telecomTypedNote } : {}),
     };
 
     const clientResult = await ensureRechargeClient({
@@ -1026,6 +1030,7 @@ export default function MobileRecharge() {
       setTelecomRoundUp(null);
       setTelecomAddedChange(null);
       setBuybackCustomerLines([]);
+      setTelecomTypedNote("");
       return;
     }
 
@@ -1170,6 +1175,7 @@ export default function MobileRecharge() {
       setTelecomAddedChange(null);
       setBuybackCustomerLines([]);
       setTelecomTransactionTime(undefined);
+      setTelecomTypedNote("");
       setTelecomExtra(0);
       loadFinancialData();
       loadDrawerBalances();
@@ -1227,6 +1233,7 @@ export default function MobileRecharge() {
     loadRechargeTodayStats,
     telecomDiscount,
     telecomExtra,
+    telecomTypedNote,
   ]);
 
   const refreshTopUpDrawers = useCallback(
@@ -1510,6 +1517,7 @@ export default function MobileRecharge() {
     setTelecomAddedChange(null);
     setBuybackCustomerLines([]);
     setTelecomTransactionTime(undefined);
+    setTelecomTypedNote("");
     setTelecomExtra(0);
   }, []);
 
@@ -1536,6 +1544,8 @@ export default function MobileRecharge() {
     const detailFields = {
       ...giftTierField(giftTierKey),
       ...clientPhoneField(telecomClientPhone),
+      // LIRA-366: the cashier's note.
+      ...(telecomTypedNote ? { typedNote: telecomTypedNote } : {}),
     };
 
     const clientResult = await ensureRechargeClient({
@@ -1687,6 +1697,7 @@ export default function MobileRecharge() {
     telecomDiscount,
     telecomExtra,
     loadRechargeTodayStats,
+    telecomTypedNote,
   ]);
 
   const handleCryptoSubmit = useCallback(async () => {
@@ -1799,6 +1810,8 @@ export default function MobileRecharge() {
       clientId: resolvedCryptoClientId,
       clientName: cryptoClientName,
       reference: cryptoDescription,
+      // LIRA-366: the Notes box is the cashier's typed note too.
+      typedNote: cryptoDescription,
       detailFields: cryptoDetailFields,
       transactionTime: cryptoTransactionTime,
     });
@@ -2388,6 +2401,8 @@ export default function MobileRecharge() {
             onRefreshHistory={loadRechargeHistory}
             onRefreshBalances={loadDrawerBalances}
             onTransactionTimeChange={setTelecomTransactionTime}
+            typedNote={telecomTypedNote}
+            onTypedNoteChange={setTelecomTypedNote}
           />
         )}
 

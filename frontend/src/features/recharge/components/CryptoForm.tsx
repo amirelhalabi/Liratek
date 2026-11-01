@@ -332,6 +332,8 @@ export function CryptoForm({
         partnerId: selectedPartnerId,
         partnerMode: "FOR" as const,
         note: cryptoDescription || undefined,
+        // LIRA-366: the Notes box is the cashier's typed note.
+        ...(cryptoDescription.trim() ? { typedNote: cryptoDescription } : {}),
         transaction_time: transactionTime,
       });
 

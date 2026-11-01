@@ -81,6 +81,8 @@ import type {
   CreateRechargePayload,
   // LIRA-319 — the financial-service payload incl. extra_usd/extra_lbp (rule 21).
   CreateFinancialServicePayload,
+  // LIRA-369 — the exchange submit payload (rule 21).
+  ExchangeSubmitPayload,
 } from "@liratek/core" with {
   "resolution-mode": "import",
 };
@@ -433,6 +435,8 @@ contextBridge.exposeInMainWorld("api", {
       amountUSD: number;
       amountLBP: number;
       note?: string;
+      /** LIRA-366: the cashier's typed note. */
+      typedNote?: string;
       userId?: number;
       paidByMethod?: string;
       payments?: Array<{
@@ -577,56 +581,11 @@ contextBridge.exposeInMainWorld("api", {
 
   // Exchange
   exchange: {
-    addTransaction: (data: {
-      fromCurrency: string;
-      toCurrency: string;
-      amountIn: number;
-      amountOut: number;
-      leg1Rate: number;
-      leg1MarketRate: number;
-      leg1ProfitUsd: number;
-      leg2Rate?: number;
-      leg2MarketRate?: number;
-      leg2ProfitUsd?: number;
-      viaCurrency?: string;
-      totalProfitUsd: number;
-      clientName?: string;
-      note?: string;
-      fromCurrencyName?: string;
-      toCurrencyName?: string;
-      transaction_time?: string;
-      partnerId?: number;
-      partnerMode?: "FOR";
-      payments?: Array<{
-        method: string;
-        currencyCode: string;
-        amount: number;
-        direction?: "IN" | "OUT";
-      }>;
-      tender_exchange_rate?: number;
-      // Payout keep-change (owner decision 2026-10-06) — exchangeSubmitSchema.
-      kept_change_usd?: number;
-      kept_change_lbp?: number;
-      // LIRA-334: payout round-up (roundingGivenFields).
-      rounding_given_usd?: number;
-      rounding_given_lbp?: number;
-      // LIRA-336: change the customer adds (addedChangeFields).
-      added_change_usd?: number;
-      added_change_lbp?: number;
-      // LIRA-321 "Customer pays" (money in) — exchangeSubmitSchema.
-      clientId?: number;
-      customerPayments?: Array<{
-        method: string;
-        currencyCode: string;
-        amount: number;
-      }>;
-      customer_waived_amount?: number;
-      // LIRA-329 (informational, exchangeSubmitSchema): per-leg "rate
-      // overridden" flags and the picked client's phone.
-      leg1RateOverridden?: boolean;
-      leg2RateOverridden?: boolean;
-      clientPhone?: string;
-    }) => ipcRenderer.invoke("exchange:add-transaction", data),
+    // LIRA-369 (rule 21/12/23): the payload IS core's schema input. The
+    // hand-written copy that lived here lacked typedNote and the account
+    // conversion rates (customer_account_usd_rate / payout_account_usd_rate).
+    addTransaction: (data: ExchangeSubmitPayload) =>
+      ipcRenderer.invoke("exchange:add-transaction", data),
     getHistory: (opts?: { all?: boolean }) =>
       ipcRenderer.invoke("exchange:get-history", opts),
     updateMetadata: (data: {

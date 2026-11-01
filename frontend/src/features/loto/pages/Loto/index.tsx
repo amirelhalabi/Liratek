@@ -10,7 +10,11 @@ import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { localDay } from "@/shared/utils/localDay";
 import { addDaysToDateString, type LotoSellPayload } from "@liratek/core";
 import { appEvents, useApi, PageHeader, DecimalInput } from "@liratek/ui";
-import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
+import {
+  MultiPaymentInput,
+  PaymentNoteField,
+  type PaymentLine,
+} from "@liratek/ui";
 import { useSellRate } from "@/hooks/useSellRate";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import {
@@ -128,6 +132,8 @@ export function LotoPage() {
   const usedRate = tenderRate ?? exchangeRate;
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
+  // LIRA-366: the optional note typed under the payment box.
+  const [typedNote, setTypedNote] = useState("");
   const { methods } = usePaymentMethods();
 
   // Modal states
@@ -389,6 +395,8 @@ export function LotoPage() {
       clientId: resolvedClientId,
       clientName: typedClientName,
       ...(typedClientPhone ? { clientPhone: typedClientPhone } : {}),
+      // LIRA-366: the cashier's own note (also kept on a basket line).
+      ...(typedNote.trim() ? { typedNote } : {}),
       // PFT-R: routes the FULL sale amount to the selected partner's ledger
       // (FOR_LOTO DEBIT) instead of a client's debt_ledger.
       ...(forPartner && selectedPartnerId
@@ -426,6 +434,7 @@ export function LotoPage() {
       setPaymentInputKey((k) => k + 1);
       setForPartner(false);
       setSelectedPartnerId(null);
+      setTypedNote("");
       return;
     }
 
@@ -459,6 +468,7 @@ export function LotoPage() {
         setInitialPaymentMethod("CASH");
         setPaymentInputKey((k) => k + 1);
         setTransactionTime(undefined);
+        setTypedNote("");
         setForPartner(false);
         setSelectedPartnerId(null);
         loadTodayStats();
@@ -779,6 +789,12 @@ export function LotoPage() {
                 <TransactionTimeOverride
                   value={transactionTime}
                   onChange={setTransactionTime}
+                />
+
+                <PaymentNoteField
+                  value={typedNote}
+                  onChange={setTypedNote}
+                  className="mt-4"
                 />
 
                 {/* Submit Button */}

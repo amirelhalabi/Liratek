@@ -48,7 +48,12 @@ import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill
 import { useCustomServices } from "../../hooks/useCustomServices";
 import logger from "@/utils/logger";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
-import { MultiPaymentInput, type PaymentLine, SearchBar } from "@liratek/ui";
+import {
+  MultiPaymentInput,
+  PAYMENT_NOTE_MAX,
+  type PaymentLine,
+  SearchBar,
+} from "@liratek/ui";
 import { toSnakeLegs } from "@/utils/paymentUtils";
 import { HistoryModal } from "./components/HistoryModal";
 import { PresetManagerModal } from "./components/PresetManagerModal";
@@ -640,7 +645,14 @@ export default function CustomServices() {
       if (finalClientId) payload.client_id = finalClientId;
       if (clientName.trim()) payload.client_name = clientName.trim();
       if (phoneNumber.trim()) payload.phone_number = phoneNumber.trim();
-      if (note.trim()) payload.note = note.trim();
+      // LIRA-366: on a money-in service the Note box is the cashier's typed
+      // note (`typedNote`: shown in the details, marked in Transactions,
+      // added to a debt note). A payout is money out — its note stays the
+      // plain `note`, as before.
+      if (note.trim()) {
+        if (isPayout) payload.note = note.trim();
+        else payload.typedNote = note.trim();
+      }
       if (category) payload.category = category;
       if (transactionTime) payload.transaction_time = transactionTime;
       // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 FINAL SPEC: only the
@@ -1408,7 +1420,7 @@ export default function CustomServices() {
                       onChange={(e) => setNote(e.target.value)}
                       className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500 transition-all"
                       placeholder={t("form.notePlaceholder")}
-                      maxLength={1000}
+                      maxLength={PAYMENT_NOTE_MAX}
                     />
                   </div>
                 </div>

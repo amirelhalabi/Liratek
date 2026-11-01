@@ -42,11 +42,15 @@ export function registerVoucherHandlers(): void {
           currency: v.data.currency,
           expiryDate: v.data.expiryDate ?? null,
           note: v.data.note ?? null,
+          // LIRA-366: the typed note (rule 23 — every schema key reaches the service).
+          typedNote: v.data.typedNote,
           // LIRA-339: the tender legs, rate and back-time (rule 23 — every
           // key the schema accepts reaches the service).
           payments: v.data.payments,
           exchange_rate: v.data.exchange_rate,
           transaction_time: v.data.transaction_time,
+          // LIRA-365: the sale's discount.
+          discount_amount: v.data.discount_amount,
         },
         auth.userId,
       );

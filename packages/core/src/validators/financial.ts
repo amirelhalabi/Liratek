@@ -12,6 +12,7 @@ import {
   hasExtraCharge,
   NO_EXTRA_FOR_PARTNER_MESSAGE,
   EXTRA_ON_SESSION_ITEM_MESSAGE,
+  typedNoteField,
 } from "./common.js";
 import { customerPaymentsField } from "./customerLegs.js";
 // LIRA-336 phase 2: the one "is this payload FOR?" test (rule 14) — a
@@ -200,6 +201,8 @@ export const createFinancialServiceSchema = z
     itemKey: z.string().max(255).optional(),
     itemCategory: z.string().max(500).optional(),
     note: z.string().max(500).optional(),
+    /** LIRA-366: the cashier's own note; `note` keeps generated labels. */
+    typedNote: typedNoteField,
     // Fee calculation — direction-agnostic (SEND and RECEIVE both read
     // these the same way; there is no serviceType gate on any of the three
     // fields below). Float model (owner-confirmed 2026-07-29): a RECEIVE

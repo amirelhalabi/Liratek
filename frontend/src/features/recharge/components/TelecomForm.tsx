@@ -15,6 +15,7 @@ import {
   type CarrierLineEntity,
   type LinesSectionState,
   appEvents,
+  PaymentNoteField,
 } from "@liratek/ui";
 // #28 (LIRA-218) — the ONE shared sold-ahead/validity rule (rule 14); the
 // pre-sale preview below must compute the SAME answer the write path does.
@@ -223,6 +224,10 @@ interface TelecomFormProps {
    *  loadDrawerBalances call in the parent's handleTelecomSubmit). */
   onRefreshBalances?: () => void;
   onTransactionTimeChange?: (time: string | undefined) => void;
+  /** LIRA-366: the optional note typed under the sale sheet; the page sends
+   *  it as `typedNote`. No box on a credit buy-back (money out). */
+  typedNote?: string;
+  onTypedNoteChange?: (value: string) => void;
   /** CARRIER_LINES_VALIDITY_PLAN.md Phase 6 (D7), widened by owner note #21:
    *  true when the typed `phoneNumber` matches ANY of the shop's active
    *  lines for this carrier — computed ONCE in the parent
@@ -324,6 +329,8 @@ export function TelecomForm({
   onRefreshHistory,
   onRefreshBalances,
   onTransactionTimeChange,
+  typedNote = "",
+  onTypedNoteChange,
   isShopLineMatch,
   shopLineBuyback,
   setShopLineBuyback,
@@ -757,6 +764,8 @@ export function TelecomForm({
           onClientNameChange={setTelecomClientName}
           transactionTime={transactionTime}
           onTransactionTimeChange={handleCardTransactionTime}
+          typedNote={typedNote}
+          {...(onTypedNoteChange ? { onTypedNoteChange } : {})}
           hasActiveSession={!!activeSession}
         />
       ) : rechargeType === "DAYS" && isShopLineMatch ? (
@@ -1511,6 +1520,12 @@ export function TelecomForm({
                       onTransactionTimeChange?.(time);
                     }}
                   />
+                  {onTypedNoteChange && !isCreditBuyback && (
+                    <PaymentNoteField
+                      value={typedNote}
+                      onChange={onTypedNoteChange}
+                    />
+                  )}
                 </PaymentSheet>
               )}
             </div>

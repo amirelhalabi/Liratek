@@ -350,13 +350,8 @@ describe("Exchange page — typeable Customer Gets (LIRA-213 #20, Part A)", () =
     // explicitly rejected by the owner).
     const expectedAmountIn = 5_000_000 / mockLbpBuyRate;
     await waitFor(() => {
-      const amountInField = screen.getByTestId(
-        "amount-in",
-      ) as HTMLInputElement;
-      expect(parseFloat(amountInField.value)).toBeCloseTo(
-        expectedAmountIn,
-        10,
-      );
+      const amountInField = screen.getByTestId("amount-in") as HTMLInputElement;
+      expect(parseFloat(amountInField.value)).toBeCloseTo(expectedAmountIn, 10);
     });
 
     // Submit through the split-payout sheet (LBP is a canSplitPayout target).
@@ -423,9 +418,7 @@ describe("Exchange page — typeable Customer Gets (LIRA-213 #20, Part A)", () =
     });
 
     await waitFor(() => {
-      const amountInField = screen.getByTestId(
-        "amount-in",
-      ) as HTMLInputElement;
+      const amountInField = screen.getByTestId("amount-in") as HTMLInputElement;
       expect(parseFloat(amountInField.value)).toBeCloseTo(50, 8);
     });
   });
@@ -437,9 +430,7 @@ describe("Exchange page — typeable Customer Gets (LIRA-213 #20, Part A)", () =
       target: { value: "5000000" },
     });
     await waitFor(() => {
-      const amountInField = screen.getByTestId(
-        "amount-in",
-      ) as HTMLInputElement;
+      const amountInField = screen.getByTestId("amount-in") as HTMLInputElement;
       expect(parseFloat(amountInField.value)).toBeGreaterThan(0);
     });
 
@@ -512,13 +503,8 @@ describe("Exchange page — typeable Customer Gets (LIRA-213 #20, Part A)", () =
     // 890,000 ÷ 88,000 = 10.1136363... — no retype of the target happens.
     const expectedAmountIn = 890000 / 88000;
     await waitFor(() => {
-      const amountInField = screen.getByTestId(
-        "amount-in",
-      ) as HTMLInputElement;
-      expect(parseFloat(amountInField.value)).toBeCloseTo(
-        expectedAmountIn,
-        6,
-      );
+      const amountInField = screen.getByTestId("amount-in") as HTMLInputElement;
+      expect(parseFloat(amountInField.value)).toBeCloseTo(expectedAmountIn, 6);
     });
 
     // The target box itself re-derives FORWARD from the new amountIn (real,
@@ -528,9 +514,10 @@ describe("Exchange page — typeable Customer Gets (LIRA-213 #20, Part A)", () =
     const targetField = screen.getByTestId(
       "exchange-target-lbp-input",
     ) as HTMLInputElement;
-    expect(
-      parseFloat(targetField.value.replace(/,/g, "")),
-    ).toBeCloseTo(890000, 0);
+    expect(parseFloat(targetField.value.replace(/,/g, ""))).toBeCloseTo(
+      890000,
+      0,
+    );
   });
 
   // FIX ROUND 1 review finding "drift-fix-unguarded" (minor), second guard —

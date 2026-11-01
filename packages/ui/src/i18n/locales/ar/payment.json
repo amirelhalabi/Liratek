@@ -1,5 +1,11 @@
 {
   "title": "الدفع",
+  "accountRate": {
+    "label": "سعر الحساب",
+    "oneUnit": "1 {{currency}} =",
+    "usd": "USD",
+    "aria": "سعر الحساب: دولار لكل 1 {{currency}}"
+  },
   "row": {
     "currency": "العملة",
     "currencyLocked": "العملة مقفلة",
@@ -100,5 +106,9 @@
     "gettingBackMore": "تسترد <ltr>{{amount}}</ltr> أكثر من المبلغ الزائد.",
     "returningMore": "تُرجِع <ltr>{{amount}}</ltr> أكثر من المبلغ الزائد الذي دفعه الزبون.",
     "notCovered": "<ltr>{{amount}}</ltr> من الفكّة لم تُغطَّ بعد في هذه الحقول."
+  },
+  "note": {
+    "label": "ملاحظة (اختياري)",
+    "placeholder": "مثلاً: سيدفع الباقي يوم الاثنين"
   }
 }

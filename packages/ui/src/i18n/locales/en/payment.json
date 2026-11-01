@@ -1,5 +1,11 @@
 {
   "title": "Payment",
+  "accountRate": {
+    "label": "Account rate",
+    "oneUnit": "1 {{currency}} =",
+    "usd": "USD",
+    "aria": "Account rate: USD per 1 {{currency}}"
+  },
   "row": {
     "currency": "Currency",
     "currencyLocked": "Currency locked",
@@ -100,5 +106,9 @@
     "gettingBackMore": "Getting back <ltr>{{amount}}</ltr> more than was overpaid.",
     "returningMore": "Returning <ltr>{{amount}}</ltr> more than the customer overpaid.",
     "notCovered": "<ltr>{{amount}}</ltr> of the change is not covered by these fields yet."
+  },
+  "note": {
+    "label": "Note (optional)",
+    "placeholder": "e.g. will bring the rest Monday"
   }
 }

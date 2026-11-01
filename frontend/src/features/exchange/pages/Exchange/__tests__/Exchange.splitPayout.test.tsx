@@ -322,7 +322,7 @@ describe("Exchange page — split payout contract", () => {
     expect(payload.tender_exchange_rate).toBe(89_000);
   });
 
-  it("seeds the sheet with the exchange's OWN effective rate and CASH as the only method", async () => {
+  it("seeds the sheet with the exchange's OWN effective rate; cash + Customer account, never a wallet", async () => {
     const btn = await renderAndCalculate();
     fireEvent.click(btn);
     await screen.findByTestId("stub-payout-sheet");
@@ -341,10 +341,12 @@ describe("Exchange page — split payout contract", () => {
     >;
     expect(lastSheetProps.exchangeRate).toBe(payload.leg1Rate);
 
-    // Cash-only v1: the wallet method from usePaymentMethods must NOT reach
-    // the sheet.
+    // The wallet method from usePaymentMethods must NOT reach the sheet.
+    // LIRA-369 (owner 2026-11-01) added the client's account to the cash
+    // payout (it credits the client; no drawer moves).
     expect(lastSheetProps.paymentMethods).toEqual([
       { code: "CASH", label: "Cash" },
+      { code: "CUSTOMER_ACCOUNT", label: "Customer Account" },
     ]);
 
     // No edit → the seed itself travels as the tender rate.

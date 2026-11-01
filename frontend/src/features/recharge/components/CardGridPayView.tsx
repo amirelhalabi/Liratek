@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { formatNumber } from "@liratek/ui/i18n/format";
 import { CheckCircle, CreditCard, Info } from "lucide-react";
-import type { PaymentLine } from "@liratek/ui";
+import { PaymentNoteField, type PaymentLine } from "@liratek/ui";
 import { maxRechargeDiscount } from "@liratek/core";
 import { PaymentSheet, type PaymentSheetItem } from "./PaymentSheet";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
@@ -77,6 +77,10 @@ interface CardGridPayViewProps {
   onClientNameChange: (value: string) => void;
   transactionTime: string | undefined;
   onTransactionTimeChange: (time: string | undefined) => void;
+  /** LIRA-366: the optional Note box under the payment box. Shown only when
+   *  `onTypedNoteChange` is given. */
+  typedNote?: string;
+  onTypedNoteChange?: (value: string) => void;
   /**
    * A customer session is active — the basket owns the single payment at
    * checkout, so this swaps the trigger button to "Add to Cart" and confirms
@@ -116,6 +120,8 @@ export function CardGridPayView({
   onClientNameChange,
   transactionTime,
   onTransactionTimeChange,
+  typedNote = "",
+  onTypedNoteChange,
   hasActiveSession = false,
 }: CardGridPayViewProps) {
   const { t } = useTranslation("recharge");
@@ -309,6 +315,9 @@ export function CardGridPayView({
           value={transactionTime}
           onChange={onTransactionTimeChange}
         />
+        {onTypedNoteChange && (
+          <PaymentNoteField value={typedNote} onChange={onTypedNoteChange} />
+        )}
       </PaymentSheet>
     </div>
   );

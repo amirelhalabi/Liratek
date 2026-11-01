@@ -3,6 +3,7 @@ import {
   positiveDecimalSchema,
   idSchema,
   transactionTimeSchema,
+  typedNoteField,
 } from "./common.js";
 import { counterpartyDiscountInputSchema } from "./counterparty.js";
 
@@ -33,6 +34,8 @@ export const addRepaymentSchema = z
     amountUSD: positiveDecimalSchema.default(0),
     amountLBP: positiveDecimalSchema.default(0),
     note: z.string().max(500).optional(),
+    /** LIRA-366: the cashier's own note; `note` keeps generated labels. */
+    typedNote: typedNoteField,
     userId: idSchema.optional(),
     paidByMethod: z.string().min(1).optional(),
     payments: z.array(repaymentPaymentLineSchema).optional(),

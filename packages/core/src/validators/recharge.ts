@@ -12,6 +12,7 @@ import {
   extraNotBothRefineOptions,
   NO_EXTRA_FOR_PARTNER_MESSAGE,
   EXTRA_ABOVE_TOTAL_MESSAGE,
+  typedNoteField,
 } from "./common.js";
 import { TOP_UP_PROVIDERS } from "../constants/rechargeProviders.js";
 import { customerLegSchema } from "./customerLegs.js";
@@ -134,6 +135,8 @@ export const createRechargeSchema = z
       })
       .optional(),
     note: z.string().max(500).optional(),
+    /** LIRA-366: the cashier's own note; `note` keeps generated labels. */
+    typedNote: typedNoteField,
     /**
      * Multi-payment legs. Legs WITHOUT `direction` are IN legs (customer-paid);
      * `direction: "OUT"` marks a leg the repository's shared end-of-transaction

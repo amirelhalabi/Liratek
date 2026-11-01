@@ -103,6 +103,7 @@ import type {
   InsuranceRenewal,
   InsuranceRenewalsQueryPayload,
   DismissInsuranceRenewalPayload,
+  ExchangeSubmitPayload,
 } from "@liratek/core";
 
 /** LIRA-306 — the plain envelope the offline:* channels reply with. */
@@ -1625,49 +1626,8 @@ export interface ElectronAPI {
 
   // Exchange
   exchange: {
-    addTransaction: (data: {
-      fromCurrency: string;
-      toCurrency: string;
-      amountIn: number;
-      amountOut: number;
-      leg1Rate: number;
-      leg1MarketRate: number;
-      leg1ProfitUsd: number;
-      leg2Rate?: number;
-      leg2MarketRate?: number;
-      leg2ProfitUsd?: number;
-      viaCurrency?: string;
-      totalProfitUsd: number;
-      clientName?: string;
-      note?: string;
-      fromCurrencyName?: string;
-      toCurrencyName?: string;
-      transaction_time?: string;
-      partnerId?: number;
-      partnerMode?: "FOR";
-      payments?: Array<{
-        method: string;
-        currencyCode: string;
-        amount: number;
-        direction?: "IN" | "OUT";
-      }>;
-      tender_exchange_rate?: number;
-      // Payout keep-change (owner decision 2026-10-06) — exchangeSubmitSchema.
-      kept_change_usd?: number;
-      kept_change_lbp?: number;
-      // LIRA-334: payout round-up (roundingGivenFields).
-      rounding_given_usd?: number;
-      rounding_given_lbp?: number;
-      // LIRA-336: change the customer adds (addedChangeFields).
-      added_change_usd?: number;
-      added_change_lbp?: number;
-      // LIRA-321 "Customer pays" — exchangeSubmitSchema (rule 12): the
-      // linked client, the customer's lines (fromCurrency only) and the
-      // forgiven leftover.
-      clientId?: number;
-      customerPayments?: Array<import("@liratek/core").CustomerLegInput>;
-      customer_waived_amount?: number;
-    }) => Promise<{
+    // LIRA-369 (rule 21): derived from exchangeSubmitSchema, never hand-copied.
+    addTransaction: (data: ExchangeSubmitPayload) => Promise<{
       success: boolean;
       id?: number;
       error?: string;

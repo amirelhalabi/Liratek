@@ -9,12 +9,20 @@ import { formatNumber } from "@liratek/ui/i18n/format";
 import {
   MultiPaymentInput,
   type Money,
+  type AccountRateProp,
+  type Currency,
   type MultiPaymentInputProps,
   type MultiPaymentPayer,
   type PaymentLine,
   type VoucherOption,
 } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+
+/** The sheet's currencies when the page names none (module-level: stable). */
+const DEFAULT_CURRENCIES: Currency[] = [
+  { code: "USD", symbol: "$" },
+  { code: "LBP", symbol: "LBP" },
+];
 
 interface PaymentMethod {
   code: string;
@@ -191,6 +199,12 @@ export interface PaymentSheetProps {
   // Derived from MultiPaymentInput's own prop so the two cannot drift
   // (LIRA-321 adds seedLines / lockCurrency / maxForgive / onStateChange).
   counterFlow?: NonNullable<MultiPaymentInputProps["counterFlow"]>;
+  /** LIRA-369 — the currencies the lines may use (default USD + LBP). An
+   *  Exchange paying out euros passes `[{ code: "EUR", symbol: "€" }]`. */
+  currencies?: Currency[];
+  /** LIRA-369 — pass-through to MultiPaymentInput's `accountRate`
+   *  ("1 EUR = … USD" for an Account line in that currency). */
+  accountRate?: AccountRateProp;
   /** LIRA-321: disables Confirm (with `isSubmitting`). Pages set it from the
    *  "Customer pays" section's onStateChange; the server stays authoritative. */
   confirmDisabled?: boolean;
@@ -242,6 +256,8 @@ export function PaymentSheet({
   fetchClientVouchers,
   children,
   counterFlow,
+  currencies = DEFAULT_CURRENCIES,
+  accountRate,
   confirmDisabled = false,
 }: PaymentSheetProps) {
   const { t } = useTranslation("rechargeFinancial");
@@ -267,10 +283,16 @@ export function PaymentSheet({
 
   if (!mounted) return null;
 
-  const fmtMoney = (amount: number, currency: string) =>
-    currency === "LBP"
-      ? `${formatNumber(Math.round(amount))} LBP`
-      : `$${amount.toFixed(2)}`;
+  // LIRA-369 — another currency (EUR) reads with its own symbol.
+  const fmtMoney = (amount: number, currency: string) => {
+    if (currency === "LBP") return `${formatNumber(Math.round(amount))} LBP`;
+    if (currency === "USD") return `$${amount.toFixed(2)}`;
+    const symbol =
+      currencies.find((c) => c.code === currency)?.symbol ?? currency;
+    return ["€", "£"].includes(symbol)
+      ? `${symbol}${amount.toFixed(2)}`
+      : `${amount.toFixed(2)} ${symbol}`;
+  };
 
   // Single payment line → display the user's chosen currency/amount.
   // Multi-line (split) → fall back to the transaction total.
@@ -497,10 +519,8 @@ export function PaymentSheet({
                 ? { waiveRemainingMax }
                 : {})}
               paymentMethods={paymentMethods}
-              currencies={[
-                { code: "USD", symbol: "$" },
-                { code: "LBP", symbol: "LBP" },
-              ]}
+              currencies={currencies}
+              {...(accountRate ? { accountRate } : {})}
               {...(exchangeRate !== undefined ? { exchangeRate } : {})}
               {...(onExchangeRateChange ? { onExchangeRateChange } : {})}
               {...(clientId != null ? { clientId } : {})}

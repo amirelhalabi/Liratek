@@ -241,12 +241,12 @@ describe("Exchange — customer pays part now, owes the rest (US1)", () => {
   });
 });
 
-describe("Exchange — owing/forgiving is refused when the customer pays in EUR (owner decision 2026-10-14)", () => {
-  // The lot code records the full amountIn as bought while the drawer only
-  // got what was paid (100 EUR lot vs 95 EUR in the drawer), so a later sale
-  // would oversell. Blocked in the writer too: offline replay skips schemas.
-  const BLOCKED =
-    /Owing or forgiving isn't available yet when the customer pays in EUR/;
+describe("Exchange — customer pays in EUR: account allowed, discount refused (LIRA-369)", () => {
+  // 2026-10-14 blocked both because the lot recorded the full amountIn.
+  // LIRA-369 keeps the account part out of the lot, so an account line is
+  // allowed (owed in USD at the typed rate); a discount stays USD/LBP-only.
+  // Enforced in the writer too: offline replay skips schemas.
+  const BLOCKED = /A discount isn't available when the customer pays in EUR/;
   const EUR_USD: CreateExchangeData = {
     fromCurrency: "EUR",
     toCurrency: "USD",
@@ -258,7 +258,23 @@ describe("Exchange — owing/forgiving is refused when the customer pays in EUR 
     totalProfitUsd: 1.88,
   };
 
-  it("EUR→USD: 95 EUR cash + 5 EUR on account is refused and nothing is booked", () => {
+  it("EUR→USD: 95 EUR cash + 5 EUR on account at 1.1612 → EUR +95, owes $5.81", () => {
+    const before = snapshot(db);
+    create({
+      ...EUR_USD,
+      clientId: CLIENT_ID,
+      customerPayments: [
+        { method: "CASH", currencyCode: "EUR", amount: 95 },
+        { method: "CUSTOMER_ACCOUNT", currencyCode: "EUR", amount: 5 },
+      ],
+      customer_account_usd_rate: 1.1612,
+    });
+    const d = delta(before, snapshot(db));
+    expect(d.generalEur).toBe(95);
+    expect(d.debtUsd).toBeCloseTo(5.806, 6);
+  });
+
+  it("EUR→USD: an EUR account line without the typed rate is refused, nothing booked", () => {
     const before = snapshot(db);
     expect(() =>
       create({
@@ -269,11 +285,11 @@ describe("Exchange — owing/forgiving is refused when the customer pays in EUR 
           { method: "CUSTOMER_ACCOUNT", currencyCode: "EUR", amount: 5 },
         ],
       }),
-    ).toThrow(BLOCKED);
+    ).toThrow(/EUR → USD rate/);
     expect(delta(before, snapshot(db))).toEqual(delta(before, before));
   });
 
-  it("EUR→LBP via USD: an account line is refused and nothing is booked", () => {
+  it("EUR→LBP via USD: an account line without the typed rate is refused, nothing booked", () => {
     const before = snapshot(db);
     expect(() =>
       create({
@@ -295,7 +311,7 @@ describe("Exchange — owing/forgiving is refused when the customer pays in EUR 
           { method: "CUSTOMER_ACCOUNT", currencyCode: "EUR", amount: 5 },
         ],
       }),
-    ).toThrow(BLOCKED);
+    ).toThrow(/EUR → USD rate/);
     expect(delta(before, snapshot(db))).toEqual(delta(before, before));
   });
 

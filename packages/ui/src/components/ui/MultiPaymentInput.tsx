@@ -63,6 +63,16 @@ export interface Currency {
   symbol: string;
 }
 
+/** LIRA-369 — the rate an Account line in a non-USD/LBP currency is booked
+ *  at: "1 <currency> = <value> USD" (the account is kept in USD). The box
+ *  shows only while a CUSTOMER_ACCOUNT line in `currency` exists; edits
+ *  report the parsed number (0 when empty — pages keep Confirm off then). */
+export interface AccountRateProp {
+  currency: string;
+  value: number;
+  onChange: (rate: number) => void;
+}
+
 export type TransactionType =
   | "SEND"
   | "RECEIVE"
@@ -454,8 +464,17 @@ export interface MultiPaymentInputProps {
          *  Closed, the box looks exactly as with no counterFlow. Used with
          *  `totalAmount: 0` on payouts that have no customer section. */
         optional?: boolean;
+        /** LIRA-369 — "1 <currency> = … USD" for this section's Account
+         *  lines (testid `counter-flow-account-rate`). See
+         *  {@link AccountRateProp}. */
+        accountRate?: AccountRateProp;
       }
     | undefined;
+  /** LIRA-369 — "1 <currency> = … USD" for the main lines' Account lines
+   *  (testid `payment-account-rate`), shown under the header only while
+   *  such a line exists. Absent: nothing changes. See
+   *  {@link AccountRateProp}. */
+  accountRate?: AccountRateProp;
   /** When false, hides the Split toggle entirely — the form can never enter
    *  split mode via the UI (it already can't programmatically either, since
    *  `initialLines` is read once on mount and callers choosing this prop
@@ -702,6 +721,62 @@ function PaymentLineRow({
   );
 }
 
+/** LIRA-369 — the "1 EUR = … USD" box for Account lines in a non-USD/LBP
+ *  currency. The text is local so "1." can be typed; it follows `value`
+ *  only when the parent reseeds to a different number. */
+function AccountRateBox({
+  rate,
+  testId,
+  className,
+}: {
+  rate: AccountRateProp;
+  testId: string;
+  className: string;
+}) {
+  const { t } = useTranslation("payment");
+  const [text, setText] = useState<string>(
+    rate.value > 0 ? String(rate.value) : "",
+  );
+  useEffect(() => {
+    // A reseed from the page (new calculation): show it. Typing that already
+    // matches `value` (including "" ↔ 0) is left as typed.
+    if ((parseFloat(text) || 0) !== rate.value) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setText(rate.value > 0 ? String(rate.value) : "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rate.value]);
+  return (
+    <div
+      data-testid={`${testId}-row`}
+      className={`flex items-center justify-center gap-1.5 ${className}`}
+    >
+      <span className="text-xs text-slate-500">
+        {t("accountRate.label")}
+      </span>
+      <span className="text-xs text-slate-500">
+        <Ltr>{t("accountRate.oneUnit", { currency: rate.currency })}</Ltr>
+      </span>
+      <input
+        data-testid={testId}
+        type="text"
+        inputMode="decimal"
+        aria-label={t("accountRate.aria", { currency: rate.currency })}
+        value={text}
+        onChange={(e) => {
+          const raw = normalizeDigits(e.target.value).replace(/,/g, "");
+          if (raw !== "" && !/^\d*\.?\d*$/.test(raw)) return;
+          setText(raw);
+          rate.onChange(parseFloat(raw) || 0);
+        }}
+        className="w-20 bg-slate-900 border border-slate-600 rounded-lg px-2 py-1 text-white font-mono text-xs text-center focus:outline-none focus:border-violet-500 transition-colors"
+        placeholder="0"
+      />
+      <span className="text-xs text-slate-500">{t("accountRate.usd")}</span>
+    </div>
+  );
+}
+
 export default function MultiPaymentInput({
   currency,
   totalAmountCurrency = "USD",
@@ -758,6 +833,7 @@ export default function MultiPaymentInput({
   cashOnlyReturn = false,
   autoDebtRemainder = false,
   counterFlow,
+  accountRate,
   allowSplit = true,
   direction = "payment",
   payer: payerProp,
@@ -2708,14 +2784,25 @@ export default function MultiPaymentInput({
   /** One amount (in totalAmountCurrency) as its USD and LBP figures — the
    *  LIRA-264 "$4.00 | 360,000 LBP" convention, shared by the dual-amount
    *  rows and the green kept-change notes (rule 14). */
-  const dualAmountParts = (vTarget: number): [string, string] => [
-    fmtWithSymbol(convertSafe(vTarget, totalAmountCurrency, "USD"), "$", 2),
-    fmtWithSymbol(
-      Math.round(convertSafe(vTarget, totalAmountCurrency, "LBP")),
-      "LBP",
-      0,
-    ),
-  ];
+  // LIRA-369 — a total in another currency (an EUR payout) has no USD/LBP
+  // pair: it is shown once, in its own currency (convertSafe would pass the
+  // number through unchanged and print "$20.00 | 20 LBP").
+  const totalIsUsdLbp = ["USD", "LBP"].includes(totalAmountCurrency);
+  const dualAmountParts = (vTarget: number): string[] =>
+    totalIsUsdLbp
+      ? [
+          fmtWithSymbol(
+            convertSafe(vTarget, totalAmountCurrency, "USD"),
+            "$",
+            2,
+          ),
+          fmtWithSymbol(
+            Math.round(convertSafe(vTarget, totalAmountCurrency, "LBP")),
+            "LBP",
+            0,
+          ),
+        ]
+      : [fmtWithSymbol(vTarget, getSymbol(totalAmountCurrency), 2)];
   const dualAmountText = (vTarget: number): string =>
     dualAmountParts(vTarget).join(" | ");
   const renderDualAmount = (vTarget: number) => {
@@ -2723,8 +2810,12 @@ export default function MultiPaymentInput({
     return (
       <>
         <span>{usdText}</span>
-        <span className="opacity-60">|</span>
-        <span>{lbpText}</span>
+        {lbpText !== undefined && (
+          <>
+            <span className="opacity-60">|</span>
+            <span>{lbpText}</span>
+          </>
+        )}
       </>
     );
   };
@@ -2894,6 +2985,20 @@ export default function MultiPaymentInput({
           />
         ))}
 
+        {/* LIRA-369 — the same rate box for this section's Account lines. */}
+        {counterFlow.accountRate &&
+          cf.lines.some(
+            (l) =>
+              l.method === "CUSTOMER_ACCOUNT" &&
+              l.currencyCode === counterFlow.accountRate?.currency,
+          ) && (
+            <AccountRateBox
+              rate={counterFlow.accountRate}
+              testId="counter-flow-account-rate"
+              className="py-1"
+            />
+          )}
+
         {cf.isSplit && (
           <button
             type="button"
@@ -3057,6 +3162,21 @@ export default function MultiPaymentInput({
           />
         )}
       </div>
+
+      {/* LIRA-369 — "1 EUR = … USD" for an Account line in that currency;
+          the "1 USD = … LBP" box above is left exactly as it was. */}
+      {accountRate &&
+        paymentLines.some(
+          (l) =>
+            l.method === "CUSTOMER_ACCOUNT" &&
+            l.currencyCode === accountRate.currency,
+        ) && (
+          <AccountRateBox
+            rate={accountRate}
+            testId="payment-account-rate"
+            className="px-4 py-2 border-b border-slate-700/40"
+          />
+        )}
 
       {/* Tender-rate sanity warning — non-blocking, never disables anything
           below (LIRA-240). */}

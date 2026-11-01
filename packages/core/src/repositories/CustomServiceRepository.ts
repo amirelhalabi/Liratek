@@ -33,6 +33,7 @@ import {
 } from "../utils/payments.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import { requestNow } from "../utils/requestNow.js";
+import { withTypedNote } from "../utils/typedNote.js";
 import { resolveKeptChange } from "./keptChange.js";
 import {
   exceedsCustomServicePrice,
@@ -72,6 +73,7 @@ import {
   applyDrawerDelta,
   insertPaymentRow,
   bookClientDebtCharge,
+  syncTypedNote,
   assertPartnerIdRequired,
   assertNoCounterPayment,
   type ExpectedTotals,
@@ -124,7 +126,8 @@ export function buildCustomServiceDetails(
 ): CustomServiceDetails {
   const description = nonBlank(data.description);
   const category = nonBlank(data.category);
-  const note = nonBlank(data.note);
+  // LIRA-366: the typed note wins over the old free-text note.
+  const note = nonBlank(data.typedNote) ?? nonBlank(data.note);
   const productId = ctx.isPayout ? undefined : (data.product_id ?? undefined);
   return {
     v: TRANSACTION_DETAILS_VERSION,
@@ -521,7 +524,8 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           data.client_id ?? null,
           data.client_name ?? null,
           data.phone_number ?? null,
-          data.note ?? null,
+          // LIRA-366: the typed note, else today's note.
+          data.typedNote?.trim() || data.note || null,
           data.category ?? null,
           createdBy,
           data.transaction_time ?? null,
@@ -1014,7 +1018,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               amountUsd: debtUsd,
               amountLbp: debtLbp,
               transactionId: txnId,
-              note: noteText,
+              note: withTypedNote(noteText, data.typedNote),
               createdBy,
               tenantId,
             });
@@ -1038,7 +1042,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
             amountUsd: amountDue.usd,
             amountLbp: amountDue.lbp,
             transactionId: txnId,
-            note: noteText,
+            note: withTypedNote(noteText, data.typedNote),
             createdBy,
             tenantId,
           });
@@ -1061,7 +1065,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
             amountUsd: amountDue.usd,
             amountLbp: amountDue.lbp,
             transactionId: txnId,
-            note: noteText,
+            note: withTypedNote(noteText, data.typedNote),
             createdBy,
             tenantId,
           });
@@ -1430,13 +1434,51 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
     values.push(editedBy);
     values.push(id, getCurrentTenantId());
 
-    this.db
-      .prepare(
-        `UPDATE custom_services SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
-      )
-      .run(...values);
+    const tenantId = getCurrentTenantId();
+    return this.db.transaction(() => {
+      this.db
+        .prepare(
+          `UPDATE custom_services SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
+        )
+        .run(...values);
 
-    return this.findById(id);
+      // LIRA-366 (rule 31): the note is the typed note — swap it on the
+      // transaction and its customer-account charge rows together. A
+      // reversal row (`reverses_id` set) keeps what it recorded.
+      if (data.note !== undefined && data.note !== (existing.note ?? "")) {
+        const txn = this.db
+          .prepare(
+            `SELECT id, metadata_json FROM transactions
+              WHERE source_table = 'custom_services' AND source_id = ?
+                AND reverses_id IS NULL AND tenant_id = ?
+              ORDER BY id LIMIT 1`,
+          )
+          .get(id, tenantId) as
+          | { id: number; metadata_json: string | null }
+          | undefined;
+        if (txn) {
+          let oldTyped: string | null = null;
+          try {
+            const note = (
+              JSON.parse(txn.metadata_json ?? "{}") as {
+                details?: { note?: unknown };
+              }
+            ).details?.note;
+            oldTyped = typeof note === "string" ? note : null;
+          } catch {
+            oldTyped = null;
+          }
+          syncTypedNote(this.db, {
+            transactionId: txn.id,
+            oldTyped,
+            newTyped: data.note,
+            tenantId,
+          });
+        }
+      }
+
+      return this.findById(id);
+    })();
   }
 
   /**

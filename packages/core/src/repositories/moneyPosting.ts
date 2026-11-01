@@ -46,9 +46,14 @@ import {
 } from "../validators/counterparty.js";
 import { isDrawerAffectingMethod } from "../utils/payments.js";
 import { requestNow } from "../utils/requestNow.js";
+import { TYPED_NOTE_SEPARATOR, withTypedNote } from "../utils/typedNote.js";
+import { debtLogger } from "../utils/logger.js";
 import { TENDER_RATE_BAND_PCT } from "../constants/tenderRateBand.js";
 import { LEG_RECONCILIATION_EPSILON_USD } from "../constants/legReconciliation.js";
-import { isWithinShortfallMax } from "../validators/exchange.js";
+import {
+  isWithinShortfallMax,
+  NATIVE_PAYOUT_METHODS,
+} from "../validators/exchange.js";
 import {
   ADDED_CHANGE_ACCOUNT_MESSAGE,
   ADDED_CHANGE_NOT_ALLOWED_MESSAGE,
@@ -347,6 +352,47 @@ export function reconcileLegs(input: ReconcileLegsInput): void {
         `($${money(expectedTotals.usd)} + ${Math.round(expectedTotals.lbp).toLocaleString()} LBP), ` +
         `got $${money(gotUsd)} USD-equivalent (IN $${money(inUsd)}, OUT $${money(outUsd)}, kept $${money(keptUsd)}), ` +
         `diff $${money(diff)} at rate ${rate})`,
+    );
+  }
+}
+
+/**
+ * LIRA-369 — reconcile a payout paid in a currency other than USD/LBP (EUR,
+ * GBP…) in that currency: every line is in `currency`, paid in cash or to the
+ * customer's account (`NATIVE_PAYOUT_METHODS`, the same list the exchange
+ * schemas check), and the lines add up to `expected` (within `LEG_RECONCILIATION_EPSILON_USD`, read here in the payout currency).
+ * `reconcileLegs` stays USD/LBP-only. Call inside the flow's transaction,
+ * before any row is written, so a mismatch rolls everything back.
+ */
+export function reconcileNativeLegs(input: {
+  legs: ReconciliationLeg[];
+  currency: string;
+  expected: number;
+  context: string;
+}): void {
+  const { legs, currency, expected, context } = input;
+  let total = 0;
+  for (const leg of legs) {
+    if (leg.currencyCode !== currency) {
+      throw new Error(
+        `The shop pays in ${currency} only on this exchange. (${context}: line currency ${leg.currencyCode} ≠ ${currency})`,
+      );
+    }
+    if (!NATIVE_PAYOUT_METHODS.includes(leg.method)) {
+      throw new Error(
+        `Pay ${currency} in cash or to the customer's account. (${context}: method ${leg.method})`,
+      );
+    }
+    total += Math.abs(leg.amount);
+  }
+  const diff = total - Math.abs(expected);
+  if (Math.abs(diff) > LEG_RECONCILIATION_EPSILON_USD) {
+    const plain =
+      diff < 0
+        ? "The payment doesn't add up to the total."
+        : "The payment is more than the total.";
+    throw new Error(
+      `${plain} (${context}: expected ${expected} ${currency}, got ${total} ${currency})`,
     );
   }
 }
@@ -1230,6 +1276,9 @@ export interface BookCustomerLegsInput extends MeasureCustomerLegsInput {
   createdBy?: number | null;
   /** Note stamped on payment and debt rows. */
   note?: string | null;
+  /** LIRA-366: the cashier's typed note, added to the DEBT rows' note only
+   *  (`withTypedNote`), so `syncTypedNote` can keep it in step on edit. */
+  typedNote?: string | null;
 }
 
 export interface BookCustomerLegsResult {
@@ -1436,6 +1485,8 @@ export interface WriteCustomerLegsInput {
   tenantId: number;
   createdBy?: number | null;
   note?: string | null;
+  /** LIRA-366: see {@link BookCustomerLegsInput.typedNote}. */
+  typedNote?: string | null;
 }
 
 /**
@@ -1452,6 +1503,9 @@ export function writeCustomerLegs(
 ): void {
   const { measured, debtType, clientId, transactionId, tenantId } = input;
   const note = input.note ?? null;
+  const debtNote = input.typedNote?.trim()
+    ? withTypedNote(note ?? "", input.typedNote)
+    : note;
   const createdBy = input.createdBy ?? null;
   if ((measured.owed.usd > 0 || measured.owed.lbp > 0) && !debtType) {
     throw new Error(
@@ -1484,7 +1538,7 @@ export function writeCustomerLegs(
       amountUsd: measured.owed.usd,
       amountLbp: 0,
       transactionId,
-      note,
+      note: debtNote,
       createdBy,
       tenantId,
     });
@@ -1496,7 +1550,7 @@ export function writeCustomerLegs(
       amountUsd: 0,
       amountLbp: measured.owed.lbp,
       transactionId,
-      note,
+      note: debtNote,
       createdBy,
       tenantId,
     });
@@ -1521,10 +1575,75 @@ export function bookCustomerLegs(
     tenantId: input.tenantId,
     createdBy: input.createdBy ?? null,
     note: input.note ?? null,
+    typedNote: input.typedNote ?? null,
   });
   return {
     paid: measured.paid,
     owed: measured.owed,
     forgiven: measured.forgiven,
   };
+}
+
+/**
+ * LIRA-366 (rule 31) — the one update owner for a typed note's copies.
+ * Called from each module's `updateMetadata` when the note changes:
+ *   1. rewrites `details.note` on the transaction (removed when blank);
+ *   2. on each CHARGE row linked to it (`transaction_type` ending in
+ *      " Debt" — refund/reversal rows are never touched), swaps the exact
+ *      suffix `" — " + oldTyped` for `" — " + newTyped`. A row whose note
+ *      no longer ends with the old suffix was edited by hand on the Debts
+ *      page: it is left alone and a warning is logged.
+ */
+export function syncTypedNote(
+  db: Database.Database,
+  input: {
+    transactionId: number;
+    oldTyped: string | null | undefined;
+    newTyped: string | null | undefined;
+    tenantId: number;
+  },
+): void {
+  const oldT = input.oldTyped?.trim() || "";
+  const newT = input.newTyped?.trim() || "";
+  if (oldT === newT) return;
+
+  if (newT) {
+    db.prepare(
+      `UPDATE transactions
+          SET metadata_json = json_set(COALESCE(metadata_json, '{}'), '$.details.note', ?)
+        WHERE id = ? AND tenant_id = ? AND json_type(COALESCE(metadata_json, '{}'), '$.details') = 'object'`,
+    ).run(newT, input.transactionId, input.tenantId);
+  } else {
+    db.prepare(
+      `UPDATE transactions
+          SET metadata_json = json_remove(metadata_json, '$.details.note')
+        WHERE id = ? AND tenant_id = ? AND metadata_json IS NOT NULL`,
+    ).run(input.transactionId, input.tenantId);
+  }
+
+  const rows = db
+    .prepare(
+      `SELECT id, note FROM debt_ledger
+        WHERE transaction_id = ? AND tenant_id = ? AND transaction_type LIKE '% Debt'`,
+    )
+    .all(input.transactionId, input.tenantId) as {
+    id: number;
+    note: string | null;
+  }[];
+  const oldSuffix = oldT ? `${TYPED_NOTE_SEPARATOR}${oldT}` : "";
+  const update = db.prepare(
+    `UPDATE debt_ledger SET note = ? WHERE id = ? AND tenant_id = ?`,
+  );
+  for (const row of rows) {
+    const current = row.note ?? "";
+    if (oldSuffix && !current.endsWith(oldSuffix)) {
+      debtLogger.warn(
+        { debtId: row.id, transactionId: input.transactionId },
+        "Typed note not synced: debt note was edited by hand",
+      );
+      continue;
+    }
+    const base = oldSuffix ? current.slice(0, -oldSuffix.length) : current;
+    update.run(withTypedNote(base, newT), row.id, input.tenantId);
+  }
 }

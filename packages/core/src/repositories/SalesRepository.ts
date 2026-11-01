@@ -6,6 +6,7 @@
  */
 
 import { requestNow } from "../utils/requestNow.js";
+import { withTypedNote } from "../utils/typedNote.js";
 import type Database from "better-sqlite3";
 import { BaseRepository } from "./BaseRepository.js";
 import {
@@ -45,6 +46,7 @@ import {
   applyDrawerDelta,
   insertPaymentRow,
   bookClientDebtCharge,
+  syncTypedNote,
   assertPartnerIdRequired,
   assertNoCounterPayment,
   assertNoCustomerAccountLeg,
@@ -262,6 +264,8 @@ export interface SaleRequest {
   id?: number;
   status?: "completed" | "draft" | "cancelled";
   note?: string;
+  /** LIRA-366: the note the cashier typed (details, sale note, debt note). */
+  typedNote?: string;
   transaction_time?: string;
   /**
    * Session-basket deferred payment mode. When true, the sale record + items +
@@ -451,7 +455,8 @@ export function buildPosSaleDetails(
     .filter((p) => p.direction !== "OUT" && p.method === "GIFT_CARD")
     .map((p) => nonBlankText(p.voucher_code))
     .filter((c): c is string => c !== undefined);
-  const note = nonBlankText(sale.note);
+  // LIRA-366: the typed note wins; old payloads keep their `note`.
+  const note = nonBlankText(sale.typedNote?.trim() ?? sale.note);
   const partnerName = nonBlankText(ctx.partnerName);
   return {
     v: TRANSACTION_DETAILS_VERSION,
@@ -999,7 +1004,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             sale.exchange_rate,
             sale.drawer_name || "General",
             status,
-            sale.note || null,
+            sale.typedNote?.trim() || sale.note || null,
             // LIRA-298: completing a resumed draft with a backdated time
             // moves the sale to that time — Profits and the Sales lists
             // bucket by `sales.created_at`, so leaving the draft's own date
@@ -1039,7 +1044,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             sale.exchange_rate,
             sale.drawer_name || "General",
             status,
-            sale.note || null,
+            sale.typedNote?.trim() || sale.note || null,
             // LIRA-306 FR-021: a typed time wins; else the event time on an
             // offline replay; else now (same text format as CURRENT_TIMESTAMP).
             saleTimeOverride ?? requestNow(),
@@ -1938,7 +1943,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
                   amountUsd: owed.usd,
                   amountLbp: owed.lbp,
                   transactionId: txnId,
-                  note: saleLabel,
+                  note: withTypedNote(saleLabel, sale.typedNote),
                   createdBy,
                   tenantId,
                 });
@@ -4943,11 +4948,34 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       values.push(editedBy);
       values.push(id);
       values.push(tenantId);
-      this.db
-        .prepare(
-          `UPDATE sales SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
-        )
-        .run(...values);
+      this.db.transaction(() => {
+        this.db
+          .prepare(
+            `UPDATE sales SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
+          )
+          .run(...values);
+
+        // LIRA-366 (rule 31): the sale note is the typed note; keep its
+        // copies (details.note, the Sale Debt note) in step.
+        if (data.note !== undefined) {
+          const txn = this.db
+            .prepare(
+              `SELECT id FROM transactions
+                WHERE source_table = 'sales' AND source_id = ? AND type = ? AND tenant_id = ?`,
+            )
+            .get(id, TRANSACTION_TYPES.SALE, tenantId) as
+            | { id: number }
+            | undefined;
+          if (txn) {
+            syncTypedNote(this.db, {
+              transactionId: txn.id,
+              oldTyped: existing.note,
+              newTyped: data.note,
+              tenantId,
+            });
+          }
+        }
+      })();
     }
 
     // Walk-in rename → the unified transaction row (rule 11).

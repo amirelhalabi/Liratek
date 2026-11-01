@@ -78,6 +78,8 @@ export interface SellTicketData {
   payment_method?: string;
   currency?: string;
   note?: string;
+  /** LIRA-366: the note the cashier typed. */
+  typedNote?: string;
   userId: number;
   transaction_time?: string;
   clientId?: number | null;
@@ -193,6 +195,7 @@ export class LotoService {
         payment_method: data.payment_method,
         currency: data.currency || "LBP",
         note: data.note,
+        typedNote: data.typedNote,
         userId: data.userId,
         transaction_time: data.transaction_time,
         clientId: data.clientId,

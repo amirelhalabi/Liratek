@@ -324,6 +324,19 @@ export const exchangeDetailsSchema = z.object({
     )
     .optional(),
   payoutRate: money.optional(),
+  /** LIRA-369 — amounts put on the client's account in a currency other
+   *  than USD/LBP, converted to fixed USD at the typed rate (snapshot). */
+  accountConversion: z
+    .array(
+      z.object({
+        side: z.enum(["customer", "payout"]),
+        currency: currencyCode,
+        amount: money,
+        rate: money,
+        usd: money,
+      }),
+    )
+    .optional(),
 });
 
 export const lotoSaleDetailsSchema = z.object({

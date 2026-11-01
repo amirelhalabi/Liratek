@@ -10,6 +10,7 @@ import {
   type PaymentLine,
   Select,
   ConfirmModal,
+  PaymentNoteField,
 } from "@liratek/ui";
 import { PaymentSheet, type PaymentSheetItem } from "./PaymentSheet";
 import { PROVIDER_BRANDS } from "@/shared/brand/providerBrands";
@@ -247,6 +248,8 @@ export function FinancialForm({
   const [pendingCurrency, setPendingCurrency] =
     useState<CatalogCurrency | null>(null);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
+  // LIRA-366: the optional note typed under the payment box (walk-in sheet).
+  const [typedNote, setTypedNote] = useState("");
   // LIRA-327: on the Whish App tab, For Partner is the basket's (on in one
   // basket tab = on in all); every other provider keeps its own.
   // PFT-3b (Partner FOR-Transactions): a "for partner" order has NO walk-in
@@ -794,6 +797,8 @@ export function FinancialForm({
             itemKey: line.item.key,
             itemCategory: line.item.category,
             note: `${formatCatalogItemName(line.item)}`,
+            // LIRA-366: the cashier's own note, on every unit's row.
+            typedNote: typedNote || undefined,
             partnerId: partnerId || undefined,
             transaction_time: transactionTime,
           });
@@ -850,6 +855,7 @@ export function FinancialForm({
       setExpandedKeys(new Set());
       setSearchQuery("");
       setTransactionTime(undefined);
+      setTypedNote("");
       const hasDebtPayment =
         paymentMethod === "CUSTOMER_ACCOUNT" ||
         paymentLines.some((l: any) => l.method === "CUSTOMER_ACCOUNT");
@@ -1638,6 +1644,11 @@ export function FinancialForm({
               value={transactionTime}
               onChange={setTransactionTime}
             />
+          )}
+          {/* LIRA-366: the basket checkout takes no note yet, so the box
+              is offered on a one-provider checkout only. */}
+          {!isMixedBasket && (
+            <PaymentNoteField value={typedNote} onChange={setTypedNote} />
           )}
         </PaymentSheet>
       </div>

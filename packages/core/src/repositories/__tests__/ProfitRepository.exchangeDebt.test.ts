@@ -1,5 +1,14 @@
 /**
- * LIRA-321 T018 — plan owner-check #1: does an exchange whose shortfall was
+ * SUPERSEDED by LIRA-369 US5 (FR-016, owner 2026-11-01 option A "all
+ * waits"): the exchange's margin now WAITS while its 'Exchange Debt' is
+ * open. The assertions below were rewritten to the new rule (rule 24 — not
+ * deleted): the owing exchange reads the paid one MINUS its margin on every
+ * exchange-bearing surface, By Client is unchanged (exchange profit is not
+ * attributed by client), and the margin shows in the Pending tab's
+ * client-debt bucket instead. Full lifecycle (repay / void) is pinned in
+ * ProfitRepository.lira369ExchangePending.test.ts.
+ *
+ * Original note — LIRA-321 T018 — plan owner-check #1: does an exchange whose shortfall was
  * put on the client's account (an 'Exchange Debt') count its profit AT ONCE,
  * like a fully paid exchange, or does it wait for the client to repay (the
  * DBT-1 rule service debts follow)?
@@ -25,6 +34,7 @@ import { getTransactionRepository } from "../TransactionRepository";
 import {
   US1_BASE,
   US1_FORGIVE,
+  US1_MARGIN,
   US1_PART_ON_ACCOUNT,
   setupExchangeDb,
   teardownExchangeDb,
@@ -85,8 +95,8 @@ function measure(payload: CreateExchangeData): {
   }
 }
 
-describe("Profits — an exchange with an Exchange Debt counts its profit at once (US1.7)", () => {
-  it("every Profits surface reads the same as the fully paid exchange", () => {
+describe("Profits — an exchange with an open Exchange Debt holds its whole margin (LIRA-369 FR-016)", () => {
+  it("every exchange-bearing surface reads the paid exchange minus its margin", () => {
     const paid = measure({
       ...US1_BASE,
       customerPayments: [
@@ -99,16 +109,28 @@ describe("Profits — an exchange with an Exchange Debt counts its profit at onc
     expect(owing.exchangeDebtRows).toBe(1);
     // Sanity: the paid exchange shows a real margin on the Exchange row.
     expect(paid.surfaces.overviewExchange).toBeGreaterThan(0);
-    expect(owing.surfaces).toEqual(paid.surfaces);
+    const margin = paid.surfaces.overviewExchange;
+    const minus = (x: number) => r4(x - margin);
+    expect(owing.surfaces).toEqual({
+      overviewExchange: minus(paid.surfaces.overviewExchange),
+      gross: minus(paid.surfaces.gross),
+      byModuleExchange: minus(paid.surfaces.byModuleExchange),
+      byDate: minus(paid.surfaces.byDate),
+      byUser: minus(paid.surfaces.byUser),
+      byClient: paid.surfaces.byClient,
+      // The drill-down repository read is the raw stamp; the hold moves the
+      // row to not-counted (debt_pending = 1) rather than dropping it.
+      drillDown: paid.surfaces.drillDown,
+    });
   });
 });
 
 /**
  * Measurement (not failing-first — written after T024/T030): the US1.4
  * forgiven 300,000 LBP shows on the Profits page's own "Waived" line and its
- * drill-down, and both return to 0 after the exchange is voided. Plus the
- * Pending tab does not hold the US1.1 exchange (exchange profit has no
- * debt-pending gate).
+ * drill-down, and both return to 0 after the exchange is voided. Plus
+ * (since LIRA-369 FR-016) the Pending tab holds the US1.1 exchange's margin
+ * while its Exchange Debt is open.
  */
 describe("Profits — the forgiven leftover and the Pending tab", () => {
   it("US1.4: the Waived line and its drill-down read −300,000 LBP; a void returns both to 0", () => {
@@ -138,7 +160,7 @@ describe("Profits — the forgiven leftover and the Pending tab", () => {
     }
   });
 
-  it("US1.1: the Pending tab reads the same as for the fully paid exchange", () => {
+  it("US1.1: the Pending tab holds the owing exchange's margin in its client-debt bucket (LIRA-369 FR-016)", () => {
     const pending = (payload: CreateExchangeData) => {
       const db: Database.Database = setupExchangeDb();
       try {
@@ -146,8 +168,9 @@ describe("Profits — the forgiven leftover and the Pending tab", () => {
           db.prepare(`SELECT date('now','localtime') AS d`).get() as { d: string }
         ).d;
         new ExchangeRepository().createTransaction(payload);
-        return JSON.stringify(
-          new ProfitService(new ProfitRepository()).getPendingProfit(today, today),
+        return new ProfitService(new ProfitRepository()).getPendingProfit(
+          today,
+          today,
         );
       } finally {
         teardownExchangeDb(db);
@@ -159,6 +182,17 @@ describe("Profits — the forgiven leftover and the Pending tab", () => {
         { method: "CASH", currencyCode: "LBP", amount: 89_500_000 },
       ],
     });
-    expect(pending(US1_PART_ON_ACCOUNT)).toBe(paid);
+    const owing = pending(US1_PART_ON_ACCOUNT);
+    expect(r4(owing.deferred.client_debt_profit_usd)).toBe(
+      r4(paid.deferred.client_debt_profit_usd + US1_MARGIN),
+    );
+    // Everything else on the tab is unchanged.
+    expect({
+      ...owing,
+      deferred: { ...owing.deferred, client_debt_profit_usd: 0 },
+    }).toEqual({
+      ...paid,
+      deferred: { ...paid.deferred, client_debt_profit_usd: 0 },
+    });
   });
 });

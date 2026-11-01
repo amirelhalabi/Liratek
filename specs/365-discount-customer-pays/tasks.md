@@ -106,21 +106,21 @@
 
 **Goal**: A $50 voucher sold for $48. The sale records $48 paid, the voucher keeps its $50 value, "Discount given" is $2, and cancel refunds $48 and voids the expense.
 
-- [ ] T024 [P] [US3] Write a core guard in `packages/core/src/repositories/__tests__/VoucherRepository.lira365Discount.test.ts`.
+- [x] T024 [P] [US3] Write a core guard in `packages/core/src/repositories/__tests__/VoucherRepository.lira365Discount.test.ts`.
   - Sale: `discount_amount: 2` on a $50 voucher with $48 cash. VOUCHER_SALE amount 48; voucher face 50; Discount_Given $2 linked to `vouchers`; `details.discount`.
   - Refused: $6, discount ≥ face value.
   - `cancelWithRefund` refunds $48 and voids the expense. Drawer, debt and expenses net 0 per currency, including a case with $10 on CUSTOMER_ACCOUNT.
 
   Seen failing.
-- [ ] T025 [US3] Add `discount_amount: z.number().nonnegative().optional()` and refines to `packages/core/src/validators/voucher.ts` (constraint: "≤ SHORTFALL_MAX[currency], < face value").
-- [ ] T026 [US3] In `packages/core/src/repositories/VoucherRepository.ts`:
+- [x] T025 [US3] Add `discount_amount: z.number().nonnegative().optional()` and refines to `packages/core/src/validators/voucher.ts` (constraint: "≤ SHORTFALL_MAX[currency], < face value").
+- [x] T026 [US3] In `packages/core/src/repositories/VoucherRepository.ts`:
   - `sellVoucher` reconciles legs against face value − discount, and writes the VOUCHER_SALE amount = what was paid.
   - It calls `bookDiscountGivenExpense` (`sourceTable "vouchers"`).
   - `buildVoucherDetails` gets `discount`.
   - `cancelWithRefund` calls `voidLinkedExpenses("vouchers", id)`.
 
   T024 must now pass. Rebuild and sync core.
-- [ ] T027 [US3] Check every reader of the VOUCHER_SALE amount for a face-value assumption, and fix any that reads face value from the sale:
+- [x] T027 [US3] Check every reader of the VOUCHER_SALE amount for a face-value assumption, and fix any that reads face value from the sale:
   - `packages/core/src/utils/cashFlow.ts`
   - `packages/core/src/utils/clientDebtDetails.ts`
   - `packages/core/src/utils/transactionText.ts`
@@ -129,8 +129,10 @@
   - `frontend/src/features/audit/transactionPresentation.ts`
   - `frontend/src/features/vouchers/utils/voucherLegs.ts`
 
-  Record each verdict in a comment on the task. Re-run `VoucherRepository.cancelRefund`, `VoucherRepository.sale`, `ProfitRepository.voucher` and `TransactionRepository.paidViaVoucher` (paths only).
-- [ ] T028 [US3] In `frontend/src/features/vouchers/pages/Vouchers/index.tsx`, turn on the Discount line on the sale sheet (`showDiscount`, `maxDiscount` = cap, `onDiscountChange`), and add `discount_amount` to the one payload builder. Extend `frontend/src/features/vouchers/pages/Vouchers/__tests__/Vouchers.sellCancel.test.tsx`, failing first, with names from the voucher schema.
+  Record each verdict in a comment on the task.
+
+  Verdicts (2026-11-01): `cashFlow.ts` direction only (in/out), amount = what was paid, correct. `clientDebtDetails.ts` reads the face value from the voucher record, correct. `transactionText.ts`, `postingRules.ts` (`todo-phase5`), `paidViaVoucher.ts` and `transactionPresentation.ts` are labels, directions and type tuples only, no amounts. `voucherLegs.ts` `voucherRefundParts` sizes the refund from the sale row, so it refunds what was paid. No change needed. Found on the way: the voucher sale/cancel details were passed inside `metadata_json`, which `mergeTransactionDetails` drops, so they were never saved; now passed as the top-level `details` field. Re-run `VoucherRepository.cancelRefund`, `VoucherRepository.sale`, `ProfitRepository.voucher` and `TransactionRepository.paidViaVoucher` (paths only).
+- [x] T028 [US3] In `frontend/src/features/vouchers/pages/Vouchers/index.tsx`, turn on the Discount line on the sale sheet (`showDiscount`, `maxDiscount` = cap, `onDiscountChange`), and add `discount_amount` to the one payload builder. Extend `frontend/src/features/vouchers/pages/Vouchers/__tests__/Vouchers.sellCancel.test.tsx`, failing first, with names from the voucher schema.
 
 **Checkpoint**: all three stories work on their own.
 
@@ -138,22 +140,22 @@
 
 ## Phase 6: User Story 4 — POS unchanged (P3)
 
-- [ ] T029 [US4] Add a guard in `frontend/src/features/sales/pages/POS/components/__tests__/CheckoutModal.lira365NoCap.test.tsx`: a $30 discount on a $300 sale is still accepted, so POS keeps its uncapped discount. Expected to pass at once. Label it "not a failing-first guard: pins existing behaviour".
+- [x] T029 [US4] Add a guard in `frontend/src/features/sales/pages/POS/components/__tests__/CheckoutModal.lira365NoCap.test.tsx`: a $30 discount on a $300 sale is still accepted, so POS keeps its uncapped discount. Expected to pass at once. Label it "not a failing-first guard: pins existing behaviour".
 
 ---
 
 ## Phase 7: Polish & cross-cutting
 
-- [ ] T030 Write a web e2e `frontend/tests/e2e-web/lira-web-087-discount.spec.ts`:
+- [x] T030 Write a web e2e `frontend/tests/e2e-web/lira-web-087-discount.spec.ts`:
   - A discounted OMT system send.
   - A discounted exchange through the Discount line.
   - Match rows by identity and assert deltas (rule 15): drawer, OMT owed and Discount_Given expense.
   - Save a landscape PNG to `frontend/public/whats-new/<next version>/discount-line.png`.
-- [ ] T031 Add release notes to `docs/release-notes/UNRELEASED.md`:
+- [x] T031 Add release notes to `docs/release-notes/UNRELEASED.md`:
   - Bullets under OMT / Whish, Exchange and Vouchers.
   - A `### Discount on OMT/Whish sends, exchanges and vouchers` card in `## ✨ Highlights` with the T030 screenshot.
   - Then run `node scripts/build-release-notes.cjs --check`.
-- [ ] T032 Update the LIRA-365 ticket in `current_sprint.md`: what was built, tests marked as proven failing-first or not, and the "What users will notice" line.
+- [x] T032 Update the LIRA-365 ticket in `current_sprint.md`: what was built, tests marked as proven failing-first or not, and the "What users will notice" line.
 - [ ] T033 Run the gates: `yarn typecheck`, `yarn lint`, `yarn check:transport-parity`, `yarn check:tenant-scoping`, `yarn check:bind-arity`. Measure elapsed time, not output size (rule 28a).
 
 ---

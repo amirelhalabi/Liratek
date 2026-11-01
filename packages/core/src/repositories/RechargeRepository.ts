@@ -10,6 +10,7 @@ import { BaseRepository } from "./BaseRepository.js";
 import { rechargeLogger } from "../utils/logger.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { requestNow } from "../utils/requestNow.js";
+import { withTypedNote } from "../utils/typedNote.js";
 import { clientDay } from "../utils/requestDay.js";
 import { walletReceiveAmounts } from "../utils/walletReceivePayout.js";
 
@@ -27,6 +28,7 @@ import {
   applyDrawerDelta,
   insertPaymentRow,
   bookClientDebtCharge,
+  syncTypedNote,
   assertPartnerIdRequired,
   assertNoCounterPayment,
   postPayoutLegs,
@@ -297,6 +299,8 @@ export interface RechargeData {
   /** Session id when booked by a customer-session checkout. Server-injected
    *  by `SessionCheckoutService` (like `deferPayment`), never on the wire. */
   paid_in_session?: number;
+  /** LIRA-366: the note the cashier typed (details, recharge note, debt note). */
+  typedNote?: string;
 }
 
 export interface RechargeEntity {
@@ -690,6 +694,8 @@ export function buildTelecomRechargeDetails(
           },
         }
       : {}),
+    // LIRA-366: the note the cashier typed.
+    ...(data.typedNote?.trim() ? { note: data.typedNote.trim() } : {}),
     ...(data.paid_in_session ? { paid_in_session: data.paid_in_session } : {}),
   };
 }
@@ -1375,7 +1381,9 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           data.phoneNumber || null,
           data.clientId || null,
           clientName,
-          note,
+          // LIRA-366: the typed note replaces the generated label (the
+          // carrier, type and phone have their own columns).
+          data.typedNote?.trim() || note,
           createdBy,
           tenantId,
           // LIRA-306 FR-021: the event time on an offline replay.
@@ -2013,7 +2021,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             amountUsd: debtUsd,
             amountLbp: debtLbp,
             transactionId: txnId,
-            note,
+            note: withTypedNote(note, data.typedNote),
             createdBy,
             tenantId,
           });
@@ -3794,13 +3802,40 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
 
     fields.push("edited_by = ?", "edited_at = CURRENT_TIMESTAMP");
     values.push(editedBy);
-    values.push(id, getCurrentTenantId());
+    const tenantId = getCurrentTenantId();
+    values.push(id, tenantId);
 
-    this.db
-      .prepare(
-        `UPDATE recharges SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
-      )
-      .run(...values);
+    this.db.transaction(() => {
+      this.db
+        .prepare(
+          `UPDATE recharges SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
+        )
+        .run(...values);
+
+      // LIRA-366 (rule 31): an edited note is the typed note; keep its
+      // copies (details.note, the Recharge Debt note) in step. The old typed
+      // note is read from details.note — the column may hold the generated
+      // label instead.
+      if (data.note !== undefined) {
+        const txn = this.db
+          .prepare(
+            `SELECT id, json_extract(metadata_json, '$.details.note') AS typed
+               FROM transactions
+              WHERE source_table = 'recharges' AND source_id = ? AND type = ? AND tenant_id = ?`,
+          )
+          .get(id, TRANSACTION_TYPES.RECHARGE, tenantId) as
+          | { id: number; typed: string | null }
+          | undefined;
+        if (txn) {
+          syncTypedNote(this.db, {
+            transactionId: txn.id,
+            oldTyped: txn.typed,
+            newTyped: data.note,
+            tenantId,
+          });
+        }
+      }
+    })();
 
     return this.findById(id);
   }

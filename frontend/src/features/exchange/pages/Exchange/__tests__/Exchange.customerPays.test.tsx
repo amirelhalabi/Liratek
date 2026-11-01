@@ -276,7 +276,11 @@ jest.mock("@/features/recharge/components/PaymentSheet", () => ({
         <button
           data-testid="stub-state-overpaid"
           onClick={() =>
-            cf?.onStateChange?.({ ...BALANCED, balanced: false, overpaid: true })
+            cf?.onStateChange?.({
+              ...BALANCED,
+              balanced: false,
+              overpaid: true,
+            })
           }
         />
         <button
@@ -424,10 +428,7 @@ async function openSheet() {
 function lastPayload() {
   expect(mockAddExchangeTransaction).toHaveBeenCalledTimes(1);
   expect(mockAddExchangeTransaction.mock.calls[0]).toHaveLength(1);
-  return mockAddExchangeTransaction.mock.calls[0][0] as Record<
-    string,
-    unknown
-  >;
+  return mockAddExchangeTransaction.mock.calls[0][0] as Record<string, unknown>;
 }
 
 describe("Exchange page — Customer pays (LIRA-321)", () => {
@@ -484,8 +485,7 @@ describe("Exchange page — Customer pays (LIRA-321)", () => {
     );
     // Shared state: the page's own client field shows the same client.
     expect(
-      (screen.getAllByTestId("stub-client-input")[0] as HTMLInputElement)
-        .value,
+      (screen.getAllByTestId("stub-client-input")[0] as HTMLInputElement).value,
     ).toBe("Rami Haddad");
 
     fireEvent.click(screen.getByRole("button", { name: /^Pay / }));
@@ -508,10 +508,11 @@ describe("Exchange page — Customer pays (LIRA-321)", () => {
     expect(screen.queryByTestId("exchange-sheet-client")).toBeNull();
   });
 
-  // Owner decision 2026-10-14 (Decision 1): when the customer pays in a
-  // currency other than USD/LBP, no account line and no Forgive — the
-  // customer pays in full.
-  it("Decision 1 — EUR → USD: no Customer Account method and no Forgive in the customer's section", async () => {
+  // Owner decision 2026-10-14 (Decision 1) said: paying in a currency other
+  // than USD/LBP, no account line and no Forgive. LIRA-369 (owner
+  // 2026-11-01) lifted the account half — the account is offered for every
+  // currency (charged in USD at a typed rate); the discount stays USD/LBP.
+  it("Decision 1 as amended by LIRA-369 — EUR → USD: Customer Account offered, still no discount", async () => {
     mockCurrencyContext.activeCurrencies = [
       { code: "EUR", name: "Euro" },
       { code: "USD", name: "US Dollar" },
@@ -524,7 +525,7 @@ describe("Exchange page — Customer pays (LIRA-321)", () => {
     expect(cf!.currency).toBe("EUR");
     const codes = (cf!.paymentMethods ?? []).map((m) => m.code);
     expect(codes).toContain("CASH");
-    expect(codes).not.toContain("CUSTOMER_ACCOUNT");
+    expect(codes).toContain("CUSTOMER_ACCOUNT");
     expect(cf!.maxForgive).toBeUndefined();
   });
 
@@ -589,9 +590,11 @@ describe("Exchange page — Customer pays (LIRA-321)", () => {
     expect(codes).toContain("WHISH");
     expect(codes).toContain("CUSTOMER_ACCOUNT");
     expect(codes).not.toContain("GIFT_CARD");
-    // The shop's payout side stays cash-only (unchanged).
+    // The shop's payout side: cash plus (LIRA-369) the client's account —
+    // never a wallet or gift card.
     expect(lastSheetProps.paymentMethods).toEqual([
       { code: "CASH", label: "Cash", affects_drawer: 1 },
+      { code: "CUSTOMER_ACCOUNT", label: "Customer Account" },
     ]);
   });
 

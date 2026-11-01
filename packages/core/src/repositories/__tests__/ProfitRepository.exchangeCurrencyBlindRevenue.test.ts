@@ -85,7 +85,37 @@ function createMinimalSchema(db: Database.Database): void {
       type TEXT,
       metadata_json TEXT,
       source_table TEXT,
-      source_id INTEGER
+      source_id INTEGER,
+      reverses_id INTEGER
+    );
+
+    -- LIRA-369 US5: the exchange totals now carry the shared debt hold
+    -- (exchangeNotDebtPending -> notDebtPending), which reads these two
+    -- tables; left empty, so nothing here is held.
+    CREATE TABLE debt_ledger (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      client_id INTEGER NOT NULL,
+      transaction_type TEXT NOT NULL,
+      amount_usd REAL DEFAULT 0,
+      amount_lbp REAL DEFAULT 0,
+      transaction_id INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      is_refunded INTEGER DEFAULT 0,
+      covered_usd REAL NOT NULL DEFAULT 0,
+      covered_lbp REAL NOT NULL DEFAULT 0,
+      refunded_at TEXT DEFAULT NULL, session_id INTEGER
+    );
+    CREATE TABLE customer_session_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER,
+      session_id INTEGER NOT NULL,
+      transaction_type TEXT NOT NULL,
+      transaction_id INTEGER NOT NULL,
+      unified_transaction_id INTEGER,
+      amount_usd REAL NOT NULL DEFAULT 0,
+      amount_lbp REAL NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
 }

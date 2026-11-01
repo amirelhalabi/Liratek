@@ -8,6 +8,7 @@ import {
   NO_EXTRA_FOR_PARTNER_MESSAGE,
   EXTRA_ABOVE_TOTAL_MESSAGE,
   clientDayInputSchema,
+  typedNoteField,
 } from "./common.js";
 import { FULFILLMENT_STATUSES } from "../utils/insuranceFulfillment.js";
 import { WORK_STATUSES } from "../utils/customServiceWorkStatus.js";
@@ -38,6 +39,8 @@ export const createCustomServiceSchema = z
     client_name: z.string().max(255).optional(),
     phone_number: z.string().max(50).optional(),
     note: z.string().max(1000).optional(),
+    /** LIRA-366: the cashier's own note; `note` keeps generated labels. */
+    typedNote: typedNoteField,
     category: z.string().max(100).optional(),
     transaction_time: transactionTimeSchema,
     // T3 keep-change (KC-3): kept change per currency → profit stamp.

@@ -31,6 +31,7 @@ import { localDay } from "@/shared/utils/localDay";
 import { useTranslation } from "react-i18next";
 import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { useFormat } from "@/i18n/useFormat";
+import { SHORTFALL_MAX } from "@liratek/core";
 
 type StatusFilter = "all" | "pending" | "redeemed" | "expired" | "cancelled";
 
@@ -97,6 +98,9 @@ export function VouchersPage() {
   const { buyRate } = useSellRate();
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
   const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
+  /** LIRA-365 — the sale's discount, in the voucher's currency (the payment
+   *  box reports it already clamped to the cap). */
+  const [discount, setDiscount] = useState(0);
   const [effectiveRate, setEffectiveRate] = useState<number | undefined>(
     undefined,
   );
@@ -164,6 +168,7 @@ export function VouchersPage() {
     clearClient();
     setPaymentLines([]);
     setReturnLegs([]);
+    setDiscount(0);
     setCurrency("USD");
     setAmount("");
     setExpiryDate("");
@@ -218,6 +223,13 @@ export function VouchersPage() {
   const saleMethods = voucherSaleMethodOptions(methods, canChargeAccount);
   const saleRate = effectiveRate ?? buyRate;
   const saleLegs = toVoucherSaleLegs(paymentLines, returnLegs);
+  // LIRA-365 — the customer pays face value − discount; the voucher keeps its
+  // face value. Whole lira, cents in USD.
+  const discountGiven =
+    currency === "LBP"
+      ? Math.round(discount)
+      : Math.round(discount * 100) / 100;
+  const amountDue = Math.max(0, faceValue - discountGiven);
   const legsAllowed = [...paymentLines, ...returnLegs].every(
     (l) => !(l.amount > 0) || saleMethods.some((m) => m.code === l.method),
   );
@@ -227,8 +239,8 @@ export function VouchersPage() {
     legsCover(
       saleLegs,
       currency === "USD"
-        ? { usd: faceValue, lbp: 0 }
-        : { usd: 0, lbp: faceValue },
+        ? { usd: amountDue, lbp: 0 }
+        : { usd: 0, lbp: amountDue },
       saleRate,
     );
 
@@ -258,9 +270,14 @@ export function VouchersPage() {
         amount: amountVal,
         currency,
         expiryDate: expiryDate || null,
-        note: note.trim() || null,
+        // LIRA-366: the cashier's note travels as `typedNote` (trimmed by
+        // the schema; blank is dropped).
+        typedNote: note,
         payments: saleLegs,
         ...(saleRate > 0 ? { exchange_rate: saleRate } : {}),
+        // LIRA-365: the discount rides its own field; core books it as a
+        // "Discount given" expense.
+        ...(discountGiven > 0 ? { discount_amount: discountGiven } : {}),
       });
 
       if (result.success && result.voucher) {
@@ -494,7 +511,14 @@ export function VouchersPage() {
                   totalAmountCurrency={currency}
                   onChange={setPaymentLines}
                   onReturnChange={setReturnLegs}
-                  showDiscount={false}
+                  // LIRA-365: the voucher keeps its face value, so core
+                  // books the discount as a "Discount given" expense.
+                  // Capped by the shared shortfall cap.
+                  showDiscount
+                  onDiscountChange={setDiscount}
+                  maxDiscount={
+                    currency === "LBP" ? SHORTFALL_MAX.LBP : SHORTFALL_MAX.USD
+                  }
                   showPmFee={false}
                   paymentMethods={saleMethods}
                   currencies={[

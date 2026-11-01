@@ -858,6 +858,7 @@ export default function POS() {
             setPendingCheckoutData(checkoutData);
             setIsCheckoutOpen(false);
           }}
+          showNote={true}
           onComplete={handleCompleteSale}
           onSaveDraft={handleSaveDraft}
           isDraft={currentDraftId !== undefined}

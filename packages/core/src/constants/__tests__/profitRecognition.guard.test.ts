@@ -213,9 +213,8 @@ const GATE_FRAGMENTS = [
   // money is real" rule as one that calls `notPartnerPending` — just
   // continuously instead of binarily — so it is a genuine gate here, not a
   // loophole. Sites converted so far still gate client debt with
-  // `notDebtPending` unchanged where that applies; `getExchangeTotals` has
-  // no debt-gating concept at all, so this entry is the ONLY thing that
-  // keeps its converted query recognized as gated.
+  // `notDebtPending` unchanged where that applies (`getExchangeTotals`
+  // too since LIRA-369, through `exchangeNotDebtPending`).
   "partnerCoverageRatio",
   // Owner decision 2026-09-05 (PARTNER_PROPORTIONAL_RECOGNITION.md Step 2) —
   // the transactions-alias counterpart of `partnerCoverageRatio`, used by

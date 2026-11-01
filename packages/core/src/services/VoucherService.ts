@@ -30,12 +30,16 @@ export interface CreateVoucherInput {
   currency?: string;
   expiryDate?: string | null;
   note?: string | null;
+  /** LIRA-366 — the cashier's typed note; wins over `note`. */
+  typedNote?: string;
   /** LIRA-339 — the tender legs; omitted → one CASH leg for the face value. */
   payments?: VoucherPaymentLegInput[];
   /** The cashier's tender rate (LBP per USD). */
   exchange_rate?: number;
   /** Optional back-time, same rule as Hold Money. */
   transaction_time?: string;
+  /** LIRA-365 — a discount on the sale, in the voucher's currency. */
+  discount_amount?: number;
 }
 
 export interface VoucherResult {
@@ -110,8 +114,10 @@ export class VoucherService {
           amount: input.amount,
           currency_code: input.currency ?? "USD",
           expiry_date: input.expiryDate ?? null,
-          note: input.note ?? null,
+          // LIRA-366: the typed note is the voucher's note (a snapshot).
+          note: input.typedNote ?? input.note ?? null,
           created_by: createdBy,
+          discount_amount: input.discount_amount,
         },
         input.payments ?? [],
         {

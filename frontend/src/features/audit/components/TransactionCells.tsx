@@ -23,8 +23,10 @@
 import { useTranslation } from "react-i18next";
 import {
   SESSION_ITEM_REFUNDABLE_TYPES,
+  noteOfDetails,
   type TransactionType,
 } from "@liratek/core";
+import { StickyNote } from "lucide-react";
 import { formatNumber } from "@liratek/ui/i18n/format";
 import type { EN_RESOURCES } from "@liratek/ui/i18n/resources";
 import { isReceiptableRow } from "../receiptGating";
@@ -100,6 +102,9 @@ export function SummaryCell({
   // own line below.
   const amount = commissionAmount ?? displayAmountFields(row);
   const summaryText = displaySummary(row);
+  // LIRA-366: the cashier's typed note (Hold money keeps its `notes` key).
+  // Absent or unparsable metadata → no mark (parseMetaSafe → {}).
+  const note = noteOfDetails(parseMetaSafe(row.metadata_json).details);
   return (
     <td className="p-2">
       <div className="flex flex-col gap-0.5">
@@ -158,6 +163,17 @@ export function SummaryCell({
         {summaryText && (
           <span className="text-slate-400 truncate max-w-[480px]">
             {summaryText}
+          </span>
+        )}
+        {note && (
+          <span
+            data-testid="row-note-mark"
+            title={note}
+            aria-label={t("cells.note", { note })}
+            className="flex items-center gap-1 text-[11px] text-amber-300/90 truncate max-w-[480px]"
+          >
+            <StickyNote size={11} className="shrink-0" aria-hidden />
+            <span className="truncate">{note}</span>
           </span>
         )}
         {row.type === "CHECKPOINT" &&

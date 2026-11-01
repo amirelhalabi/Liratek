@@ -379,7 +379,10 @@ describe("ExchangeRepository — split payout", () => {
     ).toThrow(/no return legs/);
   });
 
-  it("rejects non-drawer methods (CUSTOMER_ACCOUNT) — exchange has no client_id to credit", () => {
+  // LIRA-369 (owner 2026-11-01): CUSTOMER_ACCOUNT pays the client's
+  // account now — it needs a picked client; other non-drawer methods stay
+  // refused.
+  it("rejects a CUSTOMER_ACCOUNT payout without a client", () => {
     expect(() =>
       repo.createTransaction({
         ...BASE_TX,
@@ -391,10 +394,21 @@ describe("ExchangeRepository — split payout", () => {
           },
         ],
       }),
+    ).toThrow(/client/i);
+  });
+
+  it("rejects other non-drawer methods (GIFT_CARD)", () => {
+    expect(() =>
+      repo.createTransaction({
+        ...BASE_TX,
+        payments: [{ method: "GIFT_CARD", currencyCode: "LBP", amount: 20_000_000 }],
+      }),
     ).toThrow(/not supported/);
   });
 
-  it("rejects a split payout on an exotic target currency (reconciliation is USD/LBP-native)", () => {
+  // LIRA-369: an exotic-target payout reconciles in its own currency — a
+  // line in another currency is still refused.
+  it("rejects a payout line in USD on an EUR target", () => {
     expect(() =>
       repo.createTransaction({
         ...BASE_TX,
@@ -402,7 +416,7 @@ describe("ExchangeRepository — split payout", () => {
         amountOut: 190,
         payments: [{ method: "CASH", currencyCode: "USD", amount: 190 }],
       }),
-    ).toThrow(/USD or LBP/);
+    ).toThrow(/pays in EUR only/);
   });
 
   it("rejects payout legs in for-partner mode — the disbursement books as the single outflow", () => {

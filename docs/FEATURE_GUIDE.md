@@ -434,6 +434,19 @@ on screen = "waived" in code).
 - **Gift card sales on account (LIRA-339):** a voucher sale's CUSTOMER_ACCOUNT leg
   books ONE `'Voucher Debt'` per currency on the VOUCHER_SALE id (in
   `MODULE_DEBT_TRANSACTION_TYPES`); the owner needs a name + phone like any account charge.
+- **Exchange takes the account both ways, any currency (LIRA-369, owner decisions 2026-11-01).**
+  Customer side: a CUSTOMER_ACCOUNT line in "Customer pays" books `'Exchange Debt'` (already in
+  `MODULE_DEBT_TRANSACTION_TYPES`) for every `fromCurrency`, not only USD/LBP. Payout side: a
+  CUSTOMER_ACCOUNT payout leg moves no drawer; it books a `CREDIT_DEPOSIT` (client credit) linked
+  by `transaction_id`, which `_cancelDebt` already reverses on void/refund (rule 20, no new
+  reversal code). Both need `clientId`. A non-USD/LBP account amount is fixed USD at the rate the
+  cashier typed — `customer_account_usd_rate` / `payout_account_usd_rate`, "1 <currency> = X USD",
+  required exactly when that side has such a line and refused otherwise — `round2(amount × rate)`,
+  never recalculated. The ledger note (`"<amount> <CUR> @ <rate> = $<usd>"`) and the details'
+  `accountConversion` are a **snapshot at saving time** (rule 31: no update owner). Lots count
+  only the physically moved quantity (`amountIn` minus customer-side account lines in
+  `fromCurrency`; `amountOut` minus payout account legs in `toCurrency`). Guards:
+  `ExchangeRepository.lira369.test.ts`, `validators/__tests__/exchange.lira369.test.ts`.
 - Only **IN** CUSTOMER_ACCOUNT legs book debt; an OUT CUSTOMER_ACCOUNT leg is a
   store-credit deposit (payments.ts).
 - GIFT_CARD is prepaid/collected value: debt-like for drawer purposes but **excluded
@@ -1058,6 +1071,15 @@ LIRA-305 decisions Y1–Y14). The old "Syria provider on the OMT/Whish page" pla
 - **Partner netting (LIRA-305):** a Custom Services Pay out's commission is released by cash coverage **or** netting
   against what the shop owes the same partner — `partnerEffectiveCoveredSql` (`constants/partnerObligation.ts`), used
   by both partner-coverage fragments, so every Profits view agrees. See §8.4.
+- **Exchange margin waits for an open account charge (LIRA-369, owner decision 2026-11-01).**
+  Every exchange read on the Profits page (totals, By Module drill-down, by user, pending) goes
+  through the shared `notDebtPending` fragment: while an `'Exchange Debt'` on the exchange is
+  still open, its margin is pending, like Recharge and OMT/Whish rows; once repaid (FIFO
+  coverage), it counts on the exchange's own date. This also applies to older USD/LBP exchanges
+  put on account. Lots count only the physically moved quantity; a typed account rate that
+  differs from the trade's own per-unit value folds `±q·(t − r)` into this exchange's margin —
+  there is no separate conversion profit. Guard:
+  `ProfitRepository.lira369ExchangePending.test.ts` (with `ExchangeRepository.lira369.test.ts`).
 
 ---
 

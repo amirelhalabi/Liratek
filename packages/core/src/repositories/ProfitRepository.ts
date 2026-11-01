@@ -531,8 +531,10 @@ export interface LotoDetailRow {
  * Mirrors {@link ProfitRepository.getExchangeTotals} minus the `SUM` — one
  * row per `exchange_transactions` row (that totals query sums per-row, not
  * per-lot — confirmed by reading it), gated by {@link notRefunded} and
- * {@link dateRange} only, weighted by {@link partnerCoverageRatio} (no debt
- * gate — exchange carries no `debt_ledger` link). `cost_usd` is NOT
+ * {@link dateRange}, weighted by {@link partnerCoverageRatio}, with the debt
+ * hold exposed as `debt_pending` (LIRA-369 US5 — since LIRA-321 an exchange
+ * CAN carry an 'Exchange Debt' on its unified row; see
+ * {@link exchangeNotDebtPending}). `cost_usd` is NOT
  * selected here — the service derives it as `amount_usd - profit_usd`
  * (linear, so a correct revenue/profit sum makes cost reconcile
  * automatically — ticket instruction, avoids an independent cost SUM that
@@ -548,6 +550,9 @@ export interface ExchangeDetailRow {
   profit_usd: number;
   has_partner_obligation: 0 | 1;
   partner_coverage_ratio: number;
+  /** LIRA-369 US5 — 1 while an 'Exchange Debt' for this exchange is still
+   *  open ({@link exchangeNotDebtPending}); the whole margin then waits. */
+  debt_pending: 0 | 1;
 }
 
 /**
@@ -758,6 +763,8 @@ export interface UnsettledCommissionRow {
 export interface DeferredProfitRow {
   partner_profit_usd: number;
   partner_profit_lbp: number;
+  /** Includes (LIRA-369 US5) an exchange margin held behind an open
+   *  'Exchange Debt' — USD only, like every exchange profit figure. */
   client_debt_profit_usd: number;
   client_debt_profit_lbp: number;
   /**
@@ -1190,6 +1197,32 @@ export function allocationNotDebtPending(scaAlias: string): string {
         WHERE ft.source_table = 'financial_services'
           AND ft.source_id = ${scaAlias}.financial_service_id
           AND ft.type = 'FINANCIAL_SERVICE'
+        LIMIT 1)`,
+  );
+}
+
+/**
+ * LIRA-369 US5 (FR-016, owner 2026-11-01 option A "all waits") — the
+ * exchange counterpart of {@link allocationNotDebtPending}: true when no
+ * 'Exchange Debt' (or other module charge) linked to this
+ * `exchange_transactions` row's own unified EXCHANGE transaction is still
+ * open. Resolves that transaction id with a scalar correlated subquery and
+ * calls {@link notDebtPending} VERBATIM on it (rule 14 — never a second copy
+ * of the predicate). A payout to the account ('CREDIT_DEPOSIT') is not a
+ * coverage type, so it never holds the margin. Binds NO params (tenant is
+ * matched by column, like {@link exchangeKeptProfitUsd}), so adding it to a
+ * query changes no bind arity. An exchange with no unified row (legacy
+ * fixture) resolves to NULL and is never pending.
+ */
+export function exchangeNotDebtPending(exAlias: string): string {
+  return notDebtPending(
+    `(SELECT xdt.id FROM transactions xdt
+        WHERE xdt.source_table = 'exchange_transactions'
+          AND xdt.source_id = ${exAlias}.id
+          AND xdt.type = 'EXCHANGE'
+          AND xdt.reverses_id IS NULL
+          AND xdt.tenant_id = ${exAlias}.tenant_id
+        ORDER BY xdt.id
         LIMIT 1)`,
   );
 }
@@ -3761,7 +3794,10 @@ function keptChangeRecognitionGates(
  * then `etAlias.tenant_id`.
  */
 function exchangeRecognitionGates(extAlias: string, etAlias: string): string {
+  // LIRA-369 US5 — `etAlias` IS the exchange's unified EXCHANGE row, so the
+  // shared debt hold applies to its own id directly (rule 14).
   return `${notRefunded(extAlias)}
+              AND ${notDebtPending(`${etAlias}.id`)}
               AND ${dateRange(`${extAlias}.created_at`)}
               AND ${extAlias}.tenant_id = ?
               AND ${etAlias}.tenant_id = ?`;
@@ -5626,6 +5662,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COALESCE(SUM(CASE WHEN (${partnerCoverageRatio("exchange_transactions", "exchange_transactions.id")}) > 0 THEN 1 ELSE 0 END), 0) AS count
         FROM exchange_transactions
         WHERE ${notRefunded("exchange_transactions")}
+          AND ${exchangeNotDebtPending("exchange_transactions")}
           AND ${dateRange("created_at")}
           AND tenant_id = ?`,
       )
@@ -5806,6 +5843,26 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       profit_lbp: number;
     };
 
+    // LIRA-369 US5 (FR-016) — an exchange's margin held behind an open
+    // 'Exchange Debt'. EXCHANGE is not one of PROFIT_TXN_TYPES, so
+    // `clientDebtRow` above never sees it; this is the exact complement of
+    // getExchangeTotals' own gate (same margin + kept-change expression,
+    // same weighting), so counted + pending = the exchange's full margin.
+    const exchangeDebtRow = this._hasExchangeTransactionsTable()
+      ? (this.db
+          .prepare(
+            `SELECT
+              COALESCE(SUM((${EXCHANGE_LEG_PROFIT}) * (${partnerCoverageRatio("exchange_transactions", "exchange_transactions.id")})
+                           + (${exchangeKeptProfitUsd("exchange_transactions")}) * (${partnerCoverageRatio("exchange_transactions", "exchange_transactions.id")})), 0) AS profit_usd
+            FROM exchange_transactions
+            WHERE ${notRefunded("exchange_transactions")}
+              AND NOT (${exchangeNotDebtPending("exchange_transactions")})
+              AND ${dateRange("created_at")}
+              AND tenant_id = ?`,
+          )
+          .get(fromDt, toDt, tenantId) as { profit_usd: number })
+      : { profit_usd: 0 };
+
     const cashlessDeferredRow = this._hasSettlementAllocationsTable()
       ? (this.db
           .prepare(
@@ -5832,7 +5889,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       partner_profit_lbp:
         partnerRow.profit_lbp + partnerCashlessDeferredRow.profit_lbp,
       client_debt_profit_usd:
-        clientDebtRow.profit_usd + cashlessDeferredRow.profit_usd,
+        clientDebtRow.profit_usd +
+        cashlessDeferredRow.profit_usd +
+        exchangeDebtRow.profit_usd,
       client_debt_profit_lbp:
         clientDebtRow.profit_lbp + cashlessDeferredRow.profit_lbp,
       // PA-3.10: the cashless share ALONE, so a caller can gate the
@@ -6656,8 +6715,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * LIRA-233 — per-transaction drill-down under the EXCHANGE By Module row.
    * Mirrors {@link getExchangeTotals} minus the `SUM` — one row per
    * `exchange_transactions` row (that totals query sums per-row, confirmed by
-   * reading it — no lot aggregation), gated by `notRefunded`/`dateRange`
-   * only, weighted by `partnerCoverageRatio` (no debt gate).
+   * reading it — no lot aggregation), gated by `notRefunded`/`dateRange`,
+   * weighted by `partnerCoverageRatio`. LIRA-369 US5 — the totals' debt hold
+   * ({@link exchangeNotDebtPending}) is exposed as `debt_pending` rather than
+   * filtered, so a held exchange lands in the drill-down's not-counted list.
    */
   getExchangeDetail(fromDt: string, toDt: string): ExchangeDetailRow[] {
     const tenantId = getCurrentTenantId();
@@ -6676,7 +6737,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           (${usdRevenue}) AS amount_usd,
           (${EXCHANGE_LEG_PROFIT}) AS profit_usd,
           CASE WHEN ${hasPartnerObligation("exchange_transactions", "et.id")} THEN 1 ELSE 0 END AS has_partner_obligation,
-          (${partnerCoverageRatio("exchange_transactions", "et.id")}) AS partner_coverage_ratio
+          (${partnerCoverageRatio("exchange_transactions", "et.id")}) AS partner_coverage_ratio,
+          CASE WHEN ${exchangeNotDebtPending("et")} THEN 0 ELSE 1 END AS debt_pending
         FROM exchange_transactions et
         WHERE ${notRefunded("et")}
           AND ${dateRange("et.created_at")}
@@ -7323,6 +7385,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
                          + ${exchangeKeptProfitUsd("exchange_transactions")}), 0) AS profit_usd
           FROM exchange_transactions
           WHERE ${notRefunded("exchange_transactions")}
+            AND ${exchangeNotDebtPending("exchange_transactions")}
             AND ${dateRange("created_at")}
             AND tenant_id = ?
           GROUP BY ${localDayExpr("created_at")}

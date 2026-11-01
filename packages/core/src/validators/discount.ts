@@ -83,3 +83,21 @@ export function financialDiscountRefusal(data: {
   if (discount >= data.total) return DISCOUNT_ABOVE_TOTAL_MESSAGE;
   return null;
 }
+
+/**
+ * The refusal for a voucher-sale discount, or null when it is allowed.
+ * `faceValue` = the voucher's amount, in `currency` (the voucher's own). The
+ * customer pays face value − discount; the voucher keeps its face value.
+ */
+export function voucherDiscountRefusal(data: {
+  discount_amount?: number | null | undefined;
+  faceValue: number;
+  currency?: string | null | undefined;
+}): string | null {
+  const discount = data.discount_amount ?? 0;
+  if (!(discount > 0)) return null;
+  if (!discountWithinCap(discount, 0, data.currency ?? "USD"))
+    return DISCOUNT_ABOVE_CAP_MESSAGE;
+  if (discount >= data.faceValue) return DISCOUNT_ABOVE_TOTAL_MESSAGE;
+  return null;
+}

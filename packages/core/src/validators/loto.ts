@@ -7,6 +7,7 @@ import {
   extraNotBothRefineOptions,
   NO_EXTRA_FOR_PARTNER_MESSAGE,
   EXTRA_ABOVE_TOTAL_MESSAGE,
+  typedNoteField,
 } from "./common.js";
 import { isWithinShortfallMax, SHORTFALL_MAX } from "./exchange.js";
 
@@ -62,6 +63,8 @@ export const lotoSellSchema = z
     payment_method: z.string().optional(),
     currency: z.string().optional(),
     note: z.string().optional(),
+    /** LIRA-366: the cashier's own note; `note` keeps generated labels. */
+    typedNote: typedNoteField,
     transaction_time: z.string().optional(),
     // T3 keep-change (docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md KC-3): kept (not
     // returned) change per currency → added to the transaction's profit stamp.

@@ -138,6 +138,19 @@ function createTestDb(): Database.Database {
       transaction_time DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- LIRA-366: a note edit on a charged job also updates its customer-
+    -- account charge rows (syncTypedNote), so the table must exist.
+    CREATE TABLE debt_ledger (
+      tenant_id INTEGER DEFAULT 1,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_id INTEGER,
+      transaction_type TEXT NOT NULL,
+      amount_usd REAL NOT NULL DEFAULT 0,
+      amount_lbp REAL NOT NULL DEFAULT 0,
+      transaction_id INTEGER,
+      note TEXT
+    );
   `);
 
   return db;

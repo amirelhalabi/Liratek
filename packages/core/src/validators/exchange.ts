@@ -6,6 +6,7 @@ import {
   historyAllQuerySchema,
   roundingGivenFields,
   addedChangeFields,
+  typedNoteField,
 } from "./common.js";
 import { customerPaymentsField } from "./customerLegs.js";
 
@@ -85,28 +86,168 @@ const keptChangeFields = {
 const customerPaysFields = {
   clientId: z.number().int().positive().optional(),
   ...customerPaymentsField,
+  /** LIRA-369 — "1 fromCurrency = X USD", typed on the form, for a
+   *  customer-side account line in a currency other than USD/LBP. */
+  customer_account_usd_rate: z.number().positive().optional(),
+  /** LIRA-369 — "1 toCurrency = X USD", typed on the form, for a payout
+   *  put on the account in a currency other than USD/LBP. */
+  payout_account_usd_rate: z.number().positive().optional(),
 };
 
+/** USD and LBP: the currencies a client's account is kept in. */
+export function isAccountCurrency(code: string): boolean {
+  return code === "USD" || code === "LBP";
+}
+
 /**
- * LIRA-321 follow-up (owner decision 2026-10-14) — the ONE rule (rule 14)
- * for whether the customer may owe (a CUSTOMER_ACCOUNT line) or be forgiven
- * part of what they hand over on an exchange: only when they pay in USD or
- * LBP. For any other currency (EUR, USDT, …) the exchange's lot/position
- * code records the full `amountIn` as bought while the drawer only got what
- * was paid (100 EUR lot vs 95 EUR in the drawer), so a later sale would
- * oversell. Blocked until that is fixed. Shared by both schemas below and by
- * `ExchangeRepository.createTransaction` (offline replay skips the schemas).
+ * LIRA-365/321 — the ONE rule (rule 14) for whether the customer's leftover
+ * may be discounted on an exchange: only when they pay in USD or LBP (the
+ * cap is in those currencies). LIRA-369 lifted the same limit for account
+ * lines, which any currency may use now (converted to USD at a typed rate).
+ * Shared by both schemas below and by `ExchangeRepository.createTransaction`
+ * (offline replay skips the schemas).
  */
-export function exchangeCustomerCanOwe(fromCurrency: string): boolean {
-  return fromCurrency === "USD" || fromCurrency === "LBP";
+export function exchangeCustomerCanForgive(fromCurrency: string): boolean {
+  return isAccountCurrency(fromCurrency);
 }
 
 /** The plain message for the rule above — same text on every path. */
-export function exchangeOwingBlockedMessage(fromCurrency: string): string {
-  return `Owing or forgiving isn't available yet when the customer pays in ${fromCurrency} — take the full amount.`;
+export function exchangeForgiveBlockedMessage(fromCurrency: string): string {
+  return `A discount isn't available when the customer pays in ${fromCurrency} — take the full amount.`;
 }
 
-/** The four "Customer pays" refines both exchange schemas apply. */
+/** The fields {@link exchangeAccountIssues} reads. */
+export interface ExchangeAccountInput {
+  fromCurrency: string;
+  toCurrency: string;
+  partnerMode?: "FOR" | undefined;
+  clientId?: number | undefined;
+  payments?: Array<{ method: string; currencyCode: string }> | undefined;
+  customerPayments?:
+    | Array<{ method: string; currencyCode: string }>
+    | undefined;
+  customer_account_usd_rate?: number | undefined;
+  payout_account_usd_rate?: number | undefined;
+  kept_change_usd?: number | undefined;
+  kept_change_lbp?: number | undefined;
+  rounding_given_usd?: number | undefined;
+  rounding_given_lbp?: number | undefined;
+  added_change_usd?: number | undefined;
+  added_change_lbp?: number | undefined;
+  tender_exchange_rate?: number | undefined;
+}
+
+/** Payout methods for a currency other than USD/LBP (owner 2026-11-01). */
+export const NATIVE_PAYOUT_METHODS: readonly string[] = [
+  "CASH",
+  "CUSTOMER_ACCOUNT",
+];
+
+/**
+ * LIRA-369 — the ONE set of rules (rule 14) for the payout side in a
+ * currency other than USD/LBP, the customer's account on either side, and
+ * the typed account rates. Pure: both schemas run it as a refine and
+ * `ExchangeRepository.createTransaction` throws its first issue (offline
+ * replay and scripted callers skip the schemas).
+ */
+export function exchangeAccountIssues(
+  data: ExchangeAccountInput,
+): Array<{ path: Array<string | number>; message: string }> {
+  const issues: Array<{ path: Array<string | number>; message: string }> = [];
+  const payout = data.payments ?? [];
+  const customer = data.customerPayments ?? [];
+  const isAccount = (l: { method: string }) => l.method === "CUSTOMER_ACCOUNT";
+  const to = data.toCurrency;
+  const from = data.fromCurrency;
+
+  if (data.partnerMode === "FOR") {
+    for (const key of [
+      "customer_account_usd_rate",
+      "payout_account_usd_rate",
+    ] as const) {
+      if (data[key] !== undefined) {
+        issues.push({
+          path: [key],
+          message: "A partner exchange has no customer account.",
+        });
+      }
+    }
+    return issues;
+  }
+
+  if (payout.some(isAccount) && !data.clientId) {
+    issues.push({
+      path: ["clientId"],
+      message: "Choose a client to put the payout on their account.",
+    });
+  }
+
+  const nativePayout = !isAccountCurrency(to) && payout.length > 0;
+  if (nativePayout) {
+    payout.forEach((leg, i) => {
+      if (leg.currencyCode !== to) {
+        issues.push({
+          path: ["payments", i, "currencyCode"],
+          message: `The shop pays in ${to} only on this exchange.`,
+        });
+      }
+      if (!NATIVE_PAYOUT_METHODS.includes(leg.method)) {
+        issues.push({
+          path: ["payments", i, "method"],
+          message: `Pay ${to} in cash or to the customer's account.`,
+        });
+      }
+    });
+    for (const key of [
+      "kept_change_usd",
+      "kept_change_lbp",
+      "rounding_given_usd",
+      "rounding_given_lbp",
+      "added_change_usd",
+      "added_change_lbp",
+      "tender_exchange_rate",
+    ] as const) {
+      if ((data[key] ?? 0) > 0) {
+        issues.push({
+          path: [key],
+          message: `Keep change, round-up and added change work in USD and LBP only — not on a ${to} payout.`,
+        });
+      }
+    }
+  }
+
+  const rateRule = (
+    key: "customer_account_usd_rate" | "payout_account_usd_rate",
+    currency: string,
+    needed: boolean,
+  ) => {
+    if (needed && !(data[key] !== undefined && data[key] > 0)) {
+      issues.push({
+        path: [key],
+        message: `Type the ${currency} → USD rate for the amount put on the account.`,
+      });
+    }
+    if (!needed && data[key] !== undefined) {
+      issues.push({
+        path: [key],
+        message: `This rate is only for ${currency} put on the customer's account.`,
+      });
+    }
+  };
+  rateRule(
+    "payout_account_usd_rate",
+    to,
+    !isAccountCurrency(to) && payout.some(isAccount),
+  );
+  rateRule(
+    "customer_account_usd_rate",
+    from,
+    !isAccountCurrency(from) && customer.some(isAccount),
+  );
+  return issues;
+}
+
+/** The "Customer pays" refines both exchange schemas apply. */
 function refineCustomerPays(
   data: {
     fromCurrency: string;
@@ -153,16 +294,29 @@ function refineCustomerPays(
       path: ["clientId"],
     });
   }
-  if (!exchangeCustomerCanOwe(data.fromCurrency)) {
-    const owes = (lines ?? []).some((l) => l.method === "CUSTOMER_ACCOUNT");
-    const forgives = (data.customer_waived_amount ?? 0) > 0;
-    if (owes || forgives) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: exchangeOwingBlockedMessage(data.fromCurrency),
-        path: [owes ? "customerPayments" : "customer_waived_amount"],
-      });
-    }
+  if (
+    !exchangeCustomerCanForgive(data.fromCurrency) &&
+    (data.customer_waived_amount ?? 0) > 0
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: exchangeForgiveBlockedMessage(data.fromCurrency),
+      path: ["customer_waived_amount"],
+    });
+  }
+}
+
+/** LIRA-369 — {@link exchangeAccountIssues} as a refine on both schemas. */
+function refineExchangeAccount(
+  data: ExchangeAccountInput,
+  ctx: z.RefinementCtx,
+): void {
+  for (const issue of exchangeAccountIssues(data)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: issue.message,
+      path: issue.path,
+    });
   }
 }
 
@@ -175,6 +329,8 @@ export const createExchangeSchema = z
     rate: positiveDecimalSchema,
     clientName: z.string().max(255).optional(),
     note: z.string().max(500).optional(),
+    /** LIRA-366: the cashier's own note; `note` keeps generated labels. */
+    typedNote: typedNoteField,
     transaction_time: transactionTimeSchema,
     // LIRA-081 (PFT-R): a "for partner" exchange — the partner stands in for
     // the walk-in customer. See ExchangeRepository.createTransaction.
@@ -207,7 +363,10 @@ export const createExchangeSchema = z
   .refine((data) => data.fromCurrency !== data.toCurrency, {
     message: "From and To currencies must be different",
   })
-  .superRefine(refineCustomerPays);
+  .superRefine((data, ctx) => {
+    refineCustomerPays(data, ctx);
+    refineExchangeAccount(data, ctx);
+  });
 
 /**
  * Full exchange-submit contract (EXCHANGE_LOT_SETTLEMENT.md "Named
@@ -251,6 +410,8 @@ export const exchangeSubmitSchema = z
     totalProfitUsd: z.number(),
     clientName: z.string().optional(),
     note: z.string().optional(),
+    /** LIRA-366: the cashier's own note; `note` keeps generated labels. */
+    typedNote: typedNoteField,
     fromCurrencyName: z.string().optional(),
     toCurrencyName: z.string().optional(),
     /**
@@ -295,6 +456,7 @@ export const exchangeSubmitSchema = z
   })
   .superRefine((data, ctx) => {
     refineCustomerPays(data, ctx);
+    refineExchangeAccount(data, ctx);
     // A cross exchange (viaCurrency set) needs a USD anchor for its
     // internal "from -> USD -> to" passthrough — mirrors
     // `ExchangeRepository._crossUsdNotional`'s anchor priority: when

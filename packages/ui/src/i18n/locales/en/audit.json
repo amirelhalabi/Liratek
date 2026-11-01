@@ -162,6 +162,7 @@
     "out": "OUT"
   },
   "cells": {
+    "note": "Note: {{note}}",
     "sessionPooledTotal": "Session #{{id}} — pooled basket total",
     "sessionLegs": "Session: {{legs}}",
     "sessionMethod": "Session #{{id}}",

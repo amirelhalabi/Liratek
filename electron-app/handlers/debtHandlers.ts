@@ -33,6 +33,8 @@ interface RepaymentData {
   amountUSD: number;
   amountLBP: number;
   note?: string;
+  /** LIRA-366: the cashier's typed note (addRepaymentSchema `typedNote`). */
+  typedNote?: string;
   userId?: number;
   paidByMethod?: string;
   payments?: RepaymentPaymentLeg[];

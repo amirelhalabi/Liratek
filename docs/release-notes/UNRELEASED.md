@@ -36,6 +36,11 @@
 
 ## ✨ Highlights
 
+### Add a note when the customer pays
+
+Every payment window where the customer pays you now has an optional **Note** box: POS checkout, Exchange, OMT/Whish send, Whish App / OMT App, Binance, Mobile Recharge (MTC / Alfa, bills, Katsh), Loto, Custom Services, gift card sales and debt payments. Write things like "paid for his brother" or "rest on Monday". The note shows in the transaction's details, and the row on the Transactions page gets a small note mark you can hover to read it. When part of the payment goes on the customer's account, the same note shows on their entry on the Debts page, and editing the note later changes both. Repair jobs and Hold Money already had a note; theirs now shows the same way.
+![Mobile Recharge payment window: $6 MTC credit, 550,000 LBP cash and 50,000 LBP on account, note "rest on Monday"](whats-new/1.35.0/payment-note.png)
+
 ### Monthly progress
 
 Shops where it is switched on now have a **Monthly progress** page in the left menu (admins only). At the end of every month the app saves your balances by itself: what customers, suppliers and partners owe you, what you owe them, your stock value at cost, and your line credits. Each month is a column, newest first, with dollars and lira on their own lines and the change from the month before under each amount. The current month appears within an hour of switching on, and its figures are updated to the month-end ones when the month ends.
@@ -50,6 +55,11 @@ If the same supplier was typed in two ways (for example "reacall" and "recall"),
 
 Loto is now settled like every other supplier: Suppliers → Loto → **Settle Account** opens the day calendar. Each day shows what you owe Loto for that day's tickets (after your commission), minus any cash prizes you paid out that day. Pick the days, pay, and they turn green. Everything you already settled through Loto checkpoints counts as paid, so only newer days show. The Pay / Receive tab for Loto and the Settle button on the Loto page are gone, so every Loto payment is tied to the days it pays.
 ![Settle Loto Liban account: 3 tickets on Oct 28, 343,980 LBP to pay](whats-new/1.35.0/loto-settle-calendar.png)
+
+### Discount on OMT/Whish sends, exchanges and vouchers
+
+You can now give a small discount, up to $5 or 450,000 LBP, on more payment windows where the customer pays you: an OMT or Whish send, an exchange ("Customer pays") and a gift card sale. Type it on the **Discount** line under "Total Amount"; the customer's line drops to match. On an OMT/Whish send, OMT or Whish is still owed the full amount, and on a gift card the card keeps its full value, so the discount shows on the Expenses page as "Discount given". Cancelling the gift card or voiding the send cancels it too. The POS discount works as before, with no limit.
+![Vouchers: a $50 gift card with a $2 discount, the customer pays $48](whats-new/1.35.0/discount-line.png)
 
 ### Discount the whole session basket
 
@@ -142,6 +152,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 💳 Payment window
 
+- New optional **Note** box on every payment window where the customer pays you. The note shows in the transaction details, as a mark on the row on the Transactions page, and on the customer's Debts entry when part goes on the account. Editing it later updates both.
 - When a customer leaves their change and a client is picked, the change box now has a **Keep** button next to **Account**: keep the change as shop profit, or put it on the customer's account as before.
 - The change box is smaller: one line shows the change due and how you hand it back (cash, or OMT / Whish / Binance), the next has the $ and LBP fields with quick $, LBP and Account buttons, and the last line says where any change you don't hand back goes.
 - On the POS, Maintenance, customer sessions, Loto, OMT/Whish send and Mobile Recharge sales: when a client with a phone number is picked, change you don't hand back now goes on the client's account (it lowers their debt or becomes credit). Tap Account to put all of it there. Custom Services does the same for a saved client. With no client picked, it is kept as profit, as before.
@@ -155,7 +166,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 - Paying out (Exchange, Whish App / OMT App receive, Binance cash-out, and Whish receive on the OMT/Whish page when the customer pays a fee on top): the payment window now shows what the customer pays ("Customer pays", IN) on top and what you pay out ("Shop pays", OUT) under it. "Customer pays" works like the rest of the box: one line, or tap Split to add more. Confirm stays off until what the customer pays adds up, and a "Still to settle" line shows what is missing. If the customer pays less and a client is picked, the rest goes on their account by itself; with no client, nothing is filled in as cash: the line asks you to pick a client, or to give a small discount. Under the totals, the box also shows what the customer paid and, when part of it goes on their account, how much the client will owe.
 - Whish App and OMT App receive: "Customer pays" now always shows what the customer sends you, filled in for you: the transfer by Whish (or OMT), plus the fee in Cash when the customer pays the fee separately on Whish App. You can split it, for example part by Whish, part by OMT or cash, and part on the client's account (the client then owes it), or give a small discount. Changing who pays the fee updates the lines.
 - Binance cash-out: "Customer pays" now always shows what the customer sends you, filled in for you: the USDT by Binance, plus the fee in Cash when the customer pays the fee separately. You can split it, for example part in USDT by Binance and the rest in cash ($ or LBP), or leave the rest on the client's account in $ (1 USDT counts as $1), or give a small discount. Changing who pays the fee updates the lines.
-- Exchange: the client name box now finds saved clients, and you can also pick or change the client right inside the payment window, without closing it. When you confirm the payout, "Customer pays — LBP" (or the currency you receive) shows the full amount. If the customer pays in $ or LBP and pays less, the rest goes on the picked client's account (it shows on the Debts page), or you can give a small discount. When the customer pays in another currency (for example euros), they must pay the full amount: putting part on an account or giving a discount is not available yet. Confirm stays off until it adds up, and a client is needed to put money on an account. The Exchange history shows the client.
+- Exchange: the client name box now finds saved clients, and you can also pick or change the client right inside the payment window, without closing it. When you confirm the payout, "Customer pays — LBP" (or the currency you receive) shows the full amount. If the customer pays in $ or LBP and pays less, the rest goes on the picked client's account (it shows on the Debts page), or you can give a small discount. When the customer pays in another currency (for example euros), a discount is not available. Confirm stays off until it adds up, and a client is needed to put money on an account. The Exchange history shows the client.
 - Exchange, Whish App / OMT App receive and Binance cash-out: the "Forgive" button in "Customer pays" is now the same Discount line as every other payment window: Total Amount, Discount, then After Discount. Type the discount (up to $5 or 450,000 LBP) and the customer's line drops to match. It is recorded as before, and the transaction's details now show it. On these cash-outs the discount is only in "Customer pays": the Discount under "Shop pays" is gone, so each screen has one.
 - Debts (Settle Debt) and Partners (Settle): the separate green Discount / Forgive box is gone. Forgiving is now a "Forgive (no cash)" line in the payment box, and typing an amount there no longer changes the payment you entered. A "Client will owe" (or "Partner will owe") line shows what is left after you confirm. To forgive part of it, lower the payment first.
 - Dark mode: greyed-out buttons now show their text on the Mobile Recharge screens (MTC / Alfa, Katsh, Binance, Whish App / OMT App, card sales and money transfers) and on the OMT/Whish page. Before, a button that could not be pressed yet looked like an empty bar.
@@ -165,6 +176,12 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 - When paying out, if the customer hands you a few dollars or pounds so you can give a round amount (for example $197 owed, the customer gives $3, you give $200), tap "+ Customer gives change" (or add a line under "Customer pays") and enter it. The payment window then expects you to pay out that much more, and both drawers are recorded correctly, with nothing booked as rounding. Up to $5 or 450,000 LBP; use the Exchange page for more. This works on OMT/Whish receive, Binance cash-out, Whish App / OMT App receive and "From client", Exchange, Hold Money pickups in one currency, and MTC / Alfa credit buy-back.
 - "+ Customer gives change" now also works on OMT/Whish receive done through your partner, and when you pay the customer out by wallet (for example $200 from Whish, $3 back in cash).
 - OMT/Whish page: a Whish receive done through your partner with the fee paid on top can be saved again. Before, it was refused.
+
+## 💱 Exchange
+
+- The payment window now opens for every exchange, whatever the currency, including euros and others. Before, it opened only when you paid out dollars or LBP.
+- You can now put part of an exchange on the customer's account in either direction: what they pay you, or what you give them. This works in any currency. An amount in a currency other than dollars or LBP is booked on the account in dollars, at the rate you type in the payment window, and the account entry keeps the original amount and that rate.
+- An exchange the customer still owes for now waits until they pay before its profit counts on the Profits page. This also applies to earlier exchanges put on an account.
 
 ## ➕ Extra charges
 
@@ -406,6 +423,8 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 ## 🎁 Vouchers
 
 - Vouchers: from now on, selling a gift card takes payment (cash, a wallet, or the customer's account) and puts the money in the drawer. Cancelling an unused gift card refunds the customer: the cash part back from the drawer and the account part taken off their account. Gift cards created before this update were not paid for, so cancelling them refunds nothing.
+- Vouchers: you can now give a discount on a gift card sale, up to $5 or 450,000 LBP. A $50 gift card sold for $48 is still worth $50 when used; the $2 shows on the Expenses page as "Discount given". Cancelling the gift card refunds what the customer paid ($48) and cancels the "Discount given".
+- Vouchers: from now on a gift card sale or cancel shows its code (and the discount, if any) in the transaction's details.
 
 ## 👥 Clients
 

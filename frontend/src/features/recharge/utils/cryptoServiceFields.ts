@@ -23,6 +23,7 @@ type CryptoServiceFields = Pick<
   | "feePaidBy"
   | "typedDiscount"
   | "transaction_time"
+  | "typedNote"
 >;
 
 export function buildCryptoServiceFields(input: {
@@ -40,6 +41,8 @@ export function buildCryptoServiceFields(input: {
   >;
   /** The "Set custom time" picked on the form (ISO); absent = now. */
   transactionTime?: string | undefined;
+  /** LIRA-366: the form's Notes box as typed. Sent only when not blank. */
+  typedNote?: string | undefined;
 }): CryptoServiceFields {
   return {
     provider: "BINANCE",
@@ -54,5 +57,6 @@ export function buildCryptoServiceFields(input: {
     ...(input.transactionTime
       ? { transaction_time: input.transactionTime }
       : {}),
+    ...(input.typedNote?.trim() ? { typedNote: input.typedNote } : {}),
   };
 }

@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { clientDayInputSchema } from "./common.js";
+import { clientDayInputSchema, typedNoteField } from "./common.js";
+import { voucherDiscountRefusal } from "./discount.js";
 
 /**
  * Voucher (gift-card) validation schemas.
@@ -62,6 +63,9 @@ export const voucherCreateSchema = z.object({
   currency: z.enum(["USD", "LBP"]).optional().default("USD"),
   expiryDate: z.string().min(1).optional().nullable(),
   note: z.string().optional().nullable(),
+  /** LIRA-366: the cashier's own note; wins over `note` (kept for old
+   *  callers). A snapshot — vouchers have no edit path. */
+  typedNote: typedNoteField,
   /** LIRA-339: the tender legs (split, change, on account). Optional — a
    *  caller that omits it gets one CASH leg for the face value
    *  (VoucherRepository.sellVoucher, the Hold Money precedent). */
@@ -70,7 +74,27 @@ export const voucherCreateSchema = z.object({
   exchange_rate: z.number().positive().optional(),
   /** Optional back-time, same rule as Hold Money. */
   transaction_time: z.string().optional(),
-});
+  /** LIRA-365 — a discount on the sale, in the voucher's currency. The
+   *  customer pays face value − discount; the voucher keeps its face value
+   *  and the shop books the gap as a "Discount given" expense. Capped at
+   *  $5 / 450,000 LBP and below the face value. */
+  discount_amount: z.number().nonnegative().optional(),
+})
+  // LIRA-365 — the repository repeats this (offline replay skips Zod).
+  .superRefine((data, ctx) => {
+    const refusal = voucherDiscountRefusal({
+      discount_amount: data.discount_amount,
+      faceValue: data.amount,
+      currency: data.currency,
+    });
+    if (refusal) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: refusal,
+        path: ["discount_amount"],
+      });
+    }
+  });
 
 export type VoucherCreateInput = z.infer<typeof voucherCreateSchema>;
 

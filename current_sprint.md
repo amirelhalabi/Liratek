@@ -8315,10 +8315,20 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
   - Proven failing first: core `ExchangeRepository.lira365DiscountDetails` (5) and UI `MultiPaymentInput.lira365CounterFlowDiscount` (5).
   - Rewritten to the new rule: the old Forgive cases and the walk-in cash-out fee-discount cases.
   - No web e2e clicked Forgive.
-- Still to do: the What's new card with a real screenshot for US1 and US2. US3 (vouchers) and US4 are not started.
+- (Done since: the What's new card and screenshot, US3 and US4 — see below.)
+
+**Built 2026-11-01 (US3 voucher sale, US4 POS, polish):**
+- Core: `discount_amount` on `voucherCreateSchema` (refine from the shared `voucherDiscountRefusal`: cap $5 / 450,000 LBP, below the face value; the repository repeats it for offline replay). `sellVoucher` reconciles against face value − discount, writes the VOUCHER_SALE amount = what was paid, books one books-only auto "Discount given" expense linked to the voucher, and records `details.discount`. `cancelWithRefund` refunds what was paid and voids that expense (`voidLinkedExpenses`). Service and IPC handler forward the key (rule 23); REST passes the parsed body.
+- Found and fixed on the way: voucher sale/cancel details were passed inside `metadata_json`, which `mergeTransactionDetails` drops, so they were never saved. Now the top-level `details` field.
+- Reader audit (T027): no reader assumes the sale amount is the face value; verdicts in tasks.md.
+- Page: the Vouchers sale box shows the Discount line (cap by currency); the payload carries `discount_amount` only when given.
+- Tests:
+  - Proven failing first: core `VoucherRepository.lira365Discount` (9, failed 9/9 on behaviour before the fix) and the Vouchers page cases in `Vouchers.sellCancel` (2 failed before the page change: no Discount line).
+  - Not a failing-first guard (pins existing behaviour): `CheckoutModal.lira365NoCap` — POS $30 discount on $300 still accepted.
+  - Web e2e `lira-web-087-discount`: OMT send $400 + $15 − $2 (drawer +413, OMT owed +415, $2 expense), exchange 50,000 LBP discount (General LBP +89,450,000, USD −1,000, details.discount), Vouchers page $50 − $2 (drawer +48, voucher worth $50, $2 expense). Green; screenshot `whats-new/1.35.0/discount-line.png`.
 
 
-**What users will notice:** a Discount line on the payment form for OMT/Whish sends and voucher sales, up to $5 / 450,000 LBP; on Exchange and the Whish App, OMT App and Binance cash-outs the Forgive button becomes the same Discount line.
+**What users will notice:** a Discount line on the payment form for OMT/Whish sends and voucher sales, up to $5 / 450,000 LBP; on Exchange and the Whish App, OMT App and Binance cash-outs the Forgive button becomes the same Discount line. A discounted gift card keeps its full value; the discount shows on the Expenses page as "Discount given" and cancelling refunds what was paid.
 
 ## LIRA-366: Optional note on money-in payment forms — SPEC 2026-10-31
 
@@ -8328,7 +8338,7 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 
 **Spec:** `specs/366-payment-note/spec.md`; research done (`research.md`): new `typedNote` key so generated labels are never shown as typed notes; module note column from `typedNote ?? note`; debt note = system note + typed note, re-synced on edit (charge rows only).
 
-**What users will notice:** a Note box on every payment form where the customer pays, shown on the entry, in the Transactions list and on the customer's debt.
+**What users will notice:** a Note box on every payment form where the customer pays, shown in the transaction details, as a note mark on the Transactions row (hover to read) and on the customer's Debts entry when part goes on the account; editing it later changes both. Repair jobs and Hold Money keep their own note box, now shown the same way.
 
 ---
 
@@ -8360,3 +8370,23 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 
 **What users will notice:** Katsh and iPick no longer show a Transactions button; their page keeps Settle Account, Payments and Commission Settlement.
 
+## LIRA-369: Exchange — customer account both ways, payment window for every currency — SPEC 2026-11-01
+
+**Ask (owner 2026-10-31):** "enable customer account payment method for exchange" and "when exchanging in currencies other than USD and LBP, the drawer payment form is not opening".
+
+**Owner decisions 2026-11-01:** the payment window opens for every walk-in exchange (For Partner unchanged). Customer account in both directions: OUT to account (shop credits the customer) and IN from account (customer owes), for every currency — reverses the 2026-10-14 USD/LBP-only limit. A non-USD/LBP amount on the account is converted to USD at a rate typed on the payment form (seeded, editable; the rate box becomes generic) and stays a fixed USD amount forever after; the note/summary keeps the original amount, currency and rate. Non-USD/LBP payouts: cash in that currency or customer account only. The account part never moves the EUR drawer or EUR position (option A); later EUR repayment or collection is a normal exchange.
+
+**Spec:** `specs/369-exchange-account-all-currencies/spec.md`. **Tasks:** `tasks.md` (30). **Plan:** `plan.md` + research/data-model/contract/quickstart (no migration; payout to account = CREDIT_DEPOSIT linked to the exchange; lots count physical quantity only; typed rate seeded at the exchange's own rate).
+
+**Owner decisions 2026-11-01 (later):** the rate box starts at the exchange's own rate (a different typed rate changes the exchange's margin). Margin timing option A, "all waits": an exchange's margin counts only once nothing paid on the customer's account for it is still owed, the same rule as POS / Recharge / OMT-Whish; this also applies to existing USD/LBP exchanges paid on account (today they count at once). Comparison page shown: artifact 2htYg9L6uuaqPhgUHEEGxm.
+
+**Built 2026-11-01 (not committed):** core: `exchangeAccountIssues` (one rule set for both schemas and the writer), `reconcileNativeLegs`, payout to the account = `CREDIT_DEPOSIT` linked to the exchange, EUR account lines owed/credited as fixed USD at `customer_account_usd_rate` / `payout_account_usd_rate`, note + details `accountConversion` snapshot, lots count only what crosses the counter, typed-rate gap into the margin. Profits: the exchange margin waits while an Exchange Debt on it is open (`exchangeNotDebtPending` over `notDebtPending`, every exchange read + Pending tab). UI: the payment window takes a currency list and an "1 EUR = … USD" account-rate box on both sides; the Exchange page opens the window for every walk-in exchange, offers the account both ways, seeds the rate at the exchange's own rate, loss confirm on the window's Confirm. App types for the exchange payload derived from the schema (preload, electron.d.ts).
+
+**Tests:** proven failing first: core `ExchangeRepository.lira369` (16/18 failed), `exchange.lira369` validator (28/34), `moneyPosting.reconcileNativeLegs` (6/6), `ProfitRepository.lira369ExchangePending` (4/4), ui `MultiPaymentInput.lira369RatePair` (5/8), `PaymentSheet.lira369Currencies` (2/3), page `Exchange.lira369` (9/10). Not proven failing-first: `ExchangeRepository.lira369Variants` (36 variants), `exchangeUnitUsd` (7). Rewritten because the owner reversed their premise (rule 24): exchange splitPayout/customerPayments (core + validator), `ProfitRepository.exchangeDebt`, Exchange page lotLossConfirm/customerPays/splitPayout. Neighbours: 229 exchange core tests, 139 nearby core tests, 286 + 169 profit tests, 86 Exchange page tests pass. Web e2e `lira-web-089` 3/3 passed. `yarn typecheck`, `yarn lint`, bind-arity pass; tenant-scoping's 2 findings are in LIRA-366's `typedNoteAssert.ts`. Desktop not run (no Electron on this Mac).
+
+**Review fix (2026-11-01):** a Customer account line in the other currency of a USD/LBP split payout (a USD line on an LBP payout) was credited in the payout's currency; now each line is credited in its own currency — 2 guards proven failing first. Variant table widened to cross trades (EUR→LBP, LBP→EUR via USD; 54 cases), asserting the seeded rate books no phantom margin. Two cut-down test databases gained the tables the profit gate reads. All 106 core test files that read profits pass (1,172 tests). `build-release-notes --check` up to date.
+
+**Missing (rule 30):** the What's new card + real screenshot for the new payment window — required before release; owner to decide when.
+**Unverified:** an exchange with an account line inside a customer session (path unchanged from LIRA-321; no new test); EUR→GBP (both sides outside USD/LBP) is not in the variant table.
+
+**What users will notice:** the Exchange payment window now opens for every currency, and the cashier can put the customer's money on their account in either direction, including euros and other currencies (booked in dollars, with the original amount and rate shown). On the Profits page, an exchange the customer still owes for now waits until they pay before its profit counts.

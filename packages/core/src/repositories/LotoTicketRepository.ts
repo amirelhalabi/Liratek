@@ -25,10 +25,12 @@ import {
 } from "../utils/payments.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import { requestNow } from "../utils/requestNow.js";
+import { withTypedNote } from "../utils/typedNote.js";
 import {
   applyDrawerDelta,
   insertPaymentRow,
   bookClientDebtCharge,
+  syncTypedNote,
   assertPartnerIdRequired,
   assertNoCounterPayment,
   expectedTotalIn,
@@ -68,7 +70,8 @@ export function buildLotoSaleDetails(
   },
 ): LotoSaleDetails {
   const ticketNumber = nonBlank(data.ticket_number);
-  const note = nonBlank(data.note);
+  // LIRA-366: the typed note wins; old payloads keep their `note`.
+  const note = nonBlank(data.typedNote?.trim() ?? data.note);
   const discountLbp = data.discount_lbp ?? 0;
   return {
     v: TRANSACTION_DETAILS_VERSION,
@@ -220,6 +223,8 @@ export interface LotoTicketCreate {
   payment_method?: string;
   currency?: string;
   note?: string;
+  /** LIRA-366: the note the cashier typed (details, ticket note, debt note). */
+  typedNote?: string;
   userId: number;
   transaction_time?: string;
   /** T3 keep-change (KC-3): kept (not returned) change per currency —
@@ -502,7 +507,7 @@ export class LotoTicketRepository {
         data.sale_date,
         data.payment_method || null,
         data.currency || "LBP",
-        data.note || null,
+        data.typedNote?.trim() || data.note || null,
         data.clientId ?? null,
         data.clientName ?? null,
         data.transaction_time ?? null,
@@ -816,7 +821,7 @@ export class LotoTicketRepository {
           amountUsd: debtUsd,
           amountLbp: debtLbp,
           transactionId: txnId,
-          note: data.note || txnSummary,
+          note: withTypedNote(data.note || txnSummary, data.typedNote),
           createdBy: data.userId,
           tenantId,
         });
@@ -1150,13 +1155,35 @@ export class LotoTicketRepository {
 
     fields.push("edited_by = ?", "edited_at = CURRENT_TIMESTAMP");
     values.push(editedBy);
-    values.push(id, getCurrentTenantId());
+    const tenantId = getCurrentTenantId();
+    values.push(id, tenantId);
 
-    this.db
-      .prepare(
-        `UPDATE loto_tickets SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
-      )
-      .run(...values);
+    this.db.transaction(() => {
+      this.db
+        .prepare(
+          `UPDATE loto_tickets SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
+        )
+        .run(...values);
+
+      // LIRA-366 (rule 31): the ticket note is the typed note; keep its
+      // copies (details.note, the Loto Debt note) in step.
+      if (data.note !== undefined) {
+        const txn = this.db
+          .prepare(
+            `SELECT id FROM transactions
+              WHERE source_table = 'loto_tickets' AND source_id = ? AND type = ? AND tenant_id = ?`,
+          )
+          .get(id, TRANSACTION_TYPES.LOTO, tenantId) as { id: number } | undefined;
+        if (txn) {
+          syncTypedNote(this.db, {
+            transactionId: txn.id,
+            oldTyped: existing.note,
+            newTyped: data.note,
+            tenantId,
+          });
+        }
+      }
+    })();
 
     return this.getTicketById(id);
   }

@@ -19,6 +19,7 @@ export * from "./utils/currencyConverter.js";
 // exported HERE, not only from index.ts — see the telecomCredit.js note
 // below for the exact failure mode this avoids.
 export * from "./utils/formatMoney.js";
+export * from "./utils/typedNote.js";
 export * from "./utils/splitCheckoutItems.js";
 // LIRA-331: UI language (pure leaves, also exported from index.ts).
 export * from "./constants/languages.js";

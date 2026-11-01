@@ -32,6 +32,7 @@ import {
   DecimalInput,
   hasNewClientInfo,
   appEvents,
+  PaymentNoteField,
 } from "@liratek/ui";
 import {
   maxReturnableCredits,
@@ -731,6 +732,8 @@ function KatshFormInner({
 
   const isSplitPayment = paymentLines.length > 1;
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
+  // LIRA-366: the optional note typed under the payment box (walk-in sheet).
+  const [typedNote, setTypedNote] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [discount, setDiscount] = useState(0);
   // LIRA-319 — the extra from the payment box's "+ Extra" side, in the
@@ -1705,6 +1708,8 @@ function KatshFormInner({
           ...extraField,
           clientId: resolvedClientId || undefined,
           clientName: clientName || undefined,
+          // LIRA-366: the cashier's own note.
+          typedNote: typedNote || undefined,
           transaction_time: transactionTime,
         });
 
@@ -1793,6 +1798,8 @@ function KatshFormInner({
               : {}),
             clientId: resolvedClientId || undefined,
             clientName: clientName || undefined,
+            // LIRA-366: every bill row carries the cashier's note too.
+            typedNote: typedNote || undefined,
             transaction_time: transactionTime,
           });
           if (billResult?.success) {
@@ -1852,6 +1859,7 @@ function KatshFormInner({
       setKeptChange(null);
       setExtraCharge(0);
       setTransactionTime(undefined);
+      setTypedNote("");
       const hasDebtPayment =
         paymentMethod === "CUSTOMER_ACCOUNT" ||
         paymentLines.some((l) => l.method === "CUSTOMER_ACCOUNT");
@@ -2396,6 +2404,11 @@ function KatshFormInner({
               value={transactionTime}
               onChange={setTransactionTime}
             />
+          )}
+          {/* LIRA-366: the basket checkout takes no note yet, so the box
+              is offered on a one-provider checkout only. */}
+          {!isMixedBasket && (
+            <PaymentNoteField value={typedNote} onChange={setTypedNote} />
           )}
         </div>
       </PaymentSheet>

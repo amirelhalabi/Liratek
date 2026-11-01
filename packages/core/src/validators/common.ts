@@ -324,3 +324,15 @@ export const extraNotBothRefineOptions = {
   message: DISCOUNT_AND_EXTRA_MESSAGE,
   path: ["extra_usd"],
 };
+
+/**
+ * LIRA-366: the optional note the cashier typed on a money-in payment form.
+ * Trimmed; blank (or only spaces) becomes undefined so it is never stored.
+ * Separate from `note`, which several forms fill with a generated label
+ * ("OMT - SEND"), so a label is never shown as a typed note.
+ */
+export const typedNoteField = z
+  .string()
+  .max(500)
+  .transform((s) => (s.trim() ? s.trim() : undefined))
+  .optional();

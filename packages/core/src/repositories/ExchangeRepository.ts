@@ -15,10 +15,12 @@ import {
   insertPaymentRow,
   assertPartnerIdRequired,
   reconcileLegs,
+  reconcileNativeLegs,
   expectedTotalIn,
   resolveStampedExchangeRate,
   bookCustomerLegs,
   writeCustomerLegs,
+  syncTypedNote,
 } from "./moneyPosting.js";
 import { resolveKeptChange } from "./keptChange.js";
 import { resolveRoundingGiven } from "./roundingGiven.js";
@@ -41,7 +43,10 @@ import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import { requestNow } from "../utils/requestNow.js";
 import { getRateRepository } from "./RateRepository.js";
 import { getExchangeLotRepository } from "./ExchangeLotRepository.js";
-import { isLotTrackedCurrency } from "../constants/exchangeLotPolicy.js";
+import {
+  isLotTrackedCurrency,
+  LOT_QTY_EPSILON,
+} from "../constants/exchangeLotPolicy.js";
 import { exchangeLogger } from "../utils/logger.js";
 import { marketRateToUsdPerUnit } from "../utils/lotMarketRate.js";
 // LIRA-237 wave 2 — see reportingTimeFragments.ts's own doc comment: a leaf
@@ -49,9 +54,12 @@ import { marketRateToUsdPerUnit } from "../utils/lotMarketRate.js";
 // risks a require cycle.
 import { isToday } from "./reportingTimeFragments.js";
 import {
-  exchangeCustomerCanOwe,
-  exchangeOwingBlockedMessage,
+  exchangeAccountIssues,
+  exchangeCustomerCanForgive,
+  exchangeForgiveBlockedMessage,
+  isAccountCurrency,
 } from "../validators/exchange.js";
+import { getDebtService } from "../services/DebtService.js";
 import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
 import {
   TRANSACTION_DETAILS_VERSION,
@@ -126,6 +134,8 @@ export interface CreateExchangeData {
   totalProfitUsd: number;
   clientName?: string;
   note?: string;
+  /** LIRA-366: the note the cashier typed (details, exchange note, debt note). */
+  typedNote?: string;
   fromCurrencyName?: string;
   toCurrencyName?: string;
   transaction_time?: string;
@@ -224,6 +234,89 @@ export interface CreateExchangeData {
   /** LIRA-329 — informational only: the customer's phone, kept on the
    *  transaction's `client_phone` next to `clientName`. */
   clientPhone?: string;
+  /** LIRA-369 — "1 fromCurrency = X USD", typed on the form: converts a
+   *  customer-side account line in a currency other than USD/LBP into the
+   *  fixed USD the client owes. */
+  customer_account_usd_rate?: number;
+  /** LIRA-369 — "1 toCurrency = X USD", typed on the form: converts a payout
+   *  put on the account in a currency other than USD/LBP into the fixed USD
+   *  credited to the client. */
+  payout_account_usd_rate?: number;
+}
+
+/** LIRA-369 — one converted account amount, as at saving time. */
+export interface ExchangeAccountConversion {
+  side: "customer" | "payout";
+  currency: string;
+  amount: number;
+  rate: number;
+  usd: number;
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+const accountTotal = (
+  legs: ReadonlyArray<{ method: string; amount: number }> | undefined,
+): number =>
+  (legs ?? [])
+    .filter((l) => l.method === "CUSTOMER_ACCOUNT")
+    .reduce((sum, l) => sum + Math.abs(l.amount), 0);
+
+/**
+ * LIRA-369 — the amounts an exchange puts on the client's account in a
+ * currency other than USD/LBP, each converted to a FIXED USD amount at the
+ * rate typed on the form (owner 2026-11-01: no later rate touches it). The
+ * ONE derivation (rule 14) the booking, the note and the details all read.
+ * A snapshot: editing the exchange later never re-converts (rule 31).
+ */
+export function exchangeAccountConversions(
+  data: CreateExchangeData,
+): ExchangeAccountConversion[] {
+  const out: ExchangeAccountConversion[] = [];
+  const add = (
+    side: ExchangeAccountConversion["side"],
+    currency: string,
+    amount: number,
+    rate: number | undefined,
+  ) => {
+    if (isAccountCurrency(currency) || amount <= 0 || !rate) return;
+    out.push({ side, currency, amount, rate, usd: round2(amount * rate) });
+  };
+  add(
+    "customer",
+    data.fromCurrency,
+    accountTotal(data.customerPayments),
+    data.customer_account_usd_rate,
+  );
+  add(
+    "payout",
+    data.toCurrency,
+    accountTotal(data.payments),
+    data.payout_account_usd_rate,
+  );
+  return out;
+}
+
+/**
+ * LIRA-369 — the margin from a typed account rate that differs from the
+ * trade's own USD value per unit (`unitUsd`), on `qty` units put on the
+ * account. Payout side: the customer paid `qty × unitUsd`, the account got
+ * `qty × rate`. Customer side: the customer owes `qty × rate` for what was
+ * worth `qty × unitUsd`. 0 with the seeded rate (the trade's own).
+ */
+function accountRateGap(
+  qty: number,
+  unitUsd: number,
+  rate: number | undefined,
+  side: ExchangeAccountConversion["side"],
+): number {
+  if (qty <= 0 || !rate) return 0;
+  const gap = qty * (unitUsd - rate);
+  return side === "payout" ? gap : -gap;
+}
+
+/** "100 EUR @ 1.1 = $110" — the text kept on the account entry. */
+export function accountConversionNote(c: ExchangeAccountConversion): string {
+  return `${formatMoneyAmount(c.amount, c.currency)} @ ${c.rate} = ${formatMoneyAmount(c.usd, "USD")}`;
 }
 
 function nonBlank(v: string | null | undefined): string | undefined {
@@ -303,6 +396,12 @@ export function buildExchangeDetails(
           },
         }
       : {}),
+    // LIRA-369 — every amount converted for the account, as at saving.
+    ...(exchangeAccountConversions(data).length > 0
+      ? { accountConversion: exchangeAccountConversions(data) }
+      : {}),
+    // LIRA-366: the note the cashier typed.
+    ...(data.typedNote?.trim() ? { note: data.typedNote.trim() } : {}),
     ...(data.partnerMode === "FOR" && data.partnerId
       ? {
           partner: {
@@ -471,6 +570,24 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         this._assertCustomerPaysShape(data, isForPartner);
       }
 
+      // LIRA-369 — the payout in a currency other than USD/LBP, the account
+      // on either side and the typed account rates: the same rules both
+      // schemas check (rule 14), enforced here for offline replay and
+      // scripted callers. Guarded before any row is written.
+      const accountIssue = exchangeAccountIssues(data)[0];
+      if (accountIssue) {
+        throw new Error(
+          `${accountIssue.message} (Exchange: ${accountIssue.path.join(".")})`,
+        );
+      }
+      // The converted account amounts, derived once (rule 14) for the lot
+      // quantities, the bookings, the notes and the details.
+      const conversions = exchangeAccountConversions(data);
+      const conversionNote = (side: ExchangeAccountConversion["side"]) => {
+        const c = conversions.find((x) => x.side === side);
+        return c ? ` · ${accountConversionNote(c)}` : "";
+      };
+
       // Auto-register currencies that don't exist (e.g. API currencies like GBP, AED)
       const ensureCurrency = this.db.prepare(
         `INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active, tenant_id)
@@ -536,7 +653,8 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
           data.viaCurrency ?? null,
           data.clientName ?? null,
           data.clientId ?? null,
-          note,
+          // LIRA-366: the typed note replaces the generated label.
+          data.typedNote?.trim() || note,
           tenantId,
           data.transaction_time ?? requestNow(),
         );
@@ -554,7 +672,12 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       // `created_at` (SQLite format) regardless of whether `transaction_time`
       // was supplied.
       const acquiredAt = this.findById(id)!.created_at;
-      const lotEffects = this._applyExchangeLotEffects(id, data, acquiredAt);
+      // LIRA-369 (Q1 = A): what goes to or comes from the client's account
+      // never crosses the counter, so it is left out of the lot quantities.
+      const lotEffects = this._applyExchangeLotEffects(id, data, acquiredAt, {
+        accountIn: isForPartner ? 0 : accountTotal(customerLegs),
+        accountOut: accountTotal(data.payments),
+      });
       if (lotEffects.touched) {
         // Overwrite the leg profit columns this exact INSERT just wrote —
         // the acquire leg's spread profit is REPLACED by 0 (Q8) and/or the
@@ -810,7 +933,10 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         // forgiven leftover (capped) is recorded below. Refusals (overpay,
         // uncovered shortfall, account line with no client, forgive over
         // the cap) throw before the first write and roll everything back.
-        const customerRate = this._customerPaysUsdRate(data);
+        // LIRA-369: an account line in a currency other than USD/LBP is
+        // owed in USD at the rate typed on the form.
+        const customerRate =
+          data.customer_account_usd_rate ?? this._customerPaysUsdRate(data);
         // LIRA-336: with a verified added change, the lines (measured above)
         // are written as they are — nothing owed, nothing forgiven.
         if (added.measured) {
@@ -823,6 +949,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
             tenantId,
             createdBy,
             note: note ?? exchangeSummary,
+            typedNote: data.typedNote,
           });
         }
         const { forgiven } = added.measured
@@ -838,7 +965,8 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
               waived: data.customer_waived_amount ?? 0,
               tenantId,
               createdBy,
-              note: note ?? exchangeSummary,
+              note: `${note ?? exchangeSummary}${conversionNote("customer")}`,
+              typedNote: data.typedNote,
               context: "Exchange",
             });
         if (forgiven > 0) {
@@ -894,15 +1022,10 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
             "A partner exchange takes no payout legs — the shop's disbursement books as the single outflow",
           );
         }
-        // reconcileLegs is USD/LBP-native (expectedTotalIn maps any non-LBP
-        // currency to the USD bucket) — an exotic-target split would
-        // reconcile against the wrong denomination, so it is rejected here;
-        // the frontend only offers the sheet for USD/LBP targets.
-        if (data.toCurrency !== "USD" && data.toCurrency !== "LBP") {
-          throw new Error(
-            "A split payout requires a USD or LBP target currency",
-          );
-        }
+        // LIRA-369: a payout in a currency other than USD/LBP reconciles
+        // in that currency (`reconcileNativeLegs`); `reconcileLegs` below
+        // stays USD/LBP-only.
+        const nativePayout = !isAccountCurrency(data.toCurrency);
         const { outLegs } = partitionLegs(payoutLegs);
         if (outLegs.length > 0) {
           throw new Error(
@@ -910,10 +1033,13 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
           );
         }
         for (const leg of payoutLegs) {
-          // CUSTOMER_ACCOUNT (store credit) needs a client_id, which
-          // exchange_transactions does not carry; GIFT_CARD and other
-          // non-drawer methods would silently unbalance the till.
-          if (!isDrawerAffectingMethod(leg.method)) {
+          // LIRA-369: CUSTOMER_ACCOUNT credits the picked client (checked
+          // above). GIFT_CARD and other non-drawer methods would silently
+          // unbalance the till.
+          if (
+            leg.method !== "CUSTOMER_ACCOUNT" &&
+            !isDrawerAffectingMethod(leg.method)
+          ) {
             throw new Error(
               `Payout method "${leg.method}" is not supported for exchanges — use a cash/wallet method`,
             );
@@ -925,8 +1051,16 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         // reconcileLegs subtracts it from the tender (overpay semantics), the
         // opposite of a payout. LIRA-334: PLUS the verified round-up.
         // LIRA-336: PLUS the change the customer added.
+        if (nativePayout) {
+          reconcileNativeLegs({
+            legs: payoutLegs,
+            currency: data.toCurrency,
+            expected: Math.abs(data.amountOut),
+            context: "Exchange payout",
+          });
+        }
         const owed = expectedTotalIn(Math.abs(data.amountOut), data.toCurrency);
-        reconcileLegs({
+        if (!nativePayout) reconcileLegs({
           inLegs: payoutLegs,
           expectedTotals: {
             usd: owed.usd - kept.usd + rounding.usd + added.usd,
@@ -944,7 +1078,34 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
           context: "Exchange payout",
         });
 
+        // LIRA-369: the part paid to the client's account — one credit,
+        // linked to this exchange so its void/refund reverses it
+        // (`_cancelDebt` covers CREDIT_DEPOSIT, rule 20). Each account line
+        // is credited in its OWN currency (a USD line on an LBP payout is
+        // dollars); a currency other than USD/LBP is credited as fixed USD at
+        // the typed rate.
+        const accountLegs = payoutLegs.filter(
+          (l) => l.method === "CUSTOMER_ACCOUNT",
+        );
+        if (accountLegs.length > 0) {
+          const conversion = conversions.find((c) => c.side === "payout");
+          const inCurrency = (code: string) =>
+            accountTotal(accountLegs.filter((l) => l.currencyCode === code));
+          const credit = conversion
+            ? { usd: conversion.usd, lbp: 0 }
+            : { usd: inCurrency("USD"), lbp: inCurrency("LBP") };
+          getDebtService().addCreditOrThrow({
+            clientId: data.clientId as number,
+            amountUsd: credit.usd,
+            amountLbp: credit.lbp,
+            note: `${note ?? exchangeSummary}${conversionNote("payout")}`,
+            userId: createdBy,
+            transactionId: txnId,
+          });
+        }
+
         for (const leg of payoutLegs) {
+          if (leg.method === "CUSTOMER_ACCOUNT") continue;
           const legAmount = Math.abs(leg.amount);
           const legDrawer = paymentMethodToDrawerName(leg.method);
           insertPaymentRow(this.db, {
@@ -1092,17 +1253,15 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         );
       }
     }
-    // Owner decision 2026-10-14: no owing / forgiving unless the customer
-    // pays in USD or LBP (the lot would record more than the drawer got).
+    // A discount (forgive) only when the customer pays in USD or LBP — the
+    // cap is in those currencies. LIRA-369: account lines take any currency
+    // (converted to USD at the typed rate, kept out of the lot).
     if (
-      !exchangeCustomerCanOwe(data.fromCurrency) &&
-      ((data.customerPayments ?? []).some(
-        (l) => l.method === "CUSTOMER_ACCOUNT",
-      ) ||
-        (data.customer_waived_amount ?? 0) > 0)
+      !exchangeCustomerCanForgive(data.fromCurrency) &&
+      (data.customer_waived_amount ?? 0) > 0
     ) {
       throw new Error(
-        `${exchangeOwingBlockedMessage(data.fromCurrency)} (Exchange: owing/forgive with fromCurrency ${data.fromCurrency})`,
+        `${exchangeForgiveBlockedMessage(data.fromCurrency)} (Exchange: discount with fromCurrency ${data.fromCurrency})`,
       );
     }
   }
@@ -1323,6 +1482,14 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
     id: number,
     data: CreateExchangeData,
     acquiredAt: string,
+    /** LIRA-369 — what goes on / comes off the client's account, per side,
+     *  in that side's currency. It never crosses the counter (Q1 = A), so
+     *  it is left out of the lot quantities; a typed account rate other
+     *  than the trade's own adds its gap to that leg's margin. */
+    account: { accountIn: number; accountOut: number } = {
+      accountIn: 0,
+      accountOut: 0,
+    },
   ): {
     touched: boolean;
     leg1ProfitUsd: number;
@@ -1390,18 +1557,28 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         ? (crossUsdNotional as number) / data.amountIn
         : data.amountOut / data.amountIn;
 
-      lotRepo.createLot({
-        currencyCode: data.fromCurrency,
-        sourceType: "EXCHANGE_BUY",
-        sourceTable: "exchange_transactions",
-        sourceId: id,
-        qty: data.amountIn,
-        unitCostUsd,
-        acquiredAt,
-      });
+      const physicalIn = data.amountIn - account.accountIn;
+      if (physicalIn > LOT_QTY_EPSILON) {
+        lotRepo.createLot({
+          currencyCode: data.fromCurrency,
+          sourceType: "EXCHANGE_BUY",
+          sourceTable: "exchange_transactions",
+          sourceId: id,
+          qty: physicalIn,
+          unitCostUsd,
+          acquiredAt,
+        });
+      }
       // Q8 — a buy earns nothing until it is sold; the spread profit the OLD
-      // model would have stamped on this leg is replaced entirely.
-      leg1ProfitUsd = 0;
+      // model would have stamped on this leg is replaced entirely. LIRA-369:
+      // the account part is owed at the typed rate instead of bought, so its
+      // gap to the trade's own value is margin.
+      leg1ProfitUsd = accountRateGap(
+        account.accountIn,
+        unitCostUsd,
+        data.customer_account_usd_rate,
+        "customer",
+      );
     }
 
     // --- Consume: to_currency exotic -> shop disburses it, settles FIFO. ---
@@ -1421,16 +1598,29 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         unitProceedsUsd,
       );
 
-      const consumeResult = lotRepo.consumeFifo({
-        currencyCode: data.toCurrency,
-        qty: data.amountOut,
-        unitProceedsUsd,
-        settledByTable: "exchange_transactions",
-        settledById: id,
-        marketUnitCostUsd,
-      });
+      const physicalOut = data.amountOut - account.accountOut;
+      const consumeResult =
+        physicalOut > LOT_QTY_EPSILON
+          ? lotRepo.consumeFifo({
+              currencyCode: data.toCurrency,
+              qty: physicalOut,
+              unitProceedsUsd,
+              settledByTable: "exchange_transactions",
+              settledById: id,
+              marketUnitCostUsd,
+            })
+          : { realizedProfitUsd: 0, coveredQty: 0, marketQty: 0 };
 
-      realizedProfitUsd = consumeResult.realizedProfitUsd;
+      // LIRA-369: the part credited to the account is never sold — only its
+      // gap between the trade's value and the typed rate is margin.
+      realizedProfitUsd =
+        consumeResult.realizedProfitUsd +
+        accountRateGap(
+          account.accountOut,
+          unitProceedsUsd,
+          data.payout_account_usd_rate,
+          "payout",
+        );
       lotCoveredQty = consumeResult.coveredQty;
       lotMarketQty = consumeResult.marketQty;
 
@@ -1703,12 +1893,37 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
     fields.push("edited_by = ?", "edited_at = CURRENT_TIMESTAMP");
     values.push(editedBy);
     values.push(id);
+    const tenantId = getCurrentTenantId();
 
-    this.db
-      .prepare(
-        `UPDATE exchange_transactions SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
-      )
-      .run(...values, getCurrentTenantId());
+    this.db.transaction(() => {
+      this.db
+        .prepare(
+          `UPDATE exchange_transactions SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
+        )
+        .run(...values, tenantId);
+
+      // LIRA-366 (rule 31): an edited note is the typed note; keep its
+      // copies (details.note, the Exchange Debt note) in step. The old typed
+      // note is read from details.note — the column may hold the label.
+      if (data.note !== undefined) {
+        const txn = this.db
+          .prepare(
+            `SELECT id, json_extract(metadata_json, '$.details.note') AS typed
+               FROM transactions
+              WHERE source_table = 'exchange_transactions' AND source_id = ?
+                AND type = 'EXCHANGE' AND reverses_id IS NULL AND tenant_id = ?`,
+          )
+          .get(id, tenantId) as { id: number; typed: string | null } | undefined;
+        if (txn) {
+          syncTypedNote(this.db, {
+            transactionId: txn.id,
+            oldTyped: txn.typed,
+            newTyped: data.note,
+            tenantId,
+          });
+        }
+      }
+    })();
 
     return this.findById(id);
   }

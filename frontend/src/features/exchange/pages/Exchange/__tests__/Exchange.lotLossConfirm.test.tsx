@@ -123,8 +123,25 @@ jest.mock("@liratek/ui", () => ({
   ),
 }));
 
+// LIRA-369: a USD → EUR walk-in exchange now confirms through the payment
+// window (it used to save straight from the main button), so the loss
+// confirmation is reached from the window's Confirm. Minimal stub: the real
+// sheet calls onConfirm, then onClose.
 jest.mock("@/features/recharge/components/PaymentSheet", () => ({
-  PaymentSheet: () => null,
+  PaymentSheet: (props: {
+    open: boolean;
+    onConfirm: () => void;
+    onClose: () => void;
+  }) =>
+    props.open ? (
+      <button
+        data-testid="stub-sheet-confirm"
+        onClick={() => {
+          props.onConfirm();
+          props.onClose();
+        }}
+      />
+    ) : null,
 }));
 
 const mockActiveCurrencies = [
@@ -200,6 +217,12 @@ jest.mock("@/utils/logger", () => ({
 
 import Exchange from "../index";
 
+/** Main button → payment window → the window's Confirm (LIRA-369). */
+async function confirmFromWindow(btn: HTMLElement) {
+  fireEvent.click(btn);
+  fireEvent.click(await screen.findByTestId("stub-sheet-confirm"));
+}
+
 // Waits past the 400ms preview debounce AND the button's own
 // `lotPreviewLoading` gate (the submit button is deliberately disabled while
 // the preview is in flight — see Exchange/index.tsx — so every test here
@@ -211,7 +234,7 @@ async function renderAndType(amount = "100") {
   fireEvent.change(screen.getByTestId("amount-in"), {
     target: { value: amount },
   });
-  const btn = await screen.findByRole("button", { name: /Confirm Exchange/i });
+  const btn = await screen.findByRole("button", { name: /Proceed to Payout/i });
   await waitFor(() => expect(mockPreview).toHaveBeenCalled());
   await waitFor(() => expect(btn).not.toBeDisabled());
   return btn;
@@ -233,13 +256,13 @@ describe("Exchange page — lot-tracked loss confirm (Q10) + 10% guard bypass", 
     expect(btn).not.toBeDisabled();
   });
 
-  it("shows a loss-confirm dialog on submit when the FIFO preview is negative, and does not submit until confirmed", async () => {
+  it("shows a loss-confirm dialog from the payment window's Confirm when the FIFO preview is negative, and does not submit until confirmed", async () => {
     const btn = await renderAndType();
     expect(mockPreview).toHaveBeenCalledWith(
       expect.objectContaining({ currencyCode: "EUR" }),
     );
 
-    fireEvent.click(btn);
+    await confirmFromWindow(btn);
 
     expect(await screen.findByText(/Confirm Loss/i)).toBeInTheDocument();
     // Scoped to the exact dialog copy — the page's OWN "Realized profit:
@@ -255,7 +278,7 @@ describe("Exchange page — lot-tracked loss confirm (Q10) + 10% guard bypass", 
     expect(mockAddExchangeTransaction).not.toHaveBeenCalled();
 
     // Re-open and confirm — submits exactly once.
-    fireEvent.click(btn);
+    await confirmFromWindow(btn);
     await screen.findByText(/Confirm Loss/i);
     fireEvent.click(screen.getByTestId("confirm-modal-confirm-btn"));
 
@@ -269,7 +292,7 @@ describe("Exchange page — lot-tracked loss confirm (Q10) + 10% guard bypass", 
     try {
       const btn = await renderAndType();
       await waitFor(() => expect(mockPreview).toHaveBeenCalled());
-      fireEvent.click(btn);
+      await confirmFromWindow(btn);
       await screen.findByText(/Confirm Loss/i);
       fireEvent.click(screen.getByTestId("confirm-modal-confirm-btn"));
 
@@ -342,7 +365,7 @@ describe("Exchange page — lot-tracked toCurrency with no rate anchor (NO_RATE_
     await screen.findByText(/Cost-basis tracking unavailable for this pair/i);
 
     const btn = await screen.findByRole("button", {
-      name: /Confirm Exchange/i,
+      name: /Proceed to Payout/i,
     });
     await waitFor(() => expect(btn).toBeDisabled());
     expect(screen.getByText(/Unusually high profit/i)).toBeInTheDocument();

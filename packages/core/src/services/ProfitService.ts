@@ -2554,9 +2554,10 @@ export class ProfitService {
   }
 
   /**
-   * LIRA-233 — {@link ProfitRepository.getExchangeTotals} has no debt gate
-   * at all (exchange carries no `debt_ledger` link) — partner coverage is
-   * the only weighting. `cost_usd` is derived here as `amount_usd -
+   * LIRA-233 — partner coverage weights each exchange row. LIRA-369 US5
+   * (FR-016): `debt_pending` (an open 'Exchange Debt' on the exchange) holds
+   * the WHOLE margin, matching {@link ProfitRepository.getExchangeTotals}'
+   * own gate, so the row moves to not-counted until the customer repays. `cost_usd` is derived here as `amount_usd -
    * profit_usd` (linear — ticket instruction) rather than independently
    * queried, so it can never drift from the revenue/profit pair this loop
    * already reconciles.
@@ -2572,7 +2573,7 @@ export class ProfitService {
     let countedProfitLbp = 0;
 
     for (const r of rows) {
-      const weight = r.partner_coverage_ratio;
+      const weight = r.debt_pending ? 0 : r.partner_coverage_ratio;
       const isFull = weight >= 0.9995;
       const isNone = weight <= 0.0005;
       const countedProfitUsdRow = r.profit_usd * weight;
@@ -2582,11 +2583,13 @@ export class ProfitService {
       const counterpart = r.client_name || "Walk-in";
       const reason = isFull
         ? null
-        : r.has_partner_obligation
-          ? isNone
-            ? "Partner has not settled this exchange yet."
-            : `Partner has settled ${Math.round(r.partner_coverage_ratio * 100)}% of this exchange so far.`
-          : null;
+        : r.debt_pending
+          ? "Customer still owes — Exchange Debt not yet repaid."
+          : r.has_partner_obligation
+            ? isNone
+              ? "Partner has not settled this exchange yet."
+              : `Partner has settled ${Math.round(r.partner_coverage_ratio * 100)}% of this exchange so far.`
+            : null;
       const costUsd = r.amount_usd - r.profit_usd;
 
       const row: ProfitModuleDetailRow = {

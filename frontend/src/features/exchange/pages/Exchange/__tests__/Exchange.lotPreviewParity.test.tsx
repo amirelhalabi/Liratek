@@ -310,7 +310,9 @@ describe("Exchange preview — FIFO price uses the submitted (rounded) amountOut
       timeout: 5000,
     });
 
-    const call = mockPreview.mock.calls[mockPreview.mock.calls.length - 1][0] as {
+    const call = mockPreview.mock.calls[
+      mockPreview.mock.calls.length - 1
+    ][0] as {
       qty: number;
       unitProceedsUsd: number;
     };

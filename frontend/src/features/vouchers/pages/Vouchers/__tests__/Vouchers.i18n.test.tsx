@@ -101,7 +101,7 @@ it("creates the same voucher in English and Arabic", async () => {
     amount: 500000,
     currency: "LBP",
     expiryDate: "2026-12-31",
-    note: "gift",
+    typedNote: "gift", // LIRA-366: the typed note key
     payments: [{ method: "CASH", currency_code: "LBP", amount: 500000 }],
     exchange_rate: 89000,
   });

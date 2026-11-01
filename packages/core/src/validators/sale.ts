@@ -11,6 +11,7 @@ import {
   discountAndExtraNotBoth,
   extraNotBothRefineOptions,
   NO_EXTRA_FOR_PARTNER_MESSAGE,
+  typedNoteField,
 } from "./common.js";
 
 /** LIRA-319 — POS sales are USD-priced, so their extra is too. */
@@ -116,6 +117,8 @@ export const saleProcessSchema = z
     id: z.number().int().positive().optional(),
     status: z.enum(["completed", "draft", "cancelled"]).optional(),
     note: z.string().optional(),
+    /** LIRA-366: the cashier's own note; `note` keeps generated labels. */
+    typedNote: typedNoteField,
     // PFT-2 (Partner FOR-Transactions): the unpaid remainder routes to
     // partner_ledger instead of the client's debt_ledger when set. Only "FOR"
     // is valid for POS.

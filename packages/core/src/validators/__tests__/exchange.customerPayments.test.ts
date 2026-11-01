@@ -133,10 +133,10 @@ describe.each(SCHEMAS)("$name — customer pays", ({ schema, base }) => {
 });
 
 /**
- * LIRA-321 follow-up (owner decision 2026-10-14): owing or forgiving is
- * blocked when the customer pays in a currency other than USD/LBP. The lot
- * code records the full amountIn as bought while the drawer only got what
- * was paid, so a later sale would oversell. All-cash EUR stays allowed.
+ * LIRA-321 follow-up (owner decision 2026-10-14), revised by LIRA-369
+ * (2026-11-01): a discount (forgive) stays blocked when the customer pays in
+ * a currency other than USD/LBP; an account line is allowed with the typed
+ * EUR → USD rate (the lot leaves the account part out).
  */
 const EUR_CREATE = {
   fromCurrency: "EUR",
@@ -159,13 +159,13 @@ const EUR_SCHEMAS = [
   { name: "createExchangeSchema", schema: createExchangeSchema, base: EUR_CREATE },
   { name: "exchangeSubmitSchema", schema: exchangeSubmitSchema, base: EUR_SUBMIT },
 ] as const;
-const BLOCKED = /Owing or forgiving isn't available yet when the customer pays in EUR/;
+const BLOCKED = /A discount isn't available when the customer pays in EUR/;
 
-describe.each(EUR_SCHEMAS)("$name — EUR owing/forgive blocked (2026-10-14)", ({ schema, base }) => {
+describe.each(EUR_SCHEMAS)("$name — EUR discount blocked, account allowed (LIRA-369)", ({ schema, base }) => {
   const messages = (r: ReturnType<typeof schema.safeParse>) =>
     r.success ? [] : r.error.issues.map((i) => i.message);
 
-  it("refuses a CUSTOMER_ACCOUNT line even with a client", () => {
+  it("accepts a CUSTOMER_ACCOUNT line with a client and the typed rate", () => {
     const r = schema.safeParse({
       ...base,
       clientId: 7,
@@ -173,9 +173,10 @@ describe.each(EUR_SCHEMAS)("$name — EUR owing/forgive blocked (2026-10-14)", (
         { method: "CASH", currencyCode: "EUR", amount: 95 },
         { method: "CUSTOMER_ACCOUNT", currencyCode: "EUR", amount: 5 },
       ],
+      customer_account_usd_rate: 1.1612,
     });
-    expect(r.success).toBe(false);
-    expect(messages(r).some((m) => BLOCKED.test(m))).toBe(true);
+    expect(r.success).toBe(true);
+    expect(messages(r).some((m) => BLOCKED.test(m))).toBe(false);
   });
 
   it("refuses a forgiven amount", () => {

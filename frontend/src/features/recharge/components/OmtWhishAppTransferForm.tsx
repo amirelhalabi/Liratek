@@ -11,6 +11,7 @@ import {
   Select,
   type PaymentLine,
   type LinesSectionState,
+  PaymentNoteField,
 } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { PROVIDER_BRANDS } from "@/shared/brand/providerBrands";
@@ -172,6 +173,8 @@ function OmtWhishAppTransferFormInner({
   // `checkoutTotal` stay as without it.
   const [extraCharge, setExtraCharge] = useState(0);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
+  // LIRA-366: the cashier's optional note, sent as `typedNote` in every mode.
+  const [typedNote, setTypedNote] = useState("");
   const [clientId, setClientId] = useState<number | null>(null);
   const [paymentInputKey, setPaymentInputKey] = useState(0);
   const [initialPaymentMethod, setInitialPaymentMethod] = useState("CASH");
@@ -438,6 +441,7 @@ function OmtWhishAppTransferFormInner({
           phoneNumber:
             serviceType === "SEND" ? finalSenderPhone : finalReceiverPhone,
           note: `${serviceType} transfer via ${providerLabel}`,
+          ...(typedNote.trim() ? { typedNote } : {}),
           includingFees,
           // LIRA-329: who pays the fee — the SAME derivation the walk-in
           // payload uses (core `transferFeePaidBy`, rule 14).
@@ -459,6 +463,7 @@ function OmtWhishAppTransferFormInner({
       });
 
       setAmount("");
+      setTypedNote("");
       setSenderName("");
       setSenderPhone("");
       setReceiverName("");
@@ -510,6 +515,7 @@ function OmtWhishAppTransferFormInner({
           // LIRA-329: the sheet's discount as typed (none in a session or
           // on a walk-in cash-out — LIRA-365).
           discount: feeDiscount,
+          typedNote,
           client: {
             id: resolvedClientId,
             name: serviceType === "SEND" ? finalSenderName : finalReceiverName,
@@ -599,6 +605,7 @@ function OmtWhishAppTransferFormInner({
           "success",
         );
         setAmount("");
+        setTypedNote("");
         setSenderName("");
         setSenderPhone("");
         setReceiverName("");
@@ -677,6 +684,7 @@ function OmtWhishAppTransferFormInner({
               ]
             : [],
         note: `${serviceType} transfer via ${providerLabel}`,
+        ...(typedNote.trim() ? { typedNote } : {}),
         transaction_time: transactionTime,
       });
 
@@ -691,6 +699,7 @@ function OmtWhishAppTransferFormInner({
         "success",
       );
       setAmount("");
+      setTypedNote("");
       setManualFee("");
       loadFinancialData();
     } catch (error) {
@@ -1212,6 +1221,8 @@ function OmtWhishAppTransferFormInner({
           />
         </>
       )}
+
+      <PaymentNoteField value={typedNote} onChange={setTypedNote} />
 
       <TransactionTimeOverride
         value={transactionTime}

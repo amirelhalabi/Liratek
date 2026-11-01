@@ -127,6 +127,23 @@ function expectSchemaKeys(payload: object, shape: object) {
   for (const k of Object.keys(payload)) expect(Object.keys(shape)).toContain(k);
 }
 
+/** The create schema's own keys. LIRA-365 wraps the object in a refine, so
+ *  read the shape through it when it is wrapped. */
+const CREATE_SHAPE: object =
+  "innerType" in voucherCreateSchema
+    ? (voucherCreateSchema as unknown as { innerType: () => { shape: object } })
+        .innerType().shape
+    : (voucherCreateSchema as unknown as { shape: object }).shape;
+
+function setPaymentAmount(container: HTMLElement, value: string) {
+  const field = container.querySelector(
+    'input[data-testid^="payment-amount-"]',
+  ) as HTMLInputElement;
+  fireEvent.focus(field);
+  fireEvent.change(field, { target: { value } });
+  fireEvent.blur(field);
+}
+
 describe("Create — the voucher is sold", () => {
   it("sends ONE payload with the payment legs and the tender rate", async () => {
     const { container } = render(<VouchersPage />);
@@ -136,7 +153,7 @@ describe("Create — the voucher is sold", () => {
     fireEvent.click(submit);
     await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
     const payload = mockCreate.mock.calls[0][0];
-    expectSchemaKeys(payload, voucherCreateSchema.shape);
+    expectSchemaKeys(payload, CREATE_SHAPE);
     const parsed = voucherCreateSchema.parse(payload);
     expect(parsed.clientId).toBe(7);
     expect(parsed.amount).toBe(50);
@@ -185,6 +202,87 @@ describe("Create — the voucher is sold", () => {
     const labels = methodLabels(container);
     expect(labels).not.toContain("Customer Account");
     expect(labels).not.toContain("Gift Card");
+  });
+});
+
+describe("LIRA-365 US3 — a discount on the voucher sale", () => {
+  it("$50 voucher, $2 discount, $48 paid: discount_amount 2, legs $48", async () => {
+    const { container } = render(<VouchersPage />);
+    await pickAliAndAmount(container, "50");
+    fireEvent.change(screen.getByLabelText("Discount"), {
+      target: { value: "2" },
+    });
+    setPaymentAmount(container, "48");
+    const submit = screen.getByTestId("voucher-create-submit");
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    fireEvent.click(submit);
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+    const payload = mockCreate.mock.calls[0][0];
+    expectSchemaKeys(payload, CREATE_SHAPE);
+    const parsed = voucherCreateSchema.parse(payload);
+    // The voucher keeps its face value; the customer pays $48.
+    expect(parsed.amount).toBe(50);
+    expect(parsed.discount_amount).toBe(2);
+    expect(parsed.payments).toEqual([
+      { method: "CASH", currency_code: "USD", amount: 48 },
+    ]);
+  });
+
+  it("the discount is held at the $5 cap", async () => {
+    const { container } = render(<VouchersPage />);
+    await pickAliAndAmount(container, "50");
+    fireEvent.change(screen.getByLabelText("Discount"), {
+      target: { value: "8" },
+    });
+    expect(await screen.findByTestId("discount-cap-note")).toBeInTheDocument();
+    setPaymentAmount(container, "45");
+    const submit = screen.getByTestId("voucher-create-submit");
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    fireEvent.click(submit);
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+    const parsed = voucherCreateSchema.parse(mockCreate.mock.calls[0][0]);
+    expect(parsed.discount_amount).toBe(5);
+  });
+
+  it("no discount typed → no discount_amount in the payload", async () => {
+    const { container } = render(<VouchersPage />);
+    await pickAliAndAmount(container, "50");
+    const submit = screen.getByTestId("voucher-create-submit");
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    fireEvent.click(submit);
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+    expect(mockCreate.mock.calls[0][0]).not.toHaveProperty("discount_amount");
+  });
+});
+
+describe("LIRA-366 — the typed note", () => {
+  it("the note box sends `typedNote`, not `note`", async () => {
+    const { container } = render(<VouchersPage />);
+    await pickAliAndAmount(container, "50");
+    fireEvent.change(screen.getByTestId("voucher-note"), {
+      target: { value: "for his son" },
+    });
+    const submit = screen.getByTestId("voucher-create-submit");
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    fireEvent.click(submit);
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+    const payload = mockCreate.mock.calls[0][0];
+    expectSchemaKeys(payload, CREATE_SHAPE);
+    const parsed = voucherCreateSchema.parse(payload);
+    expect(parsed.typedNote).toBe("for his son");
+    expect(parsed.note ?? null).toBeNull();
+    // One box only (FR-001).
+    expect(container.querySelectorAll('[data-testid="payment-note"]')).toHaveLength(0);
+  });
+
+  it("an empty note sends no typedNote", async () => {
+    const { container } = render(<VouchersPage />);
+    await pickAliAndAmount(container, "50");
+    const submit = screen.getByTestId("voucher-create-submit");
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    fireEvent.click(submit);
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+    expect(voucherCreateSchema.parse(mockCreate.mock.calls[0][0]).typedNote).toBeUndefined();
   });
 });
 

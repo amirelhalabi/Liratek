@@ -39,6 +39,8 @@ export interface RepaymentData {
   amountUSD: number;
   amountLBP: number;
   note?: string;
+  /** LIRA-366: the note the cashier typed (wins over `note`). */
+  typedNote?: string;
   userId: number;
   paidByMethod?: string;
   payments?: RepaymentPaymentLine[];
@@ -232,6 +234,7 @@ export class DebtService {
       amountUSD,
       amountLBP,
       note,
+      typedNote,
       userId,
       paidByMethod,
       payments,
@@ -305,7 +308,9 @@ export class DebtService {
         client_id: clientId,
         amount_usd: resolvedAmountUSD,
         amount_lbp: resolvedAmountLBP,
-        note: note || null,
+        // LIRA-366: the typed note, else today's note — it becomes the
+        // repayment row's note and the transaction's details.note.
+        note: typedNote?.trim() || note || null,
         created_by: userId,
         paid_by_method: paidByMethod,
         payments,

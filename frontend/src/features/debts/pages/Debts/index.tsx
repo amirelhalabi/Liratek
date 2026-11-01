@@ -1329,7 +1329,9 @@ export default function Debts() {
         amountUSD: reduceUsd,
         amountLBP: reduceLbp,
         payments: paymentLegs,
-        note: repayNote,
+        // LIRA-366: on a repayment (money in) the Note box is the cashier's
+        // typed note. A cash-out (money out, above) keeps the plain `note`.
+        typedNote: repayNote,
         // Always sent (not only after an edit): with kept change the server
         // reconciles the lines at this rate, and the reduction above was
         // computed at it (buy side) — the sell-rate fallback would falsely

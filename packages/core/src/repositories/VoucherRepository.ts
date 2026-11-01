@@ -27,10 +27,12 @@ import {
   type ReconciliationLeg,
 } from "./moneyPosting.js";
 import { insertDebtRefundReversal } from "./debtReversal.js";
+import { bookDiscountGivenExpense } from "./discountGivenExpense.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { clientDay } from "../utils/requestDay.js";
 import { requestNow } from "../utils/requestNow.js";
+import { withTypedNote } from "../utils/typedNote.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import {
   isDrawerAffectingMethod,
@@ -48,6 +50,7 @@ import {
   type VoucherPaymentLegInput,
   type VoucherRefundLegInput,
 } from "../validators/voucher.js";
+import { voucherDiscountRefusal } from "../validators/discount.js";
 
 // =============================================================================
 // Entity Types
@@ -139,6 +142,10 @@ export interface CreateVoucherData {
   expiry_date: string | null;
   note: string | null;
   created_by: number;
+  /** LIRA-365 — a discount on the sale, in the voucher's currency. The sale
+   *  row records face value − discount (what was paid); `amount` stays the
+   *  face value. Not a vouchers column. */
+  discount_amount?: number;
 }
 
 export interface VoucherFilters {
@@ -204,6 +211,8 @@ export function buildVoucherDetails(
   code: string,
   note?: string | null,
   legacy?: boolean,
+  /** LIRA-365 — the sale's discount, in the voucher's currency (FR-010). */
+  discount?: { amount: number; currency: string },
 ): VoucherDetails {
   return {
     v: TRANSACTION_DETAILS_VERSION,
@@ -212,6 +221,7 @@ export function buildVoucherDetails(
     code,
     ...(note != null && note.trim() !== "" ? { note } : {}),
     ...(legacy ? { legacy: true } : {}),
+    ...(discount && discount.amount > 0 ? { discount } : {}),
   };
 }
 
@@ -443,9 +453,19 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
     opts: SellVoucherOptions = {},
   ): SellVoucherResult {
     const isLbp = data.currency_code === "LBP";
+    // LIRA-365 — a discount lowers what the customer pays (and so what the
+    // sale row records); the voucher keeps its face value.
+    const discountRefusal = voucherDiscountRefusal({
+      discount_amount: data.discount_amount,
+      faceValue: data.amount,
+      currency: data.currency_code,
+    });
+    if (discountRefusal) throw new Error(discountRefusal);
+    const discount = Math.max(0, data.discount_amount ?? 0);
+    const paid = data.amount - discount;
     const expected: UsdLbp = isLbp
-      ? { usd: 0, lbp: data.amount }
-      : { usd: data.amount, lbp: 0 };
+      ? { usd: 0, lbp: paid }
+      : { usd: paid, lbp: 0 };
     const liveLegs = legs.filter((l) => Math.abs(l.amount) > 0);
 
     const saleMethods: readonly string[] = VOUCHER_SALE_METHODS;
@@ -509,11 +529,21 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
         client_phone: voucher.client_phone,
         summary: noteText,
         metadata_json: {
-          details: buildVoucherDetails("SALE", voucher.code, voucher.note),
           code: voucher.code,
           currency_code: voucher.currency_code,
           kind: "voucher_sale",
         },
+        // The top-level field: `mergeTransactionDetails` takes `details`
+        // ONLY from here and drops a copy left inside `metadata_json`.
+        details: buildVoucherDetails(
+          "SALE",
+          voucher.code,
+          voucher.note,
+          false,
+          discount > 0
+            ? { amount: discount, currency: voucher.currency_code }
+            : undefined,
+        ),
         ...(liveLegs.length > 0
           ? {
               payment_snapshot: buildPaymentSnapshot({
@@ -532,7 +562,7 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
               {
                 method: "CASH",
                 currency_code: isLbp ? "LBP" : "USD",
-                amount: data.amount,
+                amount: paid,
               },
             ];
       const onAccount: UsdLbp = { usd: 0, lbp: 0 };
@@ -570,7 +600,7 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
           amountUsd: onAccount.usd,
           amountLbp: 0,
           transactionId,
-          note: noteText,
+          note: withTypedNote(noteText, voucher.note),
           createdBy: data.created_by,
           tenantId,
         });
@@ -582,11 +612,25 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
           amountUsd: 0,
           amountLbp: onAccount.lbp,
           transactionId,
-          note: noteText,
+          note: withTypedNote(noteText, voucher.note),
           createdBy: data.created_by,
           tenantId,
         });
       }
+
+      // LIRA-365 — the discount is the shop's cost: one books-only, auto
+      // "Discount given" expense linked to the voucher. Reversal owner:
+      // `cancelWithRefund` (VOUCHER_SALE is NON_REVERSIBLE).
+      bookDiscountGivenExpense({
+        parentSourceTable: "vouchers",
+        parentSourceId: voucher.id,
+        parentLabel: `voucher ${voucher.code}`,
+        amount: discount,
+        currency: voucher.currency_code,
+        exchangeRate: stampedRate,
+        userId: data.created_by,
+        transactionTime: opts.transactionTime,
+      });
 
       resolveBackTimedDrawerMovement(this.db, {
         transactionId,
@@ -635,7 +679,9 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
    *     account credit); the cash part is paid out through `legs` (drawer
    *     methods only, reconciled against it), or one CASH leg in the
    *     voucher's currency when no legs are sent. No legs are allowed when
-   *     the cash part is 0.
+   *     the cash part is 0. The sale row records what was paid, so a
+   *     discounted sale refunds the discounted amount (LIRA-365), and its
+   *     "Discount given" expense is voided.
    *
    * Throws a cashier-facing Error on any refusal.
    */
@@ -708,13 +754,13 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
           metadata_json: {
             ...baseMeta,
             legacy: true,
-            details: buildVoucherDetails(
-              "CANCEL",
-              voucher.code,
-              voucher.note,
-              true,
-            ),
           },
+          details: buildVoucherDetails(
+            "CANCEL",
+            voucher.code,
+            voucher.note,
+            true,
+          ),
         });
         return {
           voucher: this.findByIdOrFail(id),
@@ -790,6 +836,14 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
         });
       }
 
+      // LIRA-365 (rule 20) — the sale's "Discount given" expense goes with
+      // it; no-op when the sale had no discount.
+      getTransactionRepository().voidLinkedExpenses(
+        "vouchers",
+        voucher.id,
+        opts.cancelledBy,
+      );
+
       const noteText = `Voucher cancelled ${voucher.code}`;
       const transactionId = getTransactionRepository().createTransaction({
         type: TRANSACTION_TYPES.VOUCHER_CANCEL,
@@ -807,10 +861,10 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
         summary: noteText,
         metadata_json: {
           ...baseMeta,
-          details: buildVoucherDetails("CANCEL", voucher.code, voucher.note),
           refunded_cash: refundedCash,
           reversed_to_account: totals.onAccount,
         },
+        details: buildVoucherDetails("CANCEL", voucher.code, voucher.note),
         ...(payout.length > 0
           ? {
               payment_snapshot: buildPaymentSnapshot({

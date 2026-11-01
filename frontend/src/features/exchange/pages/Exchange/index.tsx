@@ -17,6 +17,7 @@ import {
   DecimalInput,
   roundForCurrency,
   ConfirmModal,
+  PaymentNoteField,
   type PaymentLine,
   type LinesSectionState,
 } from "@liratek/ui";
@@ -59,6 +60,10 @@ import {
   ForPartnerNotice,
 } from "@/features/partners/components/ForPartnerToggle";
 import { useForPartnerOffInSession } from "@/features/partners/hooks/useForPartnerOffInSession";
+import {
+  exchangeUnitUsd,
+  isUsdOrLbp,
+} from "@/features/exchange/utils/exchangeUnitUsd";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -205,6 +210,12 @@ function appliedCustomRate(
   if (!rateOverridden[legIndex]) return null;
   const rate = parseFloat(customRates[legIndex] ?? "");
   return isNaN(rate) || rate <= 0 ? null : rate;
+}
+
+/** LIRA-369 — does this set of payment lines put anything on the client's
+ *  account? One predicate for Confirm and the payload (rule 14). */
+function hasAccountLine(lines: ReadonlyArray<{ method: string }>): boolean {
+  return lines.some((l) => l.method === "CUSTOMER_ACCOUNT");
 }
 
 // ─── Currency Selector ────────────────────────────────────────────────────────
@@ -390,6 +401,8 @@ export default function Exchange() {
   const [clientId, setClientId] = useState<number | null>(null);
   const [clientPhone, setClientPhone] = useState("");
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
+  // LIRA-366: the cashier's optional note, sent as `typedNote`.
+  const [typedNote, setTypedNote] = useState("");
 
   // LIRA-081 (PFT-R): "For Partner" — the partner stands in for the walk-in
   // customer, no counter cash is taken, and the toCurrency amount is still
@@ -486,6 +499,17 @@ export default function Exchange() {
   // visible warning; never gates submit.
   const [lotPreviewError, setLotPreviewError] = useState(false);
   const [showLossConfirm, setShowLossConfirm] = useState(false);
+  // LIRA-369 (R8) — the payout lines the loss confirmation will save with
+  // when it was opened from the payment window's Confirm; undefined when it
+  // was opened from the direct (For Partner) path.
+  const [lossConfirmLines, setLossConfirmLines] = useState<
+    PaymentLine[] | undefined
+  >();
+  // LIRA-369 — the typed "1 <currency> = X USD" rates for an account line in
+  // a currency other than USD/LBP (payout side = toCurrency, customer side =
+  // fromCurrency). Seeded from `exchangeUnitUsd` (R5) below.
+  const [payoutAccountRate, setPayoutAccountRate] = useState(0);
+  const [customerAccountRate, setCustomerAccountRate] = useState(0);
   // Q16 — bumped whenever history reloads so PositionsPanel refetches
   // without a second independent polling loop.
   const [positionsRefreshKey, setPositionsRefreshKey] = useState(0);
@@ -784,11 +808,66 @@ export default function Exchange() {
     return lbpRate?.buy_rate;
   }, [effectiveResult, effectiveRates]);
 
-  // Split payout is USD/LBP-target only (reconciliation + MultiPaymentInput
-  // are USD/LBP-native) and never applies in partner mode (no walk-in
-  // customer). Everything else keeps the direct one-click submit.
-  const canSplitPayout =
-    !forPartner && (toCurrency === "USD" || toCurrency === "LBP");
+  // LIRA-369 (owner 2026-11-01): EVERY walk-in exchange confirms through the
+  // payment window, whatever the currencies. Only partner mode (no walk-in
+  // customer) keeps the direct one-click submit.
+  const canSplitPayout = !forPartner;
+  // A payout in a currency other than USD/LBP ("native"): Cash in that
+  // currency + Customer account only, no keep / round-up / added change and
+  // no USD↔LBP tender rate (the schema refuses them there).
+  const payoutIsNative = !!toCurrency && !isUsdOrLbp(toCurrency);
+  const toCurrencySymbol = toCurrency ? getCurrencySymbol(toCurrency) : "";
+  const fromCurrencySymbol = fromCurrency
+    ? getCurrencySymbol(fromCurrency)
+    : "";
+  // Shop pays: cash (today's method) plus the client's account, in both
+  // modes. Memoised so the sheet sees a stable identity (rule 25).
+  const payoutPaymentMethods = useMemo(() => {
+    const cash = allPaymentMethods.find((m) => m.code === "CASH");
+    const account = allPaymentMethods.find(
+      (m) => m.code === "CUSTOMER_ACCOUNT",
+    );
+    return [
+      cash ?? { code: "CASH", label: tc("payment.CASH") },
+      {
+        code: "CUSTOMER_ACCOUNT",
+        label: account?.label ?? tc("payment.CUSTOMER_ACCOUNT"),
+      },
+    ];
+  }, [allPaymentMethods, tc]);
+  const nativeSheetCurrencies = useMemo(
+    () => [{ code: toCurrency, symbol: toCurrencySymbol }],
+    [toCurrency, toCurrencySymbol],
+  );
+  const nativeCustomerCurrencies = useMemo(
+    () => [{ code: fromCurrency, symbol: fromCurrencySymbol }],
+    [fromCurrency, fromCurrencySymbol],
+  );
+
+  // LIRA-369 (R5) — seed each typed account rate at the exchange's own USD
+  // value per unit (ONE helper), against the amounts the page actually
+  // sends, and reseed whenever the calculation changes. Primitive deps only.
+  const sentAmountOut = parseFloat(amountOut);
+  const payoutAccountRateSeed =
+    effectiveResult && toCurrency && !isUsdOrLbp(toCurrency)
+      ? exchangeUnitUsd(effectiveResult, toCurrency, {
+          amountIn,
+          amountOut: sentAmountOut,
+        })
+      : null;
+  const customerAccountRateSeed =
+    effectiveResult && fromCurrency && !isUsdOrLbp(fromCurrency)
+      ? exchangeUnitUsd(effectiveResult, fromCurrency, {
+          amountIn,
+          amountOut: sentAmountOut,
+        })
+      : null;
+  useEffect(() => {
+    setPayoutAccountRate(payoutAccountRateSeed ?? 0);
+  }, [payoutAccountRateSeed]);
+  useEffect(() => {
+    setCustomerAccountRate(customerAccountRateSeed ?? 0);
+  }, [customerAccountRateSeed]);
 
   // LIRA-321 — "Customer pays — <fromCurrency>" on the payout sheet (only
   // reached when canSplitPayout, so never in For-Partner mode). One CASH
@@ -799,18 +878,11 @@ export default function Exchange() {
     () => [{ method: "CASH", currencyCode: fromCurrency, amount: amountIn }],
     [fromCurrency, amountIn],
   );
-  // Owner decision 2026-10-14: the customer may owe or be forgiven only when
-  // paying in USD or LBP (mirrors core's exchangeCustomerCanOwe, which the
-  // schemas and the writer enforce). Any other currency — EUR… — is paid in
-  // full: no account line, no Forgive, Confirm off until balanced.
-  const customerCanOwe = fromCurrency === "USD" || fromCurrency === "LBP";
   // LIRA-336 — the customer may add change only when BOTH sides are USD/LBP
   // (core refuses it otherwise), never for a partner (canSplitPayout already
   // excludes that) and never inside a customer session (FR-010).
   const customerCanAddChange =
-    customerCanOwe &&
-    (toCurrency === "USD" || toCurrency === "LBP") &&
-    !activeSession;
+    isUsdOrLbp(fromCurrency) && isUsdOrLbp(toCurrency) && !activeSession;
   const customerPaymentMethods = useMemo(() => {
     const drawer = allPaymentMethods
       .filter(
@@ -827,17 +899,15 @@ export default function Exchange() {
       ...(drawer.length > 0
         ? drawer
         : [{ code: "CASH", label: tc("payment.CASH") }]),
-      ...(customerCanOwe
-        ? [
-            {
-              code: "CUSTOMER_ACCOUNT",
-              label: account?.label ?? tc("payment.CUSTOMER_ACCOUNT"),
-            },
-          ]
-        : []),
+      // LIRA-369 (owner 2026-11-01): the account is offered for EVERY
+      // currency; a non-USD/LBP line is charged in USD at the typed rate.
+      {
+        code: "CUSTOMER_ACCOUNT",
+        label: account?.label ?? tc("payment.CUSTOMER_ACCOUNT"),
+      },
     ];
-  }, [allPaymentMethods, customerCanOwe, tc]);
-  // The forgive cap is per currency (USD/LBP only — the same SHORTFALL_MAX
+  }, [allPaymentMethods, tc]);
+  // The discount cap is per currency (USD/LBP only — the same SHORTFALL_MAX
   // the server checks with isWithinShortfallMax).
   const customerMaxForgive =
     fromCurrency === "USD" || fromCurrency === "LBP"
@@ -866,6 +936,29 @@ export default function Exchange() {
     (customerState.overpaid ||
       customerState.needsClient ||
       !customerState.balanced);
+  // LIRA-369 — the ONE answer (used by Confirm AND the payload) to "does this
+  // side carry an account line that needs a typed USD rate": a
+  // CUSTOMER_ACCOUNT line, on the lines that are actually sent, in a
+  // currency other than USD/LBP. The server requires the rate exactly then
+  // and refuses it otherwise.
+  const payoutHasAccount = hasAccountLine(payoutLines);
+  const payoutNeedsAccountRate = payoutIsNative && payoutHasAccount;
+  const customerNeedsAccountRate =
+    !!fromCurrency &&
+    !isUsdOrLbp(fromCurrency) &&
+    hasAccountLine(customerLines.filter((l) => l.amount > 0));
+  // Confirm also stays off while a payout account line has no client (same
+  // rule as the customer side) or a needed rate is not above 0.
+  const payoutConfirmBlocked =
+    (payoutHasAccount && clientId === null) ||
+    (payoutNeedsAccountRate && !(payoutAccountRate > 0)) ||
+    (customerNeedsAccountRate && !(customerAccountRate > 0));
+  // Q10 — a lot-tracked sell whose FIFO preview realizes a loss is never a
+  // hard block, but the operator confirms it first (direct and window path).
+  const lossNeedsConfirm =
+    toIsLotTracked &&
+    !!lotPreview?.lotTracked &&
+    lotPreview.realizedProfitUsd < 0;
 
   // Sync amountOut with effectiveResult
   useEffect(() => {
@@ -1246,6 +1339,8 @@ export default function Exchange() {
         clientName: clientName || undefined,
         // Stored English note: data, never translated (OD-2, research R9).
         note: `Exchange ${fromCurrency} → ${toCurrency}${effectiveResult.viaCurrency ? ` via ${effectiveResult.viaCurrency}` : ""}`, // i18n-exempt: stored note
+        // LIRA-366: the cashier's own note (the label above stays as is).
+        ...(typedNote.trim() ? { typedNote } : {}),
         fromCurrencyName: CURRENCY_NAMES[fromCurrency] ?? fromCurrency,
         toCurrencyName: CURRENCY_NAMES[toCurrency] ?? toCurrency,
         transaction_time: transactionTime,
@@ -1264,10 +1359,26 @@ export default function Exchange() {
         ...(customerWaived > 0
           ? { customer_waived_amount: customerWaived }
           : {}),
-        // Split payout: the sheet's lines (IN legs, cash-only v1) + the rate
-        // it actually converted at — the repository reconciles hard-reject
-        // against amountOut and debits each leg per-currency.
-        ...(lines && lines.length > 0
+        // LIRA-369 — the typed USD rate for an account line in a currency
+        // other than USD/LBP, only when that side carries one (the server
+        // refuses the key otherwise).
+        ...(onSheet && customerNeedsAccountRate
+          ? { customer_account_usd_rate: customerAccountRate }
+          : {}),
+        // Split payout: the sheet's lines (IN legs) + the rate it actually
+        // converted at — the repository reconciles hard-reject against
+        // amountOut and debits each leg per-currency (a Customer account leg
+        // credits the client instead). A native (non-USD/LBP) payout sends
+        // its legs and, with an account leg, its typed USD rate only.
+        ...(lines && lines.length > 0 && payoutIsNative
+          ? {
+              payments: toCamelLegs(lines),
+              ...(hasAccountLine(lines)
+                ? { payout_account_usd_rate: payoutAccountRate }
+                : {}),
+            }
+          : {}),
+        ...(lines && lines.length > 0 && !payoutIsNative
           ? {
               payments: toCamelLegs(lines),
               tender_exchange_rate: payoutTenderRate ?? payoutSeedRate,
@@ -1348,12 +1459,14 @@ export default function Exchange() {
         setCalcResult(null);
         setLotPreview(null);
         setTransactionTime(undefined);
+        setTypedNote("");
         setShowPayoutSheet(false);
         setPayoutLines([]);
         setPayoutKept(null);
         setPayoutRoundUp(null);
         setPayoutAddedChange(null);
         setPayoutTenderRate(undefined);
+        setLossConfirmLines(undefined);
         loadHistory();
       } else {
         alert(t("errors.withReason", { error: result.error }));
@@ -2150,6 +2263,8 @@ export default function Exchange() {
                 )}
               </div>
 
+              <PaymentNoteField value={typedNote} onChange={setTypedNote} />
+
               <TransactionTimeOverride
                 value={transactionTime}
                 onChange={setTransactionTime}
@@ -2158,9 +2273,8 @@ export default function Exchange() {
               <button
                 data-testid="exchange-submit"
                 onClick={() => {
-                  // Split payout (2026-07-30): USD/LBP-target walk-in exchanges
-                  // confirm through the PaymentSheet so the payout can be split;
-                  // partner mode and exotic targets keep the direct submit.
+                  // LIRA-369: every walk-in exchange confirms through the
+                  // PaymentSheet; partner mode keeps the direct submit.
                   if (canSplitPayout) {
                     setPayoutLines([]);
                     setCustomerLines([]);
@@ -2169,15 +2283,14 @@ export default function Exchange() {
                     setPayoutRoundUp(null);
                     setPayoutAddedChange(null);
                     setPayoutTenderRate(undefined);
+                    setPayoutAccountRate(payoutAccountRateSeed ?? 0);
+                    setCustomerAccountRate(customerAccountRateSeed ?? 0);
                     setPayoutSheetKey((k) => k + 1);
                     setShowPayoutSheet(true);
-                  } else if (
-                    toIsLotTracked &&
-                    lotPreview?.lotTracked &&
-                    lotPreview.realizedProfitUsd < 0
-                  ) {
+                  } else if (lossNeedsConfirm) {
                     // Q10 — a legitimate loss is never a hard block; any
                     // operator confirms before it submits.
+                    setLossConfirmLines(undefined);
                     setShowLossConfirm(true);
                   } else {
                     void handleProcess();
@@ -2242,9 +2355,18 @@ export default function Exchange() {
       <PaymentSheet
         open={showPayoutSheet}
         onClose={() => setShowPayoutSheet(false)}
-        onConfirm={() => void handleProcess(payoutLines)}
+        onConfirm={() => {
+          // LIRA-369 (R8): the loss confirmation now runs from the window's
+          // Confirm, before saving with the window's lines.
+          if (lossNeedsConfirm) {
+            setLossConfirmLines(payoutLines);
+            setShowLossConfirm(true);
+          } else {
+            void handleProcess(payoutLines);
+          }
+        }}
         isSubmitting={isSubmitting}
-        confirmDisabled={customerConfirmBlocked}
+        confirmDisabled={customerConfirmBlocked || payoutConfirmBlocked}
         title={t("sheet.title")}
         {...(effectiveResult
           ? {
@@ -2287,23 +2409,34 @@ export default function Exchange() {
         }
         totalAmountCurrency={toCurrency}
         currency={toCurrency}
-        paymentMethods={
-          allPaymentMethods.filter((m) => m.code === "CASH").length > 0
-            ? allPaymentMethods.filter((m) => m.code === "CASH")
-            : [{ code: "CASH", label: tc("payment.CASH") }]
-        }
-        {...(payoutSeedRate !== undefined
-          ? { exchangeRate: payoutSeedRate }
-          : {})}
-        onExchangeRateChange={setPayoutTenderRate}
+        paymentMethods={payoutPaymentMethods}
+        // A payout account line is booked to the picked client (LIRA-369).
+        hasClient={clientId !== null}
+        {...(payoutIsNative
+          ? {
+              // Native payout: the sheet works in toCurrency only, and an
+              // account line converts at the typed "1 <cur> = X USD" rate.
+              currencies: nativeSheetCurrencies,
+              accountRate: {
+                currency: toCurrency,
+                value: payoutAccountRate,
+                onChange: setPayoutAccountRate,
+              },
+            }
+          : {
+              ...(payoutSeedRate !== undefined
+                ? { exchangeRate: payoutSeedRate }
+                : {}),
+              onExchangeRateChange: setPayoutTenderRate,
+              onKeptChange: setPayoutKept,
+              onRoundUpChange: setPayoutRoundUp,
+              onAddedChange: setPayoutAddedChange,
+            })}
         showDiscount={false}
         paymentInputKey={payoutSheetKey}
         initialPaymentMethod="CASH"
         onPaymentChange={setPayoutLines}
         direction="payout"
-        onKeptChange={setPayoutKept}
-        onRoundUpChange={setPayoutRoundUp}
-        onAddedChange={setPayoutAddedChange}
         {...(canSplitPayout && fromCurrency && amountIn > 0
           ? {
               counterFlow: {
@@ -2321,6 +2454,20 @@ export default function Exchange() {
                   ? { maxForgive: customerMaxForgive }
                   : {}),
                 ...(customerCanAddChange ? { allowAddedChange: true } : {}),
+                // The sheet's own list is toCurrency only on a native payout;
+                // the customer's lines are in fromCurrency.
+                ...(payoutIsNative
+                  ? { currencies: nativeCustomerCurrencies }
+                  : {}),
+                ...(!isUsdOrLbp(fromCurrency)
+                  ? {
+                      accountRate: {
+                        currency: fromCurrency,
+                        value: customerAccountRate,
+                        onChange: setCustomerAccountRate,
+                      },
+                    }
+                  : {}),
               },
             }
           : {})}
@@ -2404,9 +2551,12 @@ export default function Exchange() {
           variant="warning"
           onConfirm={() => {
             setShowLossConfirm(false);
-            void handleProcess();
+            void handleProcess(lossConfirmLines);
           }}
-          onCancel={() => setShowLossConfirm(false)}
+          onCancel={() => {
+            setShowLossConfirm(false);
+            setLossConfirmLines(undefined);
+          }}
         />
       )}
     </div>

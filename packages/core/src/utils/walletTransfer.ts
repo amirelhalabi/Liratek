@@ -267,6 +267,8 @@ export interface WalletTransferPayloadInput {
    *  when non-zero and with the customer's lines; the server verifies it. */
   addedChange?: { usd: number; lbp: number } | null;
   transactionTime?: string;
+  /** LIRA-366 — the cashier's optional note. Sent only when not blank. */
+  typedNote?: string;
 }
 
 /**
@@ -387,5 +389,6 @@ export function buildWalletTransferPayload(
     ...(input.discount && input.discount > 0
       ? { typedDiscount: { amount: input.discount, currency } }
       : {}),
+    ...(input.typedNote?.trim() ? { typedNote: input.typedNote } : {}),
   };
 }

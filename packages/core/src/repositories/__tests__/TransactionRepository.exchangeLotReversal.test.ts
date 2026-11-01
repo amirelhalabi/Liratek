@@ -249,7 +249,23 @@ function createTestDb(): Database.Database {
       due_date DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       refunded_at TEXT DEFAULT NULL
+    ,
+      session_id INTEGER
     );
+    -- LIRA-369: ProfitRepository's exchange reads now apply notDebtPending,
+    -- which also looks at session baskets.
+    CREATE TABLE customer_session_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER,
+      session_id INTEGER NOT NULL,
+      transaction_type TEXT NOT NULL,
+      transaction_id INTEGER NOT NULL,
+      unified_transaction_id INTEGER,
+      amount_usd REAL NOT NULL DEFAULT 0,
+      amount_lbp REAL NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
 
     INSERT INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('General', 'USD', 0);
     INSERT INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('General', 'LBP', 0);

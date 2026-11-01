@@ -82,6 +82,7 @@ import {
   applyDrawerDelta,
   insertPaymentRow,
   bookClientDebtCharge,
+  syncTypedNote,
   bookCustomerLegs,
   writeCustomerLegs,
   assertPartnerIdRequired,
@@ -123,6 +124,7 @@ import { getCurrentTenantId } from "../db/tenantContext.js";
 import { localDayExpr, localDayRangeFilter } from "./reportingTimeFragments.js";
 import type { SupplierDayRangeInput } from "../validators/supplier.js";
 import { requestNow } from "../utils/requestNow.js";
+import { withTypedNote } from "../utils/typedNote.js";
 import { requestNowIso } from "../utils/requestNowIso.js";
 import { BusinessRuleError } from "../utils/errors.js";
 // LIRA-237 wave 2 — see reportingTimeFragments.ts's own doc comment: a leaf
@@ -487,6 +489,8 @@ export interface CreateFinancialServiceData {
   itemKey?: string;
   itemCategory?: string;
   note?: string;
+  /** LIRA-366: the note the cashier typed (`note` keeps generated labels). */
+  typedNote?: string;
   /** For SEND transactions: whether the entered amount already includes the fee.
    *  - true  → sentAmount = amount (already deducted by frontend), System drawer gets amount + fee
    *  - false → fee is on top, System drawer gets amount + fee
@@ -1012,6 +1016,21 @@ export function buildCryptoTransferDetails(
  * for a shape with no kind (e.g. a BOB / OTHER transfer).
  */
 export function buildFinancialServiceDetails(
+  data: CreateFinancialServiceData,
+  ctx: {
+    useCostPriceFlow: boolean;
+    price: number;
+    currency: string;
+    partnerName?: string;
+  },
+): TransactionDetails | undefined {
+  const details = buildFinancialServiceKindDetails(data, ctx);
+  // LIRA-366: the typed note wins over any note the kind derived.
+  const typed = data.typedNote?.trim();
+  return details && typed ? { ...details, note: typed } : details;
+}
+
+function buildFinancialServiceKindDetails(
   data: CreateFinancialServiceData,
   ctx: {
     useCostPriceFlow: boolean;
@@ -1957,6 +1976,16 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     const legacyDrawerLabel = this.mapDrawerName(data.provider);
     const useCostPriceFlow = data.cost !== undefined && data.cost > 0;
     const tenantId = getCurrentTenantId();
+    // LIRA-366: every customer-account charge this entry books carries the
+    // cashier's typed note at the end of its debt note (one place, so no
+    // branch can forget it; `syncTypedNote` swaps it on a History edit).
+    const bookTypedDebt = (
+      input: Parameters<typeof bookClientDebtCharge>[1],
+    ): void =>
+      bookClientDebtCharge(this.db, {
+        ...input,
+        note: withTypedNote(input.note ?? "", data.typedNote) || input.note,
+      });
 
     return this.db.transaction(() => {
       const currency = data.currency ?? "USD";
@@ -2902,7 +2931,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         data.profitRate || null,
         data.payFee ? 1 : 0,
         data.itemKey || null,
-        data.note || null,
+        // LIRA-366: the typed note, else today's note.
+        data.typedNote?.trim() || data.note || null,
         isSettled,
         settledAt,
         pmFee,
@@ -3336,7 +3366,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 "Client is required to charge the RECEIVE fee to a customer account",
               );
             }
-            bookClientDebtCharge(this.db, {
+            bookTypedDebt({
               clientId: resolvedPrimaryClientId,
               transactionType: "Service Debt",
               amountUsd: leg.currencyCode === "USD" ? legAmount : 0,
@@ -4231,7 +4261,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               if (p.currencyCode === "USD") debtUsd += Math.abs(p.amount);
               else if (p.currencyCode === "LBP") debtLbp += Math.abs(p.amount);
             }
-            bookClientDebtCharge(this.db, {
+            bookTypedDebt({
               clientId: data.clientId,
               transactionType: "Service Debt",
               amountUsd: debtUsd,
@@ -4275,7 +4305,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               throw new Error("Cannot create debt without a client");
             }
             // LIRA-319: the client owes the extra too (FR-015).
-            bookClientDebtCharge(this.db, {
+            bookTypedDebt({
               clientId: data.clientId,
               transactionType: "Service Debt",
               amountUsd: currency === "USD" ? price + extraUsd : 0,
@@ -4470,7 +4500,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               if (debtLegs.length > 0) {
                 const debtClientId = this.resolveBinanceDebtClient(data, txnId);
                 for (const debtLeg of debtLegs) {
-                  bookClientDebtCharge(this.db, {
+                  bookTypedDebt({
                     clientId: debtClientId,
                     transactionType: "Service Debt",
                     amountUsd:
@@ -4504,7 +4534,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 }).customerPays + extraIn(cashCurrency);
               if (paidBy === "CUSTOMER_ACCOUNT") {
                 const debtClientId = this.resolveBinanceDebtClient(data, txnId);
-                bookClientDebtCharge(this.db, {
+                bookTypedDebt({
                   clientId: debtClientId,
                   transactionType: "Service Debt",
                   amountUsd: cashCurrency === "USD" ? cashTotal : 0,
@@ -5202,7 +5232,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                     currency: debtLeg.currencyCode,
                   },
                 });
-                bookClientDebtCharge(this.db, {
+                bookTypedDebt({
                   clientId: resolvedClientId,
                   transactionType: "Service Debt",
                   amountUsd: debtAmtUsd,
@@ -5257,7 +5287,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 )
                 .run(debtClientId, txnId, tenantId);
 
-              bookClientDebtCharge(this.db, {
+              bookTypedDebt({
                 clientId: debtClientId,
                 transactionType: "Service Debt",
                 // LIRA-319: the client owes the extra too (FR-015).
@@ -7201,6 +7231,17 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         row.id,
         tenantId,
       );
+
+    // LIRA-366 (rule 31): the note is the typed note — swap it on the
+    // transaction and on its customer-account charge rows together.
+    if ((before.note ?? "") !== (after.note ?? "")) {
+      syncTypedNote(this.db, {
+        transactionId: row.id,
+        oldTyped: typeof details?.note === "string" ? details.note : null,
+        newTyped: after.note,
+        tenantId,
+      });
+    }
   }
 }
 

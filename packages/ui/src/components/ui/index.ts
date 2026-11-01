@@ -29,6 +29,7 @@ export type {
 } from "./ServiceTypeTabs";
 export { default as MultiPaymentInput } from "./MultiPaymentInput";
 export type {
+  AccountRateProp,
   MultiPaymentInputProps,
   MultiPaymentPayer,
   PaymentLine,
@@ -38,6 +39,8 @@ export type {
   VoucherOption,
 } from "./MultiPaymentInput";
 export { SplitToggle } from "./SplitToggle";
+export { PaymentNoteField, PAYMENT_NOTE_MAX } from "./PaymentNoteField";
+export type { PaymentNoteFieldProps } from "./PaymentNoteField";
 export type { SplitToggleProps } from "./SplitToggle";
 export type { LinesSectionState, LinesSectionSeed } from "./useLinesSection";
 export { default as TopUpModal } from "./TopUpModal";

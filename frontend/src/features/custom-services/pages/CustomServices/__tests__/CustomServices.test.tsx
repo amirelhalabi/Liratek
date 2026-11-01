@@ -7,6 +7,7 @@
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { createCustomServiceSchema } from "@liratek/core";
 import CustomServices from "../index";
 
 // ── Mock useApi ──
@@ -549,6 +550,9 @@ describe("CustomServices Page", () => {
     alertSpy.mockRestore();
   });
 
+  // LIRA-366: the Note box is the cashier's typed note on a money-in
+  // service — sent as `typedNote` (field name read off the core schema,
+  // rule 24), never as the generic `note`.
   it("should include note in submission when provided", async () => {
     render(<CustomServices />);
 
@@ -564,14 +568,13 @@ describe("CustomServices Page", () => {
 
     fireEvent.click(screen.getByText("Submit Service"));
 
-    await waitFor(() => {
-      expect(mockAddCustomService).toHaveBeenCalledWith(
-        expect.objectContaining({
-          description: "Screen fix",
-          note: "iPhone 14",
-        }),
-      );
-    });
+    await waitFor(() => expect(mockAddCustomService).toHaveBeenCalled());
+    const parsed = createCustomServiceSchema.parse(
+      mockAddCustomService.mock.calls[0][0],
+    );
+    expect(parsed.description).toBe("Screen fix");
+    expect(parsed.typedNote).toBe("iPhone 14");
+    expect(parsed.note).toBeUndefined();
   });
 
   it("should render the For Partner toggle and hide the payment section when checked", () => {

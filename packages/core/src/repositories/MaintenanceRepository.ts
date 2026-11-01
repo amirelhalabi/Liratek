@@ -16,8 +16,10 @@ import {
   applyDrawerDelta,
   insertPaymentRow,
   bookClientDebtCharge,
+  syncTypedNote,
   type ReconciliationLeg,
 } from "./moneyPosting.js";
+import { withTypedNote } from "../utils/typedNote.js";
 import { resolveKeptChange } from "./keptChange.js";
 import { bookChangeRoundingExpense } from "./changeRoundingExpense.js";
 import { BusinessRuleError } from "../utils/errors.js";
@@ -602,6 +604,11 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       id,
       tenantId,
     );
+
+    // LIRA-366 (rule 31): a note change reaches the job's transactions.
+    if (existing && (existing.note ?? "") !== (job.note ?? "")) {
+      this.syncJobTypedNote(id, job.note ?? null);
+    }
 
     // Status-history row only when the status actually changed — a
     // same-status resubmit (the UI resends the whole form on every save)
@@ -1253,7 +1260,9 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
         amountUsd: isLbp ? 0 : residualUsd,
         amountLbp: isLbp ? debtAmount : 0,
         transactionId: txnId,
-        note: "Balance from Maintenance",
+        // LIRA-366: the job's note is its typed note — the same text its
+        // details carry, at the end of the debt note.
+        note: withTypedNote("Balance from Maintenance", details.note),
         createdBy,
         tenantId,
       });
@@ -1799,12 +1808,56 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     values.push(id);
     values.push(getCurrentTenantId());
 
-    this.db
-      .prepare(
-        `UPDATE maintenance SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
-      )
-      .run(...values);
+    return this.db.transaction(() => {
+      this.db
+        .prepare(
+          `UPDATE maintenance SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
+        )
+        .run(...values);
 
-    return this.findById(id);
+      // LIRA-366 (rule 31): a note change reaches the job's transactions.
+      if (data.note !== undefined && data.note !== (existing.note ?? "")) {
+        this.syncJobTypedNote(id, data.note);
+      }
+
+      return this.findById(id);
+    })();
+  }
+
+  /**
+   * LIRA-366 (rule 31) — the job's note is its typed note. Swap it on each
+   * of the job's own transactions (never a void's/refund's reversal row)
+   * and on their "Maintenance Debt" charge rows, through the one shared
+   * owner `syncTypedNote`. The old text is read from each transaction's
+   * own details, so a row checked out with no note gains the new one.
+   */
+  private syncJobTypedNote(jobId: number, newNote: string | null): void {
+    const tenantId = getCurrentTenantId();
+    const rows = this.db
+      .prepare(
+        `SELECT id, metadata_json FROM transactions
+          WHERE source_table = 'maintenance' AND source_id = ?
+            AND reverses_id IS NULL AND tenant_id = ?`,
+      )
+      .all(jobId, tenantId) as { id: number; metadata_json: string | null }[];
+    for (const row of rows) {
+      let oldTyped: string | null = null;
+      try {
+        const note = (
+          JSON.parse(row.metadata_json ?? "{}") as {
+            details?: { note?: unknown };
+          }
+        ).details?.note;
+        oldTyped = typeof note === "string" ? note : null;
+      } catch {
+        oldTyped = null;
+      }
+      syncTypedNote(this.db, {
+        transactionId: row.id,
+        oldTyped,
+        newTyped: newNote,
+        tenantId,
+      });
+    }
   }
 }

@@ -162,6 +162,7 @@
     "out": "صادر"
   },
   "cells": {
+    "note": "ملاحظة: {{note}}",
     "sessionPooledTotal": "الجلسة #{{id}} — مجموع السلة كاملة",
     "sessionLegs": "الجلسة: {{legs}}",
     "sessionMethod": "الجلسة #{{id}}",

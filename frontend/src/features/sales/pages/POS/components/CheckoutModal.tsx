@@ -13,6 +13,7 @@ import {
   DiscountLine,
   discountFieldClass,
   MultiPaymentInput,
+  PaymentNoteField,
   useApi,
   appEvents,
   type PaymentLine,
@@ -51,7 +52,7 @@ import { useForPartnerOffInSession } from "@/features/partners/hooks/useForPartn
 
 export type PaymentData = Omit<SaleRequest, "items" | "status" | "id"> & {
   cart?: CartItem[];
-} & Pick<SaleProcessPayload, "extra_usd" | "extra_lbp"> & {
+} & Pick<SaleProcessPayload, "extra_usd" | "extra_lbp" | "typedNote"> & {
     // LIRA-319: the extra-charge keys typed from the shared sale schema
     // (rule 21) — never a hand-written copy.
     clientId?: number | null;
@@ -67,6 +68,9 @@ export type PaymentData = Omit<SaleRequest, "items" | "status" | "id"> & {
 
 interface CheckoutModalProps {
   items?: CartItem[];
+  /** LIRA-366: show the optional Note box (sent as `typedNote`). POS opts
+   *  in; Maintenance does not — its job form has its own note. */
+  showNote?: boolean;
   /** T3 keep-change opt-in: only flows whose backend accepts and checks
    *  kept_change_* (POS sales and Maintenance checkout, both via
    *  resolveKeptChange) may wire it — on others the fields would be
@@ -173,6 +177,7 @@ export default function CheckoutModal({
   allowForPartner = false,
   addsToSessionBasket = false,
   allowExtraCharge = false,
+  showNote = false,
   totalAmount,
   currency,
   extraTotals,
@@ -205,6 +210,7 @@ export default function CheckoutModal({
   const api = useApi();
   const { activeSession } = useSession();
   const [isLoading, setIsLoading] = useState(false);
+  const [typedNote, setTypedNote] = useState("");
   const [clients, setClients] = useState<Client[]>([]);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   // Rule 11: the host's typed customer seeds the fields once (mount only).
@@ -749,6 +755,8 @@ export default function CheckoutModal({
       exchange_rate: effectiveExchangeRate,
       drawer_name: DRAWER_B, // legacy field (kept for backward compatibility)
       ...(transactionTime ? { transaction_time: transactionTime } : {}),
+      // LIRA-366: the cashier's note; blank is dropped by the schema.
+      ...(showNote && typedNote.trim() ? { typedNote } : {}),
     };
   };
 
@@ -1445,6 +1453,14 @@ export default function CheckoutModal({
                 </>
               )}
             </div>
+
+            {showNote && (
+              <PaymentNoteField
+                className="mt-4"
+                value={typedNote}
+                onChange={setTypedNote}
+              />
+            )}
 
             {/* Drawer Info — no drawer moves on a FOR-partner sale (no
                 counter cash is taken), so hide this entirely in that mode. */}

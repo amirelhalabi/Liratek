@@ -34,7 +34,7 @@ import {
   DecimalInput,
   canChargeToCustomerAccount,
 } from "@liratek/ui";
-import { DataTable, DateRangeFilter } from "@liratek/ui";
+import { DataTable, DateRangeFilter, PaymentNoteField } from "@liratek/ui";
 import {
   MultiPaymentInput,
   type PaymentLine,
@@ -1449,7 +1449,9 @@ export default function Services() {
                     }
                   : {}),
             }),
-        note: note || `${provider} - ${serviceType}`,
+        note: `${provider} - ${serviceType}`,
+        // LIRA-366: the cashier's own note (the label above stays as is).
+        ...(note.trim() ? { typedNote: note } : {}),
         // THROUGH is hardcoded (not derived from
         // `provider === partner.system_association`) — this is safe ONLY
         // because the partner is read through `throughPartnerId` (only on
@@ -3042,6 +3044,11 @@ export default function Services() {
 
             {/* Footer: Submit */}
             <div className="p-3 border-t border-slate-700/40 bg-slate-900/20 mt-auto">
+              <PaymentNoteField
+                className="mb-2"
+                value={note}
+                onChange={setNote}
+              />
               <TransactionTimeOverride
                 value={transactionTime}
                 onChange={setTransactionTime}
