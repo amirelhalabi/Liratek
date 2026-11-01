@@ -225,12 +225,12 @@ describe("PartnerSettleSheet (LIRA-346)", () => {
     ).toHaveTextContent("the picked days cancel out");
     // Unpick 21 Oct: the box appears and fills $100 cash.
     fireEvent.click(await dayButton("2026-10-21"));
-    await screen.findByTestId("payment-exchange-rate");
+    await screen.findByTestId("multi-payment-input");
     // Pick it again: the box goes away.
     fireEvent.click(await dayButton("2026-10-21"));
     await waitFor(() =>
       expect(
-        screen.queryByTestId("payment-exchange-rate"),
+        screen.queryByTestId("multi-payment-input"),
       ).not.toBeInTheDocument(),
     );
     expect(screen.getByTestId("partner-settle-preview-usd")).toHaveTextContent(

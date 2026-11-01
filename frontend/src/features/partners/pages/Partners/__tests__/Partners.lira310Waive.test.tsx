@@ -119,7 +119,9 @@ async function openSettle() {
   fireEvent.click(await screen.findByRole("button", { name: "Settle" }));
   // LIRA-346: the old balance-based modal, through the sheet's link.
   fireEvent.click(await screen.findByTestId("partner-settle-by-amount"));
-  await screen.findByTestId("payment-exchange-rate");
+  // The payment box is up (USD only, so no "1 USD = … LBP" box — owner
+  // 2026-11-01: that box shows only when USD and LBP meet).
+  await screen.findByTestId("multi-payment-input");
 }
 
 function pay(amount: string) {
@@ -142,7 +144,9 @@ async function openByDay() {
   expect(
     await screen.findByTestId("partner-settle-payer-usd"),
   ).toHaveTextContent("Acme Partner pays you");
-  await screen.findByTestId("payment-exchange-rate");
+  // The payment box is up (USD only, so no "1 USD = … LBP" box — owner
+  // 2026-11-01: that box shows only when USD and LBP meet).
+  await screen.findByTestId("multi-payment-input");
 }
 
 async function submitByDay() {

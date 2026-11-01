@@ -112,7 +112,7 @@ describe("LIRA-369 — the account rate box (main section)", () => {
     expect(screen.getByTestId("payment-account-rate")).toBeTruthy();
   });
 
-  it("without the prop the '1 USD = … LBP' box is as before, no second box", () => {
+  it("without the prop the '1 USD = … LBP' box shows once LBP enters, no second box", () => {
     render(
       <MultiPaymentInput
         payer="payout"
@@ -127,6 +127,14 @@ describe("LIRA-369 — the account rate box (main section)", () => {
         onChange={() => {}}
       />,
     );
+    // Owner 2026-11-01: USD owed and paid in USD — no USD↔LBP box.
+    expect(screen.queryByTestId("payment-exchange-rate")).toBeNull();
+    const cur = document.querySelector<HTMLSelectElement>(
+      '[data-testid^="payment-currency-"]',
+    ) as HTMLSelectElement;
+    act(() => {
+      fireEvent.change(cur, { target: { value: "LBP" } });
+    });
     const fx = screen.getByTestId("payment-exchange-rate") as HTMLInputElement;
     expect(fx.value).toBe("90,000");
     expect(fx.parentElement?.textContent).toContain("1 USD =");
@@ -212,7 +220,8 @@ describe("LIRA-369 — the account rate box in Customer pays", () => {
     expect(onChange).toHaveBeenLastCalledWith(1.08);
     // The main section has no EUR Account line: no main box.
     expect(screen.queryByTestId("payment-account-rate")).toBeNull();
-    // The USD/LBP header box is untouched.
-    expect(screen.getByTestId("payment-exchange-rate")).toBeTruthy();
+    // Owner 2026-11-01: USD owed against EUR paid never meets LBP, so the
+    // USD/LBP header box is not shown.
+    expect(screen.queryByTestId("payment-exchange-rate")).toBeNull();
   });
 });

@@ -415,6 +415,8 @@ describe("RefundMethodModal — LIRA-236 editable rate + value matching", () => 
     ).not.toBeInTheDocument();
   });
 
+  // Owner decision 2026-11-01: the rate box shows only when the window mixes
+  // USD and LBP — here once the cashier switches the USD line to LBP.
   it("the rate field is pre-filled with the caller's bookedRate (exchangeRate prop)", () => {
     render(
       <RefundMethodModal
@@ -425,6 +427,12 @@ describe("RefundMethodModal — LIRA-236 editable rate + value matching", () => 
         onConfirm={jest.fn()}
       />,
     );
+    expect(
+      screen.queryByTestId("payment-exchange-rate"),
+    ).not.toBeInTheDocument();
+    fireEvent.change(screen.getByTestId(/payment-currency-/), {
+      target: { value: "LBP" },
+    });
     expect(screen.getByTestId("payment-exchange-rate")).toHaveValue("95,000");
   });
 
@@ -467,14 +475,14 @@ describe("RefundMethodModal — LIRA-236 editable rate + value matching", () => 
       />,
     );
 
-    // Edit the rate first.
-    fireEvent.change(screen.getByTestId("payment-exchange-rate"), {
-      target: { value: "90000" },
-    });
-    // Then switch the single line to LBP — MultiPaymentInput auto-converts
-    // the amount using the NEW effective rate (90,000), not the stale prop.
+    // Switch the single line to LBP — the rate box appears (USD owed, LBP
+    // paid; owner decision 2026-11-01) — then edit the rate. The LBP amount
+    // follows the NEW effective rate (90,000), not the stale prop.
     fireEvent.change(screen.getByTestId(/payment-currency-/), {
       target: { value: "LBP" },
+    });
+    fireEvent.change(screen.getByTestId("payment-exchange-rate"), {
+      target: { value: "90000" },
     });
 
     expect(
@@ -541,6 +549,10 @@ describe("RefundMethodModal — LIRA-236 editable rate + value matching", () => 
       />,
     );
 
+    // The box shows once the window mixes USD and LBP (owner 2026-11-01).
+    fireEvent.change(screen.getByTestId(/payment-currency-/), {
+      target: { value: "LBP" },
+    });
     fireEvent.change(screen.getByTestId("payment-exchange-rate"), {
       target: { value: "91000" },
     });
@@ -559,9 +571,12 @@ describe("RefundMethodModal — LIRA-236 editable rate + value matching", () => 
 describe("RefundMethodModal — LIRA-236 F2 (typed rate must never be dropped)", () => {
   it("a rate typed by the operator is sent even when the resulting line set still equals the default", () => {
     const onConfirm = jest.fn();
+    // Owner decision 2026-11-01: the rate box shows only when the window
+    // mixes USD and LBP, so the scenario uses a USD + LBP refund (each line
+    // already in its own currency — nothing to convert).
     render(
       <RefundMethodModal
-        legs={[leg("in", 100, "USD", "CASH")]}
+        legs={[leg("in", 60, "USD", "CASH"), leg("in", 900_000, "LBP", "CASH")]}
         paymentMethods={PAYMENT_METHODS}
         exchangeRate={89000}
         onCancel={jest.fn()}
@@ -569,10 +584,10 @@ describe("RefundMethodModal — LIRA-236 F2 (typed rate must never be dropped)",
       />,
     );
 
-    // Edit the rate only — the single USD line's amount is unaffected (same
-    // currency as totalAmountCurrency, nothing to convert), so the line set
-    // still equals the default (`isDefault` stays true). Before the F2 fix
-    // this made `handleConfirm` send NO override and NO rate at all.
+    // Edit the rate only — each line stays in its own currency with its own
+    // amount, so the line set still equals the default (`isDefault` stays
+    // true). Before the F2 fix this made `handleConfirm` send NO override
+    // and NO rate at all.
     fireEvent.change(screen.getByTestId("payment-exchange-rate"), {
       target: { value: "91000" },
     });

@@ -136,6 +136,13 @@ const ROW_CASHOUT = queueRow({
   commission_model: null,
 });
 
+/** A lira transfer — makes the account owed in USD and LBP. */
+const ROW_LBP = queueRow({
+  id: 40,
+  created_at: "2026-09-04 00:00:00",
+  amount_lbp: 900000,
+});
+
 function renderSheet(rows: AccountUnsettledRow[]) {
   mockGetSupplierAccountUnsettled.mockResolvedValue(rows);
   const queryClient = new QueryClient({
@@ -314,14 +321,28 @@ describe("AccountSettleSheet (LIRA-189, amount-first since LIRA-322)", () => {
   // Owner decision 2026-10-07: a rate the cashier types by hand is sent and
   // stamped on the SUPPLIER_SETTLEMENT row (stamp-only).
   it("sends a hand-typed rate as exchange_rate", async () => {
-    renderSheet([ROW_OMT, ROW_IPICK]);
+    // Owner decision 2026-11-01: the rate box shows only when the window
+    // mixes USD and LBP. OMT never converts, so a USD-only box has no rate
+    // box at all; the rate is typed when OMT is owed in both currencies.
+    renderSheet([ROW_OMT, ROW_IPICK, ROW_LBP]);
 
-    const usd = await usdSection();
-    fireEvent.change(amountInput(usd), { target: { value: "1225" } });
-    fireEvent.change(within(usd).getByTestId("payment-exchange-rate"), {
+    const box = await screen.findByTestId(
+      "supplier-account-settle-section-usd-lbp",
+    );
+    fireEvent.change(amountInput(box), { target: { value: "1225" } });
+    fireEvent.change(within(box).getByTestId("payment-exchange-rate"), {
       target: { value: "87000" },
     });
     const parsed = await submitAndParse();
     expect(parsed.exchange_rate).toBe(87000);
+  });
+
+  it("a USD-only box shows no rate box", async () => {
+    renderSheet([ROW_OMT, ROW_IPICK]);
+
+    const usd = await usdSection();
+    expect(
+      within(usd).queryByTestId("payment-exchange-rate"),
+    ).not.toBeInTheDocument();
   });
 });

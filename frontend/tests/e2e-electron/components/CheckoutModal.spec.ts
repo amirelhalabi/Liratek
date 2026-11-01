@@ -272,10 +272,8 @@ test.describe.serial("CheckoutModal", () => {
 
     const modal = appPage.locator('[data-testid="checkout-modal"]');
     const rateInput = modal.getByTestId("payment-exchange-rate");
-    await expect(rateInput).toBeVisible({ timeout: 5000 });
-    const rateRaw = await rateInput.inputValue();
-    const rate = parseFloat(rateRaw.replace(/,/g, ""));
-    expect(rate).toBeGreaterThan(0);
+    // USD owed, USD line: no USD↔LBP rate box yet (owner 2026-11-01).
+    await expect(rateInput).toHaveCount(0);
 
     const amountInput = modal
       .locator('[data-testid^="payment-amount-"]')
@@ -286,6 +284,12 @@ test.describe.serial("CheckoutModal", () => {
       .locator('[data-testid^="payment-currency-"]')
       .first();
     await currencySelect.selectOption("LBP");
+
+    // The line is now LBP against a USD total: the rate box appears.
+    await expect(rateInput).toBeVisible({ timeout: 5000 });
+    const rateRaw = await rateInput.inputValue();
+    const rate = parseFloat(rateRaw.replace(/,/g, ""));
+    expect(rate).toBeGreaterThan(0);
 
     const expectedLbp = Math.round(10 * rate).toLocaleString("en-US");
     await expect(amountInput).toHaveValue(expectedLbp);

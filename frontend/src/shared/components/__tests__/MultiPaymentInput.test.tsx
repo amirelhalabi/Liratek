@@ -135,6 +135,17 @@ function setRate(value: string): void {
   });
 }
 
+/**
+ * Switch the first payment line's currency, the way a cashier does. Owner
+ * 2026-11-01: the "1 USD = … LBP" box shows only once the window mixes USD
+ * and LBP, so tests that edit the rate first bring LBP in this way.
+ */
+function switchFirstLineTo(code: string): void {
+  fireEvent.change(screen.getByTestId(`payment-currency-${firstLineId()}`), {
+    target: { value: code },
+  });
+}
+
 describe("MultiPaymentInput", () => {
   describe("initial render", () => {
     it("renders the root, a single payment line, summary and split toggle", () => {
@@ -232,15 +243,19 @@ describe("MultiPaymentInput", () => {
   });
 
   describe("split mode — add / remove / currency", () => {
-    it("shows the exchange-rate field in both modes; split reveals the add-line button", () => {
+    it("shows the exchange-rate field in both modes once LBP is in play; split reveals the add-line button", () => {
       renderMpi();
 
-      // Exchange-rate row ("1 USD = … LBP") renders in single mode too — the
-      // rate drives USD↔LBP conversion regardless of mode.
-      expect(screen.getByText(/1 USD =/)).toBeInTheDocument();
+      // Owner 2026-11-01: a USD-only window has no "1 USD = … LBP" box.
+      expect(screen.queryByText(/1 USD =/)).not.toBeInTheDocument();
       expect(
         screen.queryByRole("button", { name: /Add .*Line/i }),
       ).not.toBeInTheDocument();
+
+      // Once a line is paid in LBP the row renders in single mode too — the
+      // rate drives USD↔LBP conversion regardless of mode.
+      switchFirstLineTo("LBP");
+      expect(screen.getByText(/1 USD =/)).toBeInTheDocument();
 
       fireEvent.click(screen.getByTestId("split-toggle"));
 
@@ -672,11 +687,15 @@ describe("MultiPaymentInput", () => {
     it("converts a single-mode currency switch at the edited rate, not the prop rate", () => {
       renderMpi({ totalAmount: 100 });
 
+      // The rate box shows only once LBP is in play (owner 2026-11-01):
+      // bring LBP in, edit the rate, and go back to USD before the switch
+      // under test.
+      switchFirstLineTo("LBP");
       setRate("100,000");
-      const id = firstLineId();
-      fireEvent.change(screen.getByTestId(`payment-currency-${id}`), {
-        target: { value: "LBP" },
-      });
+      switchFirstLineTo("USD");
+      expect(firstAmountInput().value).toBe("100");
+
+      switchFirstLineTo("LBP");
 
       // 100 USD × 100,000 (edited) — not × 90,000 (prop).
       expect(firstAmountInput().value).toBe("10,000,000");
@@ -717,6 +736,7 @@ describe("MultiPaymentInput", () => {
       // Mount effect reports the prop rate (Debts seeds repayModalRate off this).
       expect(onExchangeRateChange).toHaveBeenCalledWith(EXCHANGE_RATE);
 
+      switchFirstLineTo("LBP"); // the box shows only once LBP is in play
       setRate("95,000");
       expect(onExchangeRateChange).toHaveBeenLastCalledWith(95000);
     });
@@ -751,7 +771,9 @@ describe("MultiPaymentInput", () => {
       );
       const { rerender } = render(ui(90_000));
 
-      // Operator types a custom rate before the "live" rate fetch resolves.
+      // Operator pays in LBP and types a custom rate before the "live" rate
+      // fetch resolves (the box shows only once LBP is in play).
+      switchFirstLineTo("LBP");
       setRate("89,000");
       expect(onExchangeRateChange).toHaveBeenLastCalledWith(89000);
 
@@ -766,7 +788,15 @@ describe("MultiPaymentInput", () => {
 
     it("still seeds the rate field from the prop on the FIRST render (mount-sync unaffected)", () => {
       const onExchangeRateChange: RateMock = jest.fn();
-      renderMpi({ exchangeRate: 91_000, onExchangeRateChange });
+      // A USD + LBP debt, so the box is there on the first render.
+      renderMpi({
+        exchangeRate: 91_000,
+        onExchangeRateChange,
+        totals: [
+          { amount: 50, currency: "USD" },
+          { amount: 600_000, currency: "LBP" },
+        ],
+      });
 
       expect(screen.getByTestId("payment-exchange-rate")).toHaveValue("91,000");
       expect(onExchangeRateChange).toHaveBeenCalledWith(91000);
@@ -786,7 +816,7 @@ describe("MultiPaymentInput", () => {
     // The PERMANENT regression guard — mirrors the fixed Debts modal wiring
     // (per-currency totals). Proven failing-first on the pre-fix code (rule 17).
     it("totals contract: keeps a pure-LBP debt prefill invariant under rate edits", () => {
-      renderMpi({
+      const { rerender } = renderMpi({
         totals: [{ amount: 600_000, currency: "LBP" }],
         exchangeRate: 89_000,
         initialLines: [{ currencyCode: "LBP", amount: 600_000 }],
@@ -794,7 +824,26 @@ describe("MultiPaymentInput", () => {
 
       expect(firstAmountInput().value).toBe("600,000");
 
-      setRate("90,000");
+      // Owner 2026-11-01: a pure-LBP window has no "1 USD = … LBP" box, so
+      // the rate cannot be edited here; a changed shop rate must still leave
+      // the debt alone.
+      expect(screen.queryByTestId("payment-exchange-rate")).toBeNull();
+      rerender(
+        <MultiPaymentInput
+          totals={[{ amount: 600_000, currency: "LBP" }]}
+          currency="USD"
+          totalAmountCurrency="USD"
+          hasClient={false}
+          requiresClientForDebt={true}
+          autoDebtRemainder={false}
+          paymentMethods={PAYMENT_METHODS}
+          currencies={CURRENCIES}
+          exchangeRate={90_000}
+          initialLines={[{ currencyCode: "LBP", amount: 600_000 }]}
+          showDiscount={false}
+          onChange={jest.fn()}
+        />,
+      );
 
       // The debt is 600,000 LBP regardless of the rate — paying LBP against
       // an LBP debt involves no exchange.
@@ -1309,7 +1358,7 @@ describe("MultiPaymentInput", () => {
     // rate-table entry — with zero component changes. A EUR total prefill is
     // native, and the USD↔LBP header rate field cannot touch it.
     it("a EUR total prefills natively and is invariant to the LBP header rate", () => {
-      render(
+      const ui = (rate: number) => (
         <MultiPaymentInput
           totals={[{ amount: 90, currency: "EUR" }]}
           rateTable={{
@@ -1326,16 +1375,19 @@ describe("MultiPaymentInput", () => {
           requiresClientForDebt={true}
           paymentMethods={PAYMENT_METHODS}
           currencies={[...CURRENCIES, { code: "EUR", symbol: "€" }]}
-          exchangeRate={89_000}
+          exchangeRate={rate}
           showDiscount={false}
           onChange={jest.fn()}
-        />,
+        />
       );
+      const { rerender } = render(ui(89_000));
 
       expect(firstAmountInput().value).toBe("90");
 
-      // The header field edits the USD↔LBP pair only — EUR math is untouched.
-      setRate("100,000");
+      // Owner 2026-11-01: an EUR-only window has no "1 USD = … LBP" box. The
+      // USD↔LBP rate still cannot touch EUR math when it changes.
+      expect(screen.queryByTestId("payment-exchange-rate")).toBeNull();
+      rerender(ui(100_000));
       expect(firstAmountInput().value).toBe("90");
     });
   });
@@ -2713,6 +2765,7 @@ describe("MultiPaymentInput", () => {
 
     it("shows no warning at exactly the +15% band boundary (103,500)", () => {
       renderMpi();
+      switchFirstLineTo("LBP"); // the box shows only once LBP is in play
       setRate("103500");
       expect(
         screen.queryByTestId("tender-rate-warning"),
@@ -2721,6 +2774,7 @@ describe("MultiPaymentInput", () => {
 
     it("shows no warning at exactly the -15% band boundary (76,500)", () => {
       renderMpi();
+      switchFirstLineTo("LBP"); // the box shows only once LBP is in play
       setRate("76500");
       expect(
         screen.queryByTestId("tender-rate-warning"),
@@ -2729,12 +2783,14 @@ describe("MultiPaymentInput", () => {
 
     it("shows a warning just past the +15% band (103,501)", () => {
       renderMpi();
+      switchFirstLineTo("LBP"); // the box shows only once LBP is in play
       setRate("103501");
       expect(screen.getByTestId("tender-rate-warning")).toBeInTheDocument();
     });
 
     it("shows the owner's exact +16% example (104,400) with the shop rate named in the text", () => {
       renderMpi();
+      switchFirstLineTo("LBP"); // the box shows only once LBP is in play
       setRate("104400");
       const warning = screen.getByTestId("tender-rate-warning");
       expect(warning).toHaveTextContent(/16% away/);
@@ -2744,6 +2800,7 @@ describe("MultiPaymentInput", () => {
 
     it("uses the stronger 'check for a typo' wording past 50% deviation", () => {
       renderMpi();
+      switchFirstLineTo("LBP"); // the box shows only once LBP is in play
       setRate("135000"); // 90,000 * 1.5 = exactly +50% (not yet typo-level)
       expect(screen.getByTestId("tender-rate-warning")).not.toHaveTextContent(
         /typo/i,
@@ -2757,6 +2814,7 @@ describe("MultiPaymentInput", () => {
 
     it("never disables the amount input, method select, or rate field — the warning is advisory only, never blocking", () => {
       renderMpi();
+      switchFirstLineTo("LBP"); // the box shows only once LBP is in play
       setRate("300000"); // wildly off (~233% deviation)
       expect(screen.getByTestId("tender-rate-warning")).toBeInTheDocument();
 
@@ -2768,6 +2826,7 @@ describe("MultiPaymentInput", () => {
 
     it("keeps emitting onChange normally while the warning is showing — typing a payment amount is never suppressed", () => {
       const { onChange } = renderMpi();
+      switchFirstLineTo("LBP"); // the box shows only once LBP is in play
       setRate("300000");
       onChange.mockClear();
 

@@ -375,7 +375,7 @@ const SCENARIOS: Scenario[] = [
     drive: async () => {
       click(await screen.findByTestId("supplier-tile-WHISH_APP"));
       click(await screen.findByTestId("supplier-tab-manual"));
-      await screen.findByTestId("payment-exchange-rate");
+      await screen.findByTestId("multi-payment-input");
       type(firstPaymentAmount(), "97");
       type(paymentDiscountInput(), "3");
       type(
@@ -412,7 +412,7 @@ const SCENARIOS: Scenario[] = [
       click(await screen.findByTestId("supplier-tile-WHISH_APP"));
       click(await screen.findByTestId("supplier-tab-manual"));
       click(await screen.findByTestId("supplier-cashflow-direction-receive"));
-      await screen.findByTestId("payment-exchange-rate");
+      await screen.findByTestId("multi-payment-input");
       type(firstPaymentAmount(), "200000");
       type(screen.getByTestId("supplier-cashflow-note"), "Refund");
       click(settleConfirmButton());
@@ -652,7 +652,7 @@ const SCENARIOS: Scenario[] = [
       click(screen.getByTestId("supplier-settle-mode-lump"));
       type(screen.getByTestId("supplier-settle-commission-lbp"), "40000");
       click(screen.getByTestId("supplier-settle-collection-other_payment"));
-      await screen.findByTestId("payment-exchange-rate");
+      await screen.findByTestId("multi-payment-input");
       await screen.findByDisplayValue("40,000");
       click(settleConfirmButton());
     },

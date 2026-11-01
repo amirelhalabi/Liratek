@@ -89,6 +89,12 @@ const methodSelects = (): HTMLSelectElement[] =>
       '[data-testid^="payment-method-"]',
     ),
   );
+const currencySelects = (): HTMLSelectElement[] =>
+  Array.from(
+    document.querySelectorAll<HTMLSelectElement>(
+      '[data-testid^="payment-currency-"]',
+    ),
+  );
 const type = (el: Element, value: string) =>
   fireEvent.change(el, { target: { value } });
 /** The built-in discount / extra field — the only decimal text input in the
@@ -212,12 +218,16 @@ const SCENARIOS: Record<string, Scenario> = {
     );
     type(methodSelects()[0], "WHISH");
     type(discountInput(), "5");
-    type(screen.getByTestId("payment-exchange-rate"), "89,500");
     fireEvent.click(screen.getByTestId("split-toggle"));
     type(amountInputs()[0], "40");
     fireEvent.click(screen.getByTestId("add-payment-line"));
     const selects = methodSelects();
     type(selects[selects.length - 1], "CASH");
+    // The rate box shows only once USD and LBP mix (owner 2026-11-01): the
+    // added cash line is paid in LBP, then the rate is edited.
+    const curs = currencySelects();
+    type(curs[curs.length - 1], "LBP");
+    type(screen.getByTestId("payment-exchange-rate"), "89,500");
     type(pmFeeInput(), "1.25");
     type(pmFeeInput(), "1.2x"); // not a number: ignored, as a number field would
   },

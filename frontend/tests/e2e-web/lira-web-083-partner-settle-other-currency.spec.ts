@@ -81,7 +81,10 @@ test("lira-web-083 partner settle: the $ box paid in LBP", async ({ page }) => {
   // ── 2. Settle: the $ box paid in LBP ────────────────────────────────────
   await gotoAndSettle(page, "/#/partners");
   await page.getByText(name, { exact: true }).first().click();
-  await page.getByRole("button", { name: "Settle", exact: true }).first().click();
+  await page
+    .getByRole("button", { name: "Settle", exact: true })
+    .first()
+    .click();
   const sheet = page.getByTestId("partner-settle-sheet");
   await expect(sheet).toBeVisible({ timeout: 15_000 });
 
@@ -93,12 +96,16 @@ test("lira-web-083 partner settle: the $ box paid in LBP", async ({ page }) => {
   await expect(usdBox).toBeVisible({ timeout: 15_000 });
   await expect(lbpBox).toBeVisible();
 
-  for (const box of [usdBox, lbpBox]) {
-    const rate = box.getByTestId("payment-exchange-rate");
-    await rate.fill("89000");
-    await rate.blur();
-  }
-  await usdBox.locator('select[data-testid^="payment-currency-"]').first().selectOption("LBP");
+  await usdBox
+    .locator('select[data-testid^="payment-currency-"]')
+    .first()
+    .selectOption("LBP");
+  // The "1 USD = … LBP" box shows only once USD and LBP meet (owner
+  // 2026-11-01): the $ box paid in LBP shows it, the LBP-only box does not.
+  await expect(lbpBox.getByTestId("payment-exchange-rate")).toHaveCount(0);
+  const rate = usdBox.getByTestId("payment-exchange-rate");
+  await rate.fill("89000");
+  await rate.blur();
   const usdAmount = usdBox.locator('[data-testid^="payment-amount-"]').first();
   await usdAmount.fill("712000");
   await usdAmount.blur();

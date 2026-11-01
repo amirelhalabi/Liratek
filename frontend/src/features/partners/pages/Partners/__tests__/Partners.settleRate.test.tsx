@@ -123,6 +123,20 @@ async function openSettle() {
   fireEvent.click(await screen.findByRole("button", { name: "Settle" }));
   // LIRA-346: the old balance-based modal, through the sheet's link.
   fireEvent.click(await screen.findByTestId("partner-settle-by-amount"));
+  await screen.findByTestId("multi-payment-input");
+}
+
+/**
+ * Owner 2026-11-01: the "1 USD = … LBP" box shows only when the payment
+ * window mixes USD and LBP. A cashier who wants to type a rate first takes a
+ * payment line in LBP against the USD owed — that is when the box appears.
+ */
+async function payInLbp(): Promise<HTMLElement> {
+  const cur = document.querySelector<HTMLSelectElement>(
+    '[data-testid^="payment-currency-"]',
+  );
+  if (!cur) throw new Error("no payment-currency select rendered");
+  fireEvent.change(cur, { target: { value: "LBP" } });
   return screen.findByTestId("payment-exchange-rate");
 }
 
@@ -140,7 +154,7 @@ async function openByDay() {
   expect(
     await screen.findByTestId("partner-settle-payer-usd"),
   ).toHaveTextContent("Acme Partner pays you");
-  await screen.findByTestId("payment-exchange-rate");
+  await screen.findByTestId("multi-payment-input");
 }
 
 async function submitByDay() {
@@ -171,14 +185,18 @@ describe("Partners page — Settle sends the rate the cashier used", () => {
     mockApi.partners.settleDays.mockResolvedValue({ success: true, id: 9 });
   });
 
-  it("a hand-typed rate is sent as exchange_rate", async () => {
-    const rateBox = await openSettle();
-    fireEvent.change(rateBox, { target: { value: String(TYPED_RATE) } });
+  // Owner 2026-11-01: the old modal's legs are locked to the one settlement
+  // currency, so USD and LBP never meet there — no rate box to type into.
+  // Rewritten (rule 24) from "a hand-typed rate is sent" into a guard of
+  // the new rule: the box stays hidden in a single-currency settle.
+  it("a single-currency settle shows no rate box", async () => {
+    await openSettle();
+    expect(screen.queryByTestId("payment-exchange-rate")).toBeNull();
     const parsed = partnerSettleSchema.parse(await confirm());
-    expect(parsed.exchange_rate).toBe(TYPED_RATE);
+    expect(parsed.exchange_rate).toBe(BUY_RATE);
   });
 
-  it("an untouched rate box sends the buy rate it shows", async () => {
+  it("a hidden (untouched) rate box still sends the buy rate", async () => {
     await openSettle();
     const parsed = partnerSettleSchema.parse(await confirm());
     expect(parsed.exchange_rate).toBe(BUY_RATE);
@@ -187,7 +205,7 @@ describe("Partners page — Settle sends the rate the cashier used", () => {
   // written after the sheet; the old-modal cases above are unchanged).
   it("by day: a hand-typed rate is sent as exchange_rate", async () => {
     await openByDay();
-    fireEvent.change(screen.getByTestId("payment-exchange-rate"), {
+    fireEvent.change(await payInLbp(), {
       target: { value: String(TYPED_RATE) },
     });
     const parsed = await submitByDay();
@@ -195,8 +213,9 @@ describe("Partners page — Settle sends the rate the cashier used", () => {
     expect(mockSettle).not.toHaveBeenCalled();
   });
 
-  it("by day: an untouched rate box sends the buy rate it shows", async () => {
+  it("by day: a USD-only box hides the rate and still sends the buy rate", async () => {
     await openByDay();
+    expect(screen.queryByTestId("payment-exchange-rate")).toBeNull();
     const parsed = await submitByDay();
     expect(parsed.exchange_rate).toBe(BUY_RATE);
   });

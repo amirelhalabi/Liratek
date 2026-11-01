@@ -9,7 +9,10 @@
  *
  * Renders the REAL page + the real `@liratek/ui` MultiPaymentInput
  * (jest.config maps "@liratek/ui" to packages/ui/src) and types into its
- * rate box. The payload is parsed through the core `supplierCashflowSchema`
+ * rate box. Owner decision 2026-11-01: the box shows only when the window
+ * mixes USD and LBP, so the cashier first switches a line to LBP (as they
+ * would to pay in lira), types the rate, then switches back — the typed
+ * rate must survive the box hiding again. The payload is parsed through the core `supplierCashflowSchema`
  * (rule 24 — field names come from the schema).
  */
 
@@ -115,7 +118,25 @@ function renderPage() {
 async function openPayTab() {
   fireEvent.click((await screen.findAllByText("Acme Distributors"))[0]);
   fireEvent.click(await screen.findByText("Pay / Receive"));
-  return screen.findByTestId("payment-exchange-rate");
+  await screen.findByTestId("multi-payment-input");
+}
+
+function firstCurrencySelect(): HTMLSelectElement {
+  return screen
+    .getAllByTestId(/^payment-currency-/)
+    .find((el) => el.tagName === "SELECT") as HTMLSelectElement;
+}
+
+/** Bring the rate box up the way a cashier would (a line in LBP), type the
+ *  rate, then put the line back in USD. */
+function typeRateViaLbpLine(rate: number): void {
+  expect(screen.queryByTestId("payment-exchange-rate")).not.toBeInTheDocument();
+  fireEvent.change(firstCurrencySelect(), { target: { value: "LBP" } });
+  fireEvent.change(screen.getByTestId("payment-exchange-rate"), {
+    target: { value: String(rate) },
+  });
+  fireEvent.change(firstCurrencySelect(), { target: { value: "USD" } });
+  expect(screen.queryByTestId("payment-exchange-rate")).not.toBeInTheDocument();
 }
 
 async function payFifty(): Promise<void> {
@@ -146,8 +167,8 @@ describe("Suppliers page — Pay / Receive sends the rate the cashier used", () 
 
   it("a hand-typed rate is sent as exchange_rate", async () => {
     renderPage();
-    const rateBox = await openPayTab();
-    fireEvent.change(rateBox, { target: { value: String(TYPED_RATE) } });
+    await openPayTab();
+    typeRateViaLbpLine(TYPED_RATE);
     await payFifty();
 
     const parsed = supplierCashflowSchema.parse(
@@ -159,6 +180,10 @@ describe("Suppliers page — Pay / Receive sends the rate the cashier used", () 
   it("an untouched rate box still sends the buy rate", async () => {
     renderPage();
     await openPayTab();
+    // A USD-only window hides the box — the buy rate is still sent.
+    expect(
+      screen.queryByTestId("payment-exchange-rate"),
+    ).not.toBeInTheDocument();
     await payFifty();
 
     const parsed = supplierCashflowSchema.parse(
@@ -224,9 +249,7 @@ describe("Suppliers page — Settle sends the rate the cashier used", () => {
     fireEvent.click(await screen.findByText(/^Settle \(1\)$/));
     await screen.findByDisplayValue("100");
 
-    fireEvent.change(screen.getByTestId("payment-exchange-rate"), {
-      target: { value: String(TYPED_RATE) },
-    });
+    typeRateViaLbpLine(TYPED_RATE);
     fireEvent.click(screen.getByText("Confirm Settlement"));
 
     await waitFor(() => expect(mockApi.settleTransactions).toHaveBeenCalled());

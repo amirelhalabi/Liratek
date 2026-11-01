@@ -548,9 +548,6 @@ function parseNum(formatted: string): number {
  *  left-to-right inside an Arabic sentence (Trans supplies the children). */
 const LTR_SLOT = { ltr: <Ltr>{null}</Ltr> };
 
-/** Symbols drawn inside the amount field (others show only in the picker). */
-const INLINE_SYMBOLS = ["$", "€", "£"];
-
 interface PaymentLineRowProps {
   /** "payment" for the main lines, "counter-flow" for the opposite-direction
    *  section — the data-testid prefix each control already had. */
@@ -561,8 +558,6 @@ interface PaymentLineRowProps {
   amount: number;
   methods: PaymentMethod[];
   currencies: Currency[];
-  /** The currency's display symbol (from the `currencies` prop). */
-  symbol: string;
   /** "large" = the single-line form; "compact" = split and counter-flow. */
   size: "large" | "compact";
   accent: "violet" | "emerald";
@@ -592,7 +587,6 @@ function PaymentLineRow({
   amount,
   methods,
   currencies,
-  symbol,
   size,
   accent,
   onMethodChange,
@@ -610,7 +604,10 @@ function PaymentLineRow({
     accent === "emerald"
       ? "focus:border-emerald-500"
       : "focus:border-violet-500";
-  const showSymbol = INLINE_SYMBOLS.includes(symbol);
+  // The amount field carries "$" for a USD line only (owner 2026-11-01):
+  // LBP, EUR and every other currency show no sign — the currency is named
+  // right next to the field.
+  const showSymbol = currencyCode === "USD";
   const { t } = useTranslation("payment");
 
   return (
@@ -690,7 +687,7 @@ function PaymentLineRow({
           <span
             className={`absolute start-3 top-1/2 -translate-y-1/2 text-slate-500 ${large ? "text-sm" : "text-xs"}`}
           >
-            {symbol}
+            $
           </span>
         )}
         <DecimalInput
@@ -751,9 +748,7 @@ function AccountRateBox({
       data-testid={`${testId}-row`}
       className={`flex items-center justify-center gap-1.5 ${className}`}
     >
-      <span className="text-xs text-slate-500">
-        {t("accountRate.label")}
-      </span>
+      <span className="text-xs text-slate-500">{t("accountRate.label")}</span>
       <span className="text-xs text-slate-500">
         <Ltr>{t("accountRate.oneUnit", { currency: rate.currency })}</Ltr>
       </span>
@@ -2966,10 +2961,6 @@ export default function MultiPaymentInput({
             amount={line.amount}
             methods={counterFlowMethods}
             currencies={counterFlow.currencies ?? currencies}
-            symbol={
-              counterFlow.currencies?.find((c) => c.code === line.currencyCode)
-                ?.symbol ?? getSymbol(line.currencyCode)
-            }
             size={cf.isSplit ? "compact" : "large"}
             accent="emerald"
             currencyLocked={!!counterFlow.lockCurrency}
@@ -3103,6 +3094,16 @@ export default function MultiPaymentInput({
       </div>
     ) : null;
 
+  // The "1 USD = … LBP" rate matters only when USD and LBP meet: in what is
+  // owed or in any line, on either side (owner 2026-11-01).
+  const windowCurrencies = new Set<string>([
+    ...effectiveTotals.map((t) => t.currency),
+    ...paymentLines.map((l) => l.currencyCode),
+    ...(cfActive ? [cfCurrency, ...cf.lines.map((l) => l.currencyCode)] : []),
+  ]);
+  const mixesUsdAndLbp =
+    windowCurrencies.has("USD") && windowCurrencies.has("LBP");
+
   return (
     <div
       data-testid="multi-payment-input"
@@ -3132,26 +3133,32 @@ export default function MultiPaymentInput({
           </span>
         )}
 
-        {/* Exchange Rate — centred between title and Split button */}
+        {/* Exchange Rate — centred between title and Split button. Shown
+            only when the window mixes USD and LBP (owner 2026-11-01); the
+            empty div keeps the Split button on the right. */}
         <div className="flex flex-1 items-center justify-center gap-1.5">
-          <span className="text-xs text-slate-500">1 USD =</span>
-          <input
-            data-testid="payment-exchange-rate"
-            type="text"
-            inputMode="decimal"
-            value={fmtNum(customExchangeRate)}
-            onChange={(e) => {
-              rateTouchedRef.current = true;
-              const raw = e.target.value.replace(/,/g, "");
-              setCustomExchangeRate(raw);
-              const newRate = parseFloat(raw) || safeExchangeRate;
-              onRateChange?.(newRate);
-              onExchangeRateChange?.(newRate);
-            }}
-            className="w-24 bg-slate-900 border border-slate-600 rounded-lg px-2 py-1 text-white font-mono text-xs text-center focus:outline-none focus:border-violet-500 transition-colors"
-            placeholder={fmtNum(safeExchangeRate)}
-          />
-          <span className="text-xs text-slate-500">LBP</span>
+          {mixesUsdAndLbp && (
+            <>
+              <span className="text-xs text-slate-500">1 USD =</span>
+              <input
+                data-testid="payment-exchange-rate"
+                type="text"
+                inputMode="decimal"
+                value={fmtNum(customExchangeRate)}
+                onChange={(e) => {
+                  rateTouchedRef.current = true;
+                  const raw = e.target.value.replace(/,/g, "");
+                  setCustomExchangeRate(raw);
+                  const newRate = parseFloat(raw) || safeExchangeRate;
+                  onRateChange?.(newRate);
+                  onExchangeRateChange?.(newRate);
+                }}
+                className="w-24 bg-slate-900 border border-slate-600 rounded-lg px-2 py-1 text-white font-mono text-xs text-center focus:outline-none focus:border-violet-500 transition-colors"
+                placeholder={fmtNum(safeExchangeRate)}
+              />
+              <span className="text-xs text-slate-500">LBP</span>
+            </>
+          )}
         </div>
 
         {allowSplit && (
@@ -3231,7 +3238,6 @@ export default function MultiPaymentInput({
                     amount={line.amount}
                     methods={paymentMethods}
                     currencies={currencies}
-                    symbol={getSymbol(line.currencyCode)}
                     size="compact"
                     accent="violet"
                     onMethodChange={(v) =>
@@ -3317,7 +3323,6 @@ export default function MultiPaymentInput({
               amount={paymentLines[0]?.amount ?? 0}
               methods={paymentMethods}
               currencies={currencies}
-              symbol={getSymbol(paymentLines[0]?.currencyCode || currency)}
               size="large"
               accent="violet"
               onMethodChange={(v) =>

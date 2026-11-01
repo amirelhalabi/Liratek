@@ -145,14 +145,12 @@ test.describe("LIRA-105 — repayment prefill is rate-invariant for native-LBP d
     const amount = appPage.locator('[data-testid^="payment-amount-"]').first();
     await expect(amount).toHaveValue("600,000");
 
-    // THE GUARD — edit the rate 89,000 → 90,000. The debt is LBP paid in LBP:
-    // no currency boundary is crossed, so the prefill must not move. Pre-fix
-    // this re-derived through the USD scalar and showed exactly "606,742".
-    await appPage.getByTestId("payment-exchange-rate").fill("90000");
-    await expect(amount).toHaveValue("600,000");
-
-    // And back — still anchored to the native amount.
-    await appPage.getByTestId("payment-exchange-rate").fill("89000");
+    // THE GUARD — the debt is LBP paid in LBP: no currency boundary is
+    // crossed, so the prefill never moves. Pre-fix an edited rate re-derived
+    // it through the USD scalar ("606,742"). Since 2026-11-01 (owner) the
+    // "1 USD = … LBP" box is not even shown here — nothing mixes USD and
+    // LBP — so the rate cannot touch the prefill at all.
+    await expect(appPage.getByTestId("payment-exchange-rate")).toHaveCount(0);
     await expect(amount).toHaveValue("600,000");
 
     // Book it. The repayment must clear exactly the native LBP debt.

@@ -152,6 +152,8 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 💳 Payment window
 
+- The "$" sign inside a payment line's amount now shows only for dollars. Lira, euro and other currencies show no sign (a euro line used to read "$ 100").
+- The "1 USD = … LBP" rate box now appears only when the payment mixes dollars and lira — for example a dollar total paid in lira. When everything is in one currency it stays out of the way.
 - New optional **Note** box on every payment window where the customer pays you. The note shows in the transaction details, as a mark on the row on the Transactions page, and on the customer's Debts entry when part goes on the account. Editing it later updates both.
 - When a customer leaves their change and a client is picked, the change box now has a **Keep** button next to **Account**: keep the change as shop profit, or put it on the customer's account as before.
 - The change box is smaller: one line shows the change due and how you hand it back (cash, or OMT / Whish / Binance), the next has the $ and LBP fields with quick $, LBP and Account buttons, and the last line says where any change you don't hand back goes.
