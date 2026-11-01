@@ -264,6 +264,15 @@ function OmtWhishAppTransferFormInner({
   // to the API as `data.amount`) and totalAmount (the cash payout) diverge;
   // the shop keeps the entire fee as profit (LEFT_TO_DO.md 2026-07-04).
   const parsedAmount = parseFloat(amount || "0");
+  // LIRA-365 US2 (owner 2026-11-01): one Discount per screen, in the box
+  // where the customer pays. On a walk-in cash-out (RECEIVE, no session, not
+  // For Partner) that is the "Customer pays" box, so the fee Discount is not
+  // offered and counts as 0. Inside a session it counts as 0 too (LIRA-269).
+  const walkInCashOut =
+    serviceType === "RECEIVE" && !activeSession && !forPartner;
+  const feeDiscountOffered =
+    !walkInCashOut && !(serviceType === "RECEIVE" && !!activeSession);
+  const feeDiscount = activeSession || walkInCashOut ? 0 : discount;
   const {
     autoFee,
     providerFee,
@@ -284,7 +293,9 @@ function OmtWhishAppTransferFormInner({
     feeCollectedSeparately,
     // LIRA-269: no discount inside a session — the basket books none (the
     // cart item carries no payment fields), so the sheet offers none either.
-    discount: activeSession ? 0 : discount,
+    // LIRA-365: none on a walk-in cash-out either — its Discount lives in
+    // the "Customer pays" box there.
+    discount: feeDiscount,
   });
 
   // LIRA-321 (US3): on every RECEIVE the customer's side is its own
@@ -292,11 +303,7 @@ function OmtWhishAppTransferFormInner({
   // on Whish App with the fee paid over the counter, a Cash fee line. Not for
   // a partner transfer (no walk-in customer) or inside a session (the basket
   // checkout collects the payment); the server refuses both.
-  const showCustomerSection =
-    serviceType === "RECEIVE" &&
-    !activeSession &&
-    !forPartner &&
-    walletAmount > 0;
+  const showCustomerSection = walkInCashOut && walletAmount > 0;
   // The fee is one of the customer's lines only on Whish App (OMT App RECEIVE
   // takes no fee, D1 — the server refuses the flag there).
   const feeLineSeparate =
@@ -500,8 +507,9 @@ function OmtWhishAppTransferFormInner({
             customerPays,
           },
           includingFees,
-          // LIRA-329: the sheet's discount as typed (none in a session).
-          discount: activeSession ? 0 : discount,
+          // LIRA-329: the sheet's discount as typed (none in a session or
+          // on a walk-in cash-out — LIRA-365).
+          discount: feeDiscount,
           client: {
             id: resolvedClientId,
             name: serviceType === "SEND" ? finalSenderName : finalReceiverName,
@@ -1403,7 +1411,9 @@ function OmtWhishAppTransferFormInner({
           // LIRA-269: the discount comes off the shop's fee. On a RECEIVE
           // the payout target above already includes it (the sheet never
           // subtracts a discount from a payout); none inside a session.
-          showDiscount={!(serviceType === "RECEIVE" && !!activeSession)}
+          // LIRA-365: not on a walk-in cash-out (the Discount is in the
+          // "Customer pays" box there).
+          showDiscount={feeDiscountOffered}
           maxDiscount={shopProfit}
           onDiscountChange={setDiscount}
           {...(extraOffered ? { onExtraChange: setExtraCharge } : {})}

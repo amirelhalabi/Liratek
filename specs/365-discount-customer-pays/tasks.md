@@ -84,18 +84,19 @@
 
 **Independent test**: an exchange where the customer owes 9,000,000 LBP and types a 50,000 LBP discount. The payload carries `customer_waived_amount: 50000` as Forgive did; WAIVED_SHORTFALL is −50,000 LBP; a void nets 0.
 
-- [ ] T018 [P] [US2] Write a UI guard in `packages/ui/src/components/ui/__tests__/MultiPaymentInput.lira365CounterFlowDiscount.test.tsx`. With `counterFlow` and `maxForgive`, the box renders a `DiscountLine` (no `counter-flow-forgive` button). Typing an amount reports it as forgiven, clamped to `maxForgive`, and shows "Capped to max". The Waive button fills the whole gap in one tap. No Extra switch. Seen failing.
-- [ ] T019 [P] [US2] Write a core guard in `packages/core/src/repositories/__tests__/ExchangeRepository.lira365DiscountDetails.test.ts`. An exchange with `customer_waived_amount` 50,000 LBP stores `details.discount = {amount:50000,currency:"LBP"}`, books WAIVED_SHORTFALL −50,000, and a void nets 0. Seen failing on the details part.
-- [ ] T020 [US2] In `packages/ui/src/components/ui/MultiPaymentInput.tsx` (~2927-2945 and the counter-flow state in `useLinesSection`), replace the counter-flow Forgive toggle with a `DiscountLine` (`packages/ui/src/components/ui/DiscountLine.tsx`). It is labelled "Discount", placed under "Total Amount" like every other page, and its typed amount feeds `cf.state.forgiven`. Keep the `maxForgive` cap and the Waive one-tap fill. Update the en and ar labels. T018 must now pass.
-- [ ] T021 [US2] In `packages/core/src/repositories/ExchangeRepository.ts`, write `details.discount` from `customer_waived_amount` in `buildExchangeDetails` (~246). Do the same for the cash-out paths in `FinancialServiceRepository.ts` that book `customer_waived_amount` (~2991). T019 must now pass. Rebuild and sync core (as T013).
-- [ ] T022 [US2] Rewrite the tests that click `counter-flow-forgive` so they type into the Discount line instead, keeping the same booked amounts:
+- [x] T018 [P] [US2] Write a UI guard in `packages/ui/src/components/ui/__tests__/MultiPaymentInput.lira365CounterFlowDiscount.test.tsx`. With `counterFlow` and `maxForgive`, the box renders a `DiscountLine` (no `counter-flow-forgive` button). It shows "Total Amount", the Discount line and "After Discount". Typing an amount reports it as forgiven, clamped to `maxForgive`, and shows "Capped to max". A single line follows the discounted total. A line edit keeps the discount. No Waive button in this box (owner 2026-11-01), no Extra switch. Seen failing.
+- [x] T019 [P] [US2] Write a core guard in `packages/core/src/repositories/__tests__/ExchangeRepository.lira365DiscountDetails.test.ts`. An exchange with `customer_waived_amount` 50,000 LBP stores `details.discount = {amount:50000,currency:"LBP"}`, books WAIVED_SHORTFALL −50,000, and a void nets 0. Seen failing on the details part.
+- [x] T020 [US2] In `packages/ui/src/components/ui/MultiPaymentInput.tsx` (~2927-2945 and the counter-flow state in `useLinesSection`), replace the counter-flow Forgive toggle with a `DiscountLine` (`packages/ui/src/components/ui/DiscountLine.tsx`). It is labelled "Discount", placed under "Total Amount" like every other page, and its typed amount feeds `cf.state.forgiven`. Keep the `maxForgive` cap. No Waive button in this box (owner 2026-11-01). The hook (`useLinesSection.ts`) holds a typed discount instead of the Forgive toggle; every line-following path uses `totalAmount − discount`. Update the en and ar labels. T018 must now pass.
+- [x] T020a [US2] On walk-in cash-outs, hide the shop-pays fee Discount while the customer-pays box is shown (`OmtWhishAppTransferForm.tsx`, `CryptoForm.tsx`), and send no fee discount then. One Discount per screen (owner 2026-11-01).
+- [x] T021 [US2] In `packages/core/src/repositories/ExchangeRepository.ts`, write `details.discount` from `customer_waived_amount` in `buildExchangeDetails` (~246). Do the same for the cash-out paths in `FinancialServiceRepository.ts` that book `customer_waived_amount` (~2991). T019 must now pass. Rebuild and sync core (as T013).
+- [x] T022 [US2] Rewrite the tests that click `counter-flow-forgive` so they type into the Discount line instead, keeping the same booked amounts:
   - `frontend/src/features/recharge/components/__tests__/PaymentSheet.counterFlow.test.tsx`
   - `frontend/src/shared/components/__tests__/MultiPaymentInput.test.tsx`
   - `packages/ui/src/components/ui/__tests__/MultiPaymentInput.payloadLanguage.test.tsx`
   - `frontend/src/features/exchange/pages/Exchange/__tests__/Exchange.customerPays.test.tsx`
 
   Run each on its own path.
-- [ ] T023 [US2] Grep `frontend/tests/e2e-web` for `counter-flow-forgive` and update any web e2e spec that clicks it.
+- [x] T023 [US2] Grep `frontend/tests/e2e-web` for `counter-flow-forgive` and update any web e2e spec that clicks it.
 
 **Checkpoint**: US2 works on its own; US1 still passes.
 

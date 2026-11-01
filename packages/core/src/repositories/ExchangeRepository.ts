@@ -293,6 +293,16 @@ export function buildExchangeDetails(
     ...(data.tender_exchange_rate != null
       ? { payoutRate: data.tender_exchange_rate }
       : {}),
+    // LIRA-365 US2 — the Discount typed in the "Customer pays" box, booked
+    // as the WAIVED_SHORTFALL sibling; recorded here so the details show it.
+    ...((data.customer_waived_amount ?? 0) > 0
+      ? {
+          discount: {
+            amount: data.customer_waived_amount as number,
+            currency: data.fromCurrency,
+          },
+        }
+      : {}),
     ...(data.partnerMode === "FOR" && data.partnerId
       ? {
           partner: {

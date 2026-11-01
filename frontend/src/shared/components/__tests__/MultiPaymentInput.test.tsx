@@ -2129,7 +2129,9 @@ describe("MultiPaymentInput", () => {
         });
       });
 
-      it("(l) no client, shortfall within maxForgive: the hint offers to forgive", () => {
+      // LIRA-365 US2 (owner 2026-11-01): Forgive is gone — the box has the
+      // standard Discount line instead, so the hint only offers the client.
+      it("(l) no client, shortfall within maxForgive: the hint offers the client; no Forgive, a Discount line", () => {
         renderWithCounterFlow({
           counterFlowOnChange: jest.fn(),
           totalAmount: 50,
@@ -2142,9 +2144,12 @@ describe("MultiPaymentInput", () => {
         expect(
           screen.getByTestId("counter-flow-unaccounted"),
         ).toHaveTextContent(
-          /Still to settle: 3(\.00)? USD — pick a client to put it on their account, or forgive it$/,
+          /Still to settle: 3(\.00)? USD — pick a client to put it on their account$/,
         );
-        expect(screen.getByTestId("counter-flow-forgive")).toBeInTheDocument();
+        expect(
+          screen.queryByTestId("counter-flow-forgive"),
+        ).not.toBeInTheDocument();
+        expect(screen.getByTestId("counter-flow-discount")).toBeInTheDocument();
       });
 
       // Owner decision 2026-10-14: a caller that offers no account at all
@@ -2384,7 +2389,9 @@ describe("MultiPaymentInput", () => {
         return onStateChange;
       }
 
-      it("(i) a shortfall within maxForgive can be forgiven and is reported in `forgiven`", () => {
+      // LIRA-365 US2: the Discount line replaces the Forgive button; the
+      // typed discount is still reported as `forgiven`.
+      it("(i) a Discount within maxForgive closes the shortfall and is reported in `forgiven`", () => {
         const onStateChange = leaveShortfallOf2({ maxForgive: 5 });
         expect(lastState(onStateChange)).toMatchObject({
           paid: 3,
@@ -2392,7 +2399,9 @@ describe("MultiPaymentInput", () => {
           balanced: false,
           unaccounted: 2,
         });
-        fireEvent.click(screen.getByTestId("counter-flow-forgive"));
+        fireEvent.change(screen.getByTestId("counter-flow-discount-input"), {
+          target: { value: "2" },
+        });
         expect(lastState(onStateChange)).toMatchObject({
           paid: 3,
           forgiven: 2,
@@ -2401,11 +2410,19 @@ describe("MultiPaymentInput", () => {
         });
       });
 
-      it("(i) no Forgive control when the shortfall is above maxForgive", () => {
-        leaveShortfallOf2({ maxForgive: 1 });
-        expect(
-          screen.queryByTestId("counter-flow-forgive"),
-        ).not.toBeInTheDocument();
+      // A single line follows the discounted total, so the cashier's 3
+      // becomes 4 (5 − the capped 1) and the box balances.
+      it("(i) a Discount above maxForgive is held at the cap; the single line follows", () => {
+        const onStateChange = leaveShortfallOf2({ maxForgive: 1 });
+        fireEvent.change(screen.getByTestId("counter-flow-discount-input"), {
+          target: { value: "2" },
+        });
+        expect(screen.getByTestId("discount-cap-note")).toBeInTheDocument();
+        expect(lastState(onStateChange)).toMatchObject({
+          paid: 4,
+          forgiven: 1,
+          balanced: true,
+        });
       });
 
       it("(j) while short, 'Still to settle' shows the amount and onStateChange reports `unaccounted`", () => {
@@ -2517,7 +2534,7 @@ describe("MultiPaymentInput", () => {
         ).not.toBeInTheDocument();
       });
 
-      it("(n) payout footer: nothing owed → no owe line; forgiven → 'Forgiven' line", () => {
+      it("(n) payout footer: nothing owed → no owe line; a Discount → 'Discount' line", () => {
         renderWithCounterFlow({
           counterFlowOnChange: jest.fn(),
           payer: "payout",
@@ -2533,10 +2550,12 @@ describe("MultiPaymentInput", () => {
           screen.queryByTestId("counter-flow-summary-owed"),
         ).not.toBeInTheDocument();
         typeFirst("47");
-        fireEvent.click(screen.getByTestId("counter-flow-forgive"));
+        fireEvent.change(screen.getByTestId("counter-flow-discount-input"), {
+          target: { value: "3" },
+        });
         expect(
           screen.getByTestId("counter-flow-summary-forgiven"),
-        ).toHaveTextContent(/^Forgiven:\s*3 USD$/);
+        ).toHaveTextContent(/^Discount:\s*3 USD$/);
       });
 
       it("(n) money-in screens: the footer is unchanged (no customer-side lines)", () => {
@@ -2658,7 +2677,9 @@ describe("MultiPaymentInput", () => {
         );
       });
 
-      it("(o) split, no client, gap within maxForgive: the hint keeps the forgive wording", () => {
+      // LIRA-365 US2: no Forgive any more — the split hint is the same with
+      // or without a cap.
+      it("(o) split, no client, gap within maxForgive: the hint says pick a client or + Add line", () => {
         renderWithCounterFlow({
           counterFlowOnChange: jest.fn(),
           totalAmount: 105,
@@ -2671,7 +2692,7 @@ describe("MultiPaymentInput", () => {
         expect(
           screen.getByTestId("counter-flow-unaccounted"),
         ).toHaveTextContent(
-          /^Still to settle: 10(\.00)? USD — pick a client to put it on their account, or forgive it$/,
+          /^Still to settle: 10(\.00)? USD — pick a client to put it on their account, or press \+ Add line$/,
         );
       });
     });

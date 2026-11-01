@@ -1,5 +1,8 @@
 /**
  * LIRA-269 — OMT/Whish App RECEIVE payout sheet with a discount.
+ * LIRA-365 US2 (2026-11-01): on a WALK-IN cash-out that fee discount is
+ * gone (the Discount moved into the "Customer pays" box); the cases below
+ * now guard that. The history below is kept for context.
  *
  * The discount comes off the shop's fee, so the customer receives MORE. The
  * sheet's payout target, the fee to collect (customer-pays-separately) and
@@ -182,19 +185,26 @@ function renderReceive100(separately = false) {
   fireEvent.click(screen.getByRole("button", { name: /Proceed to Pay/i }));
 }
 
-describe("OmtWhishAppTransferForm — a RECEIVE discount raises what the customer receives", () => {
+// LIRA-365 US2 (owner 2026-11-01): one Discount per screen, in the box
+// where the customer pays. On a walk-in cash-out that is the "Customer pays"
+// box (its Discount is booked as `customer_waived_amount`), so the Shop pays
+// box offers no fee Discount any more — and a stray one would change
+// nothing. These two cases used to assert the LIRA-269 fee discount on a
+// walk-in cash-out; they now guard that it is gone.
+describe("OmtWhishAppTransferForm — a walk-in cash-out has no fee Discount (LIRA-365)", () => {
   beforeEach(() => {
     mockAddOMTTransaction.mockClear();
     delete mockSheet.last;
   });
 
-  it("Whish App $100 + $1 fee, $0.40 off → sheet pays out $100.40, books $0.60", async () => {
+  it("Whish App $100 + $1 fee: no fee Discount; a stray one changes neither payout nor commission", async () => {
     renderReceive100();
     await screen.findByTestId("stub-payment-sheet");
+    expect(mockSheet.last?.showDiscount).toBe(false);
     expect(mockSheet.last?.totalAmount).toBe(100);
 
     fireEvent.click(screen.getByTestId("stub-discount"));
-    expect(mockSheet.last?.totalAmount).toBeCloseTo(100.4, 9);
+    expect(mockSheet.last?.totalAmount).toBe(100);
 
     fireEvent.click(screen.getByTestId("stub-inject-payout"));
     fireEvent.click(screen.getByTestId("stub-confirm"));
@@ -203,29 +213,24 @@ describe("OmtWhishAppTransferForm — a RECEIVE discount raises what the custome
       mockAddOMTTransaction.mock.calls[0][0],
     );
     expect(parsed.amount).toBe(101);
-    expect(parsed.commission).toBeCloseTo(0.6, 9);
-    expect(parsed.payments?.[0]?.amount).toBeCloseTo(100.4, 9);
+    expect(parsed.commission).toBeCloseTo(1, 9);
+    expect(parsed.payments?.[0]?.amount).toBeCloseTo(100, 9);
+    expect(parsed.typedDiscount).toBeUndefined();
   });
 
-  // LIRA-321 (US3): the "Customer pays" section now holds the transfer line
-  // as well as the fee line, so its total is transfer + fee (it used to be
-  // the fee alone). The fee line itself still drops to $0.60.
-  it("customer pays the fee separately: payout stays $100, the fee line drops to $0.60", async () => {
+  it("customer pays the fee separately: the fee line stays $1 (the Discount is in Customer pays)", async () => {
     renderReceive100(true);
     await screen.findByTestId("stub-payment-sheet");
+    expect(mockSheet.last?.showDiscount).toBe(false);
+    expect(mockSheet.last?.counterFlow?.totalAmount).toBe(101);
+
+    fireEvent.click(screen.getByTestId("stub-discount"));
+    expect(mockSheet.last?.totalAmount).toBe(100);
     expect(mockSheet.last?.counterFlow?.totalAmount).toBe(101);
     expect(mockSheet.last?.counterFlow?.seedLines?.[1]).toEqual({
       method: "CASH",
       currencyCode: "USD",
       amount: 1,
     });
-
-    fireEvent.click(screen.getByTestId("stub-discount"));
-    expect(mockSheet.last?.totalAmount).toBe(100);
-    expect(mockSheet.last?.counterFlow?.totalAmount).toBeCloseTo(100.6, 9);
-    expect(mockSheet.last?.counterFlow?.seedLines?.[1]?.amount).toBeCloseTo(
-      0.6,
-      9,
-    );
   });
 });

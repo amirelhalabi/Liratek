@@ -858,7 +858,19 @@ function mobileCommonDetails(data: CreateFinancialServiceData): {
             currency: data.typedDiscount.currency,
           },
         }
-      : {}),
+      : (data.customer_waived_amount ?? 0) > 0
+        ? {
+            // LIRA-365 US2 — the Discount typed in a cash-out's "Customer
+            // pays" box (in the cash currency, as booked on the
+            // WAIVED_SHORTFALL sibling). The fee Discount is hidden while
+            // that box shows, so the two are never sent together.
+            discount: {
+              amount: data.customer_waived_amount as number,
+              currency:
+                data.provider === "BINANCE" ? "USD" : (data.currency ?? "USD"),
+            },
+          }
+        : {}),
     ...(data.paid_in_session ? { paid_in_session: data.paid_in_session } : {}),
   };
 }

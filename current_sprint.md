@@ -8306,6 +8306,17 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 - Typecheck and lint clean.
 - Still to do: the What's new card with a real screenshot (web e2e). US2 (customer-pays box) and US3 (vouchers) are not started.
 
+**Built 2026-11-01 (US2, the "Customer pays" box):**
+- Owner 2026-11-01: one word, "Discount", everywhere. The box shows Total Amount → Discount → After Discount, like the other forms. No Forgive or Waive button there, no Extra switch. "Discount in every IN box": on a walk-in cash-out the Shop pays fee Discount is hidden while Customer pays shows, so the screen has one Discount.
+- UI: `useLinesSection` holds a typed discount (held at `maxForgive`) instead of the Forgive toggle. Lines cover `total − discount`, a single line follows it, and line edits keep it. Still reported as `forgiven`, so `customer_waived_amount` and the WAIVED_SHORTFALL booking are unchanged.
+- Pages: the OMT/Whish App form and Binance (one shared `cryptoFeeDiscount` rule for the form and the payload) send no fee discount on a walk-in cash-out.
+- Core: `details.discount` is written from `customer_waived_amount` (Exchange, plus Whish App / OMT App / Binance cash-outs when no fee discount was typed).
+- Tests:
+  - Proven failing first: core `ExchangeRepository.lira365DiscountDetails` (5) and UI `MultiPaymentInput.lira365CounterFlowDiscount` (5).
+  - Rewritten to the new rule: the old Forgive cases and the walk-in cash-out fee-discount cases.
+  - No web e2e clicked Forgive.
+- Still to do: the What's new card with a real screenshot for US1 and US2. US3 (vouchers) and US4 are not started.
+
 
 **What users will notice:** a Discount line on the payment form for OMT/Whish sends and voucher sales, up to $5 / 450,000 LBP; on Exchange and the Whish App, OMT App and Binance cash-outs the Forgive button becomes the same Discount line.
 
@@ -8348,3 +8359,4 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 **Tests:** core `settlesByDay` LIRA-368 (6) — proven failing first. Frontend `Suppliers.tablesInModals` LIRA-368 (Katsh, iPick) — written after, not proven failing-first. Five Suppliers tests used Katsh as their example supplier for the Transactions window; they now use Alfa / MTC / Whish (same behaviour under test). Supplier + partner frontend tests: 327 pass.
 
 **What users will notice:** Katsh and iPick no longer show a Transactions button; their page keeps Settle Account, Payments and Commission Settlement.
+

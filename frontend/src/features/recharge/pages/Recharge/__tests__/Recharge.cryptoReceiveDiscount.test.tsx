@@ -1,6 +1,8 @@
 /**
  * LIRA-269 — Recharge page, Binance cash-out (crypto RECEIVE) with a
- * discount. The discount comes off the shop's fee: the payload books
+ * discount. LIRA-365 US2 (2026-11-01): on a walk-in cash-out that fee
+ * discount is gone (moved into the "Customer pays" box); the case below now
+ * guards that. History kept for context: The discount comes off the shop's fee: the payload books
  * `commission = fee − discount` (walletReceiveAmounts, the helper the
  * server pays out by) and the payout leg is the RAISED payout. Before the
  * fix the page never listened to the sheet's discount, so it booked the
@@ -207,29 +209,13 @@ beforeEach(() => {
   mockAddOMTTransaction.mockClear();
 });
 
-describe("Recharge page — Binance cash-out with a discount", () => {
-  it("books commission = fee − discount and pays out the raised amount", async () => {
-    await renderPage();
-    fireEvent.click(screen.getByTestId("crypto-receive-100-fee-2"));
-    fireEvent.click(screen.getByTestId("crypto-discount-0.5"));
-    fireEvent.click(screen.getByTestId("crypto-payout-100.5"));
-    fireEvent.click(screen.getByTestId("crypto-confirm"));
-
-    await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
-    const parsed = createFinancialServiceSchema.parse(
-      mockAddOMTTransaction.mock.calls[0][0],
-    );
-    expect(parsed.serviceType).toBe("RECEIVE");
-    // 100 USDT + $2 fee on top arrives in the wallet — unchanged by the discount.
-    expect(parsed.amount).toBe(102);
-    expect(parsed.commission).toBe(1.5);
-    expect(parsed.payments).toEqual([
-      expect.objectContaining({ currencyCode: "USD", amount: 100.5 }),
-    ]);
-    expect(parsed.kept_change_usd ?? 0).toBe(0);
-  });
-
-  it("kept change rides on top of the discount", async () => {
+// LIRA-365 US2 (owner 2026-11-01): one Discount per screen, in the box
+// where the customer pays. A walk-in Binance cash-out's Discount is now in
+// the "Customer pays" box (`customer_waived_amount`), so a fee Discount left
+// in page state must change nothing: these cases used to assert the
+// LIRA-269 fee discount and now guard that it is ignored.
+describe("Recharge page — a walk-in Binance cash-out ignores a fee Discount (LIRA-365)", () => {
+  it("books the full fee and no typed discount", async () => {
     await renderPage();
     fireEvent.click(screen.getByTestId("crypto-receive-100-fee-2"));
     fireEvent.click(screen.getByTestId("crypto-discount-0.5"));
@@ -240,7 +226,12 @@ describe("Recharge page — Binance cash-out with a discount", () => {
     const parsed = createFinancialServiceSchema.parse(
       mockAddOMTTransaction.mock.calls[0][0],
     );
-    expect(parsed.commission).toBe(1.5);
+    expect(parsed.serviceType).toBe("RECEIVE");
+    // 100 USDT + $2 fee on top arrives in the wallet.
+    expect(parsed.amount).toBe(102);
+    expect(parsed.commission).toBe(2);
+    expect(parsed.typedDiscount).toBeUndefined();
+    // Kept change still rides the payout (LIRA-334 unchanged).
     expect(parsed.kept_change_usd).toBe(0.5);
     expect(parsed.payments).toEqual([
       expect.objectContaining({ currencyCode: "USD", amount: 100 }),

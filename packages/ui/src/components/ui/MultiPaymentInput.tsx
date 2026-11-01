@@ -431,7 +431,8 @@ export interface MultiPaymentInputProps {
         /** Locks every line to `currency` (select disabled) and, on payout
          *  screens, titles the section "Customer pays — <CUR>". */
         lockCurrency?: boolean;
-        /** Largest shortfall the cashier may forgive (Forgive control). */
+        /** LIRA-365 — the cap on the box's Discount line (was Forgive).
+         *  Absent ⇒ the box shows no Discount line. */
         maxForgive?: number;
         /** The section's balance, reported whenever it changes. Pages gate
          *  Confirm on `overpaid || needsClient || !balanced`. */
@@ -938,7 +939,8 @@ export default function MultiPaymentInput({
   //
   // Entirely independent of the main payment-lines state above: never read
   // by totalPaid/hasDebt/PM-fee. LIRA-321: single/split, leftover line,
-  // Forgive and the balance report live in useLinesSection (research R1).
+  // the Discount (LIRA-365, was Forgive) and the balance report live in
+  // useLinesSection (research R1).
   //
   // CUSTOMER_ACCOUNT is removed from the counter-flow method list when the
   // caller's own validated charge predicate says no (requiresClient && no
@@ -2903,6 +2905,67 @@ export default function MultiPaymentInput({
           </button>
         )}
 
+        {/* LIRA-365 US2 (owner 2026-11-01) — the same Total / Discount /
+            After Discount rows as every other payment form, in place of
+            the old Forgive button. The Discount is booked as
+            `customer_waived_amount`, held at the page's cap. */}
+        {cf.discountOffered && (
+          <div className="pt-1 space-y-1.5">
+            <div
+              data-testid="counter-flow-total"
+              className="flex justify-between text-xs"
+            >
+              <span className="text-slate-400">{t("summary.totalAmount")}</span>
+              <span className="font-mono text-white">
+                <Ltr>{fmtCf(counterFlow.totalAmount)}</Ltr>
+              </span>
+            </div>
+            <DiscountLine
+              testId="counter-flow-discount"
+              label={t("summary.discount")}
+              capNote={
+                cf.discountCapped
+                  ? t("summary.cappedToMax", {
+                      amount: fmtCf(counterFlow.maxForgive ?? 0),
+                    })
+                  : undefined
+              }
+            >
+              <span className="text-[11px] text-emerald-400/60">
+                {cfCurrency}
+              </span>
+              <input
+                type="text"
+                inputMode="decimal"
+                data-testid="counter-flow-discount-input"
+                aria-label={t("summary.discount")}
+                value={cf.discountText}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(/,/g, "");
+                  if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
+                    cf.setDiscount(raw);
+                  }
+                }}
+                className={`${discountFieldClass(cf.discountCapped)} ps-2`}
+                placeholder="0"
+              />
+            </DiscountLine>
+            {cf.discount > 0 && (
+              <div
+                data-testid="counter-flow-after-discount"
+                className="flex justify-between text-xs pt-1 border-t border-emerald-700/20"
+              >
+                <span className="text-emerald-300 font-medium">
+                  {t("summary.afterDiscount")}
+                </span>
+                <span className="font-mono text-emerald-200 font-medium">
+                  <Ltr>{fmtCf(cf.target)}</Ltr>
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
         {cf.state.unaccounted > 0 && (
           <div
             data-testid="counter-flow-unaccounted"
@@ -2915,32 +2978,11 @@ export default function MultiPaymentInput({
             {!cf.accountOffered &&
               counterFlowAccountPossible &&
               t(
-                cf.canForgive
-                  ? "counterFlow.pickClientOrForgive"
-                  : cf.isSplit
-                    ? "counterFlow.pickClientOrAddLine"
-                    : "counterFlow.pickClient",
+                cf.isSplit
+                  ? "counterFlow.pickClientOrAddLine"
+                  : "counterFlow.pickClient",
               )}
           </div>
-        )}
-
-        {cf.canForgive && (
-          <button
-            type="button"
-            data-testid="counter-flow-forgive"
-            onClick={cf.toggleForgive}
-            className={`w-full py-1.5 rounded-xl text-xs font-medium border transition-all ${
-              cf.forgiveOn
-                ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
-                : "bg-slate-800 text-slate-300 border-slate-600 hover:text-slate-100 hover:border-slate-500"
-            }`}
-          >
-            {cf.forgiveOn
-              ? t("counterFlow.forgivenUndo", {
-                  amount: fmtCf(cf.state.forgiven),
-                })
-              : t("counterFlow.forgive", { amount: fmtCf(cf.shortfall) })}
-          </button>
         )}
 
         {cf.state.overpaid && (

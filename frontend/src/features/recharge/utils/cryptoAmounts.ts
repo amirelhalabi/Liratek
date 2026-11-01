@@ -96,3 +96,30 @@ export function cryptoAmounts({
     commission: cryptoType === "RECEIVE" ? receive.commission : send.commission,
   };
 }
+
+/**
+ * LIRA-365 US2 (owner 2026-11-01) — the fee Discount that counts on a
+ * Binance transfer. One Discount per screen, in the box where the customer
+ * pays: on a walk-in cash-out (RECEIVE, not For Partner) that is the
+ * "Customer pays" box, so the fee Discount counts as 0 there. Inside a
+ * session there is none (LIRA-269). The ONE rule the form (what the sheet
+ * offers and sizes) and the page (the payload) both use (rule 14).
+ */
+export function cryptoFeeDiscount({
+  cryptoType,
+  inSession,
+  forPartner,
+  discount,
+}: {
+  cryptoType: "SEND" | "RECEIVE";
+  inSession: boolean;
+  forPartner: boolean;
+  discount: number;
+}): { offered: boolean; discount: number } {
+  const walkInCashOut = cryptoType === "RECEIVE" && !inSession && !forPartner;
+  return {
+    // A session SEND still shows the line (it counts as 0), as before.
+    offered: !walkInCashOut && !(cryptoType === "RECEIVE" && inSession),
+    discount: inSession || walkInCashOut ? 0 : discount,
+  };
+}

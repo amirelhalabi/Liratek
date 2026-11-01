@@ -206,7 +206,7 @@ describe("PaymentSheet — counterFlow pass-through (BIDIRECTIONAL_PAYMENT_LEGS_
       expect(screen.getByText("Customer pays — USD")).toBeInTheDocument();
     });
 
-    it("forwards maxForgive — a small shortfall can be forgiven", () => {
+    it("forwards maxForgive — a small Discount closes the shortfall", () => {
       const onStateChange = jest.fn();
       renderSheet({
         counterFlow: {
@@ -227,7 +227,10 @@ describe("PaymentSheet — counterFlow pass-through (BIDIRECTIONAL_PAYMENT_LEGS_
         'button[title="Remove"]',
       );
       fireEvent.click(removes[removes.length - 1]);
-      fireEvent.click(screen.getByTestId("counter-flow-forgive"));
+      // LIRA-365 US2: the Discount line replaces the Forgive button.
+      fireEvent.change(screen.getByTestId("counter-flow-discount-input"), {
+        target: { value: "2" },
+      });
       expect(onStateChange.mock.calls.at(-1)?.[0]).toMatchObject({
         forgiven: 2,
         balanced: true,

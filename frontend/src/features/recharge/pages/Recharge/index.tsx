@@ -76,7 +76,7 @@ import type {
 } from "../../types";
 import { PROVIDER_CONFIGS } from "../../types";
 import { deriveSubmittedRechargeType } from "@/shared/utils/rechargeLabels";
-import { cryptoAmounts } from "../../utils/cryptoAmounts";
+import { cryptoAmounts, cryptoFeeDiscount } from "../../utils/cryptoAmounts";
 import { buildCryptoServiceFields } from "../../utils/cryptoServiceFields";
 import { toTelecomHistoryRow } from "../../utils/telecomHistoryRow";
 
@@ -1691,6 +1691,14 @@ export default function MobileRecharge() {
 
   const handleCryptoSubmit = useCallback(async () => {
     const fee = parseFloat(cryptoFee) || 0;
+    // LIRA-365: the same rule CryptoForm sized the sheet with. A partner
+    // Binance transfer never reaches this path (CryptoForm submits it).
+    const cryptoFeeDiscountCounted = cryptoFeeDiscount({
+      cryptoType,
+      inSession: !!activeSession,
+      forPartner: false,
+      discount: cryptoDiscount,
+    }).discount;
     // Fee-mode math + cash-out discount: the SAME helper CryptoForm sized
     // the sheet with (cryptoAmounts.ts). `amount` is the USDT that moves
     // (the gross wallet amount, fee toggles folded in); `commission` is the
@@ -1706,7 +1714,7 @@ export default function MobileRecharge() {
       fee,
       feeIncluded: cryptoFeeIncluded,
       feeCollectedSeparately: cryptoFeeCollectedSeparately,
-      discount: activeSession ? 0 : cryptoDiscount,
+      discount: cryptoFeeDiscountCounted,
     });
     // LIRA-329: who pays the fee (the SAME rule as the OMT/Whish App form,
     // core `transferFeePaidBy`) and the discount as typed — built ONCE for
@@ -1719,8 +1727,13 @@ export default function MobileRecharge() {
     });
     const cryptoDetailFields = {
       ...(cryptoFeePaidBy ? { feePaidBy: cryptoFeePaidBy } : {}),
-      ...(!activeSession && cryptoDiscount > 0
-        ? { typedDiscount: { amount: cryptoDiscount, currency: "USD" } }
+      ...(cryptoFeeDiscountCounted > 0
+        ? {
+            typedDiscount: {
+              amount: cryptoFeeDiscountCounted,
+              currency: "USD",
+            },
+          }
         : {}),
     };
     const isSplitPayment = cryptoPaymentLines.length > 1;

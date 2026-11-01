@@ -61,7 +61,7 @@ Commission later $1.50           Commission later $1.50 (unchanged)
 
 ### User Story 2 - Discount on Exchange (Priority: P2)
 
-The customer changes dollars to lira (or lira to dollars) and the cashier rounds the amount the customer hands over down a little. The "Forgive" button in the customer-pays box is replaced by the standard Discount line (the one POS and recharge use: under "Total Amount", a typed amount, "Capped to max" when over the cap). The same change applies to every payment form that shows that customer-pays box (the Whish App, OMT App and Binance cash-outs), so no form keeps a separate Forgive button.
+The customer changes dollars to lira (or lira to dollars) and the cashier rounds the amount the customer hands over down a little. The "Forgive" button in the customer-pays box is replaced by the standard Discount line (the one POS and recharge use: under "Total Amount", a typed amount, "Capped to max" when over the cap). The same change applies to every payment form that shows that customer-pays box (the Whish App, OMT App and Binance cash-outs), so no form keeps a separate Forgive button. On those cash-outs the Discount moves into the customer-pays box: the fee Discount in the shop-pays box is hidden while the customer-pays box is shown, so each screen has one Discount line (owner 2026-11-01).
 
 **Why this priority**: Common at the counter; the discount lowers the shop's profit on that exchange, so no extra booking is needed.
 
@@ -117,7 +117,7 @@ POS checkout already has a Discount line with no limit, and it keeps it. The $5 
 - **FR-003**: On an OMT or Whish system send, what is owed to OMT/Whish and the commission MUST NOT change. The discount MUST be recorded as a shop expense named "Discount given", in the currency of the send, on the same date as the send.
 - **FR-004**: On a voucher sale, the voucher MUST keep its full value. The discount MUST be recorded as a "Discount given" expense.
 - **FR-005**: On Exchange, the discount MUST lower the shop's profit for that day by exactly the discount, booked the way Forgive is booked today; no expense is recorded.
-- **FR-005a**: The customer-pays box (Exchange, Whish App, OMT App and Binance cash-outs) MUST show the standard Discount line in place of its Forgive button. The booking and cap are unchanged.
+- **FR-005a**: The customer-pays box (Exchange, Whish App, OMT App and Binance cash-outs) MUST show the standard Discount line (Total Amount, Discount, After Discount) in place of its Forgive button. The booking and cap are unchanged. On a walk-in cash-out the shop-pays box's fee Discount MUST be hidden while the customer-pays box is shown (one Discount per screen).
 - **FR-006**: The "Discount given" expense MUST show on the Expenses page. In the Transactions list it MUST be hidden by default, like other entries the system writes for the shop, and shown when filtering for expenses.
 - **FR-007**: Voiding or refunding a discounted send, exchange or voucher sale MUST undo the discount and cancel its "Discount given" expense, so every drawer and account nets to zero in each currency.
 - **FR-008**: Pages where the shop pays money out (expenses, supplier and partner payments, picking up held money, refunds, voucher cancel, payouts) and the settle sheets MUST stay without a discount.

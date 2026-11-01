@@ -149,7 +149,11 @@ const formatAmount = (val: number, currency: string) =>
 describe("OmtWhishAppTransferForm — Shop Profit line is net of discount", () => {
   beforeEach(() => mockAddOMTTransaction.mockClear());
 
-  it("shows $0.60 (not the gross $1.00) after a $0.40 discount, matching the booked commission", async () => {
+  // LIRA-365 US2 (owner 2026-11-01): a walk-in cash-out has no fee
+  // Discount any more (it moved into the "Customer pays" box), so a stray
+  // one must change neither the shown nor the booked profit. The guard
+  // stays the same: the figure shown is the figure booked.
+  it("walk-in cash-out: shows and books the full $1.00 even after a stray fee discount", async () => {
     render(
       <OmtWhishAppTransferForm
         activeProvider="WHISH_APP"
@@ -173,7 +177,7 @@ describe("OmtWhishAppTransferForm — Shop Profit line is net of discount", () =
 
     fireEvent.click(screen.getByTestId("stub-discount"));
     expect(screen.getByTestId("summary-Shop Profit")).toHaveTextContent(
-      "$0.60",
+      "$1.00",
     );
 
     // The displayed figure is the one that gets booked.
@@ -183,6 +187,6 @@ describe("OmtWhishAppTransferForm — Shop Profit line is net of discount", () =
     const payload = mockAddOMTTransaction.mock.calls[0][0] as {
       commission: number;
     };
-    expect(payload.commission).toBeCloseTo(0.6, 4);
+    expect(payload.commission).toBeCloseTo(1, 4);
   });
 });

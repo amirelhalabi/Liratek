@@ -324,7 +324,10 @@ describe("OmtWhishAppTransferForm — Customer pays (LIRA-321 US3)", () => {
     expect("feePayments" in payload).toBe(false);
   });
 
-  it("Whish App, fee separately with a discount: the fee line is the fee after the discount", async () => {
+  // LIRA-365 US2 (owner 2026-11-01): the Discount of a walk-in cash-out is
+  // in this box now, not on the fee — a stray fee discount changes nothing.
+  // (Used to assert the fee line dropping to the fee after the discount.)
+  it("Whish App, fee separately: a stray fee discount leaves the fee line and commission whole", async () => {
     renderForm("WHISH_APP");
     switchToReceive();
     typeAmount("100");
@@ -337,11 +340,11 @@ describe("OmtWhishAppTransferForm — Customer pays (LIRA-321 US3)", () => {
     await waitFor(() =>
       expect(globalThis.__cpCounterFlow!.seedLines).toEqual([
         { method: "WHISH", currencyCode: "USD", amount: 100 },
-        { method: "CASH", currencyCode: "USD", amount: 3 },
+        { method: "CASH", currencyCode: "USD", amount: 5 },
       ]),
     );
     const data = expectServerAccepts(await confirmAndCapture());
-    expect(data.commission).toBe(3);
+    expect(data.commission).toBe(5);
   });
 
   it("OMT App: one OMT-wallet line for the transfer, single mode, no fee flag", async () => {

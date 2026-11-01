@@ -3,8 +3,14 @@ import type { PaymentLine, PaymentMethod } from "./MultiPaymentInput";
 
 /**
  * LIRA-321 — the state of the "Customer pays" (money-in) section of the
- * payment box: single vs split mode, the lines, the leftover line, Forgive,
- * and the balance it reports to the page (contracts/payment-box.md).
+ * payment box: single vs split mode, the lines, the leftover line, the
+ * Discount, and the balance it reports to the page (contracts/payment-box.md).
+ *
+ * LIRA-365 US2 (owner 2026-11-01) — the old "Forgive" toggle is now a typed
+ * Discount, like every other payment form. It lowers what the lines must
+ * cover (`target = totalAmount − discount`) and is reported as `forgiven`
+ * (the page sends it as `customer_waived_amount`, booked as before). Line
+ * edits keep it; a reseed clears it.
  *
  * Kept apart from MultiPaymentInput's main ("Shop pays") lines on purpose:
  * those are bound to the discount, `allocatePayments` and the auto-debt
@@ -48,6 +54,8 @@ export interface UseLinesSectionOptions {
   /** The methods this section offers (already client-gated). */
   methods: PaymentMethod[];
   hasClient: boolean;
+  /** The largest Discount (in the section currency). Absent ⇒ no
+   *  Discount line. */
   maxForgive?: number;
   convert: (amount: number, from: string, to: string) => number;
   round: (amount: number, currency: string) => number;
@@ -95,7 +103,8 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
 
   const [lines, setLines] = useState<PaymentLine[]>([]);
   const [isSplit, setIsSplit] = useState(false);
-  const [forgiveOn, setForgiveOn] = useState(false);
+  /** LIRA-365 — the Discount as typed (raw text, so "0." survives). */
+  const [discountText, setDiscountText] = useState("");
   /** The cashier edited something — stop re-seeding from the props. */
   const touchedRef = useRef(false);
   /** The leftover line whose amount still follows the other lines. */
@@ -130,6 +139,20 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
   }, [enabled]);
 
   const tol = toleranceFor(currency);
+
+  // ── LIRA-365: the Discount ───────────────────────────────────────────────
+  const discountTyped = Math.max(0, parseFloat(discountText) || 0);
+  /** Held at the cap, and below the whole amount. */
+  const discountFor = (typed: number): number =>
+    maxForgive === undefined
+      ? 0
+      : roundReport(
+          Math.max(0, Math.min(typed, maxForgive, totalAmount)),
+          currency,
+        );
+  const discount = discountFor(discountTyped);
+  /** What the lines must cover. */
+  const target = totalAmount - discount;
   const accountOffered = methods.some((m) => m.code === ACCOUNT);
 
   const emit = (next: PaymentLine[]) => {
@@ -160,7 +183,7 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
       // when the page shows it again.
       touchedRef.current = false;
       clearTracking();
-      setForgiveOn(false);
+      setDiscountText("");
       setIsSplit(false);
       setLines((prev) => (prev.length === 0 ? prev : []));
       return;
@@ -184,6 +207,9 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
           lines[i].currencyCode === s.currencyCode &&
           lines[i].amount === s.amount,
       );
+    // A reseed starts again from the full amount: a discount left over
+    // from before would show the fresh lines as overpaid.
+    setDiscountText("");
     const next: PaymentLine[] = same
       ? lines
       : seeds.map((s, i) => ({
@@ -227,8 +253,7 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
     }
 
     if (lines.some((l) => l.method === ACCOUNT)) return;
-    if (forgiveOn && canForgive) return; // already settled by Forgive
-    const remaining = totalAmount - sumExcept(lines);
+    const remaining = target - sumExcept(lines);
     if (remaining <= tol) return;
     const id = crypto.randomUUID();
     followIdRef.current = id;
@@ -251,10 +276,13 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
 
   /** Keep the following leftover at what the other lines leave unpaid;
    *  drop it once nothing is left (and fold an auto split back). */
-  const syncLeftover = (ls: PaymentLine[]): PaymentLine[] => {
+  const syncLeftover = (
+    ls: PaymentLine[],
+    tgt: number = target,
+  ): PaymentLine[] => {
     const id = followIdRef.current;
     if (!id || !ls.some((l) => l.id === id)) return ls;
-    const remaining = totalAmount - sumExcept(ls, id);
+    const remaining = tgt - sumExcept(ls, id);
     if (remaining <= tol) {
       followIdRef.current = null;
       autoMethodIdsRef.current.delete(id);
@@ -285,7 +313,6 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
   ) => {
     if (!enabled) return;
     touchedRef.current = true;
-    setForgiveOn(false);
     if (id === followIdRef.current && field !== "method") {
       followIdRef.current = null; // the cashier owns this amount now
     }
@@ -309,7 +336,7 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
       // line — only when the account is offered. With no account there is
       // NO auto line (a cash one would balance on money never handed over);
       // the gap stays in `unaccounted` and Confirm stays off (US1.3).
-      const remaining = totalAmount - sumExcept(next);
+      const remaining = target - sumExcept(next);
       if (remaining > tol && accountOffered) {
         const leftoverId = crypto.randomUUID();
         followIdRef.current = leftoverId;
@@ -341,7 +368,7 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
         !followAlive &&
         !next.some((l) => l.method === ACCOUNT)
       ) {
-        const remaining = totalAmount - sumExcept(next);
+        const remaining = target - sumExcept(next);
         if (remaining > tol) {
           const leftoverId = crypto.randomUUID();
           followIdRef.current = leftoverId;
@@ -367,11 +394,10 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
   const addLine = () => {
     if (!enabled) return;
     touchedRef.current = true;
-    setForgiveOn(false);
     followIdRef.current = null;
     autoSplitRef.current = false;
     setIsSplit(true);
-    const remaining = Math.max(0, totalAmount - sumExcept(lines));
+    const remaining = Math.max(0, target - sumExcept(lines));
     // A "+ Add line" line is explicit: it keeps its method on client pick.
     const id = crypto.randomUUID();
     emit([
@@ -388,16 +414,41 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
   const removeLine = (id: string) => {
     if (!enabled || lines.length <= 1) return;
     touchedRef.current = true;
-    setForgiveOn(false);
     if (followIdRef.current === id) followIdRef.current = null;
     autoMethodIdsRef.current.delete(id);
     autoSplitRef.current = false;
     emit(lines.filter((l) => l.id !== id));
   };
 
+  /** LIRA-365 — the cashier typed a Discount. A single line follows the
+   *  new total; in split mode only the following leftover line does. Not an
+   *  edit of the lines: it never marks them touched. */
+  const setDiscount = (text: string) => {
+    if (!enabled) return;
+    setDiscountText(text);
+    if (lines.length === 0) return;
+    const nextTarget =
+      totalAmount - discountFor(Math.max(0, parseFloat(text) || 0));
+    let next: PaymentLine[];
+    if (!isSplit && lines.length === 1) {
+      const only = lines[0];
+      next = [
+        {
+          ...only,
+          amount: optsRef.current.round(
+            optsRef.current.convert(nextTarget, currency, only.currencyCode),
+            only.currencyCode,
+          ),
+        },
+      ];
+    } else {
+      next = syncLeftover(lines, nextTarget);
+    }
+    if (next !== lines) emit(next);
+  };
+
   const toggleSplit = () => {
     if (!enabled) return;
-    setForgiveOn(false);
     clearTracking();
     if (isSplit) {
       // Back to single: one line at the full amount, re-seedable again.
@@ -408,7 +459,7 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
           id: lines[0]?.id ?? crypto.randomUUID(),
           method: lines[0]?.method || "CASH",
           currencyCode: currency,
-          amount: totalAmount,
+          amount: target,
         },
       ]);
     } else {
@@ -425,15 +476,15 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
     if (l.method === ACCOUNT) owedRaw += v;
     else paidRaw += v;
   }
-  const gap = totalAmount - paidRaw - owedRaw;
+  const gap = target - paidRaw - owedRaw;
   const shortfall = gap > tol ? gap : 0;
   // LIRA-336 — added change: the cash/wallet lines alone go above the
   // target and no account line is involved (an account amount can never
   // raise a payout, and an account line above the target is an overpay).
   // Within the cap it is not an overpay; over it, it stays one.
   const addedRaw =
-    allowAddedChange && owedRaw <= tol && paidRaw - totalAmount > tol
-      ? paidRaw - totalAmount
+    allowAddedChange && owedRaw <= tol && paidRaw - target > tol
+      ? paidRaw - target
       : 0;
   const addedRounded = roundReport(addedRaw, currency);
   const addedAllowed =
@@ -441,14 +492,11 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
     (optsRef.current.isAddedChangeAllowed?.(addedRounded) ?? true);
   const addedOverCap = addedRaw > 0 && !addedAllowed;
   const overpaid = -gap > tol && !addedAllowed;
-  const canForgive =
-    shortfall > 0 && maxForgive !== undefined && shortfall <= maxForgive + tol;
-  const forgivenRaw = forgiveOn && canForgive ? shortfall : 0;
-  const unaccountedRaw = shortfall - forgivenRaw;
+  const unaccountedRaw = shortfall;
   const state: LinesSectionState = {
     paid: roundReport(paidRaw, currency),
     owedToAccount: roundReport(owedRaw, currency),
-    forgiven: roundReport(forgivenRaw, currency),
+    forgiven: discount,
     balanced: !overpaid && unaccountedRaw === 0,
     overpaid,
     needsClient:
@@ -484,10 +532,17 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
     accountOffered,
     /** LIRA-336 — the customer added change above the cap. */
     addedOverCap,
-    shortfall: roundReport(shortfall, currency),
-    canForgive,
-    forgiveOn: forgiveOn && canForgive,
-    toggleForgive: () => setForgiveOn((v) => !v),
+    /** LIRA-365 — a Discount line is offered (the page set a cap). */
+    discountOffered: maxForgive !== undefined,
+    /** The Discount field's text, as typed. */
+    discountText,
+    /** The Discount as counted (held at the cap). */
+    discount,
+    /** The typed Discount is above the cap (show "Capped to max"). */
+    discountCapped: maxForgive !== undefined && discountTyped > maxForgive,
+    /** What the lines must cover after the Discount. */
+    target: roundReport(target, currency),
+    setDiscount,
     toggleSplit,
     addLine,
     removeLine,

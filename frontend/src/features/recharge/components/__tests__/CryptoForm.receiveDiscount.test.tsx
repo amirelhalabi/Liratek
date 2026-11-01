@@ -178,34 +178,35 @@ function Harness({
   );
 }
 
-describe("CryptoForm — a discount on the cash-out raises what the customer receives", () => {
+// LIRA-365 US2 (owner 2026-11-01): one Discount per screen, in the box
+// where the customer pays. On a walk-in cash-out that is the "Customer
+// pays" box, so the Shop pays box offers no fee Discount and a stray one
+// changes nothing. (These used to assert the LIRA-269 fee discount.)
+describe("CryptoForm — a walk-in cash-out has no fee Discount (LIRA-365)", () => {
   beforeEach(() => {
     delete mockSheetProps.last;
     mockActiveSession = null;
     onDiscountChangeSpy.mockClear();
   });
 
-  it("fee on top: 100 USDT + $2 fee, $0.50 off → the sheet pays out $100.50", () => {
+  it("fee on top: 100 USDT + $2 fee — no fee Discount; a stray one keeps the payout at $100", () => {
     render(<Harness />);
+    expect(mockSheetProps.last?.showDiscount).toBe(false);
     expect(mockSheetProps.last?.totalAmount).toBe(100);
-    expect(mockSheetProps.last?.maxDiscount).toBe(2);
     act(() => mockSheetProps.last?.onDiscountChange?.(0.5));
-    expect(mockSheetProps.last?.totalAmount).toBe(100.5);
-    expect(onDiscountChangeSpy).toHaveBeenLastCalledWith(0.5);
+    expect(mockSheetProps.last?.totalAmount).toBe(100);
   });
 
-  // LIRA-321 (US4): the "Customer pays" section now holds the USDT line AND
-  // the fee line, so its total is USDT + fee; the discount still shrinks
-  // only the fee line.
-  it("customer pays the fee separately: payout stays $100, the fee line drops to $1.50", () => {
+  it("customer pays the fee separately: the fee line stays $2 (the Discount is in Customer pays)", () => {
     render(<Harness separately />);
+    expect(mockSheetProps.last?.showDiscount).toBe(false);
     expect(mockSheetProps.last?.counterFlow?.totalAmount).toBe(102);
     act(() => mockSheetProps.last?.onDiscountChange?.(0.5));
     expect(mockSheetProps.last?.totalAmount).toBe(100);
-    expect(mockSheetProps.last?.counterFlow?.totalAmount).toBe(101.5);
+    expect(mockSheetProps.last?.counterFlow?.totalAmount).toBe(102);
     expect(mockSheetProps.last?.counterFlow?.seedLines).toEqual([
       { method: "BINANCE", currencyCode: "USDT", amount: 100 },
-      { method: "CASH", currencyCode: "USD", amount: 1.5 },
+      { method: "CASH", currencyCode: "USD", amount: 2 },
     ]);
   });
 

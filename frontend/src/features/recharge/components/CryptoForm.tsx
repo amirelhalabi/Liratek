@@ -29,7 +29,7 @@ import {
 import { useForPartnerOffInSession } from "@/features/partners/hooks/useForPartnerOffInSession";
 import logger from "@/utils/logger";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
-import { cryptoAmounts } from "../utils/cryptoAmounts";
+import { cryptoAmounts, cryptoFeeDiscount } from "../utils/cryptoAmounts";
 import { SHORTFALL_MAX } from "@liratek/core";
 
 interface CryptoFormProps {
@@ -240,6 +240,14 @@ export function CryptoForm({
   // Fee-mode math + the cash-out discount: one helper shared with the
   // page's submit payload (see cryptoAmounts.ts). No discount inside a
   // customer session — the basket books none, so the sheet offers none.
+  // LIRA-365: none on a walk-in cash-out (its Discount is in the
+  // "Customer pays" box) or in a session.
+  const feeDiscount = cryptoFeeDiscount({
+    cryptoType,
+    inSession: !!activeSession,
+    forPartner,
+    discount,
+  });
   const {
     sendUsdt,
     sendTotal,
@@ -254,9 +262,8 @@ export function CryptoForm({
     fee,
     feeIncluded,
     feeCollectedSeparately,
-    discount: activeSession ? 0 : discount,
+    discount: feeDiscount.discount,
   });
-  const receiveDiscountOffered = !activeSession;
 
   // LIRA-321 (US4): on a walk-in cash-out the customer's side is its own
   // "Customer pays" section — the USDT line (Binance) plus, when the fee is
@@ -900,7 +907,7 @@ export function CryptoForm({
           // LIRA-269: on a cash-out the discount comes off the shop's fee
           // and `payout` above already includes it (a payout sheet never
           // subtracts a discount itself).
-          showDiscount={cryptoType !== "RECEIVE" || receiveDiscountOffered}
+          showDiscount={feeDiscount.offered}
           maxDiscount={fee}
           onDiscountChange={(d) => {
             setDiscount(d);

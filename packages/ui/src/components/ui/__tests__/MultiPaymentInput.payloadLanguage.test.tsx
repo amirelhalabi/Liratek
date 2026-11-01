@@ -294,7 +294,7 @@ const SCENARIOS: Record<string, Scenario> = {
     type(amountInputs()[0], "101");
   },
 
-  "payout with counter-flow: customer pays part, forgives the rest": ({
+  "payout with counter-flow: customer pays part, a Discount covers the rest": ({
     props,
     rec,
   }) => {
@@ -324,8 +324,8 @@ const SCENARIOS: Record<string, Scenario> = {
       '[data-testid^="counter-flow-amount-"]',
     )!;
     type(cfAmount, "3");
-    const forgive = screen.queryByTestId("counter-flow-forgive");
-    if (forgive) fireEvent.click(forgive);
+    // LIRA-365 US2: the Discount line replaces the Forgive button.
+    type(screen.getByTestId("counter-flow-discount-input"), "2");
   },
 
   "per-currency totals (OMT settle): LBP overpaid, USD short": ({ props }) => {
