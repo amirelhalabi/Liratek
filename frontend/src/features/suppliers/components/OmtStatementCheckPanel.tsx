@@ -2,7 +2,6 @@ import { useId, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { formatNumber } from "@liratek/ui/i18n/format";
-import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import { addDaysToDateString, type OmtCoveredType } from "@liratek/core";
 import { useFormat } from "@/i18n/useFormat";
 import { localDay } from "@/shared/utils/localDay";
@@ -31,11 +30,13 @@ import {
  * for the full design (why no sign flip, why ALL commission types/models
  * count, and the D17 nuance).
  *
- * Display only — nothing here is booked or saved server-side. The two SMS
- * inputs persist to localStorage (behind try/catch, per-account key) purely
- * as a convenience so a reload doesn't lose what the operator just typed;
- * that storage is per-browser/per-device and is never read back by the app
- * for any other purpose (CLAUDE.md's browser-storage rule).
+ * Display only — nothing here is booked or saved server-side.
+ *
+ * LIRA-370 (owner 2026-11-03) — read-only: the OMT SMS figure is typed on
+ * Settle Account, which works the commission out from it. This panel no
+ * longer has SMS boxes or an "Off by" line. Its expected figure includes the
+ * shares OMT still owes us from earlier settlements (of the ticked types),
+ * computed by the same core formula the settle sheet uses (rule 14).
  *
  * LIRA-256 — OMT's SMS may cover only some commission types ("INCLUDES
  * INTRA SHARES"). The operator ticks the covered types; the read then
@@ -53,47 +54,6 @@ import {
 
 const DIFF_EPS_USD = 0.01;
 const DIFF_EPS_LBP = 1;
-
-function storageKey(accountSupplierId: number): string {
-  return `liratek:omt-statement-check:${accountSupplierId}`;
-}
-
-function loadSavedInputs(accountSupplierId: number): {
-  usd: string;
-  lbp: string;
-} {
-  try {
-    const raw = window.localStorage.getItem(storageKey(accountSupplierId));
-    if (!raw) return { usd: "", lbp: "" };
-    const parsed = JSON.parse(raw) as { usd?: string; lbp?: string };
-    return { usd: parsed.usd ?? "", lbp: parsed.lbp ?? "" };
-  } catch {
-    return { usd: "", lbp: "" };
-  }
-}
-
-function saveInputs(accountSupplierId: number, usd: string, lbp: string) {
-  try {
-    window.localStorage.setItem(
-      storageKey(accountSupplierId),
-      JSON.stringify({ usd, lbp }),
-    );
-  } catch {
-    // Best-effort only — a private window / blocked storage must not break
-    // the panel (CLAUDE.md's browser-storage rule).
-  }
-}
-
-/** Parses an operator-typed SMS figure — digits, one optional leading `-`,
- *  thousands separators and a decimal point. Returns `null` for an empty or
- *  unparsable string (shown as "—", not a false 0 vs 0 match). */
-function parseSmsFigure(raw: string): number | null {
-  const trimmed = normalizeDigits(raw).trim();
-  if (trimmed === "" || trimmed === "-") return null;
-  const cleaned = trimmed.replace(/,/g, "");
-  const n = Number(cleaned);
-  return Number.isFinite(n) ? n : null;
-}
 
 function formatUsd(n: number): string {
   const sign = n < 0 ? "-" : "";
@@ -123,46 +83,6 @@ function formatLeftOut(usd: number, lbp: number): string {
 function dayAsLocalDate(day: string): Date {
   const [y, m, d] = day.split("-").map(Number);
   return new Date(y, m - 1, d);
-}
-
-function DiffBadge({
-  diff,
-  eps,
-  format,
-}: {
-  diff: number | null;
-  eps: number;
-  format: (n: number) => string;
-}) {
-  const { t } = useTranslation("suppliers");
-  if (diff === null) {
-    return (
-      <span className="text-slate-500 text-xs">
-        {t("statement.typeSmsFigure")}
-      </span>
-    );
-  }
-  const matches = Math.abs(diff) <= eps;
-  return (
-    <span
-      data-testid="omt-statement-diff-badge"
-      className={`text-xs font-semibold ${
-        matches ? "text-emerald-400" : "text-amber-400"
-      }`}
-    >
-      {matches ? (
-        t("statement.matches")
-      ) : (
-        <Trans
-          t={t}
-          i18nKey="statement.offBy"
-          values={{ money: format(diff) }}
-          // The same element <Ltr> renders: amounts keep their sign on the left.
-          components={{ ltr: <bdi dir="ltr" /> }}
-        />
-      )}
-    </span>
-  );
 }
 
 export function OmtStatementCheckPanel({
@@ -196,20 +116,6 @@ export function OmtStatementCheckPanel({
     upToDay,
   );
 
-  // Lazy-initialized from localStorage (never in an effect — a synchronous
-  // setState-in-effect on mount is exactly the cascading-render pattern
-  // rule 25's neighbourhood warns about). `accountSupplierId` is read once,
-  // on first render of this component instance; a different account parent
-  // mounts a NEW instance (React remounts on a changed `key`/conditional
-  // branch, same as every other per-account panel on this page), so this
-  // never shows a stale account's leftover typed values.
-  const [smsUsdInput, setSmsUsdInput] = useState(
-    () => loadSavedInputs(accountSupplierId).usd,
-  );
-  const [smsLbpInput, setSmsLbpInput] = useState(
-    () => loadSavedInputs(accountSupplierId).lbp,
-  );
-
   const statement = statementQuery.data;
   // Falls back to the account card's own gross figures while the dedicated
   // read is loading/unavailable, so the top line never flashes 0 first.
@@ -220,10 +126,14 @@ export function OmtStatementCheckPanel({
   const expectedUsd = statement?.expected_usd ?? grossUsd - commissionUsd;
   const expectedLbp = statement?.expected_lbp ?? grossLbp - commissionLbp;
 
-  const smsUsd = parseSmsFigure(smsUsdInput);
-  const smsLbp = parseSmsFigure(smsLbpInput);
-  const diffUsd = smsUsd === null ? null : smsUsd - expectedUsd;
-  const diffLbp = smsLbp === null ? null : smsLbp - expectedLbp;
+  // LIRA-370 — of the commission: shares OMT still owes us from earlier
+  // settlements (ticked types).
+  const sharesUsd = statement?.owed_shares_usd ?? 0;
+  const sharesLbp = statement?.owed_shares_lbp ?? 0;
+  const sharesParts = [
+    ...(Math.abs(sharesUsd) >= DIFF_EPS_USD / 2 ? [formatUsd(sharesUsd)] : []),
+    ...(Math.abs(sharesLbp) >= DIFF_EPS_LBP / 2 ? [formatLbp(sharesLbp)] : []),
+  ];
   const leftOut = formatLeftOut(
     statement?.after_day_usd ?? 0,
     statement?.after_day_lbp ?? 0,
@@ -346,50 +256,21 @@ export function OmtStatementCheckPanel({
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 pt-1">
-        <div>
-          <label className="block text-[11px] text-slate-400 mb-1">
-            {t("statement.smsUsd")}
-          </label>
-          <input
-            data-testid="omt-statement-sms-usd-input"
-            type="text"
-            inputMode="decimal"
-            placeholder="-1,160.99"
-            value={smsUsdInput}
-            onChange={(e) => {
-              const v = e.target.value;
-              setSmsUsdInput(v);
-              saveInputs(accountSupplierId, v, smsLbpInput);
-            }}
-            className="w-full px-2 py-1.5 rounded bg-slate-800 border border-slate-700 text-white text-sm font-mono"
+      {sharesParts.length > 0 && (
+        <div
+          data-testid="omt-statement-owed-shares"
+          className="text-[11px] text-indigo-300"
+        >
+          <Trans
+            t={t}
+            i18nKey="statement.owedShares"
+            values={{ amounts: sharesParts.join(" · ") }}
+            components={{ ltr: <bdi dir="ltr" /> }}
           />
-          <div className="mt-1">
-            <DiffBadge diff={diffUsd} eps={DIFF_EPS_USD} format={formatUsd} />
-          </div>
         </div>
-        <div>
-          <label className="block text-[11px] text-slate-400 mb-1">
-            {t("statement.smsLbp")}
-          </label>
-          <input
-            data-testid="omt-statement-sms-lbp-input"
-            type="text"
-            inputMode="decimal"
-            placeholder="11,584,062"
-            value={smsLbpInput}
-            onChange={(e) => {
-              const v = e.target.value;
-              setSmsLbpInput(v);
-              saveInputs(accountSupplierId, smsUsdInput, v);
-            }}
-            className="w-full px-2 py-1.5 rounded bg-slate-800 border border-slate-700 text-white text-sm font-mono"
-          />
-          <div className="mt-1">
-            <DiffBadge diff={diffLbp} eps={DIFF_EPS_LBP} format={formatLbp} />
-          </div>
-        </div>
-      </div>
+      )}
+
+      <p className="text-[11px] text-slate-500">{t("statement.typeOnSettle")}</p>
     </div>
   );
 }

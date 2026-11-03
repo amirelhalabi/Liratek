@@ -630,6 +630,9 @@ describe("SupplierRepository.getAccountExpectedStatement() — LIRA-255", () => 
       // sanctioned edit to a pre-existing assertion; every value unchanged).
       covered_omt_service_types: null,
       commission_by_type: [],
+      // LIRA-370 — the shares OMT still owes us, always present (additive).
+      owed_shares_usd: 0,
+      owed_shares_lbp: 0,
     });
   });
 });

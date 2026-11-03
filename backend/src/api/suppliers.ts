@@ -362,6 +362,25 @@ router.get("/:id/account-unsettled", requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/suppliers/:id/account-owed-shares — LIRA-370: the shares OMT
+// still owes the shop on this account (mirrors suppliers:account-owed-shares).
+router.get("/:id/account-owed-shares", requireAuth, async (req, res) => {
+  try {
+    const accountSupplierId = parseInt(req.params.id, 10);
+    if (isNaN(accountSupplierId)) {
+      res.status(400).json({ success: false, error: "Invalid supplier ID" });
+      return;
+    }
+    const shares = supplierService.getAccountOwedShares(accountSupplierId);
+    res.json({ success: true, shares });
+  } catch (error) {
+    logger.error({ error }, "Get supplier account owed shares error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to get account owed shares" });
+  }
+});
+
 // GET /api/suppliers/:id/account-month-rows?month=YYYY-MM — LIRA-343
 // (contracts/calendar-reads.md §1): every account row whose shop day falls
 // in the month, settled or not, for the settle calendar (mirrors

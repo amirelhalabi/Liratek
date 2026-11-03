@@ -8,6 +8,7 @@ import {
   billsStayOnTickList,
   showsTransactionsWindow,
   calendarTakesCommission,
+  commissionCoversOwed,
   isSettleStaleMessage,
   settleStaleMessage,
   settlesByDay,
@@ -139,5 +140,24 @@ describe("showsTransactionsWindow (LIRA-368)", () => {
     [null, true],
   ] as const)("%s → %s", (provider, expected) => {
     expect(showsTransactionsWindow(provider)).toBe(expected);
+  });
+});
+
+/**
+ * LIRA-370 (owner 2026-11-03) — on the OMT account the settlement
+ * commission closes transfers together with the money (one settlement per
+ * SMS). Every other calendar supplier keeps the credit model (Whish) or
+ * has no commission. Failing-first (rule 17).
+ */
+describe("commissionCoversOwed (LIRA-370)", () => {
+  it.each([
+    ["OMT account parent", { provider: "OMT", is_system: 1, is_account_member: true }, true],
+    ["OMT account member (iPick)", { provider: "iPick", is_system: 1, is_account_member: true }, true],
+    ["Whish", { provider: "WHISH", is_system: 0, is_account_member: false }, false],
+    ["Katsh", { provider: "Katsh", is_system: 1, is_account_member: false }, false],
+    ["Loto", { provider: "LOTO", is_system: 1, is_account_member: false }, false],
+    ["product supplier", { provider: null, is_system: 0, is_account_member: false }, false],
+  ] as const)("%s → %s", (_label, s, expected) => {
+    expect(commissionCoversOwed({ ...base, ...s })).toBe(expected);
   });
 });

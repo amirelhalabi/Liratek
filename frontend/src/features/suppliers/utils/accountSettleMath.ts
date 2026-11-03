@@ -23,6 +23,7 @@ import {
   allocateAccountSettlement,
   compareAccountSettleRows,
   isOmtRowCovered,
+  smsCommissionWeight,
   type AccountSettleAllocResult,
   type OmtCoveredType,
 } from "@liratek/core";
@@ -165,8 +166,21 @@ export interface SectionAccountCredits {
   creditUsed: number;
 }
 
-function toAllocRow(r: AccountUnsettledRow, currency: SettleCurrency) {
+/** LIRA-370 — settling the OMT account from the SMS amount: the commission
+ *  closes rows (the server's `commission_covers`), split over the ticked
+ *  types' transfers; `split` is the part left after owed shares. */
+export interface SectionSmsMode {
+  coveredTypes: OmtCoveredType[] | undefined;
+  split: number;
+}
+
+function toAllocRow(
+  r: AccountUnsettledRow,
+  currency: SettleCurrency,
+  sms?: SectionSmsMode,
+) {
   return {
+    ...(sms ? smsCommissionWeight(r, currency, sms.coveredTypes) : {}),
     kind: r.kind,
     id: r.id,
     member_supplier_id: r.supplier_id,
@@ -190,11 +204,14 @@ export function allocateSection(
   direction: SettleDirection,
   money: SectionMoney,
   account?: SectionAccountCredits,
+  sms?: SectionSmsMode,
 ): AccountSettleAllocResult {
   const dirSign = direction === "PAY" ? 1 : -1;
   return allocateAccountSettlement({
     currency,
-    rows: rowsInCurrency(rows, currency).map((r) => toAllocRow(r, currency)),
+    rows: rowsInCurrency(rows, currency).map((r) => toAllocRow(r, currency, sms)),
+    // LIRA-370 — the SMS nets the whole credit (the server's `whole_credit`).
+    ...(sms ? { commission_covers: true, commission_split: sms.split, whole_credit: true } : {}),
     paid: dirSign * (money.inSame - money.outSame),
     commission: money.commission,
     waive: 0,
@@ -202,7 +219,7 @@ export function allocateSection(
     ...(account
       ? {
           account_credits: rowsInCurrency(account.rows, currency).map((r) =>
-            toAllocRow(r, currency),
+            toAllocRow(r, currency, sms),
           ),
           credit_used: account.creditUsed,
         }

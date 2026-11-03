@@ -4282,6 +4282,9 @@ export default function SuppliersPage() {
         <AccountSettleSheet
           account={settlingAccount}
           showStatementTypes={settlingAccount.omtAccount}
+          // LIRA-370 — the OMT account settles from OMT's SMS amount
+          // (`commissionCoversOwed`: the OMT account and its members).
+          settlesFromSms={settlingAccount.omtAccount}
           convertsCurrency={settlingAccount.convertsCurrency}
           showCommission={settlingAccount.takesCommission}
           onClose={() => setSettlingAccount(null)}

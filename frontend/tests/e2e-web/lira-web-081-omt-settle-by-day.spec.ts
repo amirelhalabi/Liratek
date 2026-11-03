@@ -31,6 +31,7 @@
  * every money check is a delta. Rule 30: saves
  * `frontend/public/whats-new/1.35.0/omt-settle-calendar.png` (landscape).
  */
+import { smsAtGross } from "./helpers/omtSmsSettle";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -432,11 +433,13 @@ test("lira-web-081 OMT settle by day: open days on the calendar, unpick one, set
   // The OMT credit, BEFORE reading the box (it re-fills the box).
   for (const c of ["usd", "lbp"]) {
     const input = sheet.getByTestId(`supplier-account-settle-credit-${c}`);
-    if (await input.count()) {
+    // LIRA-370 — settling from the SMS, all credit is used (read-only).
+    if ((await input.count()) && !(await input.getAttribute("readonly"))) {
       await input.fill("0");
       await expect(input).toHaveValue("0");
     }
   }
+  await smsAtGross(sheet);
 
   // ── 3. The pre-filled payment: what DAY_NEW nets to, $ only ────────────
   const usd = sheet.getByTestId("supplier-account-settle-section-usd");

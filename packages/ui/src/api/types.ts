@@ -724,6 +724,13 @@ export type AccountUnsettledRow = {
   relief_origin?: "UNDO" | "VOID" | null;
   /** LIRA-343 T037 — `"#<reversed transaction id>"`, or null. */
   relief_ref?: string | null;
+  /** LIRA-370 — FINANCIAL_SERVICE rows: the creation-time commission
+   *  estimate, and how much of it earlier settlements already booked or
+   *  left owed by OMT. Optional for older fixtures; read `?? 0`. */
+  expected_commission_usd?: number;
+  expected_commission_lbp?: number;
+  commission_accounted_usd?: number;
+  commission_accounted_lbp?: number;
   /** Settle table ("See transactions") — display only. FINANCIAL_SERVICE
    *  rows: first non-empty customer / sender / receiver name, reference
    *  number, phone number, note; LEDGER rows: the note only. */
@@ -731,6 +738,20 @@ export type AccountUnsettledRow = {
   reference?: string | null;
   phone?: string | null;
   note?: string | null;
+};
+
+/** LIRA-370 — one share OMT still owes the shop. Mirrors `@liratek/core`'s
+ *  `AccountOwedShare` verbatim (rule 14). */
+export type AccountOwedShare = {
+  id: number;
+  financial_service_id: number;
+  omt_service_type: string;
+  currency: "USD" | "LBP";
+  amount: number;
+  created_settlement_txn_id: number;
+  created_at: string;
+  service_type: string;
+  provider: string;
 };
 
 /** LIRA-343 — one settlement's active coverage on a row (one entry per
@@ -769,6 +790,10 @@ export type AccountExpectedStatement = {
    *  every other member's pending row). */
   unsettled_commission_usd: number;
   unsettled_commission_lbp: number;
+  /** LIRA-370 — of the unsettled commission: shares OMT still owes us of
+   *  the ticked types. Optional for older fixtures; read `?? 0`. */
+  owed_shares_usd?: number;
+  owed_shares_lbp?: number;
   /** gross_owed − unsettled_commission, in OMT's own sign convention
    *  (minus = OMT owes the shop, plus = the shop owes OMT). */
   expected_usd: number;
@@ -2059,6 +2084,11 @@ export type ApiAdapter = {
   getSupplierAccountUnsettled: (
     accountSupplierId: number,
   ) => Promise<AccountUnsettledRow[]>;
+  /** LIRA-370 — the shares OMT still owes the shop on this account, oldest
+   *  first. Raw rows array (a read). */
+  getSupplierAccountOwedShares: (
+    accountSupplierId: number,
+  ) => Promise<AccountOwedShare[]>;
   /** LIRA-343 — every account row whose shop day is in `month` (YYYY-MM),
    *  settled or not: feeds the settle calendar. Raw rows array. */
   getSupplierAccountMonthRows: (

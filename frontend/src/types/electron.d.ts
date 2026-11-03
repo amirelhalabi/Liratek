@@ -30,6 +30,7 @@ import type {
   // from @liratek/ui: tsconfig.playwright.json includes this file and has
   // no JSX, which the @liratek/ui barrel needs.
   AccountUnsettledRow,
+  AccountOwedShare,
   UnitWarrantyDisplay,
   DailyStatsSnapshot,
   DailyStatsSnapshotQuery,
@@ -1968,6 +1969,10 @@ export interface ElectronAPI {
     getAccountUnsettled: (
       accountSupplierId: number,
     ) => Promise<AccountUnsettledRow[]>;
+    /** LIRA-370 — the shares OMT still owes the shop on this account. */
+    getAccountOwedShares: (
+      accountSupplierId: number,
+    ) => Promise<AccountOwedShare[]>;
     /** LIRA-343 — every account row whose shop day is in `month`. */
     getAccountMonthRows: (
       accountSupplierId: number,

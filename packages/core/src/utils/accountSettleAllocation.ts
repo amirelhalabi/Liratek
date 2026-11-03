@@ -31,12 +31,24 @@
  * credits, then up to `credit_used` of account credit (PAYMENT). Account
  * credit never makes extra. Absent/empty = LIRA-322 output, unchanged.
  *
- * The commission is NEVER a coverage source (owner decision 2026-10-15,
- * replacing FR-013a: "Pay the amount in full; don't let the commission
- * amount affect the payment leg amount. After the payment is processed, the
- * commission amount is credited to the supplier account."). Only money and
- * a waive close rows; the repository books the commission as an open credit
- * on the account, which nets first at the next settlement.
+ * The commission is NOT a coverage source by default (owner decision
+ * 2026-10-15, replacing FR-013a: "Pay the amount in full; don't let the
+ * commission amount affect the payment leg amount. After the payment is
+ * processed, the commission amount is credited to the supplier account.").
+ * Only money and a waive close rows; the repository books the commission as
+ * an open credit on the account, which nets first at the next settlement.
+ * Whish keeps this.
+ *
+ * LIRA-370 (owner 2026-11-03, the OMT account: `commission_covers`): the
+ * cashier types OMT's SMS amount and the commission is worked out from it,
+ * so it DOES close rows, after the waive and before the money (source
+ * COMMISSION), and one settlement closes every picked day. Its profit split
+ * goes over the in-scope commission-model-1 transfers of the ticked types
+ * (`commission_estimate` > 0), closed or not — OMT deducted their
+ * commission whatever the money closes, so a later settlement never counts
+ * it again: each gets its outstanding estimate, the extra (or shortfall) in
+ * proportion to those estimates (research R2/R3). Credit rows (receives)
+ * take commission too.
  *
  * Order: `created_at` compared as a STRING (never `new Date()` — rule 27;
  * matches SQL `ORDER BY created_at`), then kind (FINANCIAL_SERVICE before
@@ -77,6 +89,11 @@ export interface AccountSettleAllocRow {
   commission_model1: boolean;
   /** Deferred commission recognised if this credit closes. */
   cashout_commission: number;
+  /** LIRA-370 — outstanding commission estimate when its type is ticked
+   *  (0 when not), magnitude. Read only with `commission_covers`. */
+  commission_estimate?: number;
+  /** LIRA-370 — the row's type is one the SMS includes (absent = yes). */
+  commission_ticked?: boolean;
 }
 
 export interface AccountSettleAllocInput {
@@ -90,6 +107,12 @@ export interface AccountSettleAllocInput {
   commission: number;
   /** ≥ 0. Takes the sign of what is owed after netting. */
   waive: number;
+  /** LIRA-370 — the commission closes rows (OMT account). Absent/false =
+   *  today's behaviour, byte-identical. */
+  commission_covers?: boolean;
+  /** LIRA-370 — of `commission`, the part split as profit over the rows
+   *  (the rest collects owed shares). Absent = all of it. */
+  commission_split?: number;
   /** 0.005 USD, 0.5 LBP. */
   eps: number;
   /**
@@ -104,6 +127,12 @@ export interface AccountSettleAllocInput {
    * currency (magnitude, ≥ 0, default 0). The payment never moves it
    * (owner 2026-10-26, "I want to be in control").
    */
+  /**
+   * LIRA-370 — settling the OMT account from the SMS: `credit_used` may be
+   * the whole credit even when it is more than the debts; the rest is
+   * taken by the money received (OMT pays). Absent = capped as before.
+   */
+  whole_credit?: boolean;
   credit_used?: number;
 }
 
@@ -330,8 +359,12 @@ export function allocateAccountSettlement(
     (s, i) => s + Math.max(0, -rem[i]),
     0,
   );
+  // LIRA-370 (owner 2026-11-03): OMT's SMS nets the WHOLE credit
+  // (`whole_credit`), so a credit bigger than the debts is usable: it
+  // closes the debts and OMT pays the rest (the money received, step 2).
+  const wholeCredit = input.whole_credit === true;
   const creditCap =
-    direction_from_rows === "PAY"
+    direction_from_rows === "PAY" && !wholeCredit
       ? Math.min(owedAfterNetting, creditPoolMinor)
       : creditPoolMinor;
   const credit_used_too_high = creditUsedMinor > creditCap;
@@ -344,8 +377,21 @@ export function allocateAccountSettlement(
     !credit_used_too_high &&
     creditUsedMinor > 0
   ) {
-    accountCreditAppliedMinor = net(scopeIdx, acctCreditIdx, creditUsedMinor);
+    accountCreditAppliedMinor = net(
+      scopeIdx,
+      acctCreditIdx,
+      Math.min(creditUsedMinor, owedAfterNetting),
+    );
   }
+  // Credit left for the money received to take (LIRA-370: what is left of
+  // a credit bigger than the debts; otherwise the whole `credit_used` when
+  // OMT pays, as before).
+  const creditForMoneyMinor =
+    direction_from_rows === "PAY"
+      ? wholeCredit
+        ? creditUsedMinor - accountCreditAppliedMinor
+        : 0
+      : creditUsedMinor;
 
   const paidMinor = toMinor(input.paid);
   const waiveSign =
@@ -358,8 +404,15 @@ export function allocateAccountSettlement(
           : 1;
   const commissionMinor = Math.abs(toMinor(input.commission));
   const waiveMinor = Math.abs(toMinor(input.waive)) * waiveSign;
-  // The commission is not money and covers nothing (owner 2026-10-15).
-  const budget = paidMinor + waiveMinor;
+  // The commission is not money and covers nothing (owner 2026-10-15),
+  // except on the OMT account (LIRA-370). There, in OMT's sign, money +
+  // commission = what is owed, in both directions: we pay 762.30 + 14.20 =
+  // 776.50; OMT pays us −249.70 + 26.20 = −223.50. So it always counts +:
+  // when the shop pays it closes debts with the money; when OMT pays it
+  // absorbs the part of the money that is our commission (never extra).
+  const covers = input.commission_covers === true;
+  const commissionCoverMinor = covers ? commissionMinor : 0;
+  const budget = paidMinor + waiveMinor + commissionCoverMinor;
 
   let applied = 0;
   if (budget !== 0) {
@@ -377,12 +430,7 @@ export function allocateAccountSettlement(
     // OMT pays (money received): after every day credit, up to
     // `credit_used` of account credit, oldest first, as PAYMENT. If the
     // money runs out first, less than `credit_used` is applied.
-    if (
-      sign < 0 &&
-      direction_from_rows !== "PAY" &&
-      !credit_used_too_high &&
-      creditUsedMinor > 0
-    ) {
+    if (sign < 0 && !credit_used_too_high && creditForMoneyMinor > 0) {
       const leftOver =
         Math.abs(budget) - budgetTakes.reduce((s, t) => s + t.take, 0);
       const creditTakes = allocateFifo(
@@ -390,21 +438,27 @@ export function allocateAccountSettlement(
           id: i,
           outstanding: Math.max(0, -rem[i]),
         })),
-        Math.min(leftOver, creditUsedMinor),
+        Math.min(leftOver, creditForMoneyMinor),
         0.5,
       );
-      accountCreditAppliedMinor = creditTakes.reduce((s, t) => s + t.take, 0);
+      accountCreditAppliedMinor += creditTakes.reduce((s, t) => s + t.take, 0);
       budgetTakes.push(...creditTakes);
     }
-    // Tag each take: waive first, then money.
+    // Tag each take: waive first, then (LIRA-370) commission, then money.
     let waiveLeft = Math.max(0, waiveMinor * sign);
+    // Only on the paying side is the commission a coverage source.
+    let commissionLeft = sign > 0 ? commissionCoverMinor : 0;
     for (const t of budgetTakes) {
       const i = Number(t.id);
       let left = t.take;
       const fromWaive = Math.min(left, waiveLeft);
       waiveLeft -= fromWaive;
       left -= fromWaive;
+      const fromCommission = Math.min(left, commissionLeft);
+      commissionLeft -= fromCommission;
+      left -= fromCommission;
       record(i, "WAIVE", fromWaive);
+      record(i, "COMMISSION", fromCommission);
       record(i, "PAYMENT", left);
       applied += t.take;
     }
@@ -455,7 +509,57 @@ export function allocateAccountSettlement(
   // ── 4. Commission over closed model-1 rows ────────────────────────────
   let commission_alloc: Array<{ id: number; amount: number }> = [];
   let commission_without_closed_model1 = false;
-  if (commissionMinor > 0) {
+  const splitMinor =
+    covers && input.commission_split !== undefined
+      ? Math.abs(toMinor(input.commission_split))
+      : commissionMinor;
+  if (covers && commissionMinor > 0 && splitMinor === 0) {
+    // LIRA-370: all of it collects owed shares; nothing to split over rows.
+  } else if (splitMinor > 0 && covers) {
+    // LIRA-370 (R2/R3): every in-scope transfer of a ticked type, closed or
+    // not, credit rows included; estimates first, the rest pro rata.
+    const model1 = indices.filter(
+      (i) =>
+        i < nRows &&
+        all[i].commission_model1 &&
+        orig[i] !== 0 &&
+        all[i].commission_ticked !== false,
+    );
+    const est = new Map(
+      model1.map((i) => [i, Math.abs(toMinor(all[i].commission_estimate ?? 0))]),
+    );
+    const ticked = model1.filter((i) => (est.get(i) ?? 0) > 0);
+    const sumEst = ticked.reduce((s, i) => s + (est.get(i) ?? 0), 0);
+    if (ticked.length === 0 && model1.length === 0) {
+      commission_without_closed_model1 = true;
+    } else {
+      const amounts = new Map<number, number>();
+      const spread = (pool: number[], weight: (i: number) => number, total: number) => {
+        if (total <= 0) return;
+        for (const sh of allocateProportional(
+          pool.map((i) => ({ id: i, weight: weight(i) })),
+          total,
+          1,
+        )) {
+          const i = Number(sh.id);
+          amounts.set(i, (amounts.get(i) ?? 0) + sh.amount);
+        }
+      };
+      if (ticked.length === 0) {
+        // Pure extra with no estimate anywhere: by what each transfer owed.
+        spread(model1, (i) => Math.abs(orig[i]), splitMinor);
+      } else if (splitMinor <= sumEst) {
+        spread(ticked, (i) => est.get(i) ?? 0, splitMinor);
+      } else {
+        for (const i of ticked) amounts.set(i, est.get(i) ?? 0);
+        spread(ticked, (i) => est.get(i) ?? 0, splitMinor - sumEst);
+      }
+      commission_alloc = [...amounts.entries()]
+        .filter(([, m]) => m > 0)
+        .sort((a, b) => a[0] - b[0])
+        .map(([i, m]) => ({ id: all[i].id, amount: fromMinor(m) }));
+    }
+  } else if (commissionMinor > 0) {
     const eligible = all
       .map((r, i) => ({ r, i }))
       .filter(

@@ -1003,6 +1003,29 @@ CREATE TABLE IF NOT EXISTS supplier_settlement_coverage (
 CREATE INDEX IF NOT EXISTS idx_ssc_row ON supplier_settlement_coverage(tenant_id, row_kind, row_id, is_reversed);
 CREATE INDEX IF NOT EXISTS idx_ssc_transaction ON supplier_settlement_coverage(tenant_id, transaction_id);
 
+-- LIRA-370 (v229): shares OMT still owes us. A transfer of a commission type
+-- the settling SMS did not include still closes; its commission waits here
+-- (no profit) until a later settlement whose SMS includes the type clears it.
+-- amount is a snapshot "as at settlement".
+CREATE TABLE IF NOT EXISTS omt_owed_shares (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+    financial_service_id INTEGER NOT NULL REFERENCES financial_services(id),
+    omt_service_type TEXT NOT NULL,
+    currency TEXT NOT NULL CHECK(currency IN ('USD', 'LBP')),
+    amount REAL NOT NULL CHECK(amount > 0),
+    created_settlement_txn_id INTEGER NOT NULL REFERENCES transactions(id),
+    created_anchor_ledger_id INTEGER NOT NULL REFERENCES supplier_ledger(id),
+    cleared_settlement_txn_id INTEGER REFERENCES transactions(id),
+    cleared_anchor_ledger_id INTEGER REFERENCES supplier_ledger(id),
+    is_reversed INTEGER NOT NULL DEFAULT 0 CHECK(is_reversed IN (0, 1)),
+    relief_ledger_id INTEGER REFERENCES supplier_ledger(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_omt_owed_shares_live ON omt_owed_shares(tenant_id, is_reversed, cleared_settlement_txn_id);
+CREATE INDEX IF NOT EXISTS idx_omt_owed_shares_fs ON omt_owed_shares(tenant_id, financial_service_id);
+
 -- Supplier Purchases (delivery batches for FIFO payment coverage)
 CREATE TABLE IF NOT EXISTS supplier_purchases (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3309,4 +3332,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (227, 'custom_services_insurance_renewal'),
     -- v228 (LIRA-364) adds kpi_snapshots + kpi_snapshot_values and
     -- tenant_subscriptions.enabled_features, declared above.
-    (228, 'kpi_snapshots');
+    (228, 'kpi_snapshots'),
+    -- v229 (LIRA-370) adds omt_owed_shares, declared above.
+    (229, 'omt_owed_shares');

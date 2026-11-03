@@ -734,6 +734,9 @@ contextBridge.exposeInMainWorld("api", {
       ),
     getAccountUnsettled: (accountSupplierId: number) =>
       ipcRenderer.invoke("suppliers:account-unsettled", accountSupplierId),
+    // LIRA-370 — the shares OMT still owes the shop on this account.
+    getAccountOwedShares: (accountSupplierId: number) =>
+      ipcRenderer.invoke("suppliers:account-owed-shares", accountSupplierId),
     // LIRA-343 — every account row whose shop day is in `month` (YYYY-MM),
     // settled or not (settle calendar). Raw rows array, no role gate.
     getAccountMonthRows: (

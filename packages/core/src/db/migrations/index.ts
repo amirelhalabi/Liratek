@@ -15271,6 +15271,42 @@ DROP TABLE IF EXISTS kpi_snapshots;`);
       }
     },
   },
+  {
+    version: 229,
+    name: "omt_owed_shares",
+    description:
+      "LIRA-370: shares OMT still owes us. When an OMT settlement's SMS " +
+      "includes only some commission types, the transfers of the other " +
+      "types still close and each one's commission is kept here as owed " +
+      "by OMT (no profit yet) until a later settlement whose SMS includes " +
+      "that type clears it. amount is a snapshot taken at settlement time.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`CREATE TABLE IF NOT EXISTS omt_owed_shares (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+    financial_service_id INTEGER NOT NULL REFERENCES financial_services(id),
+    omt_service_type TEXT NOT NULL,
+    currency TEXT NOT NULL CHECK(currency IN ('USD', 'LBP')),
+    amount REAL NOT NULL CHECK(amount > 0),
+    created_settlement_txn_id INTEGER NOT NULL REFERENCES transactions(id),
+    created_anchor_ledger_id INTEGER NOT NULL REFERENCES supplier_ledger(id),
+    cleared_settlement_txn_id INTEGER REFERENCES transactions(id),
+    cleared_anchor_ledger_id INTEGER REFERENCES supplier_ledger(id),
+    is_reversed INTEGER NOT NULL DEFAULT 0 CHECK(is_reversed IN (0, 1)),
+    relief_ledger_id INTEGER REFERENCES supplier_ledger(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_omt_owed_shares_live ON omt_owed_shares(tenant_id, is_reversed, cleared_settlement_txn_id);
+CREATE INDEX IF NOT EXISTS idx_omt_owed_shares_fs ON omt_owed_shares(tenant_id, financial_service_id);`);
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP INDEX IF EXISTS idx_omt_owed_shares_fs;
+DROP INDEX IF EXISTS idx_omt_owed_shares_live;
+DROP TABLE IF EXISTS omt_owed_shares;`);
+    },
+  },
 ];
 
 /** v227 — the custom_services columns LIRA-360 adds (fixed names, no input). */

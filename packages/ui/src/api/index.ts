@@ -39,6 +39,7 @@ export type {
   AccountExpectedStatement,
   AccountLedgerEntry,
   AccountUnsettledRow,
+  AccountOwedShare,
   AccountDayDetailRow,
   AccountDaySettlement,
   CommissionsReport,

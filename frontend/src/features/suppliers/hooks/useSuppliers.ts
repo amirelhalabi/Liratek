@@ -80,6 +80,9 @@ export const SUPPLIER_KEYS = {
     ["supplier-account-ledger", accountSupplierId] as const,
   accountUnsettled: (accountSupplierId: number) =>
     ["supplier-account-unsettled", accountSupplierId] as const,
+  // LIRA-370 — shares OMT still owes us on the account.
+  accountOwedShares: (accountSupplierId: number) =>
+    ["supplier-account-owed-shares", accountSupplierId] as const,
   // LIRA-343 — the settle calendar's month read (every account row whose
   // shop day is in the month, settled or not).
   accountMonthRows: (accountSupplierId: number, month: string) =>
@@ -111,6 +114,7 @@ function invalidateAccountQueries(
   queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.accountBalances });
   queryClient.invalidateQueries({ queryKey: ["supplier-account-ledger"] });
   queryClient.invalidateQueries({ queryKey: ["supplier-account-unsettled"] });
+  queryClient.invalidateQueries({ queryKey: ["supplier-account-owed-shares"] });
   // LIRA-343 — the settle calendar repaints after any account change.
   queryClient.invalidateQueries({ queryKey: ["supplier-account-month-rows"] });
   queryClient.invalidateQueries({ queryKey: ["supplier-account-day-detail"] });
@@ -259,6 +263,21 @@ export function useSupplierAccountUnsettledQuery(
       api.getSupplierAccountUnsettled(accountSupplierId!) as Promise<
         AccountUnsettledRow[]
       >,
+    enabled: !!accountSupplierId,
+    refetchOnMount: options?.refetchOnMount ?? true,
+  });
+}
+
+/** LIRA-370 — the shares OMT still owes us on this account (the settle
+ *  sheet and the statement panel). Disabled without an account id. */
+export function useSupplierAccountOwedSharesQuery(
+  accountSupplierId: number | null,
+  options?: { refetchOnMount?: boolean | "always" },
+) {
+  const api = useApi();
+  return useQuery({
+    queryKey: SUPPLIER_KEYS.accountOwedShares(accountSupplierId ?? 0),
+    queryFn: () => api.getSupplierAccountOwedShares(accountSupplierId!),
     enabled: !!accountSupplierId,
     refetchOnMount: options?.refetchOnMount ?? true,
   });

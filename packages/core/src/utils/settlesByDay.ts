@@ -69,6 +69,19 @@ export function calendarTakesCommission(s: SettlesByDayInput): boolean {
 }
 
 /**
+ * LIRA-370 (owner 2026-11-03) — does the settlement commission close
+ * transfers together with the money? True for the OMT account: the cashier
+ * types the amount on OMT's SMS, the commission is worked out from it and
+ * one settlement closes every picked day. Reverses, for the OMT account
+ * only, the 2026-10-15 rule "the commission never changes what the money
+ * covers"; Whish keeps it (its commission becomes a credit). The ONE rule
+ * for the sheet and the server.
+ */
+export function commissionCoversOwed(s: SettlesByDayInput): boolean {
+  return settlesByDay(s) && s.is_account_member;
+}
+
+/**
  * LIRA-359 (owner decision 2026-10-29) — may a settle box of this supplier
  * be paid in the other currency (converted at the box rate)? Every
  * calendar supplier except the OMT account: OMT is always given exact USD

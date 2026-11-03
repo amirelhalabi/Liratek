@@ -67,6 +67,8 @@ const mockApi = {
   getSupplierAccountBalances: jest.fn(),
   getSupplierAccountLedger: jest.fn(),
   getSupplierAccountUnsettled: jest.fn(),
+  // LIRA-370 — the OMT sheet reads the shares OMT still owes us.
+  getSupplierAccountOwedShares: jest.fn(async () => []),
   getSupplierAccountMonthRows: jest.fn(),
   getSupplierAccountExpectedStatement: jest.fn(),
   getSupplierProductBalances: jest.fn(),
@@ -666,7 +668,10 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
-    name: "Settle Account — USD only, $497 + $0.70 commission, typed note",
+    // LIRA-370 (rule 24) — the OMT sheet settles from the SMS amount: the
+    // commission is worked out from it (owed $497 − SMS $496.30 = $0.70),
+    // never typed. Was "$497 + $0.70 commission" (the typed field is gone).
+    name: "Settle Account — USD only, SMS $496.30 (commission $0.70), typed note",
     write: "settleSupplierAccount",
     setup: () => {
       mockApi.getSuppliers.mockResolvedValue([ACCOUNT_PARENT, ACCOUNT_CHILD]);
@@ -682,9 +687,12 @@ const SCENARIOS: Scenario[] = [
       const usd = await within(sheet).findByTestId(
         "supplier-account-settle-section-usd",
       );
+      expect(
+        within(usd).queryByTestId("supplier-account-settle-commission-usd"),
+      ).toBeNull();
       type(
-        within(usd).getByTestId("supplier-account-settle-commission-usd"),
-        "0.70",
+        within(usd).getByTestId("supplier-account-settle-sms-usd"),
+        "496.30",
       );
       type(
         within(sheet).getByTestId("supplier-account-settle-note"),
@@ -699,14 +707,17 @@ const SCENARIOS: Scenario[] = [
     check: (calls) => {
       const p = accountPayload(calls);
       expect(p.per_currency?.USD?.payments).toEqual([
-        { method: "CASH", currency_code: "USD", amount: 497 },
+        { method: "CASH", currency_code: "USD", amount: 496.3 },
       ]);
+      expect(p.per_currency?.USD?.sms_amount).toBe(496.3);
       expect(p.per_currency?.USD?.commission).toBeCloseTo(0.7, 2);
       expect(p.note).toBe("Statement 12");
     },
   },
   {
-    name: "Settle Account — USD + LBP in one box, LBP commission",
+    // LIRA-370 (rule 24) — LBP commission from the LBP SMS figure
+    // (900,000 − 890,000 = 10,000); was a typed LBP commission.
+    name: "Settle Account — USD + LBP in one box, LBP SMS (commission 10,000)",
     write: "settleSupplierAccount",
     setup: () => {
       mockApi.getSuppliers.mockResolvedValue([ACCOUNT_PARENT, ACCOUNT_CHILD]);
@@ -722,8 +733,8 @@ const SCENARIOS: Scenario[] = [
         "supplier-account-settle-section-usd-lbp",
       );
       type(
-        within(box).getByTestId("supplier-account-settle-commission-lbp"),
-        "10000",
+        within(box).getByTestId("supplier-account-settle-sms-lbp"),
+        "890000",
       );
       const submit = within(sheet).getByTestId(
         "supplier-account-settle-submit",
@@ -735,8 +746,9 @@ const SCENARIOS: Scenario[] = [
       const p = accountPayload(calls);
       expect(p.per_currency?.USD?.direction).toBe("PAY");
       expect(p.per_currency?.LBP?.payments).toEqual([
-        { method: "CASH", currency_code: "LBP", amount: 900000 },
+        { method: "CASH", currency_code: "LBP", amount: 890000 },
       ]);
+      expect(p.per_currency?.LBP?.sms_amount).toBe(890000);
       expect(p.per_currency?.LBP?.commission).toBe(10000);
     },
   },

@@ -110,6 +110,15 @@ export function registerSupplierHandlers(): void {
     },
   );
 
+  /** LIRA-370 — the shares OMT still owes the shop on this account. Same
+   *  no-role-gate treatment as account-unsettled; RAW rows array. */
+  ipcMain.handle(
+    "suppliers:account-owed-shares",
+    (_e, accountSupplierId: number) => {
+      return service.getAccountOwedShares(accountSupplierId);
+    },
+  );
+
   /** LIRA-343 (contracts/calendar-reads.md §1) — every account row whose
    *  shop day falls in `month` (YYYY-MM), settled or not: feeds the settle
    *  calendar. Same no-role-gate treatment as account-unsettled. RAW-shape

@@ -79,6 +79,8 @@ export * from "./utils/partnerSettleUnits.js";
 export * from "./utils/debtSettleDays.js";
 // LIRA-345 — which suppliers settle on the day calendar (pure leaf, rule 29).
 export * from "./utils/settlesByDay.js";
+// LIRA-370 — settle the OMT account from the SMS amount (pure leaf, rule 29).
+export * from "./utils/omtSmsSettlement.js";
 // LIRA-322 — the one audit/summary text for suppliers:settle-account.
 export * from "./utils/settleAccountAudit.js";
 // LIRA-304 — basket checkout cash split, OMT first: shared by the session

@@ -84,6 +84,7 @@
  * top-up before; a top-up cannot be backdated.
  */
 import type { Locator, Page } from "@playwright/test";
+import { smsAtGross } from "./helpers/omtSmsSettle";
 import {
   test,
   expect,
@@ -274,7 +275,8 @@ async function pickOnlyDay(sheet: Locator, today: string, day: string) {
 async function setCreditToZero(sheet: Locator) {
   for (const c of ["usd", "lbp"]) {
     const input = sheet.getByTestId(`supplier-account-settle-credit-${c}`);
-    if (await input.count()) {
+    // LIRA-370 — settling from the SMS, all credit is used (read-only).
+    if ((await input.count()) && !(await input.getAttribute("readonly"))) {
       await input.fill("0");
       await expect(input).toHaveValue("0");
     }
@@ -901,6 +903,7 @@ test.describe("OMT open-credit account settlement over REST (LIRA-189)", () => {
     // payment line: changing either re-fills the payment box.
     await pickOnlyDay(sheet, today, DAY);
     await setCreditToZero(sheet);
+    await smsAtGross(sheet);
 
     const usd = sheet.getByTestId("supplier-account-settle-section-usd");
     await expect(

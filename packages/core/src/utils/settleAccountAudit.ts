@@ -24,6 +24,8 @@ export interface SettleAccountAuditSection {
   payments?: readonly SettleAccountAuditLeg[];
   commission?: number;
   waive?: number;
+  /** LIRA-370 — OMT's SMS figure (OMT's sign). */
+  sms_amount?: number;
 }
 
 export interface SettleAccountAuditPayload {
@@ -72,6 +74,10 @@ export function formatSettleAccountSections(
     if ((s.commission ?? 0) > 0)
       text += ` + commission ${money(s.commission ?? 0, currency)}`;
     if ((s.waive ?? 0) > 0) text += ` + waive ${money(s.waive ?? 0, currency)}`;
+    // LIRA-370 — the SMS figure it was settled from ("OMT pays" when −).
+    if (s.sms_amount !== undefined) {
+      text += ` · SMS ${s.sms_amount < 0 ? "OMT pays " : ""}${money(s.sms_amount, currency)}`;
+    }
     return text;
   }).join(", ");
 }
@@ -91,6 +97,7 @@ export function describeSettleAccountForAudit(
         paid: settleAccountSectionPaid(s, currency),
         commission: s.commission ?? 0,
         waive: s.waive ?? 0,
+        ...(s.sms_amount !== undefined ? { sms_amount: s.sms_amount } : {}),
       };
     }
     return {

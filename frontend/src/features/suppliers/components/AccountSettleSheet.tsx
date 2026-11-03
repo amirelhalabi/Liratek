@@ -7,6 +7,13 @@ import { useFormat } from "@/i18n/useFormat";
 import {
   buildDaySelections,
   buildSettleDays,
+  coveredTypeLabel,
+  owedSharesCollected,
+  tickedOwedShares,
+  deriveSmsCommission,
+  expectedSmsFigure,
+  outstandingEstimate,
+  type SmsDerivation,
   daySelectionRowKey,
   isSettleStaleMessage,
   isSettleRowOpen,
@@ -35,6 +42,7 @@ import {
 import {
   useSupplierAccountMonthRowsQuery,
   useSupplierAccountMonthsRowsQueries,
+  useSupplierAccountOwedSharesQuery,
   useSupplierAccountUnsettledQuery,
   useSettleSupplierAccountMutation,
   type AccountBalance,
@@ -110,6 +118,24 @@ function formatCompact(amount: number, currency: SettleCurrency): string {
   const cents = Math.round(abs * 100);
   return cents % 100 === 0 ? `$${cents / 100}` : `$${(cents / 100).toFixed(2)}`;
 }
+
+/** LIRA-370 — the SMS box's own text for a figure (OMT's sign kept). */
+function formatSmsInput(v: number, c: SettleCurrency): string {
+  const r = roundMoney(v, c);
+  return c === "USD" ? r.toFixed(2) : String(r);
+}
+
+/** LIRA-370 — per currency: what OMT's SMS should say, what was typed and
+ *  what it implies (see the `sms` memo in the sheet). */
+type SmsFigures = PerCurrency<{
+  expected: number;
+  expectedCommission: number;
+  owedShares: number;
+  sms: number;
+  derived: SmsDerivation;
+  /** Commission of unticked types' transfers left owed by OMT. */
+  staysOwed: number;
+}>;
 
 /** The credit box's text for an amount: "8.70" / "450000". */
 function formatCreditInput(amount: number, currency: SettleCurrency): string {
@@ -241,6 +267,10 @@ export interface AccountSettleSheetProps {
    *  box rate (`settleBoxConvertsCurrency`: every calendar supplier but the
    *  OMT account). Default false: each currency on its own (OMT). */
   convertsCurrency?: boolean | undefined;
+  /** LIRA-370 — settle from the amount on OMT's SMS (`commissionCoversOwed`:
+   *  the OMT account). The cashier types the SMS figure; the commission is
+   *  worked out from it and closes the picked days with the money. */
+  settlesFromSms?: boolean | undefined;
 }
 
 /** Old-history (T041) preview of one picked day. */
@@ -259,6 +289,7 @@ export function AccountSettleSheet({
   showStatementTypes = true,
   showCommission = true,
   convertsCurrency = false,
+  settlesFromSms = false,
 }: AccountSettleSheetProps) {
   const { t } = useTranslation("suppliers");
   const { t: tc } = useTranslation("common");
@@ -309,10 +340,25 @@ export function AccountSettleSheet({
   // LIRA-256 — the OMT commission types this statement covers (this
   // device's last choice; undefined = all types).
   // LIRA-345: none for a supplier that does not settle by statement type.
+  // LIRA-370 (research R7) — settling from the SMS, the choice decides
+  // where commission goes, so the sheet opens on "All types" every time.
   const [coveredTypes, setCoveredTypes] = useState<
     OmtCoveredType[] | undefined
   >(() =>
-    showStatementTypes ? loadCoveredTypes(account.account_supplier_id) : undefined,
+    showStatementTypes && !settlesFromSms
+      ? loadCoveredTypes(account.account_supplier_id)
+      : undefined,
+  );
+  // LIRA-370 — settling from the SMS, the ticked types scope the commission
+  // only: every transfer of the picked days stays in (owner 2026-11-03).
+  const rowScopeTypes = settlesFromSms ? undefined : coveredTypes;
+  const owedSharesQuery = useSupplierAccountOwedSharesQuery(
+    settlesFromSms ? account.account_supplier_id : null,
+    { refetchOnMount: "always" },
+  );
+  const owedShares = useMemo(
+    () => (settlesFromSms ? (owedSharesQuery.data ?? []) : []),
+    [settlesFromSms, owedSharesQuery.data],
   );
 
   // ── Days ────────────────────────────────────────────────────────────────
@@ -321,9 +367,9 @@ export function AccountSettleSheet({
       buildSettleDays(monthQuery.data ?? [], {
         today: settleDay,
         month,
-        ...(coveredTypes ? { coveredTypes } : {}),
+        ...(rowScopeTypes ? { coveredTypes: rowScopeTypes } : {}),
       }),
-    [monthQuery.data, settleDay, month, coveredTypes],
+    [monthQuery.data, settleDay, month, rowScopeTypes],
   );
   const monthLeftTotals = useMemo(() => sumMonthLeft(days), [days]);
   /** Every open day before the settlement's day (today unless a custom
@@ -423,9 +469,9 @@ export function AccountSettleSheet({
       buildDaySelections(rows, {
         pickedDays: picked,
         untickedRows,
-        ...(coveredTypes ? { coveredTypes } : {}),
+        ...(rowScopeTypes ? { coveredTypes: rowScopeTypes } : {}),
       }),
-    [rows, picked, untickedRows, coveredTypes],
+    [rows, picked, untickedRows, rowScopeTypes],
   );
   const selectedKeys = useMemo(
     () => new Set(baseSelection.selections.map(accountRowKey)),
@@ -455,12 +501,22 @@ export function AccountSettleSheet({
         c,
       );
       const owed = baseSelection.owed[k];
-      const limit = roundMoney(owed > 0 ? Math.min(owed, total) : total, c);
+      // LIRA-370 — OMT's SMS nets the WHOLE credit (owner 2026-11-03): a
+      // credit bigger than the picked days flips to "OMT pays you".
+      const limit = roundMoney(
+        owed > 0 && !settlesFromSms ? Math.min(owed, total) : total,
+        c,
+      );
       const typed = creditInput[c];
       // The builder's default: 0 where the picked days owe nothing,
       // min(owed, credit) when the shop pays, the whole credit when OMT pays.
-      const wanted =
-        typed === null ? baseSelection.credit_used[k] : parseAmount(typed);
+      // LIRA-370 — OMT's SMS covers the whole account: all usable credit
+      // (the server uses the same).
+      const wanted = settlesFromSms
+        ? limit
+        : typed === null
+          ? baseSelection.credit_used[k]
+          : parseAmount(typed);
       out[c] = {
         total,
         limit,
@@ -468,17 +524,17 @@ export function AccountSettleSheet({
       };
     }
     return out;
-  }, [baseSelection, creditInput]);
+  }, [baseSelection, creditInput, settlesFromSms]);
 
   const selection = useMemo(
     () =>
       buildDaySelections(rows, {
         pickedDays: picked,
         untickedRows,
-        ...(coveredTypes ? { coveredTypes } : {}),
+        ...(rowScopeTypes ? { coveredTypes: rowScopeTypes } : {}),
         creditUsed: { usd: credit.USD.used, lbp: credit.LBP.used },
       }),
-    [rows, picked, untickedRows, coveredTypes, credit],
+    [rows, picked, untickedRows, rowScopeTypes, credit],
   );
 
   const [directionChoice, setDirectionChoice] = useState<
@@ -508,7 +564,7 @@ export function AccountSettleSheet({
 
   const handleCoveredChange = (next: OmtCoveredType[] | undefined) => {
     setCoveredTypes(next);
-    saveCoveredTypes(account.account_supplier_id, next);
+    if (!settlesFromSms) saveCoveredTypes(account.account_supplier_id, next);
   };
 
   const handleCreditChange = (c: SettleCurrency, raw: string) => {
@@ -552,6 +608,80 @@ export function AccountSettleSheet({
     return out;
   })();
 
+  // ── LIRA-370 — settling from OMT's SMS amount ────────────────────────
+  // Per currency: what the SMS should say (the ONE formula the server and
+  // the statement panel use), the figure the cashier typed (null = that
+  // expected figure), and the commission it implies. The scope is the one
+  // the server rebuilds: the picked day rows plus every account row.
+  const smsScopeKey = `${pickedSorted.join(",")}|${[...untickedRows].sort().join(",")}|${coveredTypes?.join(",") ?? "all"}`;
+  const [smsTyped, setSmsTyped] = useState<{
+    key: string;
+    value: PerCurrency<string | null>;
+  }>({ key: "", value: { USD: null, LBP: null } });
+  const smsValue = useMemo<PerCurrency<string | null>>(
+    () =>
+      smsTyped.key === smsScopeKey ? smsTyped.value : { USD: null, LBP: null },
+    [smsTyped, smsScopeKey],
+  );
+  const handleSmsChange = (c: SettleCurrency, raw: string) => {
+    const clean = raw.replace(/,/g, "");
+    const ok =
+      c === "USD" ? /^-?\d*\.?\d*$/.test(clean) : /^-?\d*$/.test(clean);
+    if (!ok) return;
+    setSmsTyped({ key: smsScopeKey, value: { ...smsValue, [c]: clean } });
+  };
+  const sms = useMemo(() => {
+    if (!settlesFromSms) return null;
+    const scopeRows = [
+      ...selectedRows.filter((r) => r.row_scope !== "ACCOUNT"),
+      ...accountRows,
+    ];
+    const out = {} as SmsFigures;
+    for (const c of SETTLE_CURRENCIES) {
+      const fig = expectedSmsFigure({
+        rows: scopeRows,
+        currency: c,
+        coveredTypes,
+        owedShares,
+      });
+      const typed = smsValue[c];
+      const value =
+        typed === null || typed === "" || typed === "-"
+          ? fig.expected
+          : roundMoney(Number(typed), c);
+      const unticked = selectedRows.filter(
+        (r) =>
+          r.kind === "FINANCIAL_SERVICE" &&
+          r.commission_model === 1 &&
+          r.source_provider === "OMT" &&
+          coveredTypes !== undefined &&
+          !coveredTypes.includes((r.omt_service_type ?? "UNSPECIFIED") as OmtCoveredType),
+      );
+      out[c] = {
+        expected: fig.expected,
+        expectedCommission: fig.expectedCommission,
+        owedShares: fig.owedSharesIncluded,
+        sms: value,
+        derived: deriveSmsCommission({ ...fig, sms: value, currency: c }),
+        staysOwed: roundMoney(
+          unticked.reduce((t, r) => t + outstandingEstimate(r, c), 0),
+          c,
+        ),
+      };
+    }
+    return out;
+  }, [settlesFromSms, selectedRows, accountRows, coveredTypes, owedShares, smsValue]);
+  /** LIRA-370 — the owed shares this SMS collects (whole, oldest first);
+   *  the rest of the commission is the transfers' profit. */
+  const smsSplit = (c: SettleCurrency): number => {
+    if (!sms) return 0;
+    return owedSharesCollected(
+      tickedOwedShares(owedShares, c, coveredTypes),
+      sms[c].derived.commission,
+      c,
+    ).split;
+  };
+
   // LIRA-322 (owner 2026-10-15) — ONE payment box for every currency that
   // is owed in the same direction (the normal case). Only when OMT owes the
   // shop in one currency while the shop owes OMT in the other does that
@@ -567,7 +697,8 @@ export function AccountSettleSheet({
   const mainKeyCurrencies = mainCurrencies.join("-");
   /** What the main box is paying, per currency (the box's `totals`). */
   const mainTotals = mainCurrencies.map((c) => ({
-    amount: roundMoney(Math.abs(bases[c].owed), c),
+    // LIRA-370 — settling from the SMS, the box pays what the SMS says.
+    amount: roundMoney(Math.abs(sms ? sms[c].sms : bases[c].owed), c),
     currency: c,
   }));
 
@@ -619,7 +750,9 @@ export function AccountSettleSheet({
       SectionBase & { hasMoney: boolean; commission: number }
     >;
     for (const c of SETTLE_CURRENCIES) {
-      const commission = parseAmount(commissionInput[c]);
+      const commission = sms
+        ? sms[c].derived.commission
+        : parseAmount(commissionInput[c]);
       withMoney[c] = {
         ...bases[c],
         hasMoney:
@@ -657,6 +790,7 @@ export function AccountSettleSheet({
           s.direction,
           moneyOf(c),
           { rows: accountRows, creditUsed: s.creditUsed },
+          sms ? { coveredTypes, split: smsSplit(c) } : undefined,
         );
         if (
           s.hasMoney ||
@@ -671,7 +805,12 @@ export function AccountSettleSheet({
       // account after the payment. It still needs a commission-carrying
       // transfer this payment closes, to be recognised as profit (FR-012).
       let commissionProblem: string | null = null;
-      if (alloc && s.commission > 0 && alloc.commission_without_closed_model1) {
+      if (
+        !sms &&
+        alloc &&
+        s.commission > 0 &&
+        alloc.commission_without_closed_model1
+      ) {
         commissionProblem = t("accountSettle.commissionProblem");
       }
       out[c] = { ...s, included: alloc !== null, alloc, commissionProblem };
@@ -783,9 +922,17 @@ export function AccountSettleSheet({
                 direction: "OUT" as const,
               })),
           ],
-          ...(s.commission > 0
-            ? { commission: roundMoney(s.commission, c) }
-            : {}),
+          // LIRA-370 — settling from the SMS: its figure, and the commission
+          // it implies (the server works it out again and refuses a
+          // different one as stale).
+          ...(sms
+            ? {
+                sms_amount: roundMoney(sms[c].sms, c),
+                commission: roundMoney(s.commission, c),
+              }
+            : s.commission > 0
+              ? { commission: roundMoney(s.commission, c) }
+              : {}),
         };
       }
       const usedIn = (c: SettleCurrency) =>
@@ -865,7 +1012,7 @@ export function AccountSettleSheet({
         )
         .map((r) => r.shop_day),
     );
-    const scope = coveredTypes ? { coveredTypes } : {};
+    const scope = rowScopeTypes ? { coveredTypes: rowScopeTypes } : {};
     const base = buildDaySelections(rows, { pickedDays, ...scope });
     // Credit = min(owed, credit) where the old days owe; none elsewhere.
     const creditWanted = { usd: 0, lbp: 0 };
@@ -937,7 +1084,7 @@ export function AccountSettleSheet({
       creditUsed,
       anything: Object.keys(perCurrency).length > 0 && closesAny,
     };
-  }, [oldOpen, oldUpTo, rows, coveredTypes, accountRows]);
+  }, [oldOpen, oldUpTo, rows, rowScopeTypes, accountRows]);
 
   const handleOldHistorySubmit = async () => {
     if (!oldHistory?.anything || submitting) return;
@@ -1079,7 +1226,8 @@ export function AccountSettleSheet({
   // operator changes WHAT is settled — the picked days, the credit, the
   // statement types — never when the queue refetches after a stale refusal
   // (FR-021: the lines the operator typed are kept).
-  const scopeKey = `${pickedSorted.join(",")}|${[...untickedRows].sort().join(",")}|${credit.USD.used}|${credit.LBP.used}|${coveredTypes?.join(",") ?? "all"}`;
+  // LIRA-370 — and when the SMS figure changes (the box pays it).
+  const scopeKey = `${pickedSorted.join(",")}|${[...untickedRows].sort().join(",")}|${credit.USD.used}|${credit.LBP.used}|${coveredTypes?.join(",") ?? "all"}${sms ? `|${sms.USD.sms}|${sms.LBP.sms}` : ""}`;
 
   const handleCommissionChange = (c: SettleCurrency, raw: string) =>
     setCommissionInput((prev) => ({ ...prev, [c]: raw }));
@@ -1210,6 +1358,48 @@ export function AccountSettleSheet({
             />
           )}
 
+          {/* LIRA-370 (R7) — settling from the SMS, the ticked types decide
+              whose commission this SMS pays: said out loud, never silent. */}
+          {settlesFromSms && coveredTypes !== undefined && (
+            <p
+              className="text-xs text-amber-300"
+              data-testid="supplier-account-settle-sms-includes"
+            >
+              {t("accountSettle.sms.includes", {
+                types: coveredTypes.map((ct) => coveredTypeLabel(ct)).join(", "),
+              })}
+            </p>
+          )}
+          {settlesFromSms && owedShares.length > 0 && (
+            <div
+              className="bg-indigo-950/40 border border-indigo-800/60 rounded-xl px-3 py-2 text-xs text-indigo-200"
+              data-testid="supplier-account-settle-owed-shares"
+            >
+              {SETTLE_CURRENCIES.map((c) => {
+                const mine = owedShares.filter((sh) => sh.currency === c);
+                if (mine.length === 0) return null;
+                const byType = new Map<string, number>();
+                for (const sh of mine) {
+                  byType.set(sh.omt_service_type, roundMoney((byType.get(sh.omt_service_type) ?? 0) + sh.amount, c));
+                }
+                return (
+                  <p key={c}>
+                    {t("accountSettle.sms.owedShares", {
+                      name: account.account_name,
+                      amount: formatMoney(
+                        mine.reduce((tot, sh) => tot + sh.amount, 0),
+                        c,
+                      ),
+                      types: [...byType.entries()]
+                        .map(([ty, v]) => `${coveredTypeLabel(ty)} ${formatMoney(v, c)}`)
+                        .join(" · "),
+                    })}
+                  </p>
+                );
+              })}
+            </div>
+          )}
+
           {unsettledQuery.isLoading ? (
             <div className="text-slate-400 text-xs py-4 text-center">
               {t("accountSettle.loading")}
@@ -1249,6 +1439,8 @@ export function AccountSettleSheet({
                     inputMode={c === "USD" ? "decimal" : "numeric"}
                     data-testid={`supplier-account-settle-credit-${lc}`}
                     value={shownValue}
+                    // LIRA-370 — from the SMS, all usable credit is used.
+                    readOnly={settlesFromSms}
                     onChange={(e) => handleCreditChange(c, e.target.value)}
                     className="w-28 bg-slate-900 border border-slate-600 rounded-lg px-2 py-1 text-white text-sm font-mono focus:outline-none focus:border-emerald-500"
                   />
@@ -1326,6 +1518,9 @@ export function AccountSettleSheet({
               showCommission={showCommission}
               commissionInput={commissionInput}
               onCommissionChange={handleCommissionChange}
+              sms={sms}
+              smsInput={smsValue}
+              onSmsChange={handleSmsChange}
               onChooseDirection={() => {}}
               returnLegs={returnLegsByCurrency}
               paymentInput={
@@ -1407,6 +1602,9 @@ export function AccountSettleSheet({
                 showCommission={showCommission}
                 commissionInput={commissionInput}
                 onCommissionChange={handleCommissionChange}
+                sms={sms}
+                smsInput={smsValue}
+                onSmsChange={handleSmsChange}
                 onChooseDirection={(dir) =>
                   setDirectionChoice((prev) => ({ ...prev, [s.currency]: dir }))
                 }
@@ -1813,6 +2011,9 @@ function CurrencySection({
   showCommission,
   commissionInput,
   onCommissionChange,
+  sms,
+  smsInput,
+  onSmsChange,
   onChooseDirection,
   returnLegs,
   paymentInput,
@@ -1822,6 +2023,11 @@ function CurrencySection({
   showCommission: boolean;
   commissionInput: PerCurrency<string>;
   onCommissionChange: (currency: SettleCurrency, raw: string) => void;
+  /** LIRA-370 — settling from the SMS: per currency what it should say and
+   *  what it implies; null on every other supplier. */
+  sms: SmsFigures | null;
+  smsInput: PerCurrency<string | null>;
+  onSmsChange: (currency: SettleCurrency, raw: string) => void;
   onChooseDirection: (dir: SettleDirection) => void;
   returnLegs: PerCurrency<PaymentLine[]>;
   paymentInput: ReactNode;
@@ -1883,7 +2089,108 @@ function CurrencySection({
           payment it is credited to the OMT account (netted at the next
           settlement), and recognised only on transfers this payment
           closes. */}
-      {showCommission && (
+      {/* LIRA-370 — settling from OMT's SMS amount: the cashier types the
+          figure on the SMS; the commission is worked out from it and closes
+          the picked days with the money (owner 2026-11-03). */}
+      {sms && (
+        <div
+          className={sections.length > 1 ? "grid grid-cols-2 gap-2" : undefined}
+        >
+          {sections.map((s) => {
+            const lc = s.currency.toLowerCase();
+            const f = sms[s.currency];
+            const d = f.derived;
+            const typed = smsInput[s.currency];
+            return (
+              <div key={s.currency} className="space-y-1">
+                <label
+                  htmlFor={`supplier-account-settle-sms-${lc}`}
+                  className="block text-[10px] text-slate-400 uppercase tracking-wider"
+                >
+                  {t("accountSettle.sms.label", {
+                    name: accountName,
+                    currency: s.currency,
+                  })}
+                </label>
+                <input
+                  id={`supplier-account-settle-sms-${lc}`}
+                  type="text"
+                  inputMode={s.currency === "USD" ? "decimal" : "numeric"}
+                  data-testid={`supplier-account-settle-sms-${lc}`}
+                  value={typed ?? formatSmsInput(f.expected, s.currency)}
+                  onChange={(e) => onSmsChange(s.currency, e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-emerald-500"
+                />
+                <p className="text-[11px] text-slate-500">
+                  {t("accountSettle.sms.hint", { name: accountName })}
+                </p>
+                <p
+                  className="text-xs text-slate-300"
+                  data-testid={`supplier-account-settle-sms-commission-${lc}`}
+                >
+                  {t("accountSettle.sms.commission", {
+                    commission: formatMoney(d.commission, s.currency),
+                    expected: formatMoney(d.expectedPart, s.currency),
+                    extra: formatMoney(d.extraPart, s.currency),
+                  })}
+                </p>
+                {f.owedShares > SETTLE_EPS[s.currency] && (
+                  <p className="text-xs text-emerald-300">
+                    {t("accountSettle.sms.sharesIncluded", {
+                      amount: formatMoney(f.owedShares, s.currency),
+                      name: accountName,
+                    })}
+                  </p>
+                )}
+                {d.omtAsksMore ? (
+                  <p
+                    className="text-amber-400 text-xs"
+                    data-testid={`supplier-account-settle-sms-asks-more-${lc}`}
+                  >
+                    {t(
+                      s.direction === "PAY"
+                        ? "accountSettle.sms.asksMore"
+                        : "accountSettle.sms.paysLess",
+                      {
+                        name: accountName,
+                        amount: formatMoney(d.difference, s.currency),
+                      },
+                    )}
+                  </p>
+                ) : (
+                  d.lessThanExpected &&
+                  d.shortOfExpected > SETTLE_EPS[s.currency] && (
+                    <p
+                      className="text-slate-400 text-xs"
+                      data-testid={`supplier-account-settle-sms-less-${lc}`}
+                    >
+                      {t("accountSettle.sms.lessThanExpected", {
+                        expected: formatMoney(
+                          f.expectedCommission + f.owedShares,
+                          s.currency,
+                        ),
+                      })}
+                    </p>
+                  )
+                )}
+                {f.staysOwed > SETTLE_EPS[s.currency] && (
+                  <p
+                    className="text-xs text-indigo-300"
+                    data-testid={`supplier-account-settle-sms-stays-owed-${lc}`}
+                  >
+                    {t("accountSettle.sms.staysOwed", {
+                      amount: formatMoney(f.staysOwed, s.currency),
+                      name: accountName,
+                    })}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {showCommission && !sms && (
       <div
         className={sections.length > 1 ? "grid grid-cols-2 gap-2" : undefined}
       >

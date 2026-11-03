@@ -198,6 +198,13 @@ const LABEL_OVERRIDES: Record<string, string> = {
   walletOrReference: "Wallet / reference",
   sourceDrawer: "From drawer",
   destDrawer: "To drawer",
+  // LIRA-370 — an OMT settlement from the SMS amount.
+  sms_amount: "OMT SMS amount",
+  extra_commission: "Extra commission",
+  owed_shares_created: "Commission left owed by OMT",
+  owed_shares_cleared: "Owed commission collected",
+  omt_asks_more: "OMT asked for more",
+  difference: "Difference",
 };
 
 const KIND_LABELS: Record<string, string> = {

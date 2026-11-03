@@ -1715,6 +1715,8 @@ export interface FinancialServiceAccountRow {
   currency: string;
   omt_service_type: string | null;
   commission_model: number | null;
+  /** LIRA-370 — the creation-time commission estimate (`commission`). */
+  commission: number | null;
   created_at: string;
   supplier_owed: number;
   is_closed: number;
@@ -6524,7 +6526,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     );
     const cols = (owed: string, closed: string): string =>
       `id, provider, service_type, currency, omt_service_type, commission_model,
-       created_at, ${owed} AS supplier_owed, ${closed} AS is_closed,
+       commission, created_at, ${owed} AS supplier_owed, ${closed} AS is_closed,
        ${localDayExpr("created_at")} AS shop_day,
        COALESCE(NULLIF(TRIM(client_name), ''), NULLIF(TRIM(sender_name), ''),
                 NULLIF(TRIM(receiver_name), '')) AS party_name,

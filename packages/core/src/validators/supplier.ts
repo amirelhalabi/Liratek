@@ -227,6 +227,11 @@ const settleAccountCurrencySectionSchema = z.object({
   payments: z.array(supplierPaymentLegSchema),
   commission: z.number().nonnegative().optional(),
   waive: z.number().nonnegative().optional(),
+  // LIRA-370 — the figure on OMT's SMS for this currency, in OMT's sign
+  // (+ the shop pays OMT, − OMT pays the shop). When present, the server
+  // works the commission out itself (owed − SMS, floored at 0) and refuses a
+  // different `commission` as stale. OMT account only.
+  sms_amount: z.number().optional(),
 });
 
 const SETTLE_ACCOUNT_CURRENCIES = ["USD", "LBP"] as const;
@@ -360,6 +365,10 @@ const supplierSettleAccountBaseSchema = z.object({
   // whole-row path (rule 23 reverse). The future check is the service's,
   // like every other backdated form.
   transaction_time: transactionTimeSchema,
+  // LIRA-370 — settle only the shares OMT still owes us (no open transfer
+  // in scope): OMT's SMS pays owed shares of the ticked types. Amount-first
+  // only.
+  owed_shares_only: z.boolean().optional(),
 });
 
 /** Keys of the legacy whole-row payload that are refused next to `per_currency`. */
@@ -382,6 +391,7 @@ const AMOUNT_FIRST_ONLY_SETTLE_ACCOUNT_KEYS = [
   "include_account_credits",
   "credit_used",
   "transaction_time",
+  "owed_shares_only",
 ] as const;
 
 /** Keys the legacy whole-row payload has always required. */

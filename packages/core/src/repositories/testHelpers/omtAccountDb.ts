@@ -81,6 +81,8 @@ export function seedOmtSend(
     /** LIRA-345 — another transfer provider (e.g. 'WHISH'); default 'OMT'.
      *  The ledger sibling goes on `omtId`, so pass that provider's supplier. */
     provider?: string;
+    /** LIRA-370 — 'RECEIVE': OMT owes the shop the amount (negative owed). */
+    service_type?: "SEND" | "RECEIVE";
   },
 ): number {
   const fee = data.fee ?? 0;
@@ -94,10 +96,11 @@ export function seedOmtSend(
         `INSERT INTO financial_services
            (tenant_id, provider, service_type, amount, currency, commission, omt_fee,
             omt_service_type, commission_model, is_settled, created_by, created_at)
-         VALUES (1, ?, 'SEND', ?, ?, ?, ?, ?, ?, 0, 1, ?)`,
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?)`,
       )
       .run(
         data.provider ?? "OMT",
+        data.service_type ?? "SEND",
         data.amount,
         currency,
         commission,
@@ -107,7 +110,8 @@ export function seedOmtSend(
         createdAt,
       ).lastInsertRowid,
   );
-  const owed = data.amount + fee - (model === 0 ? commission : 0);
+  const gross = data.amount + fee - (model === 0 ? commission : 0);
+  const owed = data.service_type === "RECEIVE" ? -gross : gross;
   db.prepare(
     `INSERT INTO supplier_ledger
        (tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, is_auto,

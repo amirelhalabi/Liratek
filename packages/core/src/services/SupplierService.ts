@@ -33,6 +33,7 @@ import type {
   AccountExpectedStatement,
   AccountLedgerEntry,
   AccountUnsettledRow,
+  AccountOwedShare,
   RemoveAccountCreditData,
   SettleAccountRequest,
   UpdateSupplierAccountLinkData,
@@ -77,6 +78,11 @@ export class SupplierService {
 
   getAccountUnsettled(accountSupplierId: number): AccountUnsettledRow[] {
     return this.repo.getAccountUnsettled(accountSupplierId);
+  }
+
+  /** LIRA-370 — the shares OMT still owes the shop on this account. */
+  getAccountOwedShares(accountSupplierId: number): AccountOwedShare[] {
+    return this.repo.getAccountOwedShares(accountSupplierId);
   }
 
   /**

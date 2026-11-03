@@ -46,6 +46,7 @@
  * delta.
  */
 import type { Locator, Page } from "@playwright/test";
+import { smsAtGross } from "./helpers/omtSmsSettle";
 import {
   test,
   expect,
@@ -249,7 +250,8 @@ async function pickOnlyDay(sheet: Locator, today: string, day: string) {
 async function setCreditToZero(sheet: Locator) {
   for (const c of ["usd", "lbp"]) {
     const input = sheet.getByTestId(`supplier-account-settle-credit-${c}`);
-    if (await input.count()) {
+    // LIRA-370 — settling from the SMS, all credit is used (read-only).
+    if ((await input.count()) && !(await input.getAttribute("readonly"))) {
       await input.fill("0");
       await expect(input).toHaveValue("0");
     }
@@ -350,6 +352,7 @@ test("lira-web-065 OMT settle by amount: USD only while LBP is owed, a previewed
   // BEFORE typing: changing the days or the credit re-fills the box.
   await pickOnlyDay(sheet, today, DAY);
   await setCreditToZero(sheet);
+    await smsAtGross(sheet);
 
   // ONE box for both currencies; the header keeps each in its own currency.
   const box = sheet.getByTestId("supplier-account-settle-section-usd-lbp");

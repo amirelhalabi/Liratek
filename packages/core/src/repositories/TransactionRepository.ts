@@ -10695,6 +10695,123 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     for (const ledgerId of settlementLedgerIds) {
       this._reverseCommissionAtSettlementRecords(ledgerId, tenantId);
     }
+
+    this._reverseOmtOwedShares(original, tenantId);
+  }
+
+  /**
+   * LIRA-370 (research R6) — the reversal owner of `omt_owed_shares` (rule
+   * 20). Two roles a settlement can have:
+   *
+   *  - It CLEARED owed shares (an SMS that included their type): they are
+   *    owed again; their profit went with this settlement's allocations
+   *    (deleted above). If the settlement that created them was already
+   *    undone, its "OMT paid shares ahead" relief row is soft-voided too —
+   *    the money it stood for is being given back now.
+   *  - It CREATED owed shares: they stop existing (`is_reversed`). Any that
+   *    a later live settlement already collected leave real money behind:
+   *    owner 2026-11-03 — the undo is allowed and what was collected stays
+   *    on OMT's account as an open amount ("OMT paid shares ahead"),
+   *    netted at the next settlement (the LIRA-343 R12 pattern). One
+   *    `is_auto` row per currency on the settlement's own member.
+   *
+   * No-op on a schema without the table.
+   */
+  private _reverseOmtOwedShares(
+    original: TransactionEntity,
+    tenantId: number,
+  ): void {
+    const has = this.db
+      .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'omt_owed_shares'`)
+      .get();
+    if (!has) return;
+    const now = requestNow();
+
+    const cleared = this.query<{ id: number; relief_ledger_id: number | null }>(
+      `SELECT id, relief_ledger_id FROM omt_owed_shares
+        WHERE cleared_settlement_txn_id = ? AND tenant_id = ?`,
+      original.id,
+      tenantId,
+    );
+    for (const sh of cleared) {
+      if (sh.relief_ledger_id != null) {
+        this.execute(
+          `UPDATE supplier_ledger SET is_refunded = 1, refunded_at = ?
+            WHERE id = ? AND tenant_id = ? AND COALESCE(is_refunded, 0) = 0`,
+          now,
+          sh.relief_ledger_id,
+          tenantId,
+        );
+      }
+      this.execute(
+        `UPDATE omt_owed_shares
+            SET cleared_settlement_txn_id = NULL, cleared_anchor_ledger_id = NULL,
+                relief_ledger_id = NULL, updated_at = ?
+          WHERE id = ? AND tenant_id = ?`,
+        now,
+        sh.id,
+        tenantId,
+      );
+    }
+
+    const created = this.query<{
+      id: number;
+      currency: "USD" | "LBP";
+      amount: number;
+      cleared_settlement_txn_id: number | null;
+    }>(
+      `SELECT os.id, os.currency, os.amount, os.cleared_settlement_txn_id
+         FROM omt_owed_shares os
+        WHERE os.created_settlement_txn_id = ? AND os.tenant_id = ? AND os.is_reversed = 0`,
+      original.id,
+      tenantId,
+    );
+    if (created.length === 0) return;
+    const collected = created.filter((sh) => sh.cleared_settlement_txn_id != null);
+    const reliefIds = new Map<string, number>();
+    if (collected.length > 0) {
+      const anchor = this.query<{ supplier_id: number }>(
+        `SELECT supplier_id FROM supplier_ledger WHERE id = ? AND tenant_id = ?`,
+        original.source_id,
+        tenantId,
+      )[0];
+      for (const currency of ["USD", "LBP"] as const) {
+        const amount = collected
+          .filter((sh) => sh.currency === currency)
+          .reduce((t, sh) => t + sh.amount, 0);
+        if (amount <= 0 || !anchor) continue;
+        const rounded = currency === "USD" ? Math.round(amount * 100) / 100 : Math.round(amount);
+        const id = Number(
+          this.db
+            .prepare(
+              `INSERT INTO supplier_ledger
+                 (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by,
+                  is_auto, tenant_id, created_at)
+               VALUES (?, 'SUPPLIER_PAYS_US', ?, ?, ?, ?, 1, ?, ?)`,
+            )
+            .run(
+              anchor.supplier_id,
+              currency === "USD" ? rounded : 0,
+              currency === "LBP" ? rounded : 0,
+              `Auto: OMT paid shares ahead — settlement #${original.id} was undone`,
+              original.user_id,
+              tenantId,
+              now,
+            ).lastInsertRowid,
+        );
+        reliefIds.set(currency, id);
+      }
+    }
+    for (const sh of created) {
+      this.execute(
+        `UPDATE omt_owed_shares SET is_reversed = 1, relief_ledger_id = ?, updated_at = ?
+          WHERE id = ? AND tenant_id = ?`,
+        sh.cleared_settlement_txn_id != null ? (reliefIds.get(sh.currency) ?? null) : null,
+        now,
+        sh.id,
+        tenantId,
+      );
+    }
   }
 
   /**

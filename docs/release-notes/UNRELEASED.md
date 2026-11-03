@@ -36,6 +36,11 @@
 
 ## ✨ Highlights
 
+### Settle OMT from its SMS
+
+On Suppliers → OMT → **Settle Account**, type the amount from OMT's SMS in the new **OMT SMS amount** box. It opens at what the SMS should say: what you owe minus the commission LiraTek expects. When OMT gave you more commission, or less, type their figure. LiraTek works the commission out ("$4.20 expected + $10.00 extra"), pays exactly the SMS amount and settles every picked day in one go. This works the same when OMT owes you: type the minus figure, and you receive exactly that amount with no change to give back. If the SMS includes only some commission (for example "including Western Union commission"), tick those types: every transfer still settles, and the commission on the other types is kept as owed by OMT until a later SMS includes it. If OMT asks for more than LiraTek shows, you get a warning to check for a missing transfer or fee.
+![Settle OMT account: SMS amount 297.20, commission $10.80 ($0.80 expected + $10.00 extra), paying $297.20 cash](whats-new/1.35.0/omt-sms-settle.png)
+
 ### Add a note when the customer pays
 
 Every payment window where the customer pays you now has an optional **Note** box: POS checkout, Exchange, OMT/Whish send, Whish App / OMT App, Binance, Mobile Recharge (MTC / Alfa, bills, Katsh), Loto, Custom Services, gift card sales and debt payments. Write things like "paid for his brother" or "rest on Monday". The note shows in the transaction's details, and the row on the Transactions page gets a small note mark you can hover to read it. When part of the payment goes on the customer's account, the same note shows on their entry on the Debts page, and editing the note later changes both. Repair jobs and Hold Money already had a note; theirs now shows the same way.
@@ -194,6 +199,10 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 💸 OMT / Whish & suppliers
 
+- OMT: Settle Account now settles from the amount on OMT's SMS. Type it, and the commission is worked out, the payment matches the SMS and all the picked days close in one settlement, whether you pay OMT or OMT pays you. Before, the commission box never lowered the payment, an OMT that owed you asked for "change" back, and an empty commission box booked no commission at all. If you leave the box as it opens, the expected commission is booked.
+- OMT: ticking the commission types an SMS includes (one or several) no longer leaves the other transfers out. They settle too, and their commission is kept as "commission OMT still owes you", shown on Settle Account and under "Check against OMT's statement". It counts as profit when a later SMS includes it.
+- OMT: if OMT already holds credit with you that is more than the picked days owe, Settle Account switches to "OMT pays you". It uses the whole credit and you receive the SMS amount.
+- Suppliers: "Check against OMT's statement" no longer has boxes to type the SMS figure. It shows the figures only; type the SMS on Settle Account.
 - OMT/Whish: you can now give a discount on an OMT or Whish send, up to $5 or 450,000 LBP, on the payment box's Discount line. The customer pays less, OMT or Whish is still owed the full amount, and the discount shows on the Expenses page as "Discount given". Not on a receive, a partner's transfer or inside a customer session.
 - Suppliers: Katsh and iPick no longer show a Transactions button. Their sales and bills come out of your own prepaid balance and owe them nothing; their page keeps Settle Account, Payments and Commission Settlement.
 - OMT/Whish: typing 0 in "OMT fee (charged by OMT)" now really waives the fee. Before, 0 was ignored and the automatic fee was still added. Leave the box empty to use the automatic fee.
@@ -236,7 +245,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 - On the Suppliers page, "Paid" and "Partial" on OMT transfers now follow real settlements, and "Partial" shows what was paid (for example "Partial · $47.00"). Transfers that showed "Paid" only because of an old Pay / Receive payment now show as owed, until the next settlement uses that payment.
 - Settle Account: pay OMT the full amount owed. The commission you type no longer lowers the payment or closes transfers. Once the settlement is saved, the commission goes on OMT's account as money OMT owes you, and the next settlement uses it first. Undoing the settlement removes it again.
 - A commission from a settlement made before this update no longer shows up a second time as a credit in Settle Account.
-- "Which OMT shares does this statement include?" on Settle Account and on the OMT statement check is now a drop-down list with tick boxes. Nothing ticked means all types.
+- "Which OMT commission does this SMS include?" on Settle Account and on the OMT statement check is now a drop-down list with tick boxes. Nothing ticked means all types.
 - Suppliers page, "Check against OMT's statement": the figures now count up to the end of yesterday, like OMT's own message, so today's transfers no longer throw the check off. Tap the "Up to" chip to pick an earlier day (not today). What later days still have open shows on a grey line under the expected figure, not counted.
 - Settle Account on the OMT card now opens on a calendar of the month. Settled days are green; open days show what is still owed on them in $ and LBP, in short form ($6.5k, 1.17B LBP): red when you owe OMT, green when OMT owes you. Point at a day to see the exact amounts.
 - Every day still open before today is already picked when Settle Account opens. Add or remove days, and only the picked days are settled; days you leave out stay open and are marked.

@@ -844,6 +844,18 @@ of amount-first settlement: same write path, same allocator, same coverage table
 | Undo / void with no exception (OMT accounts) | Replaces the newest-first and covered-void refusals above for OMT accounts (research R12). Later settlements never change. Undoing a settlement whose credit (or coverage) a later one relied on, or voiding a transfer a settlement paid, writes ONE balancing ACCOUNT row ("you owe OMT $X" / OMT credit). **Reversal owner (rule 20):** that row belongs to the undo / void transaction that wrote it (`transaction_id` = it), so it is reversed only with that transaction. The day of the undo / void shows a ↺ badge while the row is open |
 | Invariant | After every create, undo and void, in any order, per currency: **account balance == Σ open remaining** (day rows + account rows). Seeded property test over random settle / undo / void sequences |
 
+#### Settle from the SMS amount (LIRA-370, `specs/370-omt-sms-amount-settle/`)
+
+| Fact | Detail |
+| ---- | ------ |
+| Opt-in by payload | Only when the OMT account's `per_currency.*` carries `sms_amount` (OMT's sign: + we pay, − OMT pays us). A payload without it keeps the LIRA-322/343 meaning (commission → open credit, ticked types filter rows) — so offline replays and old guards are unchanged. The sheet always sends it for the OMT account (`settlesFromSms`, `commissionCoversOwed`) |
+| The ONE formula | `utils/omtSmsSettlement.ts` (pure leaf): expected = owed − outstanding commission of ticked types (estimate − already booked or left owed) − owed shares of ticked types; commission = max(0, owed − SMS). Sheet prefill, statement panel (`getAccountExpectedStatement`) and the server's recompute all use it; the server refuses a client `commission` that differs (stale) |
+| Coverage | Allocator `commission_covers`: in OMT's sign money + commission = owed in both directions, so the commission enters the budget as +; when we pay it is a `COMMISSION` coverage source (after waive, before money), when OMT pays it absorbs that part of the money (no extra, no change). No commission-credit ledger row. All usable account credit is used |
+| Profit split | Every in-scope commission-carrying transfer of a ticked type gets its outstanding estimate, closed or not (OMT deducted it whatever the money closes), extra/shortfall pro rata to the estimates; credit rows (receives) count. Owed shares the SMS collects are booked first, on their own transfer |
+| Owed shares (v229) | `omt_owed_shares`: an unticked type's share of a settled transfer (or, when OMT asks for more, the ticked types' expected share) — no profit until a later SMS that includes the type collects it (profit on that settlement's day). `amount` is a snapshot. Read: `suppliers:account-owed-shares` / `GET /api/suppliers/:id/account-owed-shares` |
+| Undo / void | `_reverseOmtOwedShares` (owned by `_reverseSupplierSettlement`, rule 20): voiding the collecting settlement makes its shares owed again; voiding the creating one reverses them, and what a later live settlement already collected stays on the account as an `is_auto` "OMT paid shares ahead" row (soft-voided if that later settlement is voided too). Variant table: `SupplierRepository.lira370Variants.test.ts` |
+| OMT asks more | SMS worse for the shop than owed: commission 0, warning on the sheet, the extra goes through the LIRA-315 overpay credit (pay) or stays part-owed (collect) |
+
 #### Partners — settle by day (LIRA-346, `specs/346-partner-settle-by-day/`)
 
 The Partners page's Settle opens the same calendar (generic `settleCalendar` components, core

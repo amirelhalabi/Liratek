@@ -158,6 +158,18 @@
       "loading": "Loading transactions…",
       "failed": "Couldn't load some of these transactions. Close the table and try again.",
       "ref": "ref {{ref}}"
+    },
+    "sms": {
+      "label": "{{name}} SMS amount ({{currency}})",
+      "hint": "Type the figure on {{name}}'s SMS (minus = {{name}} pays you).",
+      "commission": "Commission {{commission}} ({{expected}} expected + {{extra}} extra)",
+      "sharesIncluded": "Includes {{amount}} of commission {{name}} owed you from earlier settlements.",
+      "asksMore": "{{name}} asks {{amount}} more than LiraTek shows. Check for a missing transfer or fee.",
+      "paysLess": "{{name}} pays {{amount}} less than LiraTek shows. Check for a missing transfer or fee.",
+      "lessThanExpected": "Less than expected ({{expected}}).",
+      "staysOwed": "{{amount}} of commission on other types stays owed by {{name}}.",
+      "includes": "This SMS includes: {{types}}",
+      "owedShares": "Commission {{name}} still owes you: {{amount}} ({{types}})"
     }
   },
   "adjust": {
@@ -204,7 +216,7 @@
     "products": "Products"
   },
   "coveredTypes": {
-    "defaultHeading": "Which shares does this SMS include?",
+    "defaultHeading": "Which commission does this SMS include?",
     "types": "Types"
   },
   "drawer": {
@@ -309,7 +321,7 @@
   "settleTab": {
     "heading": "Commission Settlement",
     "billsOnly": "Bills only. Top-ups and transfers are settled with Settle Account.",
-    "coveredHeading": "Which OMT shares does this statement include?",
+    "coveredHeading": "Which OMT commission does this SMS include?",
     "selectAll": "Select all ({{n}})",
     "mixedTitle": "Selection mixes legacy and new-model commission transactions — settle them in separate batches",
     "mixedWarning": "This selection mixes legacy and new-model commission transactions — they can't be settled in one batch. Deselect one group and settle it separately.",
@@ -327,14 +339,11 @@
     "grossOwed": "Owed to OMT (gross)",
     "unsettledCommission": "− Unsettled commission",
     "expected": "= Expected on OMT's statement",
-    "smsUsd": "OMT SMS says (USD)",
-    "smsLbp": "OMT SMS says (LBP)",
-    "typeSmsFigure": "Type the SMS figure",
-    "matches": "Matches",
-    "offBy": "Off by <ltr>{{money}}</ltr>",
     "upTo": "Up to: {{day}}",
     "upToPick": "Statement up to (end of day)",
-    "afterDay": "After {{day}}, not counted: <ltr>{{amounts}}</ltr>"
+    "afterDay": "After {{day}}, not counted: <ltr>{{amounts}}</ltr>",
+    "owedShares": "Includes <ltr>{{amounts}}</ltr> of commission OMT still owes you from earlier settlements.",
+    "typeOnSettle": "Type the SMS figure on Settle Account: it works the commission out and settles in one go."
   },
   "status": {
     "partial": "Partial",

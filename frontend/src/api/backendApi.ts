@@ -302,6 +302,7 @@ import type {
   AccountExpectedStatement,
   AccountLedgerEntry,
   AccountUnsettledRow,
+  AccountOwedShare,
   AccountDayDetailRow,
   ChartDataPoint,
   ExpenseListRow,
@@ -3897,6 +3898,24 @@ export async function getSupplierAccountUnsettled(
         transactions: AccountUnsettledRow[];
       }>(`/api/suppliers/${accountSupplierId}/account-unsettled`);
       return res.transactions || [];
+    },
+  );
+}
+
+// LIRA-370 — the shares OMT still owes the shop on this account, oldest
+// first. A read: the RAW rows array on both transports.
+export async function getSupplierAccountOwedShares(
+  accountSupplierId: number,
+): Promise<AccountOwedShare[]> {
+  return ipcOrHttp(
+    async () =>
+      getElectronApi().suppliers.getAccountOwedShares(accountSupplierId),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        shares: AccountOwedShare[];
+      }>(`/api/suppliers/${accountSupplierId}/account-owed-shares`);
+      return res.shares || [];
     },
   );
 }

@@ -59,6 +59,7 @@ import {
   billsStayOnTickList,
   settleStaleMessage,
   settleBoxConvertsCurrency,
+  commissionCoversOwed,
   settlesByDay as settlesByDayRule,
   type SettlesByDayInput,
 } from "../utils/settlesByDay.js";
@@ -74,6 +75,14 @@ import {
   omtRowCoveredType,
   type OmtCoveredType,
 } from "../utils/omtCoveredTypes.js";
+import {
+  deriveSmsCommission,
+  expectedSmsFigure,
+  outstandingEstimate,
+  owedSharesCollected,
+  smsCommissionWeight,
+  tickedOwedShares,
+} from "../utils/omtSmsSettlement.js";
 import {
   applyDrawerDelta,
   cashierRateStamp,
@@ -906,6 +915,10 @@ export interface AccountExpectedStatement {
    *  when an uncovered old-style row is queued. */
   unsettled_commission_usd: number;
   unsettled_commission_lbp: number;
+  /** LIRA-370 — of the unsettled commission: live shares OMT still owes
+   *  us of the ticked types (from earlier settlements). */
+  owed_shares_usd: number;
+  owed_shares_lbp: number;
   /** gross_owed − unsettled_commission, per currency, in OMT's sign. */
   expected_usd: number;
   expected_lbp: number;
@@ -963,6 +976,15 @@ export interface AccountLedgerEntry {
 export type RemoveAccountCreditData = RemoveAccountCreditInput & {
   created_by: number;
 };
+
+/**
+ * LIRA-370 — the ONE "this owed share is still owed" predicate (rule 14):
+ * not reversed by a void of the settlement that created it, and not yet
+ * cleared by a later settlement. `prefix` is the table alias with its dot.
+ */
+export function owedShareLiveSql(prefix = ""): string {
+  return `${prefix}is_reversed = 0 AND ${prefix}cleared_settlement_txn_id IS NULL`;
+}
 
 export interface AccountUnsettledRow {
   kind: "FINANCIAL_SERVICE" | "LEDGER";
@@ -1039,6 +1061,15 @@ export interface AccountUnsettledRow {
   /** LIRA-343 T037 — `"#<reversed transaction id>"` when `relief_origin`
    *  is set, else null. */
   relief_ref?: string | null;
+  /** LIRA-370 — a commission-carrying transfer's creation-time commission
+   *  estimate, in its currency (0 on ledger rows). */
+  expected_commission_usd?: number;
+  expected_commission_lbp?: number;
+  /** LIRA-370 (research R3) — of that estimate, what earlier settlements
+   *  already booked for this transfer plus what is left owed by OMT
+   *  (`omt_owed_shares`). The rest is its outstanding commission. */
+  commission_accounted_usd?: number;
+  commission_accounted_lbp?: number;
   /**
    * Settle table ("See transactions", owner mock 2026-10-26) — display
    * only, never read for money. FINANCIAL_SERVICE rows: the first
@@ -1221,6 +1252,9 @@ export interface SettleAccountCurrencySectionData {
   payments: NonNullable<SettleAccountData["payments"]>;
   commission?: number;
   waive?: number;
+  /** LIRA-370 — OMT's SMS figure for this currency, OMT's sign (+ the shop
+   *  pays, − OMT pays). The server derives the commission from it. */
+  sms_amount?: number;
 }
 
 /**
@@ -1247,6 +1281,8 @@ export type SettleAccountRequest = Omit<
     /** "Set custom time" — ISO datetime the settlement really happened
      *  (amount-first only; the service refuses a future time). */
     transaction_time?: string;
+    /** LIRA-370 — settle only owed shares (no open transfer in scope). */
+    owed_shares_only?: boolean;
   };
 
 /**
@@ -1304,6 +1340,14 @@ interface AmountFirstCurrencyMeta {
   /** LIRA-343: account credit this section actually used (magnitude);
    *  present only when account rows were in scope or credit was asked for. */
   account_credit_applied?: number;
+  /** LIRA-370 — present only on a settlement from OMT's SMS amount. */
+  sms_amount?: number;
+  expected_commission?: number;
+  extra_commission?: number;
+  omt_asks_more?: boolean;
+  difference?: number;
+  owed_shares_cleared?: number;
+  owed_shares_created?: number;
 }
 
 interface AmountFirstSectionPlan {
@@ -1318,6 +1362,28 @@ interface AmountFirstSectionPlan {
   meta: AmountFirstCurrencyMeta;
   /** +1 PAY (the shop pays OMT in this currency), −1 COLLECT. */
   dirSign: 1 | -1;
+  /** LIRA-370 — owed shares this settlement collects (profit now). */
+  sharesToClear?: AccountOwedShare[];
+  /** LIRA-370 — shares this settlement leaves owed by OMT (no profit). */
+  sharesToCreate?: Array<{
+    financial_service_id: number;
+    omt_service_type: string;
+    currency: "USD" | "LBP";
+    amount: number;
+  }>;
+}
+
+/** LIRA-370 — one live share OMT still owes the shop (`omt_owed_shares`). */
+export interface AccountOwedShare {
+  id: number;
+  financial_service_id: number;
+  omt_service_type: string;
+  currency: "USD" | "LBP";
+  amount: number;
+  created_settlement_txn_id: number;
+  created_at: string;
+  service_type: string;
+  provider: string;
 }
 
 /** A queue row's signed remaining in one currency. */
@@ -3152,9 +3218,40 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
                     ? c
                     : 0;
             }
+            // LIRA-370 — a commission-model-1 transfer's commission comes
+            // from the ONE SMS formula below (its outstanding part only).
+            if (row.commission_model === 1) toSubtract = 0;
             if (isLbp) commissionLbp += toSubtract;
             else commissionUsd += toSubtract;
           }
+        }
+      }
+
+      // LIRA-370 (rule 14) — the ONE formula the Settle Account sheet and
+      // the server use: each open commission-model-1 transfer's OUTSTANDING
+      // commission (estimate − already booked or left owed) of the ticked
+      // types, plus the live shares OMT still owes us of those types.
+      const smsRows = this._accountRows(accountSupplierId, null).filter(
+        (r) =>
+          r.kind === "FINANCIAL_SERVICE" &&
+          (upToDay === undefined || r.shop_day <= upToDay),
+      );
+      const owedShares = this.getAccountOwedShares(accountSupplierId);
+      const owedSharesTotal = { usd: 0, lbp: 0 };
+      for (const currency of ["USD", "LBP"] as const) {
+        const fig = expectedSmsFigure({
+          rows: smsRows,
+          currency,
+          coveredTypes,
+          owedShares,
+        });
+        const add = fig.expectedCommission + fig.owedSharesIncluded;
+        if (currency === "USD") {
+          commissionUsd += add;
+          owedSharesTotal.usd = fig.owedSharesIncluded;
+        } else {
+          commissionLbp += add;
+          owedSharesTotal.lbp = fig.owedSharesIncluded;
         }
       }
 
@@ -3169,6 +3266,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         gross_owed_lbp: grossLbp,
         unsettled_commission_usd: commissionUsd,
         unsettled_commission_lbp: commissionLbp,
+        owed_shares_usd: owedSharesTotal.usd,
+        owed_shares_lbp: owedSharesTotal.lbp,
         // Same sign convention as the gross figure and OMT's own statement
         // (AccountExpectedStatement doc comment) — a plain subtraction, no
         // flip.
@@ -3543,6 +3642,93 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    * (`localDayExpr`, rule 27), `source_ref_table`, `row_scope`
    * ({@link accountRowScopeSql}) and the unified `transaction_id`.
    */
+  /**
+   * LIRA-370 — the shares OMT still owes the shop on this account: live
+   * `omt_owed_shares` rows of the account's members' transfers, oldest
+   * first. Empty on a schema without the table.
+   */
+  getAccountOwedShares(accountSupplierId: number): AccountOwedShare[] {
+    const has = this.db
+      .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'omt_owed_shares'`)
+      .get();
+    if (!has || !this._suppliersHasAccountLinkColumn()) return [];
+    const tenantId = getCurrentTenantId();
+    const providers = this._getAccountMembers(accountSupplierId, tenantId)
+      .map((m) => m.provider)
+      .filter((p): p is string => !!p);
+    if (providers.length === 0) return [];
+    return this.db
+      .prepare(
+        `SELECT os.id, os.financial_service_id, os.omt_service_type, os.currency,
+                os.amount, os.created_settlement_txn_id, os.created_at,
+                fs.service_type, fs.provider
+           FROM omt_owed_shares os
+           JOIN financial_services fs
+             ON fs.id = os.financial_service_id AND fs.tenant_id = os.tenant_id
+          WHERE os.tenant_id = ? AND ${owedShareLiveSql("os.")}
+            AND fs.provider IN (${providers.map(() => "?").join(", ")})
+          ORDER BY os.created_at, os.id`,
+      )
+      .all(tenantId, ...providers) as AccountOwedShare[];
+  }
+
+  /**
+   * LIRA-370 (research R3) — the ONE "commission received" marker per
+   * transfer: what live settlements booked for it
+   * (`settlement_commission_allocations`; a void deletes them) plus what is
+   * left owed by OMT (live `omt_owed_shares`). Keyed by financial_services
+   * id, per currency. Tables missing on an old schema read as nothing.
+   */
+  private _commissionAccounted(
+    fsIds: number[],
+    tenantId: number,
+  ): Map<number, { usd: number; lbp: number }> {
+    const out = new Map<number, { usd: number; lbp: number }>();
+    if (fsIds.length === 0) return out;
+    const add = (id: number, usd: number, lbp: number) => {
+      const cur = out.get(id) ?? { usd: 0, lbp: 0 };
+      cur.usd += usd;
+      cur.lbp += lbp;
+      out.set(id, cur);
+    };
+    const has = (t: string) =>
+      this.db
+        .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`)
+        .get(t) !== undefined;
+    for (let i = 0; i < fsIds.length; i += 500) {
+      const chunk = fsIds.slice(i, i + 500);
+      const marks = chunk.map(() => "?").join(", ");
+      if (has("settlement_commission_allocations")) {
+        const rows = this.db
+          .prepare(
+            `SELECT financial_service_id AS id,
+                    COALESCE(SUM(commission_usd), 0) AS usd,
+                    COALESCE(SUM(commission_lbp), 0) AS lbp
+               FROM settlement_commission_allocations
+              WHERE tenant_id = ? AND financial_service_id IN (${marks})
+              GROUP BY financial_service_id`,
+          )
+          .all(tenantId, ...chunk) as Array<{ id: number; usd: number; lbp: number }>;
+        for (const r of rows) add(r.id, r.usd, r.lbp);
+      }
+      if (has("omt_owed_shares")) {
+        const rows = this.db
+          .prepare(
+            `SELECT financial_service_id AS id,
+                    COALESCE(SUM(CASE WHEN currency = 'USD' THEN amount ELSE 0 END), 0) AS usd,
+                    COALESCE(SUM(CASE WHEN currency = 'LBP' THEN amount ELSE 0 END), 0) AS lbp
+               FROM omt_owed_shares
+              WHERE tenant_id = ? AND ${owedShareLiveSql()}
+                AND financial_service_id IN (${marks})
+              GROUP BY financial_service_id`,
+          )
+          .all(tenantId, ...chunk) as Array<{ id: number; usd: number; lbp: number }>;
+        for (const r of rows) add(r.id, r.usd, r.lbp);
+      }
+    }
+    return out;
+  }
+
   private _accountRows(
     accountSupplierId: number,
     window: FinancialServiceAccountWindow,
@@ -3589,6 +3775,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           // see `_cashoutCommissionByLedgerId`'s own doc comment).
           commission_usd: 0,
           commission_lbp: 0,
+          expected_commission_usd:
+            row.currency === "USD" ? (row.commission ?? 0) : 0,
+          expected_commission_lbp:
+            row.currency === "LBP" ? (row.commission ?? 0) : 0,
           shop_day: row.shop_day,
           source_ref_table: null,
           // A FINANCIAL_SERVICE row is always a day row (research R4).
@@ -3607,6 +3797,15 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       tenantId,
     );
     for (const r of fsRows) r.transaction_id = fsTxn.get(r.id) ?? null;
+    const accounted = this._commissionAccounted(
+      fsRows.map((r) => r.id),
+      tenantId,
+    );
+    for (const r of fsRows) {
+      const a = accounted.get(r.id);
+      r.commission_accounted_usd = a?.usd ?? 0;
+      r.commission_accounted_lbp = a?.lbp ?? 0;
+    }
 
     let ledgerRows: RowBase[] = [];
     if (this._supplierLedgerHasSettlementIdColumn()) {
@@ -6937,9 +7136,56 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         baseSystem: getSettingsService().getShopBaseSystem(),
       };
 
+      // LIRA-370 — settling the OMT account from OMT's SMS amount: the
+      // commission closes rows with the money (`commissionCoversOwed`, the
+      // ONE rule shared with the sheet). Opt-in by the payload: only a
+      // settlement that carries `sms_amount` works this way, so a payload
+      // in the old shape (an offline desktop entry queued before the
+      // update, a test) keeps its meaning — commission as an open credit.
+      const settlesInput = this._settlesByDayInput(accountId, tenantId);
+      const covers =
+        settlesInput !== null &&
+        commissionCoversOwed(settlesInput) &&
+        sections.some((sec) => sec.sms_amount !== undefined);
+
       // ── 1. Fresh queue + scope (selections override, covered types) ────
       const queue = this.getAccountUnsettled(accountId);
-      const scope = this._amountFirstScope(queue, data);
+      const scope =
+        covers && data.owed_shares_only === true
+          ? { rows: [], accountRows: [] }
+          : this._amountFirstScope(queue, data, covers);
+      // LIRA-370 — the shares OMT still owes us (the SMS may pay some).
+      const owedShares = covers ? this.getAccountOwedShares(accountId) : [];
+      if (covers) {
+        const oldStyle = scope.rows.find(
+          (r) =>
+            r.kind === "FINANCIAL_SERVICE" &&
+            r.commission_model === 0 &&
+            !isOmtRowCovered(
+              { provider: r.source_provider, omt_service_type: r.omt_service_type },
+              data.covered_omt_service_types,
+            ),
+        );
+        if (oldStyle) {
+          throw new DatabaseError(
+            "Tick “All types” to settle an old-style OMT transfer of another " +
+              `type. (Account settlement: transfer #${oldStyle.id} is commission_model 0)`,
+          );
+        }
+        if (data.owed_shares_only === true) {
+          const ticked = owedShares.filter(
+            (sh) =>
+              data.covered_omt_service_types === undefined ||
+              data.covered_omt_service_types.includes(sh.omt_service_type as OmtCoveredType),
+          );
+          if (ticked.length === 0) {
+            throw new DatabaseError(
+              "Nothing to settle. (Account settlement: owed_shares_only with no " +
+                "owed share of the ticked types)",
+            );
+          }
+        }
+      }
       // Day rows + account rows: the stale sum, and every lookup by key
       // below (coverage, stamps, netting names) spans both.
       const scoped = [...scope.rows, ...scope.accountRows];
@@ -6967,7 +7213,6 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       // LIRA-359 (owner decision 2026-10-29) — a box of any calendar
       // supplier but the OMT account may be paid in the other currency,
       // converted at the box rate. OMT keeps exact amounts per currency.
-      const settlesInput = this._settlesByDayInput(accountId, tenantId);
       const convert =
         settlesInput !== null && settleBoxConvertsCurrency(settlesInput);
       if (
@@ -7014,6 +7259,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             ledgerExtra,
             parent.name,
             convert,
+            covers,
+            data.covered_omt_service_types,
+            owedShares,
           ),
         );
       }
@@ -7112,7 +7360,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       // it); the waive DISCOUNT booked on a member already carries part of
       // that, so its money row is the rest. The commission covers nothing
       // (owner 2026-10-15) and so takes no part here: it is booked in step
-      // 9 as its own OPEN credit on the account.
+      // 9 as its own OPEN credit on the account — except on the OMT account
+      // (LIRA-370), where its COMMISSION takes close rows like money and
+      // are counted here, and no credit is booked.
       const moneyRow = new Map<number, { usd: number; lbp: number }>();
       const addTo = (member: number, currency: "USD" | "LBP", v: number) => {
         const cur = moneyRow.get(member) ?? { usd: 0, lbp: 0 };
@@ -7215,7 +7465,16 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       };
       const perCurrency: Record<string, AmountFirstCurrencyMeta> = {};
       for (const p of plans) perCurrency[p.currency] = p.meta;
-      const summary = `Account Settlement: ${parent.name} — ${formatSettleAccountSections(data.per_currency)}`;
+      // LIRA-370 — the commission the server worked out from the SMS (the
+      // client may not have sent one) is what the summary shows.
+      const summarySections: NonNullable<SettleAccountRequest["per_currency"]> = {};
+      for (const p of plans) {
+        const sec = data.per_currency?.[p.currency];
+        if (sec) summarySections[p.currency] = { ...sec, commission: p.commission };
+      }
+      const summary = `Account Settlement: ${parent.name} — ${formatSettleAccountSections(
+        covers ? summarySections : data.per_currency,
+      )}`;
       const txnId = getTransactionRepository().createTransaction({
         type: TRANSACTION_TYPES.SUPPLIER_SETTLEMENT,
         source_table: "supplier_ledger",
@@ -7447,22 +7706,39 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       // ── 9. Commission: profit over CLOSED model-1 rows only (FR-012), and
       //      the amount itself credited to the account as an OPEN credit
       //      (owner 2026-10-15) ───────────────────────────────────────────
-      if (hasCommission && commissionMemberId != null) {
+      if (hasCommission && (commissionMemberId != null || covers)) {
         this._bookAmountFirstCommission({
           anchorLedgerId,
           txnId,
-          supplierId: commissionMemberId,
+          supplierId: commissionMemberId ?? accountId,
           commission,
-          allocations: plans.flatMap((p) =>
-            p.alloc.commission_alloc.map((a) => ({
-              ...a,
-              currency: p.currency,
-              row: byKey.get(`FINANCIAL_SERVICE:${a.id}`)!,
-              gross: Math.abs(rowRemaining(byKey.get(`FINANCIAL_SERVICE:${a.id}`)!, p.currency)),
-            })),
-          ),
+          allocations: [
+            ...plans.flatMap((p) =>
+              p.alloc.commission_alloc.map((a) => ({
+                ...a,
+                currency: p.currency,
+                row: byKey.get(`FINANCIAL_SERVICE:${a.id}`)!,
+                gross: Math.abs(rowRemaining(byKey.get(`FINANCIAL_SERVICE:${a.id}`)!, p.currency)),
+              })),
+            ),
+            // LIRA-370 — owed shares this SMS collects: profit now, on the
+            // transfer they belong to.
+            ...plans.flatMap((p) =>
+              (p.sharesToClear ?? []).map((sh) => ({
+                id: sh.financial_service_id,
+                amount: sh.amount,
+                currency: p.currency,
+                row: {
+                  service_type: sh.service_type,
+                  source_provider: sh.provider,
+                } as AccountUnsettledRow,
+                gross: 0,
+              })),
+            ),
+          ],
           data,
           tenantId,
+          creditToAccount: !covers,
           ...(customAt ? { createdAt: customAt } : {}),
         });
       }
@@ -7513,6 +7789,46 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         });
       }
 
+      // ── 11b. LIRA-370 — owed shares: collect the ones this SMS pays, and
+      //        keep the shares of the types it did not include (or, when OMT
+      //        asked for more, its expected commission) owed by OMT. Their
+      //        reversal owner: `TransactionRepository._reverseSupplierSettlement`.
+      if (covers) {
+        const clear = this.db.prepare(
+          `UPDATE omt_owed_shares
+              SET cleared_settlement_txn_id = ?, cleared_anchor_ledger_id = ?,
+                  updated_at = datetime('now')
+            WHERE id = ? AND tenant_id = ? AND ${owedShareLiveSql()}`,
+        );
+        const create = this.db.prepare(
+          `INSERT INTO omt_owed_shares
+             (tenant_id, financial_service_id, omt_service_type, currency, amount,
+              created_settlement_txn_id, created_anchor_ledger_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))`,
+        );
+        for (const p of plans) {
+          for (const sh of p.sharesToClear ?? []) {
+            if (clear.run(txnId, anchorLedgerId, sh.id, tenantId).changes !== 1) {
+              throw new DatabaseError(
+                `${settleStaleMessage(parent.name)} (Account settlement: owed share #${sh.id} is no longer owed)`,
+              );
+            }
+          }
+          for (const sh of p.sharesToCreate ?? []) {
+            create.run(
+              tenantId,
+              sh.financial_service_id,
+              sh.omt_service_type,
+              sh.currency,
+              sh.amount,
+              txnId,
+              anchorLedgerId,
+              customAt ?? null,
+            );
+          }
+        }
+      }
+
       // ── 12. LIRA-335 — a settlement saved with a custom time before a
       //       drawer count: its drawer legs resolve that count's open
       //       difference instead of moving the drawer a second time, like
@@ -7552,6 +7868,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   private _amountFirstScope(
     queue: AccountUnsettledRow[],
     data: SettleAccountRequest,
+    /** LIRA-370 — the OMT account: ticked types scope the commission only,
+     *  never the rows (owner 2026-11-03), so nothing waits or is refused. */
+    commissionCovers = false,
   ): { rows: AccountUnsettledRow[]; accountRows: AccountUnsettledRow[] } {
     let picked: AccountUnsettledRow[];
     if (data.selections) {
@@ -7572,7 +7891,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         }
         picked.push(row);
       }
-      this._assertRowsCoveredByStatement(
+      if (!commissionCovers) this._assertRowsCoveredByStatement(
         picked
           .filter((r) => r.kind === "FINANCIAL_SERVICE")
           .map((r) => ({
@@ -7584,9 +7903,11 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         data.covered_omt_service_types,
       );
     } else {
-      picked = queue.filter(
-        (r) => !isSettleRowWaiting(r, data.covered_omt_service_types),
-      );
+      picked = commissionCovers
+        ? [...queue]
+        : queue.filter(
+            (r) => !isSettleRowWaiting(r, data.covered_omt_service_types),
+          );
     }
     if (data.include_account_credits !== true) {
       return { rows: picked, accountRows: [] };
@@ -7623,6 +7944,12 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     /** LIRA-359 — lines in the other currency pay this box, converted at
      *  `rate` (every calendar supplier but the OMT account). */
     convert = false,
+    /** LIRA-370 — the commission closes rows (the OMT account). */
+    covers = false,
+    /** LIRA-370 — the share types the SMS includes (commission scope). */
+    coveredTypes?: OmtCoveredType[],
+    /** LIRA-370 — live shares OMT still owes us (every currency). */
+    owedShares: AccountOwedShare[] = [],
   ): AmountFirstSectionPlan {
     const { currency } = section;
     const eps = AMOUNT_FIRST_EPS[currency];
@@ -7630,7 +7957,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     const fmt = (v: number) =>
       currency === "USD" ? `$${Math.abs(v).toFixed(2)}` : `${Math.abs(v)} LBP`;
     const dirSign = section.direction === "PAY" ? 1 : -1;
-    const commission = section.commission ?? 0;
+    let commission = section.commission ?? 0;
     const waive = section.waive ?? 0;
 
     const inCurrency = (list: AccountUnsettledRow[]) =>
@@ -7647,6 +7974,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       commission_model1:
         r.kind === "FINANCIAL_SERVICE" && r.commission_model === 1,
       cashout_commission: currency === "USD" ? r.commission_usd : r.commission_lbp,
+      // LIRA-370 — the profit split's weight: the outstanding commission
+      // when the SMS includes the row's type, else 0.
+      ...(covers ? smsCommissionWeight(r, currency, coveredTypes) : {}),
     });
     const allocRows = rows.map(toAllocRow);
     const allocAccountRows = accountRows.map(toAllocRow);
@@ -7667,15 +7997,34 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       eps,
     });
     const owedNet = probe.remaining_after;
-    if (owedNet > eps && section.direction !== "PAY") {
+    // The account credit still open after netting (the most `credit_used`
+    // can reach).
+    const nettedAway = new Map<string, number>();
+    for (const t of probe.takes) {
+      const k = `${t.kind}:${t.id}`;
+      nettedAway.set(k, (nettedAway.get(k) ?? 0) + t.amount);
+    }
+    const creditPool = allocAccountRows
+      .filter((r) => r.remaining < 0)
+      .reduce(
+        (s, r) =>
+          s + Math.max(0, -r.remaining - (nettedAway.get(`${r.kind}:${r.id}`) ?? 0)),
+        0,
+      );
+    // LIRA-370 — OMT's SMS nets the WHOLE credit (owner 2026-11-03), so the
+    // direction follows what is owed after it: a credit bigger than the
+    // picked days flips the settlement to "OMT pays you".
+    const smsMode = covers && section.sms_amount !== undefined;
+    const owedForDirection = smsMode ? owedNet - creditPool : owedNet;
+    if (owedForDirection > eps && section.direction !== "PAY") {
       throw new DatabaseError(
-        `You pay ${name} in ${label} — ${fmt(owedNet)} is owed to ${name}. ` +
+        `You pay ${name} in ${label} — ${fmt(owedForDirection)} is owed to ${name}. ` +
           `(Account settlement: ${label} section direction COLLECT contradicts the rows)`,
       );
     }
-    if (owedNet < -eps && section.direction !== "COLLECT") {
+    if (owedForDirection < -eps && section.direction !== "COLLECT") {
       throw new DatabaseError(
-        `${name} pays you in ${label} — ${name} owes the shop ${fmt(owedNet)}. ` +
+        `${name} pays you in ${label} — ${name} owes the shop ${fmt(owedForDirection)}. ` +
           `(Account settlement: ${label} section direction PAY contradicts the rows)`,
       );
     }
@@ -7693,6 +8042,55 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         currency === "USD" ? { usd: owedNet, lbp: 0 } : { usd: 0, lbp: owedNet },
         "Account settlement",
       );
+    }
+
+    // LIRA-370 — settling from OMT's SMS amount: the server works the
+    // commission out itself from its own rows (owed − SMS, the ONE formula
+    // the sheet and the statement panel use) and refuses a different
+    // figure. OMT's SMS covers the whole account, so all usable account
+    // credit is used (the sheet sends the same).
+    let sms: ReturnType<typeof deriveSmsCommission> | null = null;
+    let smsExpected = 0;
+    let commissionSplit: number | undefined;
+    let sharesToClear: AccountOwedShare[] = [];
+    const tickedShares = tickedOwedShares(owedShares, currency, coveredTypes);
+    if (smsMode && section.sms_amount !== undefined) {
+      const fig = expectedSmsFigure({
+        rows: [...rows, ...accountRows],
+        currency,
+        coveredTypes,
+        owedShares: tickedShares,
+      });
+      sms = deriveSmsCommission({
+        owed: fig.owed,
+        expectedCommission: fig.expectedCommission,
+        owedSharesIncluded: fig.owedSharesIncluded,
+        sms: section.sms_amount,
+        currency,
+      });
+      smsExpected = fig.expectedCommission + fig.owedSharesIncluded;
+      if (
+        section.commission !== undefined &&
+        Math.abs(section.commission - sms.commission) > eps
+      ) {
+        throw new DatabaseError(
+          `${settleStaleMessage(name)} Check the new amounts. (Account ` +
+            `settlement: ${label} commission ${section.commission} differs from ` +
+            `the ${sms.commission} the SMS amount ${section.sms_amount} implies)`,
+        );
+      }
+      commission = sms.commission;
+      // Owed shares are collected first, whole and oldest first, within the
+      // commission; the rest of the commission is the transfers' profit.
+      // The whole commission still closes rows: OMT took the shares off
+      // what we pay (or added them to what it pays).
+      const collected = owedSharesCollected(tickedShares, commission, currency);
+      sharesToClear = collected.collected;
+      commissionSplit = collected.split;
+      // OMT's SMS nets the whole credit; a credit bigger than the picked
+      // days closes them and OMT pays the rest (the allocator's
+      // `commission_covers` path).
+      creditUsed = roundMoney(creditPool, currency);
     }
 
     // LIRA-359 — when converting, every line counts toward this box at the
@@ -7719,27 +8117,46 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       commission,
       waive,
       eps,
+      ...(covers ? { commission_covers: true } : {}),
+      ...(smsMode ? { whole_credit: true } : {}),
+      ...(commissionSplit !== undefined ? { commission_split: commissionSplit } : {}),
     });
     // LIRA-343 — the user sets the credit; more than may be used is refused
     // (shop pays: at most min(owed, credit); OMT pays: at most the credit).
     if (alloc.credit_used_too_high) {
-      const nettedAway = new Map<string, number>();
-      for (const t of probe.takes) {
-        const k = `${t.kind}:${t.id}`;
-        nettedAway.set(k, (nettedAway.get(k) ?? 0) + t.amount);
-      }
-      const pool = allocAccountRows
-        .filter((r) => r.remaining < 0)
-        .reduce(
-          (s, r) =>
-            s + Math.max(0, -r.remaining - (nettedAway.get(`${r.kind}:${r.id}`) ?? 0)),
-          0,
-        );
+      const pool = creditPool;
       const cap = roundMoney(owedNet > eps ? Math.min(owedNet, pool) : pool, currency);
       throw new DatabaseError(
         `You can use at most ${fmt(cap)} of ${name} credit in ${label}. ` +
           `(Account settlement: ${label} credit_used ${creditUsed} is more than ${cap})`,
       );
+    }
+
+    // LIRA-370 — what stays owed by OMT: the share of every in-scope OMT
+    // transfer of a type this SMS did not include, and, when OMT asked for
+    // more than we owe, the expected commission of the ticked types too
+    // (owner 2026-11-03: it is not dropped).
+    const sharesToCreate: NonNullable<AmountFirstSectionPlan["sharesToCreate"]> = [];
+    if (sms) {
+      const allocated = new Map(alloc.commission_alloc.map((a) => [a.id, a.amount]));
+      for (const r of rows) {
+        if (r.kind !== "FINANCIAL_SERVICE" || r.commission_model !== 1) continue;
+        if (r.source_provider !== "OMT") continue;
+        const outstanding = outstandingEstimate(r, currency);
+        if (outstanding <= eps) continue;
+        const ticked = isOmtRowCovered(
+          { provider: r.source_provider, omt_service_type: r.omt_service_type },
+          coveredTypes,
+        );
+        if (ticked && !sms.omtAsksMore) continue;
+        if ((allocated.get(r.id) ?? 0) > eps) continue;
+        sharesToCreate.push({
+          financial_service_id: r.id,
+          omt_service_type: omtRowCoveredType(r),
+          currency,
+          amount: outstanding,
+        });
+      }
     }
 
     const sumBy = (source: string) =>
@@ -7810,7 +8227,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     ];
 
     // Legs: checks only. `owed` = the money this section applied to rows.
-    const moneyApplied = sumBy("PAYMENT");
+    // LIRA-370 — when OMT pays the shop, part of the money received IS the
+    // commission (it absorbed it instead of making extra), so it counts.
+    const moneyApplied =
+      sumBy("PAYMENT") + (covers && dirSign < 0 ? commission : 0);
     const flowExtra = dirSign * alloc.extra;
     if (section.payments.length > 0) {
       const legs = this._resolveSettlementLegs(
@@ -7862,7 +8282,25 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
               ),
             }
           : {}),
+        ...(sms
+          ? {
+              sms_amount: section.sms_amount,
+              expected_commission: roundMoney(smsExpected, currency),
+              extra_commission: sms.extraPart,
+              omt_asks_more: sms.omtAsksMore,
+              difference: sms.difference,
+              owed_shares_cleared: roundMoney(
+                sharesToClear.reduce((t, sh) => t + sh.amount, 0),
+                currency,
+              ),
+              owed_shares_created: roundMoney(
+                sharesToCreate.reduce((t, sh) => t + sh.amount, 0),
+                currency,
+              ),
+            }
+          : {}),
       },
+      ...(sms ? { sharesToClear, sharesToCreate } : {}),
     };
   }
 
@@ -7980,6 +8418,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     }>;
     data: SettleAccountRequest;
     tenantId: number;
+    /** LIRA-370 — false on the OMT account: the commission already closed
+     *  rows with the money, so no open credit is booked. Default true. */
+    creditToAccount?: boolean;
     /** Custom time (SQLite UTC text); absent = now. */
     createdAt?: string;
   }): void {
@@ -7993,6 +8434,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       tenantId,
       createdAt,
     } = args;
+    const creditToAccount = args.creditToAccount !== false;
     if (this._hasCommissionAtSettlementSchema()) {
       const grossUsd = allocations
         .filter((a) => a.currency === "USD")
@@ -8045,6 +8487,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       }
     }
     for (const currency of AMOUNT_FIRST_CURRENCIES) {
+      if (!creditToAccount) break;
       const amount = roundMoney(
         currency === "USD" ? commission.usd : commission.lbp,
         currency,

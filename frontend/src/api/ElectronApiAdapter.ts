@@ -631,6 +631,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   ) => api.getSupplierAccountLedger(accountSupplierId, limit, range);
   getSupplierAccountUnsettled = (accountSupplierId: number) =>
     api.getSupplierAccountUnsettled(accountSupplierId);
+  getSupplierAccountOwedShares = (accountSupplierId: number) =>
+    api.getSupplierAccountOwedShares(accountSupplierId);
   /** LIRA-343 — every account row whose shop day is in `month` (calendar). */
   getSupplierAccountMonthRows = (
     accountSupplierId: number,

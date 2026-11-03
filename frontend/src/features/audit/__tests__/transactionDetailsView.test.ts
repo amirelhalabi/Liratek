@@ -406,3 +406,21 @@ describe("buildTransactionDetailsView", () => {
     expect(text(find(view.details, "Hops")?.value)).toBe("3");
   });
 });
+
+/**
+ * LIRA-370 (FR-012) — an OMT settlement from the SMS amount explains itself
+ * in the Details panel: its `per_currency` keys read as plain labels.
+ * Written with the labels (not proven failing-first).
+ */
+describe("LIRA-370 — SMS settlement labels", () => {
+  it.each([
+    ["sms_amount", "OMT SMS amount"],
+    ["expected_commission", "Expected commission"],
+    ["extra_commission", "Extra commission"],
+    ["owed_shares_created", "Commission left owed by OMT"],
+    ["owed_shares_cleared", "Owed commission collected"],
+    ["omt_asks_more", "OMT asked for more"],
+  ])("%s → %s", (key, label) => {
+    expect(humaniseKey(key)).toBe(label);
+  });
+});
