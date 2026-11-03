@@ -288,6 +288,9 @@ export const RESET_WIPE_TABLES: readonly string[] = [
   // wiped with the settlements and ledger rows it points at.
   "supplier_settlement_coverage",
   "supplier_settlements",
+  // LIRA-370 v229 — commission OMT still owes, written and cleared by
+  // settlements; wiped with them.
+  "omt_owed_shares",
   "transactions",
   "vouchers",
   "wallet_exchanges",

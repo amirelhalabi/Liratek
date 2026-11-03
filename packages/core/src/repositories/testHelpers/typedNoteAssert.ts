@@ -10,10 +10,11 @@ import type Database from "better-sqlite3";
 export function readTypedNoteCopies(
   db: Database.Database,
   transactionId: number,
+  tenantId = 1,
 ): { detailsNote: unknown; debtNotes: string[] } {
   const row = db
-    .prepare(`SELECT metadata_json FROM transactions WHERE id = ?`)
-    .get(transactionId) as { metadata_json: string | null } | undefined;
+    .prepare(`SELECT metadata_json FROM transactions WHERE tenant_id = ? AND id = ?`)
+    .get(tenantId, transactionId) as { metadata_json: string | null } | undefined;
   const meta = row?.metadata_json
     ? (JSON.parse(row.metadata_json) as { details?: { note?: unknown } })
     : undefined;
@@ -21,10 +22,10 @@ export function readTypedNoteCopies(
     db
       .prepare(
         `SELECT note FROM debt_ledger
-          WHERE transaction_id = ? AND transaction_type LIKE '% Debt'
+          WHERE tenant_id = ? AND transaction_id = ? AND transaction_type LIKE '% Debt'
           ORDER BY id`,
       )
-      .all(transactionId) as { note: string | null }[]
+      .all(tenantId, transactionId) as { note: string | null }[]
   ).map((r) => r.note ?? "");
   return { detailsNote: meta?.details?.note, debtNotes };
 }

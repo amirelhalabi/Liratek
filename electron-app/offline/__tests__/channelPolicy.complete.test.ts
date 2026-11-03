@@ -168,14 +168,15 @@ describe("channel policy completeness (FR-009)", () => {
   // custom-services:insurance-renewals (read).
   // LIRA-362 added suppliers:set-archived (online_only).
   // LIRA-364 added kpi:list-snapshots (read).
-  it("matches the contract counts: offline 71 / online_only 121 / checkpoint 7 / read 233 / local 25 (457) — voucher:cancel online-only (O-impl-C-1)", () => {
+  // LIRA-370 added suppliers:account-owed-shares (read).
+  it("matches the contract counts: offline 71 / online_only 121 / checkpoint 7 / read 234 / local 25 (458) — voucher:cancel online-only (O-impl-C-1)", () => {
     expect(policyCounts()).toEqual({
       offline: 71,
       online_only: 121,
       checkpoint: 7,
-      read: 233,
+      read: 234,
       local: 25,
-      total: 457,
+      total: 458,
     });
     expect(PLANNED_CHANNELS).toHaveLength(0); // T122 + T136 registered all 8 offline:* channels
   });

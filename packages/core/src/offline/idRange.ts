@@ -128,6 +128,9 @@ export const OFFLINE_ID_TABLES: readonly string[] = [
   // LIRA-364 v228 — appended (positions are baked into offline ids).
   "kpi_snapshots",
   "kpi_snapshot_values",
+  // LIRA-370 v229 — appended (positions are baked into offline ids). A
+  // settlement (or its void) writes / reverses these rows.
+  "omt_owed_shares",
 ];
 
 /** The offline feature's own bookkeeping tables — never written by a

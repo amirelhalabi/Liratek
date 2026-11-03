@@ -366,9 +366,12 @@ const SCENARIOS: Scenario[] = [
         kept_change_usd: 0.5,
         client_id: 7,
         client_name: "Ali",
-        note: "glass only",
+        // LIRA-366 — a money-in note is the typed note (`typedNote`); the
+        // plain `note` is kept for payouts only.
+        typedNote: "glass only",
         paid_by: "CASH",
       });
+      expect(c.add[0]).not.toHaveProperty("note");
     },
   },
   {

@@ -524,6 +524,7 @@ const READ: readonly string[] = [
   "suppliers:account-expected-statement",
   "suppliers:account-ledger",
   "suppliers:account-month-rows",
+  "suppliers:account-owed-shares",
   "suppliers:account-transactions",
   "suppliers:account-unsettled",
   "suppliers:all-transactions",
