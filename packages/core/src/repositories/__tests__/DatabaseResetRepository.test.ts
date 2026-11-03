@@ -380,6 +380,13 @@ function insertTenantFixture(db: Database.Database, tenantId: number): void {
           member_supplier_id, currency, amount, source)
        VALUES (?, ?, ?, 'FINANCIAL_SERVICE', ?, ?, 'USD', 1, 'PAYMENT')`,
     ).run(tenantId, txnId, supplierLedgerId, fsId, supplierId);
+    // LIRA-370 v229 — commission OMT still owes after a settlement.
+    db.prepare(
+      `INSERT INTO omt_owed_shares
+         (tenant_id, financial_service_id, omt_service_type, currency, amount,
+          created_settlement_txn_id, created_anchor_ledger_id)
+       VALUES (?, ?, 'INTRA', 'USD', 0.1, ?, ?)`,
+    ).run(tenantId, fsId, txnId, supplierLedgerId);
     db.prepare(
       `INSERT INTO voucher_images (tenant_id, provider, category, item_key, image_path)
        VALUES (?, 'test', 'test', 'key', 'path.png')`,
