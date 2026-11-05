@@ -85,13 +85,15 @@ describe("TransactionTimeOverride — open-difference hint (LIRA-335)", () => {
     const lines = await screen.findAllByTestId("txn-time-hint");
     expect(lines).toHaveLength(2);
     expect(lines[0].textContent).toBe(
-      "This time is before General's checkpoint of Mon 06:00 PM (Over $50.00 open). Money into General saved at this time will resolve it instead of raising the balance.",
+      "General had $50.00 extra when counted on Mon 06:00 PM. If this money went in at the time you picked, saving explains it.",
     );
     // A Short is resolved by money OUT of the drawer (FR-004), never in.
     expect(lines[1].textContent).toBe(
-      "This time is before OMT Cash Drawer's checkpoint of Mon 06:00 PM (Short $8.00 open). Money out of OMT Cash Drawer saved at this time will resolve it instead of lowering the balance.",
+      "OMT Cash Drawer was $8.00 short when counted on Mon 06:00 PM. If this money came out at the time you picked, saving explains it.",
     );
-    expect(lines[1].textContent).not.toContain("Money into");
+    expect(lines[1].textContent).not.toContain("went in");
+    // Owner 2026-11-05: a gap between the hints and the form's submit button.
+    expect(screen.getByTestId("txn-time-override")).toHaveClass("mb-3");
     expect(mockGetOpenDifferencesAfter).toHaveBeenCalledTimes(1);
     expect(mockGetOpenDifferencesAfter).toHaveBeenCalledWith({ at: AT });
 

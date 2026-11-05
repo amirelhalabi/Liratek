@@ -174,7 +174,7 @@
     "cancel": "Cancel"
   },
   "hint": {
-    "resolvesOver": "This time is before {{drawer}}'s checkpoint of {{time}} (Over {{amount}} open). Money into {{drawer}} saved at this time will resolve it instead of raising the balance.",
-    "resolvesShort": "This time is before {{drawer}}'s checkpoint of {{time}} (Short {{amount}} open). Money out of {{drawer}} saved at this time will resolve it instead of lowering the balance."
+    "resolvesOver": "{{drawer}} had {{amount}} extra when counted on {{time}}. If this money went in at the time you picked, saving explains it.",
+    "resolvesShort": "{{drawer}} was {{amount}} short when counted on {{time}}. If this money came out at the time you picked, saving explains it."
   }
 }

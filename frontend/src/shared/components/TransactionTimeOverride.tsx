@@ -150,7 +150,8 @@ export function TransactionTimeOverride({
   }
 
   return (
-    <div className="mt-1">
+    // mb-3: a gap between the hints and the form's submit button below.
+    <div data-testid="txn-time-override" className="mt-1 mb-3">
       <div className="flex items-center gap-2 flex-wrap">
         <label className="text-xs text-slate-400 whitespace-nowrap">
           {t("txnTime.label")}
