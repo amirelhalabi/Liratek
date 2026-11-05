@@ -134,6 +134,12 @@ describe("LIRA-329 — SupplierRepository: supplier_entry details", () => {
   });
 
   it("pay with change back and a discount: the note, the typed discount and the lines; the discount keeps its reason", () => {
+    // LIRA-372 — a discount never creates credit: the shop must owe at
+    // least payment + discount ($55 + $2), so seed $100 owed first.
+    db.prepare(
+      `INSERT INTO supplier_ledger (tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, created_by)
+       VALUES (1, ?, 'TOP_UP', 100, 0, 1)`,
+    ).run(supplierId);
     const ledgerId = repo.recordSupplierCashflow({
       supplier_id: supplierId,
       direction: "PAY",
