@@ -420,6 +420,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 - Transactions: from now on, an iPick, Katsh or Whish App item paid in a basket, picked from the Whish App list or sent to a partner shows the item's name in Details (for example "4.5"), not only its category.
 - Refunds: when a sale's change was given in another currency, the refund window now fills in the real amount the customer paid, in the currency they paid with. Example: paid $55, got 250,000 LBP change at 90,000 — the refund fills in $52.22, not $55 plus 250,000 LBP.
 - Refunds: a new "+ Customer gives change" link in the refund window. If the customer brings back the change they got (for example the 250,000 LBP), enter it there and hand back the full amount ($55).
+- Refunds: refunding a supplier or partner settlement now gives back exactly what the settlement moved, line by line, in the same drawers and currencies. The refund window lists each payment and nothing can be changed. Before, a settlement that received dollars and paid lira was filled in as one dollar amount and the money went back through the wrong drawer.
 
 ## 🧺 Customer sessions
 

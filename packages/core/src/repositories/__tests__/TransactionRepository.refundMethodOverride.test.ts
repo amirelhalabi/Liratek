@@ -338,10 +338,7 @@ function insertTxnWithCashLeg(
   return txnId;
 }
 
-function insertTxnWithLbpLeg(
-  db: Database.Database,
-  amountLbp: number,
-): number {
+function insertTxnWithLbpLeg(db: Database.Database, amountLbp: number): number {
   const txn = db
     .prepare(
       `INSERT INTO transactions (type, source_table, source_id, user_id, amount_usd, summary)
@@ -615,9 +612,13 @@ describe("LIRA-078 — refund method-override (tender-selection modal)", () => {
   });
 
   // ── (e) LIRA-085 composition — PARTNER_SETTLEMENT refunded via override ──
+  // LIRA-373 (owner decision 2026-11-05): settlements are refunded by exact
+  // reversal only. Rewritten from "the override redirects the drawer" into
+  // the guard that an override is refused and nothing moves (rule 24); the
+  // plain refund still unwinds the partner ledger + coverage.
 
-  describe("LIRA-085 composition: a PARTNER_SETTLEMENT refunded via override still unwinds partner ledger + coverage", () => {
-    it("restores the partner balance + FOR_POS coverage AND debits the chosen drawer (not General)", () => {
+  describe("LIRA-085 composition: a PARTNER_SETTLEMENT refunds by exact reversal only", () => {
+    it("refuses an override (nothing moves), and the plain refund restores the partner balance + FOR_POS coverage through General", () => {
       db.prepare(
         `INSERT INTO partner_ledger (partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, user_id)
          VALUES (1, 'FOR_POS', 'sales', 1, 100, 'USD', 'DEBIT', 1)`,
@@ -643,9 +644,15 @@ describe("LIRA-078 — refund method-override (tender-selection modal)", () => {
       expect(balanceBefore.net).toBeCloseTo(0, 2); // settlement nets it
       expect(drawer(db, "General", "USD")).toBeCloseTo(100, 2);
 
-      txnRepo.refundTransaction(txnId, 1, {
-        refundLegs: [{ method: "WHISH", currencyCode: "USD", amount: 100 }],
-      });
+      expect(() =>
+        txnRepo.refundTransaction(txnId, 1, {
+          refundLegs: [{ method: "WHISH", currencyCode: "USD", amount: 100 }],
+        }),
+      ).toThrow(/settlement can only be refunded exactly as it was made/i);
+      expect(drawer(db, "General", "USD")).toBeCloseTo(100, 2);
+      expect(drawer(db, "Whish_App", "USD")).toBeCloseTo(0, 2);
+
+      txnRepo.refundTransaction(txnId, 1);
 
       // LIRA-085 restore still fires: partner owes us again.
       const balanceAfter = db
@@ -663,10 +670,9 @@ describe("LIRA-078 — refund method-override (tender-selection modal)", () => {
         .get() as { covered_amount: number };
       expect(forPos.covered_amount).toBeCloseTo(0, 2);
 
-      // The CASH the settlement paid out of General is untouched — the
-      // override redirected the refund's reversal to Whish_App instead.
-      expect(drawer(db, "General", "USD")).toBeCloseTo(100, 2);
-      expect(drawer(db, "Whish_App", "USD")).toBeCloseTo(-100, 2);
+      // The exact reversal takes the money back out of the drawer it went into.
+      expect(drawer(db, "General", "USD")).toBeCloseTo(0, 2);
+      expect(drawer(db, "Whish_App", "USD")).toBeCloseTo(0, 2);
     });
   });
 

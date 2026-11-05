@@ -77,6 +77,7 @@ import {
 } from "@/features/wrongNumbers/components/WrongNumberDialog";
 import {
   extraChargeText,
+  isSettlementTransactionType,
   isSwapTransactionType,
   REFUND_KEPT_CHANGE_TYPES,
   type RefundAddedChangeInput,
@@ -1128,6 +1129,9 @@ export default function TransactionsViewer({
             refundModalRow.payments,
             refundBookedRate?.bookedRate ?? fallbackRate ?? 89000,
           )}
+          // LIRA-373 — a settlement refunds by exact reversal only: the
+          // original legs shown locked, Confirm sends no override.
+          exactReversal={isSettlementTransactionType(refundModalRow.type)}
           isSubmitting={isRefunding}
           onCancel={() => {
             setRefundModalRow(null);
@@ -1206,6 +1210,9 @@ export default function TransactionsViewer({
           )}
           // LIRA-342 — the server refuses it where it does not apply.
           allowAddedChange
+          exactReversal={isSettlementTransactionType(
+            sessionItemRefund.preview.target.transactionType,
+          )}
           isSubmitting={sessionItemRefund.submitting}
           onCancel={() => {
             setSessionItemRefundUnits([]);

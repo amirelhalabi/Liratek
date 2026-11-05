@@ -116,6 +116,12 @@ export interface RefundMethodModalProps {
    *  and no customer account is being reduced; only a caller whose
    *  transport carries `addedChange` may pass `true`. Default false. */
   allowAddedChange?: boolean;
+  /** LIRA-373 (owner decision 2026-11-05) — refund by exact reversal only
+   *  (the caller decides from the row's type, `isSettlementTransactionType`).
+   *  The original legs are shown one per line, read-only — no method or
+   *  amount to change, no change folding, no kept/added change — and Confirm
+   *  sends NO override, so the server negates each leg in its own drawer. */
+  exactReversal?: boolean;
   isSubmitting?: boolean;
   onCancel: () => void;
   /**
@@ -185,6 +191,7 @@ export function RefundMethodModal({
   onRateChange,
   allowKeptChange = false,
   allowAddedChange = false,
+  exactReversal = false,
   isSubmitting = false,
   onCancel,
   onConfirm,
@@ -225,15 +232,17 @@ export function RefundMethodModal({
   // section) is legitimately empty. Gate the MultiPaymentInput/"Returning"
   // rendering AND the confirm-disabled rule on this, so a units-only refund
   // (no legs, but linked phones to flag) can still be confirmed.
-  const hasLegsToOverride = defaults.length > 0;
+  const hasLegsToOverride = !exactReversal && defaults.length > 0;
   // Owner decision 2026-10-07 — refund kept change needs a refund in ONE
   // currency (the server refuses a mixed one); MultiPaymentInput's payout
   // mode then reports the small shortfall it keeps.
-  const keptEligible = allowKeptChange && defaults.length === 1;
+  const keptEligible =
+    !exactReversal && allowKeptChange && defaults.length === 1;
   const refundCurrency = defaults[0]?.currencyCode ?? "USD";
   // LIRA-342 — "+ Customer gives change": one USD/LBP hand-back currency
   // (the server's rule), and never while a customer account is reduced.
   const addedEligible =
+    !exactReversal &&
     allowAddedChange &&
     defaults.length === 1 &&
     !(
@@ -370,6 +379,10 @@ export function RefundMethodModal({
   };
 
   const handleConfirm = () => {
+    if (exactReversal) {
+      onConfirm(undefined);
+      return;
+    }
     const finalLegs = isDefault ? undefined : overrideLines;
     const unitExtras = buildUnitExtras(
       units.map((u) => u.id),
@@ -424,14 +437,16 @@ export function RefundMethodModal({
       title={t("refundModal.title")}
       subtitle={
         <span data-testid="refund-subtitle">
-          {!hasLegsToOverride
-            ? t("refundModal.subtitleUnitsOnly")
-            : keptEligible
-              ? t("refundModal.subtitleKept", {
-                  currency: refundCurrency,
-                  cap: keptCapText,
-                })
-              : t("refundModal.subtitle")}
+          {exactReversal
+            ? t("refundModal.subtitleExact")
+            : !hasLegsToOverride
+              ? t("refundModal.subtitleUnitsOnly")
+              : keptEligible
+                ? t("refundModal.subtitleKept", {
+                    currency: refundCurrency,
+                    cap: keptCapText,
+                  })
+                : t("refundModal.subtitle")}
         </span>
       }
       onCancel={onCancel}
@@ -440,9 +455,10 @@ export function RefundMethodModal({
       confirmColor="red"
       isSubmitting={isSubmitting}
       confirmDisabled={
-        validationError != null ||
-        (addedEligible && givesOverpaid) ||
-        (hasLegsToOverride && overrideLines.length === 0)
+        !exactReversal &&
+        (validationError != null ||
+          (addedEligible && givesOverpaid) ||
+          (hasLegsToOverride && overrideLines.length === 0))
       }
       multiPaymentInput={
         hasLegsToOverride
@@ -541,6 +557,31 @@ export function RefundMethodModal({
             })}
           </div>
         )}
+      {exactReversal && (
+        <ul
+          data-testid="refund-exact-legs"
+          className="rounded-xl border border-slate-700/50 bg-slate-900/50 px-4 py-3 text-sm space-y-1"
+        >
+          {legs.map((leg, i) => (
+            <li key={i} className="flex justify-between gap-3">
+              <span className="text-slate-400">
+                {leg.signed_amount >= 0
+                  ? t("refundModal.exactHandBack")
+                  : t("refundModal.exactTakeBack")}
+              </span>
+              <span className="font-mono text-white">
+                {t("refundModal.via", {
+                  amount:
+                    leg.currency_code === "USD"
+                      ? `$${formatNumber(Math.abs(leg.signed_amount))}`
+                      : `${formatNumber(Math.abs(leg.signed_amount))} ${leg.currency_code}`,
+                  method: methodLabel(leg.method),
+                })}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
       {hasLegsToOverride && (
         <div
           data-testid="refund-return-summary"

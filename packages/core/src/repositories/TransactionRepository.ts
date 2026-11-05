@@ -30,6 +30,7 @@ import {
   SESSION_ITEM_REFUND_CREDIT_TYPE,
   SESSION_ITEM_REFUND_LINK_TYPE,
   SESSION_ITEM_REFUNDABLE_TYPES,
+  isSettlementTransactionType,
   isSwapTransactionType,
   TRANSACTION_TYPES,
   type TransactionStatus,
@@ -6763,6 +6764,19 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // omitted — this is what keeps every OTHER refund call site (refundBySaleId,
     // scripted callers, tests) unchanged.
     const refundLegs = opts.refundLegs;
+    // LIRA-373 (owner decision 2026-11-05) — a settlement is refunded by
+    // exact reversal only (each original leg negated in its own drawer).
+    // Checked first so this message wins over any change-claim error.
+    if (
+      refundLegs &&
+      refundLegs.length > 0 &&
+      isSettlementTransactionType(original.type)
+    ) {
+      throw new DatabaseError(
+        "A settlement can only be refunded exactly as it was made — each payment is reversed in its own drawer and currency; choosing return methods is not supported for it",
+        { entityId: id },
+      );
+    }
     // Owner decision 2026-10-07 — refund kept change. Checked BEFORE any
     // write (same discipline as the override validation it feeds). No claim
     // → zeros and the unchanged path below.
@@ -10722,7 +10736,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     tenantId: number,
   ): void {
     const has = this.db
-      .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'omt_owed_shares'`)
+      .prepare(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'omt_owed_shares'`,
+      )
       .get();
     if (!has) return;
     const now = requestNow();
@@ -10767,7 +10783,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       tenantId,
     );
     if (created.length === 0) return;
-    const collected = created.filter((sh) => sh.cleared_settlement_txn_id != null);
+    const collected = created.filter(
+      (sh) => sh.cleared_settlement_txn_id != null,
+    );
     const reliefIds = new Map<string, number>();
     if (collected.length > 0) {
       const anchor = this.query<{ supplier_id: number }>(
@@ -10780,7 +10798,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           .filter((sh) => sh.currency === currency)
           .reduce((t, sh) => t + sh.amount, 0);
         if (amount <= 0 || !anchor) continue;
-        const rounded = currency === "USD" ? Math.round(amount * 100) / 100 : Math.round(amount);
+        const rounded =
+          currency === "USD"
+            ? Math.round(amount * 100) / 100
+            : Math.round(amount);
         const id = Number(
           this.db
             .prepare(
@@ -10806,7 +10827,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       this.execute(
         `UPDATE omt_owed_shares SET is_reversed = 1, relief_ledger_id = ?, updated_at = ?
           WHERE id = ? AND tenant_id = ?`,
-        sh.cleared_settlement_txn_id != null ? (reliefIds.get(sh.currency) ?? null) : null,
+        sh.cleared_settlement_txn_id != null
+          ? (reliefIds.get(sh.currency) ?? null)
+          : null,
         now,
         sh.id,
         tenantId,

@@ -870,6 +870,34 @@ export function isSwapTransactionType(
   return type != null && SWAP_TRANSACTION_TYPES.has(type);
 }
 
+/**
+ * LIRA-373 (owner decision 2026-11-05) — counterparty settlements are
+ * refunded by EXACT reversal only: `_reversePayments` negates each original
+ * leg in its own drawer and currency. A settlement's opposite-currency leg is
+ * the other side of the account (e.g. an OMT settlement collecting dollars
+ * and paying lira), never customer change, so the refund window's
+ * tender-method override (`refundLegs`) and its change folding do not apply:
+ * the UI shows the original legs locked and the server refuses `refundLegs`.
+ *
+ * Not members: LOTO_SETTLEMENT (non-reversible), SUPPLIER_PAYMENT /
+ * PARTNER_PAYMENT (manual cash entries or auto siblings, not settlements),
+ * and DEBT_REPAYMENT — a customer's repayment keeps the override and kept
+ * change (owner decision 2026-10-07, `REFUND_KEPT_CHANGE_TYPES`); its
+ * opposite-currency leg IS customer change.
+ * Defined ONCE here (rule 14); the frontend reads it via `isSettlementTransactionType`.
+ */
+export const SETTLEMENT_TRANSACTION_TYPES: ReadonlySet<string> =
+  new Set<string>([
+    TRANSACTION_TYPES.SUPPLIER_SETTLEMENT,
+    TRANSACTION_TYPES.PARTNER_SETTLEMENT,
+  ]);
+
+export function isSettlementTransactionType(
+  type: string | null | undefined,
+): boolean {
+  return type != null && SETTLEMENT_TRANSACTION_TYPES.has(type);
+}
+
 export const TRANSACTION_STATUS = {
   ACTIVE: "ACTIVE",
   VOIDED: "VOIDED",
