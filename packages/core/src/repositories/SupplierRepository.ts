@@ -33,6 +33,12 @@ import {
 // canonical getter rather than re-reading system_settings a third time.
 import { getSettingsService } from "../services/SettingsService.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import {
+  cashDrawerChoiceNotApplicable,
+  systemCashDrawerChoiceApplies,
+  type CashDrawerChoice,
+} from "../constants/cashDrawerChoice.js";
+import { primaryCashDrawerName } from "../constants/systemFloatDrawers.js";
 import { requestNow, toSqliteUtc } from "../utils/requestNow.js";
 import { resolveBackTimedDrawerMovement } from "./checkpointResolution.js";
 import {
@@ -666,6 +672,10 @@ export interface SettleTransactionsData {
    * with no cash owed, or above `SHORTFALL_MAX` per currency.
    */
   discount?: SupplierDiscountData;
+  /** LIRA-371 — "OMT Cash Drawer | General" on the main-system supplier:
+   *  GENERAL sends every cash leg to General (resolveServiceCashDrawer).
+   *  Refused where it does not apply. */
+  cash_drawer?: CashDrawerChoice;
 }
 
 /**
@@ -740,6 +750,10 @@ export interface SupplierCashflowData {
    *  Posts its OWN 'DISCOUNT' supplier_ledger row + COUNTERPARTY_DISCOUNT
    *  transaction. */
   discount?: SupplierDiscountData;
+  /** LIRA-371 — "OMT Cash Drawer | General" on the main-system supplier:
+   *  GENERAL sends every cash leg to General (resolveServiceCashDrawer).
+   *  Refused where it does not apply. */
+  cash_drawer?: CashDrawerChoice;
 }
 
 export interface CreateSupplierData {
@@ -1234,6 +1248,10 @@ export interface SettleAccountData {
    * cash is owed, or above `SHORTFALL_MAX` per currency.
    */
   discount?: SupplierDiscountData;
+  /** LIRA-371 — "OMT Cash Drawer | General" on the main-system supplier:
+   *  GENERAL sends every cash leg to General (resolveServiceCashDrawer).
+   *  Refused where it does not apply. */
+  cash_drawer?: CashDrawerChoice;
 }
 
 /** The legacy whole-row keys the LIRA-322 amount-first payload leaves out. */
@@ -1283,6 +1301,8 @@ export type SettleAccountRequest = Omit<
     transaction_time?: string;
     /** LIRA-370 — settle only owed shares (no open transfer in scope). */
     owed_shares_only?: boolean;
+    /** LIRA-372 — the reason typed on the Discount line (amount-first). */
+    discount_reason?: string;
   };
 
 /**
@@ -4294,6 +4314,36 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    * 5. NEW-MODEL batches only — book the commission (see
    *    `_bookCommissionAtSettlement`'s own doc comment)
    */
+  /**
+   * LIRA-371 — the ONE place the supplier settle / Pay-Receive paths apply
+   * the cashier's "OMT Cash Drawer | General" choice (rule 14). GENERAL is
+   * refused unless the payment runs on the shop's main system and some leg
+   * (IN or change) would land in the system cash drawer by default
+   * (`systemCashDrawerChoiceApplies`, the same predicate the screens use).
+   * Absent / SYSTEM returns the context unchanged (today's routing).
+   */
+  private _withCashDrawerChoice(
+    base: ServiceCashDrawerContext,
+    choice: CashDrawerChoice | undefined,
+    legs: ReadonlyArray<{ method: string }>,
+  ): ServiceCashDrawerContext {
+    if (choice === undefined) return base;
+    if (
+      choice === "GENERAL" &&
+      !systemCashDrawerChoiceApplies({
+        provider: base.provider,
+        baseSystem: base.baseSystem,
+        legs,
+        isGeneralCash: (method) =>
+          resolveServiceCashDrawer(method, base) ===
+          primaryCashDrawerName(base.baseSystem),
+      })
+    ) {
+      throw new DatabaseError(cashDrawerChoiceNotApplicable(base.baseSystem));
+    }
+    return { ...base, cashDrawer: choice };
+  }
+
   settleTransactions(data: SettleTransactionsData): { id: number } {
     if (!data.financial_service_ids.length) {
       throw new DatabaseError("No transactions selected for settlement");
@@ -4570,17 +4620,23 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     }
     const hasOverpay = overpay.usd !== 0 || overpay.lbp !== 0;
 
-    try {
-      const tenantId = getCurrentTenantId();
-      // Primary Cash Drawer plan §1/§8.2 (decision #10): resolve once,
-      // read-only, before the write transaction below — a settlement whose
-      // supplier IS the shop's primary provider (shop_base_system) pays its
-      // CASH legs out of the PCD, not General.
-      const supplier = this.findById(data.supplier_id);
-      const drawerCtx: ServiceCashDrawerContext = {
+    // Primary Cash Drawer plan §1/§8.2 (decision #10): resolve once,
+    // read-only, before the write transaction below — a settlement whose
+    // supplier IS the shop's primary provider (shop_base_system) pays its
+    // CASH legs out of the PCD, not General. LIRA-371 — the cashier's drawer
+    // choice rides in the context; refused here, outside the try below, so
+    // the refusal text reaches the cashier and nothing is written.
+    const supplier = this.findById(data.supplier_id);
+    const drawerCtx = this._withCashDrawerChoice(
+      {
         provider: supplier?.provider ?? "",
         baseSystem: getSettingsService().getShopBaseSystem(),
-      };
+      },
+      data.cash_drawer,
+      data.payments ?? [],
+    );
+    try {
+      const tenantId = getCurrentTenantId();
       const settle = this.db.transaction(() => {
         // Timestamps are stamped by SQLite (datetime('now')) so they share the
         // 'YYYY-MM-DD HH:MM:SS' format of every CURRENT_TIMESTAMP column. A JS
@@ -6143,6 +6199,17 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         `Supplier account ${data.account_supplier_id} not found`,
       );
     }
+    // LIRA-371 — refuse a drawer choice that does not apply here, before the
+    // try below wraps its text away. The write transaction re-resolves the
+    // context on the FRESH parent (same helper).
+    this._withCashDrawerChoice(
+      {
+        provider: parent.provider ?? "",
+        baseSystem: getSettingsService().getShopBaseSystem(),
+      },
+      data.cash_drawer,
+      data.payments ?? [],
+    );
 
     // ── 0. Re-validate every selection against the account's own queue ────
     // Never trust the client's ids — reuses getAccountUnsettled (rule 14)
@@ -6585,10 +6652,16 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
               `no longer exists — re-open the settle sheet and try again`,
           );
         }
-        const drawerCtx: ServiceCashDrawerContext = {
-          provider: freshParent.provider ?? "",
-          baseSystem: getSettingsService().getShopBaseSystem(),
-        };
+        // LIRA-371 — drawer choice; a refusal here rolls the whole
+        // transaction back, so nothing is written.
+        const drawerCtx = this._withCashDrawerChoice(
+          {
+            provider: freshParent.provider ?? "",
+            baseSystem: getSettingsService().getShopBaseSystem(),
+          },
+          data.cash_drawer,
+          data.payments ?? [],
+        );
 
         // ── 5. D14 — sum the ALREADY-STAMPED cashout commission ────────────
         // Fourth-hole hunt (third hardening round): this used to run BEFORE
@@ -7131,10 +7204,19 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       if (!parent) {
         throw new DatabaseError(`Supplier account ${accountId} not found`);
       }
-      const drawerCtx: ServiceCashDrawerContext = {
-        provider: parent.provider ?? "",
-        baseSystem: getSettingsService().getShopBaseSystem(),
-      };
+      // LIRA-371 — drawer choice over every box's legs (IN and change); a
+      // refusal here, first thing in the transaction, writes nothing.
+      const drawerCtx = this._withCashDrawerChoice(
+        {
+          provider: parent.provider ?? "",
+          baseSystem: getSettingsService().getShopBaseSystem(),
+        },
+        data.cash_drawer,
+        [
+          ...(data.per_currency?.USD?.payments ?? []),
+          ...(data.per_currency?.LBP?.payments ?? []),
+        ],
+      );
 
       // LIRA-370 — settling the OMT account from OMT's SMS amount: the
       // commission closes rows with the money (`commissionCoversOwed`, the
@@ -7496,6 +7578,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           note: data.note,
           commissionRate: data.commission_rate,
           unitCount: data.commission_unit_count,
+          // LIRA-372 (FR-008) — the discount (one currency; with two, the
+          // COUNTERPARTY_DISCOUNT row carries both and the reason).
+          discount: { amount_usd: waive.usd, amount_lbp: waive.lbp },
         }),
         // Each section has its own direction (PAY: cash out, COLLECT: cash
         // in) — the same per-section sign the legs are booked by below.
@@ -7748,7 +7833,14 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       if (hasWaive && waiveMemberId != null) {
         this.postSupplierBundledDiscount(
           waiveMemberId,
-          { amount_usd: waive.usd, amount_lbp: waive.lbp },
+          {
+            amount_usd: waive.usd,
+            amount_lbp: waive.lbp,
+            // LIRA-372 — the reason typed on the sheet's Discount line.
+            ...(data.discount_reason?.trim()
+              ? { reason: data.discount_reason.trim() }
+              : {}),
+          },
           {
             direction: waiveSign === 1 ? "received" : "forgiven",
             parentLedgerId: anchorLedgerId,
@@ -8787,16 +8879,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     if (!data.payments?.length) {
       throw new DatabaseError("No payment legs provided");
     }
-    // CQ-10: a discount only makes sense on a PAY-direction cashflow (we owe
-    // them, they forgive part of it) — RECEIVE means the supplier is paying
-    // US, so "they also forgive what we owe" is a contradiction in the same
-    // call. Guarded here (not just at the schema/service layer) so no caller
-    // can bypass it.
-    if (data.discount && data.direction !== "PAY") {
-      throw new DatabaseError(
-        `recordSupplierCashflow: discount is only valid on PAY-direction cashflow (got "${data.direction}")`,
-      );
-    }
+    // LIRA-372 (owner 2026-11-05) — a discount is valid both ways: PAY (the
+    // supplier lets the shop pay less, booked "received") and RECEIVE (the
+    // shop lets the supplier pay less, booked "given"). Its room is checked
+    // inside the write transaction below, against the live balance.
 
     // ── LIRA-193 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §11.4) ───────────────────
     // `recordSupplierCashflow` has no separate "target" field the way
@@ -8845,15 +8931,21 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       );
     }
 
-    try {
-      const tenantId = getCurrentTenantId();
-      // Primary Cash Drawer plan §1/§8.2 (decision #10) — same resolution as
-      // settleTransactions, read-only before the write transaction below.
-      const supplier = this.findById(data.supplier_id);
-      const drawerCtx: ServiceCashDrawerContext = {
+    // Primary Cash Drawer plan §1/§8.2 (decision #10) — same resolution as
+    // settleTransactions, read-only before the write transaction below.
+    // LIRA-371 — drawer choice, refused here (outside the try, so the
+    // refusal text is not wrapped) before any write.
+    const supplier = this.findById(data.supplier_id);
+    const drawerCtx = this._withCashDrawerChoice(
+      {
         provider: supplier?.provider ?? "",
         baseSystem: getSettingsService().getShopBaseSystem(),
-      };
+      },
+      data.cash_drawer,
+      data.payments,
+    );
+    try {
+      const tenantId = getCurrentTenantId();
       const run = this.db.transaction(() => {
         // LIRA-352 — "Set custom time", as SQLite UTC text like every
         // ledger row; absent = now.
@@ -8887,6 +8979,26 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           throw new DatabaseError(
             "Supplier cashflow: the change handed back is not less than what was paid",
           );
+        }
+        // LIRA-372 — room check: a discount never creates credit. It may
+        // not exceed what is owed in this direction minus the net cash,
+        // compared in USD at the payment's rate (a USD balance may take an
+        // LBP discount, as the Pay tab always allowed). Read here, inside
+        // the transaction, so it sees the live balance.
+        const discountUsdEq = data.discount
+          ? Math.abs(data.discount.amount_usd || 0) +
+            Math.abs(data.discount.amount_lbp || 0) / rate
+          : 0;
+        if (discountUsdEq > 0) {
+          const bal = this.getSupplierBalance(data.supplier_id);
+          const owedInDirection =
+            (isPay ? 1 : -1) * (bal.balance_usd + bal.balance_lbp / rate);
+          const room = owedInDirection - (usd + lbp / rate);
+          if (discountUsdEq > room + 0.005) {
+            throw new DatabaseError(
+              "The discount is more than is owed after this payment",
+            );
+          }
         }
         const changeNote =
           cashflowChangeLegs.length > 0
@@ -9036,13 +9148,17 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           (data.discount.amount_usd > 0 || data.discount.amount_lbp > 0)
         ) {
           this.postSupplierBundledDiscount(data.supplier_id, data.discount, {
-            direction: "received",
+            // LIRA-372 — RECEIVE: the shop accepts less from the supplier
+            // ("given", ledger +x, profit −x) with NO purchase coverage;
+            // its void skips the coverage give-back (TransactionRepository
+            // `_reverseSupplierBundledDiscount`, keyed on the row's sign).
+            direction: isPay ? "received" : "forgiven",
             // Owner decision 2026-10-07 — link the discount to THIS
             // payment's ledger row so the payment's void/refund removes it
             // too (`TransactionRepository._reverseSupplierBundledDiscount`).
             parentLedgerId: ledgerEntryId,
             createdBy: data.created_by,
-            applyPurchaseCoverage: true,
+            applyPurchaseCoverage: isPay,
             rate,
             ...(data.transaction_time
               ? { transactionTime: data.transaction_time }
@@ -9327,7 +9443,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   // D8: writeOffSupplierDebt (standalone write-off, its own transaction) was
   // REMOVED — the owner decided the bundled Pay-form discount is the only
   // supported path. `postSupplierBundledDiscount` above stays; it is called
-  // from recordSupplierCashflow's PAY-direction branch and (LIRA-310) the
+  // from recordSupplierCashflow (PAY and, LIRA-372, RECEIVE) and (LIRA-310) the
   // supplier/LOTO settlement paths.
 }
 

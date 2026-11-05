@@ -463,6 +463,8 @@ contextBridge.exposeInMainWorld("api", {
       /** LIRA-347 — "Use credit", per currency. */
       creditUseUSD?: number;
       creditUseLBP?: number;
+      /** LIRA-371 — "OMT Cash Drawer | General" (addRepaymentSchema). */
+      cashDrawer?: "SYSTEM" | "GENERAL";
     }) => ipcRenderer.invoke("debt:add-repayment", data),
     getOpenItems: (clientId: number) =>
       ipcRenderer.invoke("debt:get-open-items", clientId),
@@ -847,6 +849,8 @@ contextBridge.exposeInMainWorld("api", {
       /** LIRA-310 — Waive: the supplier accepted `amount − discount`.
        *  Rule 12/23: mirrors supplierSettleSchema.discount. */
       discount?: { amount_usd: number; amount_lbp: number; reason?: string };
+      /** LIRA-371 — "OMT Cash Drawer | General" (supplierSettleSchema). */
+      cash_drawer?: "SYSTEM" | "GENERAL";
     }) => ipcRenderer.invoke("suppliers:settle-transactions", data),
     // OMT open-credit account settlement (LIRA-189, CONTRACT_W2.md §2.1) — ONE
     // payment across the account parent (OMT) + its children (OMT App,

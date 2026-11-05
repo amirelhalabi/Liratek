@@ -20,7 +20,12 @@ import {
 import { getSettingsRepository } from "./SettingsRepository.js";
 import { primaryCashDrawerName } from "../constants/systemFloatDrawers.js";
 import {
+  cashDrawerChoiceNotApplicable,
+  type CashDrawerChoice,
+} from "../constants/cashDrawerChoice.js";
+import {
   allocateRepayment,
+  repaymentRoutesToSystemDrawer,
   earlierBalanceItem,
   isCashDrawerItem,
   type AllocationItem,
@@ -145,6 +150,14 @@ const SALE_OWED_IN_LBP_SQL = `EXISTS (
  * checkout) whenever the coverage had gone to a module charge.
  */
 export const REPAYMENT_COVERAGE_KEY = "coverage_applied";
+
+/** LIRA-372 (owner decision A, 2026-11-05) — the metadata key a bundled
+ *  'Debt Discount' COUNTERPARTY_DISCOUNT row carries: the DEBT_REPAYMENT
+ *  transaction it was booked with. The repayment's void/refund finds its
+ *  discount through this link and reverses it too
+ *  (`TransactionRepository._reverseDebtBundledDiscount`). A standalone
+ *  admin write-off never carries it, so it is never reversed with anything. */
+export const BUNDLED_REPAYMENT_TXN_KEY = "bundled_repayment_txn_id";
 
 export interface RepaymentCoverageRecord {
   /** `sales.paid_usd` bumped by `_markSalesPaidFIFO`; LIRA-349: `lbp` is
@@ -347,6 +360,11 @@ export interface CreateRepaymentData {
    *  (`DEBT_CREDIT_NOT_AVAILABLE`). */
   credit_use_usd?: number;
   credit_use_lbp?: number;
+  /** LIRA-371 — "OMT Cash Drawer | General". GENERAL keeps the cash the
+   *  default would route to the system cash drawer in General (no RESERVE
+   *  pair); refused when the default routes nothing. Absent / SYSTEM =
+   *  today's posting. */
+  cash_drawer?: CashDrawerChoice;
 }
 
 /** LIRA-347 — an allocation item as `_loadAllocationItems` returns it:
@@ -1132,6 +1150,16 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         rate: recordExchangeRate,
       });
 
+      // LIRA-371 — "OMT Cash Drawer | General". The allocation above always
+      // runs on DEFAULT routing; GENERAL only skips the internal RESERVE
+      // move below, so the cash stays in General and the debt, coverage and
+      // profit are unchanged. Refused (inside this transaction, so the
+      // ledger row above is rolled back) when the default routes nothing.
+      const keepCashInGeneral = data.cash_drawer === "GENERAL";
+      if (keepCashInGeneral && !repaymentRoutesToSystemDrawer(allocation)) {
+        throw new DatabaseError(cashDrawerChoiceNotApplicable(baseSystem));
+      }
+
       // Customer-paid (IN) legs land in their own method's drawer.
       const legNote = data.note || "Debt repayment";
       for (const leg of inLegs) {
@@ -1156,7 +1184,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         l.amount > 0 && isRoutableCash(l.method) ? l.amount : 0,
       );
       const routedLegs: Array<{ currency: string; amount: number }> = [];
-      for (const r of allocation.routing) {
+      for (const r of keepCashInGeneral ? [] : allocation.routing) {
         let need = r.tenderAmount;
         inLegs.forEach((leg, i) => {
           if (need <= 1e-9 || leg.currencyCode !== r.tenderCurrency) return;
@@ -1236,7 +1264,19 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       //    (TransactionRepository._restoreRepaymentDebt).
       const coverage = this._applyCoverage(allocation.coverage, openItems);
       this._recordRepaymentCoverage(txnId, coverage, {
-        ...(allocation.routing.length > 0
+        ...(keepCashInGeneral
+          ? {
+              // LIRA-371 — the cashier kept the cash in General: nothing
+              // was routed (no transfer's routing cap is consumed).
+              routed: {
+                provider: baseSystem,
+                drawer: pcdDrawer,
+                by_transfer: [],
+                legs: [],
+                cash_drawer: "GENERAL",
+              },
+            }
+          : allocation.routing.length > 0
           ? {
               routed: {
                 provider: baseSystem,
@@ -1300,6 +1340,9 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
                 };
               })()
             : undefined,
+          // LIRA-372 decision A — link the discount to this repayment so its
+          // void/refund reverses the discount with it (rule 20).
+          txnId,
         );
       }
 
@@ -1340,6 +1383,9 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     /** LIRA-308 answer 2 — the earlier balance still open after the bundled
      *  repayment's cash; only read when `targets` tick it. */
     balanceOpen?: { usd: number; lbp: number },
+    /** LIRA-372 decision A — the DEBT_REPAYMENT this discount is bundled
+     *  with; absent for a standalone write-off. */
+    bundledRepaymentTxnId?: number,
   ): number {
     const tenantId = getCurrentTenantId();
     const amountUsd = Math.abs(discount.amount_usd || 0);
@@ -1412,8 +1458,10 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     // decision 8 — else today's order; a discount moves no cash, so nothing
     // is routed). A target the repayment's own cash already cleared is no
     // longer open and simply drops out. Its
-    // coverage is recorded on the discount's own metadata for audit —
-    // COUNTERPARTY_DISCOUNT stays non-reversible.
+    // coverage is recorded on the discount's own metadata — for audit, and
+    // (LIRA-372 decision A) so a bundled discount's give-back on the
+    // repayment's void/refund is exact. COUNTERPARTY_DISCOUNT itself stays
+    // non-reversible on its own.
     const baseSystem = getSettingsRepository().getShopBaseSystem();
     const openItems = this._loadAllocationItems(clientId, baseSystem);
     if (balanceOpen) {
@@ -1440,7 +1488,13 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       rate: getUsdLbpSellRate(this.db),
     });
     const coverage = this._applyCoverage(allocation.coverage, openItems);
-    this._recordRepaymentCoverage(txnId, coverage);
+    this._recordRepaymentCoverage(
+      txnId,
+      coverage,
+      bundledRepaymentTxnId != null
+        ? { [BUNDLED_REPAYMENT_TXN_KEY]: bundledRepaymentTxnId }
+        : {},
+    );
 
     return txnId;
   }

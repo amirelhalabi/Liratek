@@ -427,7 +427,7 @@ describe("LIRA-346 — partner settle by day", () => {
     const s = forSale(100, "2026-10-20 09:00:00");
     settle({
       days: ["2026-10-20"],
-      usd: { payer: "PARTNER", amount: 90, forgive: 10 },
+      usd: { payer: "PARTNER", amount: 96, forgive: 4 }, // LIRA-372: under the $5 cap
     });
     expect(open()).toEqual([]);
     expect(balance().usd).toBe(0);

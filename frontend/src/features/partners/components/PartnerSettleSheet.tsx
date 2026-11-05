@@ -3,10 +3,8 @@ import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
 import {
   appEvents,
-  DecimalInput,
-  DiscountLine,
-  discountFieldClass,
   MultiPaymentInput,
+  SettleDiscountLine,
   type PaymentLine,
 } from "@liratek/ui";
 import { formatNumber } from "@liratek/ui/i18n/format";
@@ -55,9 +53,9 @@ import {
 } from "../utils/partnerSettleDaysPayload";
 import { partnerLegMethods } from "../utils/partnerLegMethods";
 import {
-  capSettlementDiscount,
-  discountRoomAfterSettlement,
-  isDiscountClippedBySettlement,
+  capPartnerDiscount,
+  partnerDiscountOverpaid,
+  partnerDiscountRoom,
 } from "../utils/settlementDiscount";
 
 /**
@@ -293,9 +291,11 @@ export function PartnerSettleSheet({
       due: number;
       net: number;
       forgive: number;
-      forgiveRaw: number;
-      forgiveClipped: boolean;
+      /** LIRA-372 — min($5 / 450,000 LBP, due), measured before the
+       *  payment (the payment follows the discount). */
       forgiveRoom: number;
+      /** LIRA-372 — a payment edited after the discount overshoots due. */
+      forgiveOverpaid: boolean;
       /** Signed like the rows (+ Karim owes the shop), after this settle. */
       after: number;
     }>;
@@ -313,15 +313,15 @@ export function PartnerSettleSheet({
         rate,
       );
       const partnerPays = p.payer === "PARTNER";
-      const forgiveRaw = partnerPays
-        ? Math.max(0, parseAmount(forgiveInput[c]))
-        : 0;
-      const forgive = partnerPays
-        ? roundPartnerMoney(capSettlementDiscount(due, net, forgiveRaw), c)
+      // LIRA-372 — the Discount line works for both payers: the partner
+      // pays (shop accepts less, "given") or the shop pays (partner accepts
+      // less, "received"). Capped at $5 / 450,000 LBP and at the due.
+      const forgive = boxShown
+        ? capPartnerDiscount(c, due, Math.max(0, parseAmount(forgiveInput[c])))
         : 0;
       const after = partnerPays
         ? roundPartnerMoney(p.prefill - net - forgive, c)
-        : roundPartnerMoney(p.prefill + net, c);
+        : roundPartnerMoney(p.prefill + net + forgive, c);
       out[c] = {
         plan: p,
         lines: shownLines,
@@ -329,10 +329,8 @@ export function PartnerSettleSheet({
         due,
         net,
         forgive,
-        forgiveRaw,
-        forgiveClipped:
-          partnerPays && isDiscountClippedBySettlement(due, net, forgiveRaw),
-        forgiveRoom: discountRoomAfterSettlement(due, net),
+        forgiveRoom: partnerDiscountRoom(c, due),
+        forgiveOverpaid: partnerDiscountOverpaid(c, due, net, forgive),
         after,
       };
     }
@@ -385,7 +383,9 @@ export function PartnerSettleSheet({
     submitting ||
     !openQuery.isSuccess ||
     plan.selection.selections.length === 0 ||
-    touched.length === 0;
+    touched.length === 0 ||
+    // LIRA-372 — payment + discount may not exceed the due.
+    PARTNER_SETTLE_CURRENCIES.some((c) => money[c].forgiveOverpaid);
 
   const refetchAfterStale = (message: string) => {
     if (isSettleStaleMessage(message)) {
@@ -841,52 +841,37 @@ export function PartnerSettleSheet({
               const p = m.plan;
               const partnerPays = p.payer === "PARTNER";
               const noMoney = m.due < PARTNER_SETTLE_EPS[c];
-              const forgiveLine =
-                partnerPays && !noMoney ? (
-                  <DiscountLine
-                    label={t("settle.forgive")}
-                    testId="partner-settle-forgive"
-                    capNote={
-                      m.forgiveClipped && m.forgiveRoom > 0
-                        ? t("settle.capped", {
-                            amount: formatMoney(m.forgiveRoom, c),
-                          })
-                        : undefined
-                    }
-                    hint={
-                      m.forgiveClipped && m.forgiveRoom <= 0 ? (
-                        <span data-testid="partner-settle-discount-room-hint">
-                          {t("settle.lowerPayment")}
-                        </span>
-                      ) : undefined
-                    }
-                    reason={
-                      m.forgive > 0
-                        ? {
-                            value: forgiveReason[c],
-                            onChange: (v: string) =>
-                              setForgiveReason((prev) => ({ ...prev, [c]: v })),
-                            placeholder: t("settle.reasonPlaceholder"),
-                            testId: "partner-settle-forgive-reason",
-                          }
-                        : undefined
-                    }
-                  >
-                    <DecimalInput
-                      value={m.forgiveRaw}
-                      onChange={(n) =>
-                        setForgiveInput((prev) => ({
-                          ...prev,
-                          [c]: n ? String(n) : "",
-                        }))
-                      }
-                      className={discountFieldClass(m.forgiveClipped)}
-                      placeholder="0"
-                      aria-label={t("settle.forgiveAmount")}
-                      data-testid="partner-settle-forgive-input"
-                    />
-                  </DiscountLine>
-                ) : null;
+              // LIRA-372 — the ONE settle Discount line, for both payers.
+              const forgiveLine = !noMoney ? (
+                <SettleDiscountLine
+                  currencies={[c]}
+                  values={{ [c]: forgiveInput[c] }}
+                  onChange={(_cc, raw) =>
+                    setForgiveInput((prev) => ({ ...prev, [c]: raw }))
+                  }
+                  room={{ [c]: m.forgiveRoom }}
+                  reason={{
+                    value: forgiveReason[c],
+                    onChange: (v: string) =>
+                      setForgiveReason((prev) => ({ ...prev, [c]: v })),
+                  }}
+                  hint={
+                    m.forgiveOverpaid ? (
+                      <span
+                        data-testid="partner-settle-discount-overpaid"
+                        className="text-amber-400"
+                      >
+                        {t("settle.discountOverpaid", {
+                          amount: formatMoney(
+                            roundPartnerMoney(Math.max(0, m.due - m.forgive), c),
+                            c,
+                          ),
+                        })}
+                      </span>
+                    ) : undefined
+                  }
+                />
+              ) : null;
               const eps = PARTNER_SETTLE_EPS[c];
               const after = m.after;
               const preview =
@@ -957,10 +942,21 @@ export function PartnerSettleSheet({
                             totalBeforeDiscount: [
                               { amount: m.due, currency: c },
                             ],
-                            afterDiscountLabel: t("settle.afterForgive"),
                           }
                         : {})}
-                      discountMovesPayment={false}
+                      // LIRA-372 (owner 2026-11-05, option B) — the payment
+                      // follows the discount: a new discount re-fills the
+                      // line to due − discount, even one typed by hand.
+                      fillTotals={[
+                        {
+                          amount: roundPartnerMoney(
+                            Math.max(0, m.due - m.forgive),
+                            c,
+                          ),
+                          currency: c,
+                        },
+                      ]}
+                      fillKey={`discount:${m.forgive}`}
                       owedLabel={
                         partnerPays
                           ? t("settle.partnerWillOwe")
@@ -982,8 +978,8 @@ export function PartnerSettleSheet({
                       // LIRA-359 — a box may be paid in either currency.
                       returnCurrencies={["USD", "LBP"]}
                       payer={partnerPays ? "customer" : "shop"}
-                      // Waive only when money comes IN (owner 2026-10-12).
-                      waiveDisabled={!partnerPays}
+                      // LIRA-372 — no Waive on any settle screen.
+                      waiveDisabled
                       showPmFee={false}
                       showDiscount={false}
                       paymentMethods={partnerLegMethods(
@@ -997,14 +993,6 @@ export function PartnerSettleSheet({
                       ]}
                       exchangeRate={exchangeRate}
                       onExchangeRateChange={setPaymentRate}
-                      // LIRA-310 — Waive puts the gap into the Forgive line.
-                      onWaiveRemaining={(amount: number) => {
-                        const next = m.forgive + amount;
-                        setForgiveInput((prev) => ({
-                          ...prev,
-                          [c]: String(roundPartnerMoney(next, c)),
-                        }));
-                      }}
                     />
                   )}
                   <p

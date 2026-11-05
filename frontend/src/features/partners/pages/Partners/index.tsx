@@ -55,8 +55,7 @@ import {
   CounterpartySettleModal,
   PageHeader,
   DecimalInput,
-  DiscountLine,
-  discountFieldClass,
+  SettleDiscountLine,
   Select,
   useApi,
   type PaymentLine,
@@ -67,9 +66,9 @@ import { TableModal } from "@/shared/components/TableModal";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { formatCurrency } from "@/utils/currency";
 import {
-  capSettlementDiscount,
-  discountRoomAfterSettlement,
-  isDiscountClippedBySettlement,
+  capPartnerDiscount,
+  partnerDiscountOverpaid,
+  partnerDiscountRoom,
 } from "../../utils/settlementDiscount";
 import { partnerLegMethods } from "../../utils/partnerLegMethods";
 import { PartnerSettleSheet } from "../../components/PartnerSettleSheet";
@@ -449,91 +448,54 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
   // Negative balance = we owe the partner = the shop pays (FEATURE_GUIDE
   // §4.1 payer "shop": change is something we GET back).
   const shopPays = signedBalanceInCurrency < 0;
-  // CQ-10: PartnerService.settle posts the settlement `amount` and the
-  // `discount` as two INDEPENDENT ledger rows with no combined validation
-  // (unlike Debts, where the reduction math is capped against the
-  // discount-adjusted due) — settle() doesn't even cap `amount` alone
-  // against the balance. capSettlementDiscount caps the discount at what's
-  // left AFTER the settlement amount, so "owed X, paid Y, discount Z" can
-  // never post Y + Z > X against this partner's balance.
-  const maxDiscountInCurrency = discountRoomAfterSettlement(
+  // LIRA-372 (owner 2026-11-05) — the ONE settle Discount line: capped at
+  // $5 / 450,000 LBP and at what is owed, measured BEFORE the payment (the
+  // payment line follows the discount, so a room measured after it would
+  // shrink to 0). PartnerService.settle re-checks amount + discount ≤
+  // balance; Confirm is blocked here when a payment edited after the
+  // discount would overshoot it.
+  const discountRoom = partnerDiscountRoom(currency, balanceInCurrency);
+  const parsedDiscount = capPartnerDiscount(
+    currency,
     balanceInCurrency,
-    parsedAmount,
+    Math.max(0, parseFloat(discountAmount) || 0),
   );
-  // Raw (uncapped) value the operator has actually typed — shown in the
-  // discount field itself so it doesn't silently rubber-band back to a
-  // smaller number every keystroke (see isDiscountClippedBySettlement).
-  const requestedDiscountRaw = Math.max(0, parseFloat(discountAmount) || 0);
-  const parsedDiscount = capSettlementDiscount(
-    balanceInCurrency,
-    parsedAmount,
-    requestedDiscountRaw,
-  );
-  // UX fix (COUNTERPARTY_CONSOLIDATION_PLAN follow-up): MultiPaymentInput
-  // auto-fills the settlement leg to the FULL balance by default, so a
-  // discount typed before the operator manually shrinks that leg has zero
-  // room and gets capped to 0 with no explanation — reads as a broken
-  // input rather than an over-the-cap discount. The persistent "Up to $X"
-  // label below already switches to explicit guidance when
-  // maxDiscountInCurrency is 0 (the resting/no-room case); this flag
-  // additionally drives a "only $X will apply" hint for the PARTIAL-room
-  // case, where some room exists but the typed amount still overshoots it.
-  // Money semantics are unchanged either way: parsedDiscount (capped) is
-  // still the only value submitted.
-  const discountClipped = isDiscountClippedBySettlement(
-    balanceInCurrency,
-    parsedAmount,
-    requestedDiscountRaw,
-  );
+  const discountOverpaid =
+    !useClientAccount &&
+    partnerDiscountOverpaid(
+      currency,
+      balanceInCurrency,
+      parsedAmount,
+      parsedDiscount,
+    );
   const fmtCur = (n: number) => (currency === "USD" ? fmtUSD(n) : fmtLBP(n));
-  // Netted out of what MultiPaymentInput is fed as "owed" — otherwise a
-  // partial settle + a discount covering the rest would show a false
-  // "Remaining (Debt)" warning inside the split-leg form (the discount isn't
-  // debt, it's being forgiven).
+  // What the payment box is fed as owed: the balance minus the discount, so
+  // the line fills to it (and re-fills when the discount changes).
   const nettedBalance = Math.max(0, balanceInCurrency - parsedDiscount);
 
-  // LIRA-318 — the one Forgive line, rendered inside the payment box (or
-  // below the paper-only amount). Same value, cap and payload as before.
+  // The one Discount line, inside the payment box (or below the paper-only
+  // amount).
   const forgiveLine =
     balanceInCurrency > 0 ? (
-      <DiscountLine
-        label={t("settle.forgive")}
-        testId="partner-settle-forgive"
-        // Typed above the room left after the payment: say what applies.
-        capNote={
-          discountClipped && maxDiscountInCurrency > 0
-            ? t("settle.capped", { amount: fmtCur(maxDiscountInCurrency) })
-            : undefined
-        }
-        // No room at all (the payment covers the balance): the payment is
-        // never moved for a forgive (owner, LIRA-318) — say how to make room.
+      <SettleDiscountLine
+        currencies={[currency]}
+        values={{ [currency]: discountAmount }}
+        onChange={(_c, raw) => setDiscountAmount(raw)}
+        room={{ [currency]: discountRoom }}
+        reason={{ value: discountReason, onChange: setDiscountReason }}
         hint={
-          discountClipped && maxDiscountInCurrency <= 0 ? (
-            <span data-testid="partner-settle-discount-room-hint">
-              {t("settle.lowerPayment")}
+          discountOverpaid ? (
+            <span
+              data-testid="partner-settle-discount-overpaid"
+              className="text-amber-400"
+            >
+              {t("settle.discountOverpaid", {
+                amount: fmtCur(nettedBalance),
+              })}
             </span>
           ) : undefined
         }
-        reason={
-          parsedDiscount > 0
-            ? {
-                value: discountReason,
-                onChange: setDiscountReason,
-                placeholder: t("settle.reasonPlaceholder"),
-                testId: "partner-settle-forgive-reason",
-              }
-            : undefined
-        }
-      >
-        <DecimalInput
-          value={requestedDiscountRaw}
-          onChange={(n) => setDiscountAmount(n ? String(n) : "")}
-          className={discountFieldClass(discountClipped)}
-          placeholder="0"
-          aria-label={t("settle.forgiveAmount")}
-          data-testid="partner-settle-forgive-input"
-        />
-      </DiscountLine>
+      />
     ) : null;
 
   async function handleSettle() {
@@ -633,7 +595,7 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
       onConfirm={handleSettle}
       confirmLabel={t("settle.confirm")}
       confirmColor="emerald"
-      confirmDisabled={!isValid}
+      confirmDisabled={!isValid || discountOverpaid}
       isSubmitting={submitting}
       beforeContent={
         <>
@@ -721,19 +683,19 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
           ? undefined
           : {
               totals: [{ amount: nettedBalance, currency }],
-              // LIRA-318 — one Forgive line inside the payment box: "Total
-              // Amount" shows the whole balance, "After Forgive" the net.
-              // Owner decision: a forgive never moves the payment amount.
+              // LIRA-372 (owner 2026-11-05, option B) — the payment follows
+              // the discount: a new discount re-fills the line to owed −
+              // discount, even one the cashier typed (fillKey).
+              fillTotals: [{ amount: nettedBalance, currency }],
+              fillKey: `discount:${parsedDiscount}`,
               ...(forgiveLine
                 ? {
                     discountRow: forgiveLine,
                     totalBeforeDiscount: [
                       { amount: balanceInCurrency, currency },
                     ],
-                    afterDiscountLabel: t("settle.afterForgive"),
                   }
                 : {}),
-              discountMovesPayment: false,
               owedLabel: t("settle.partnerWillOwe"),
               totalAmountCurrency: currency,
               currency,
@@ -748,10 +710,9 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
               cashOnlyReturn: true,
               returnCurrencies: [currency],
               payer: shopPays ? "shop" : "customer",
-              // Owner rule 2026-10-12 (LIRA-310 follow-up): Waive only when
-              // money comes IN. Paying a partner we owe is money OUT — the
-              // old Math.max(0, …) total hid it by accident; now explicit.
-              waiveDisabled: shopPays,
+              // LIRA-372 — no Waive on any settle screen: the cashier types
+              // the discount.
+              waiveDisabled: true,
               showPmFee: false,
               showDiscount: false,
               // Locked to the single selected currency — the operator can
@@ -766,20 +727,6 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
               ],
               exchangeRate,
               onExchangeRateChange: setPaymentRate,
-              // LIRA-310 — Waive puts the gap into the Forgive line.
-              // MultiPaymentInput is fed the balance minus the (capped)
-              // discount, so discount + gap is exactly the room left after
-              // the settlement — capSettlementDiscount never clips it.
-              onWaiveRemaining: (amount: number) => {
-                const next = parsedDiscount + amount;
-                setDiscountAmount(
-                  String(
-                    currency === "LBP"
-                      ? Math.round(next)
-                      : Math.round(next * 100) / 100,
-                  ),
-                );
-              },
             }
       }
       // Paper-only settle: no payment box, so the same line sits below.

@@ -110,5 +110,12 @@
   "note": {
     "label": "Note (optional)",
     "placeholder": "e.g. will bring the rest Monday"
+  },
+  "cashDrawerChoice": {
+    "goesTo": "Goes to",
+    "comesFrom": "Comes from",
+    "omt": "OMT Cash Drawer",
+    "whish": "Whish Cash Drawer",
+    "general": "General"
   }
 }

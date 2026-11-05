@@ -571,6 +571,10 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     // row/profit stamp are negated by a dedicated compensating pair, not by
     // removing this type from NON_REVERSIBLE (nothing changes about what a
     // caller can do to a COUNTERPARTY_DISCOUNT row directly).
+    // The same holds for a discount bundled with a supplier payment /
+    // settlement (`_reverseSupplierBundledDiscount`) and, since LIRA-372
+    // (owner decision A, 2026-11-05), with a Debts repayment
+    // (`_reverseDebtBundledDiscount`).
     TRANSACTION_TYPES.COUNTERPARTY_DISCOUNT,
     // MTC_TOPUP / ALFA_TOPUP (topUpFromCustomer): moves General AND the
     // provider drawer directly with NO payments legs — the generic reversal

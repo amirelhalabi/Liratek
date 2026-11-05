@@ -153,7 +153,12 @@ import { getSalesRepository } from "./SalesRepository.js";
 // imports `getTransactionRepository` at its own top level, and neither class
 // touches the other's import at module-evaluation time, only from inside a
 // method body.
-import { getDebtRepository, readRepaymentCoverage } from "./DebtRepository.js";
+import {
+  BUNDLED_REPAYMENT_TXN_KEY,
+  getDebtRepository,
+  readRepaymentCoverage,
+  type RepaymentCoverageRecord,
+} from "./DebtRepository.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
 // LIRA-258 / G17 — the shared repayment-coverable type list (rule 14/20),
 // same lazy circular-import pattern as above (only read inside a method).
@@ -7830,7 +7835,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    *   2. negates the discount's COUNTERPARTY_DISCOUNT profit with a NEW
    *      compensating row (`_negateCounterpartyDiscountProfit`, shared with
    *      the partner sweep — never mutate the original);
-   *   3. gives back the FIFO purchase coverage the discount applied.
+   *   3. gives back the FIFO purchase coverage the discount applied (a
+   *      Pay discount only — LIRA-372: a Receive discount applied none).
    * Create + void therefore nets supplier, drawers (the discount never
    * moved one) and profit to 0, per currency.
    */
@@ -7853,6 +7859,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // LIRA-310 — a settlement's Waive never applied FIFO purchase coverage
     // (`applyPurchaseCoverage: false`), so there is none to give back.
     if (original.type === "SUPPLIER_SETTLEMENT") return;
+    // LIRA-372 — a Receive discount ("given": the shop accepted less from
+    // the supplier) is booked +x on the ledger and never applied purchase
+    // coverage either. The row's own sign says so (a "received" discount is
+    // −x), so there is nothing to give back.
+    if (discount.amount_usd + discount.amount_lbp > 0) return;
     const supplier = this.queryOne<{ supplier_id: number }>(
       `SELECT supplier_id FROM supplier_ledger WHERE id = ? AND tenant_id = ?`,
       discount.id,
@@ -7879,13 +7890,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * transaction.
    */
   private _negateCounterpartyDiscountProfit(
-    sourceTable: "partner_ledger" | "supplier_ledger",
+    sourceTable: "partner_ledger" | "supplier_ledger" | "debt_ledger",
     sourceId: number,
     summary: string,
     userId: number,
-  ): void {
+  ): number | null {
     const discountTxn = this.getBySourceId(sourceTable, sourceId);
-    if (!discountTxn) return;
+    if (!discountTxn) return null;
     const reversalTxnId = this.createTransaction({
       type: "COUNTERPARTY_DISCOUNT",
       source_table: sourceTable,
@@ -7898,7 +7909,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // Owner decision 2026-10-07: the reversal carries the ORIGINAL row's
       // rate, copied verbatim like `voidTransaction`'s reversal row.
       exchange_rate: discountTxn.exchange_rate,
-      client_id: null,
+      // LIRA-372 — a client discount's reversal keeps its client (null for
+      // supplier/partner discounts, which carry none).
+      client_id: discountTxn.client_id ?? null,
       summary,
       metadata_json: { reversed_discount_txn_id: discountTxn.id },
       // LIRA-329 (T038): the discount row this reverses.
@@ -7910,6 +7923,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       reversalTxnId,
       getCurrentTenantId(),
     );
+    return reversalTxnId;
   }
 
   /**
@@ -8967,15 +8981,17 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * never fire for the same call — no double-reversal risk, no conflict with
    * that existing pin.
    *
-   * Boundary (CQ-10): a bundled 'Debt Discount' posts its OWN
-   * COUNTERPARTY_DISCOUNT transaction — a DIFFERENT transaction_id, whose
-   * source_id is the 'Debt Discount' ledger row, never the repayment's own
-   * 'Repayment' row. This method only ever looks up `original.source_id`
-   * (the repayment's row), so it can never see or touch the discount's row
-   * or transaction. COUNTERPARTY_DISCOUNT is NON_REVERSIBLE by design
-   * (correcting a discount is always an opposite discount, never a void) —
-   * voiding the cash side of a discounted repayment must leave the bundled
-   * discount exactly as forgiven as before.
+   * Bundled discount (LIRA-372, owner decision A 2026-11-05 — overturns
+   * the CQ-10 boundary that left it booked): a 'Debt Discount' bundled with
+   * the repayment posts its OWN COUNTERPARTY_DISCOUNT transaction (its
+   * source_id is the 'Debt Discount' row, never the repayment's), linked
+   * back through `BUNDLED_REPAYMENT_TXN_KEY` on its metadata. This method
+   * is its reversal owner (rule 20): `_reverseDebtBundledDiscount` runs
+   * first and undoes the discount's ledger row, profit and coverage, so a
+   * void/refund of a discounted repayment restores the FULL debt — the same
+   * as a supplier/partner settlement's bundled discount. The discount
+   * transaction itself stays NON_REVERSIBLE on its own; a standalone admin
+   * write-off carries no link and is never touched here.
    *
    * Exact path (2026-10-07): repayments now record the rows their coverage
    * landed on (`readRepaymentCoverage`, DebtRepository) and step 2 gives
@@ -9029,6 +9045,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // its own 'Repayment' row, but never trust a join blindly.
     if (!ledger || ledger.transaction_type !== "Repayment") return;
 
+    // LIRA-372 decision A — the bundled discount first (LIFO: it was
+    // posted after the repayment's own coverage).
+    this._reverseDebtBundledDiscount(original, userId);
+
     // The 'Repayment' row stores NEGATIVE amounts (a debt reduction); the
     // give-back budget — and the compensating row below — use the absolute
     // value so the restore is a straightforward sign flip.
@@ -9067,41 +9087,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // in cash at checkout) whenever its coverage had gone to module charges.
     const recorded = readRepaymentCoverage(original.metadata_json);
     if (recorded) {
-      const updSale = this.db.prepare(
-        // status = 'completed' mirrors the legacy unwind (and the forward
-        // _markSalesPaidFIFO): a sale refunded since keeps its paid_usd.
-        // LIRA-349: `lbp` gives back the `paid_lbp` a sale owed in LBP got.
-        `UPDATE sales SET paid_usd = MAX(0, paid_usd - ?),
-                          paid_lbp = MAX(0, COALESCE(paid_lbp, 0) - ?)
-         WHERE id = ? AND tenant_id = ? AND status = 'completed'`,
-      );
-      for (const s of recorded.sales) {
-        const lbp = s.lbp ?? 0;
-        if (s.usd > 0 || lbp > 0) updSale.run(s.usd, lbp, s.id, tenantId);
-      }
-      const updCharge = this.db.prepare(
-        `UPDATE debt_ledger
-           SET covered_usd = MAX(0, covered_usd - ?), covered_lbp = MAX(0, covered_lbp - ?)
-         WHERE id = ? AND client_id = ? AND tenant_id = ?`,
-      );
-      for (const c of recorded.charges) {
-        if (c.usd > 0 || c.lbp > 0) {
-          updCharge.run(c.usd, c.lbp, c.id, ledger.client_id, tenantId);
-          // A repayment booked before LIRA-304 covered a basket row as a
-          // whole; reopen its items by the same amount so the members still
-          // add up to the row (I1). Newer records name the items instead.
-          if (recorded.members === undefined) {
-            reopenBasketMembers(this.db, tenantId, c.id, c.usd, c.lbp);
-          }
-        }
-      }
-      // LIRA-304 — basket items this repayment paid: give back exactly that
-      // on each item and its basket row together.
-      for (const m of recorded.members ?? []) {
-        if (m.usd > 0 || m.lbp > 0) {
-          uncoverBasketMember(this.db, tenantId, m.id, m.row_id, m.usd, m.lbp);
-        }
-      }
+      this._giveBackRecordedDebtCoverage(recorded, ledger.client_id, tenantId);
       return;
     }
 
@@ -9122,6 +9108,139 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       budgetLbp,
       tenantId,
     );
+  }
+
+  /**
+   * The ONE exact give-back of a recorded debt coverage (rule 14): what a
+   * repayment — or (LIRA-372) its bundled 'Debt Discount' — recorded under
+   * `REPAYMENT_COVERAGE_KEY`, each take capped at the row's current
+   * coverage. Shared by `_restoreRepaymentDebt` and
+   * `_reverseDebtBundledDiscount`.
+   */
+  private _giveBackRecordedDebtCoverage(
+    recorded: RepaymentCoverageRecord,
+    clientId: number,
+    tenantId: number,
+  ): void {
+    const updSale = this.db.prepare(
+      // status = 'completed' mirrors the legacy unwind (and the forward
+      // _markSalesPaidFIFO): a sale refunded since keeps its paid_usd.
+      // LIRA-349: `lbp` gives back the `paid_lbp` a sale owed in LBP got.
+      `UPDATE sales SET paid_usd = MAX(0, paid_usd - ?),
+                        paid_lbp = MAX(0, COALESCE(paid_lbp, 0) - ?)
+       WHERE id = ? AND tenant_id = ? AND status = 'completed'`,
+    );
+    for (const s of recorded.sales) {
+      const lbp = s.lbp ?? 0;
+      if (s.usd > 0 || lbp > 0) updSale.run(s.usd, lbp, s.id, tenantId);
+    }
+    const updCharge = this.db.prepare(
+      `UPDATE debt_ledger
+         SET covered_usd = MAX(0, covered_usd - ?), covered_lbp = MAX(0, covered_lbp - ?)
+       WHERE id = ? AND client_id = ? AND tenant_id = ?`,
+    );
+    for (const c of recorded.charges) {
+      if (c.usd > 0 || c.lbp > 0) {
+        updCharge.run(c.usd, c.lbp, c.id, clientId, tenantId);
+        // A repayment booked before LIRA-304 covered a basket row as a
+        // whole; reopen its items by the same amount so the members still
+        // add up to the row (I1). Newer records name the items instead.
+        if (recorded.members === undefined) {
+          reopenBasketMembers(this.db, tenantId, c.id, c.usd, c.lbp);
+        }
+      }
+    }
+    // LIRA-304 — basket items this repayment paid: give back exactly that
+    // on each item and its basket row together.
+    for (const m of recorded.members ?? []) {
+      if (m.usd > 0 || m.lbp > 0) {
+        uncoverBasketMember(this.db, tenantId, m.id, m.row_id, m.usd, m.lbp);
+      }
+    }
+  }
+
+  /**
+   * LIRA-372 (owner decision A, 2026-11-05; rule 20) — the reversal OWNER
+   * of a Debts repayment's bundled discount is the repayment's own
+   * void/refund, mirroring `_reverseSupplierBundledDiscount` and the
+   * partner sweep. Found ONLY through the link the discount carries
+   * (`BUNDLED_REPAYMENT_TXN_KEY` = the repayment's transaction id); a
+   * discount booked before that link, or a standalone admin write-off, has
+   * none and stays booked. Runs inside the caller's db.transaction():
+   *   1. negates the discount's COUNTERPARTY_DISCOUNT profit with a NEW
+   *      compensating row (`_negateCounterpartyDiscountProfit`);
+   *   2. restores the forgiven debt with a 'Discount Reversal' debt_ledger
+   *      row (+amount, the debt ledger's compensating-row convention, like
+   *      'Repayment Reversal'; not '<Module> Debt', so the rule-20 guard
+   *      never has to classify it), linked to that compensating
+   *      transaction so each transaction's account leg nets on its own;
+   *   3. gives back exactly the coverage the discount recorded.
+   * Create + void therefore nets debt, drawers (a discount moves none),
+   * profit and coverage to 0, per currency. Idempotent: a discount that
+   * already has a compensating row is skipped.
+   */
+  private _reverseDebtBundledDiscount(
+    original: TransactionEntity,
+    userId: number,
+  ): void {
+    const tenantId = getCurrentTenantId();
+    const discountTxn = this.queryOne<{
+      id: number;
+      source_id: number;
+      metadata_json: string | null;
+    }>(
+      `SELECT t.id, t.source_id, t.metadata_json FROM transactions t
+        WHERE t.type = ? AND t.source_table = 'debt_ledger'
+          AND t.status = 'ACTIVE' AND t.reverses_id IS NULL
+          AND json_extract(t.metadata_json, ?) = ? AND t.tenant_id = ?
+          AND NOT EXISTS (
+            SELECT 1 FROM transactions r
+             WHERE r.reverses_id = t.id AND r.tenant_id = t.tenant_id
+          )
+        LIMIT 1`,
+      TRANSACTION_TYPES.COUNTERPARTY_DISCOUNT,
+      `$.${BUNDLED_REPAYMENT_TXN_KEY}`,
+      original.id,
+      tenantId,
+    );
+    if (!discountTxn) return;
+    const ledger = this.queryOne<{
+      client_id: number;
+      amount_usd: number;
+      amount_lbp: number;
+    }>(
+      `SELECT client_id, amount_usd, amount_lbp FROM debt_ledger
+        WHERE id = ? AND transaction_type = 'Debt Discount' AND tenant_id = ?`,
+      discountTxn.source_id,
+      tenantId,
+    );
+    if (!ledger) return;
+
+    const reversalTxnId = this._negateCounterpartyDiscountProfit(
+      "debt_ledger",
+      discountTxn.source_id,
+      `Discount reversed by debt repayment void/refund #${original.id}`,
+      userId,
+    );
+
+    this.execute(
+      `INSERT INTO debt_ledger
+        (client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, tenant_id, created_at)
+       VALUES (?, 'Discount Reversal', ?, ?, ?, ?, ?, ?, ?)`,
+      ledger.client_id,
+      Math.abs(ledger.amount_usd ?? 0),
+      Math.abs(ledger.amount_lbp ?? 0),
+      reversalTxnId,
+      "Discount reversed by refund/void",
+      userId,
+      tenantId,
+      requestNow(),
+    );
+
+    const recorded = readRepaymentCoverage(discountTxn.metadata_json);
+    if (recorded) {
+      this._giveBackRecordedDebtCoverage(recorded, ledger.client_id, tenantId);
+    }
   }
 
   /**

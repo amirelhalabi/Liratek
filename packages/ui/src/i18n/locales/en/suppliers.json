@@ -169,8 +169,12 @@
       "lessThanExpected": "Less than expected ({{expected}}).",
       "staysOwed": "{{amount}} of commission on other types stays owed by {{name}}.",
       "includes": "This SMS includes: {{types}}",
-      "owedShares": "Commission {{name}} still owes you: {{amount}} ({{types}})"
-    }
+      "owedShares": "Commission {{name}} still owes you: {{amount}} ({{types}})",
+      "discount": "Discount: {{amount}}"
+    },
+    "discountOpposite": "A discount can't be used when you pay {{name}} in one currency and collect from {{name}} in the other — put the discount in one currency only.",
+    "discountWithExtra": "A discount can't be combined with an extra payment in the same currency — lower the payment.",
+    "discountPartial": "A discount must settle the transfers it covers in full — change the discount or the payment."
   },
   "adjust": {
     "open": "Add Credit / Debt",

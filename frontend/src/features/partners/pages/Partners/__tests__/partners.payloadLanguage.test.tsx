@@ -240,18 +240,17 @@ const settlePayload = (calls: unknown[][]) =>
 
 const SCENARIOS: Scenario[] = [
   {
-    name: "Settle by day (LIRA-346) — USD $80 cash, $20 forgiven with a reason, notes",
+    // LIRA-372 — rule 24: the shared Discount line (≤ $5); typing it sets
+    // the payment to owed − discount (owner option B).
+    name: "Settle by day (LIRA-346) — USD $5 discount with a reason → $95 cash, notes",
     write: "settleDays",
     drive: async () => {
       await openPartner();
       click(await screen.findByTestId("partner-action-settle"));
       await screen.findByTestId("partner-settle-payer-usd");
-      type(firstPaymentAmount(), "80");
-      type(screen.getByTestId("partner-settle-forgive-input"), "20");
-      type(
-        await screen.findByTestId("partner-settle-forgive-reason"),
-        "Goodwill",
-      );
+      type(screen.getByTestId("settle-discount-usd"), "5");
+      type(await screen.findByTestId("settle-discount-reason"), "Goodwill");
+      await waitFor(() => expect(firstPaymentAmount().value).toBe("95"));
       type(screen.getByTestId("partner-settle-notes"), "Week 43");
       const submit = screen.getByTestId("partner-settle-submit");
       await waitFor(() => expect(submit).not.toBeDisabled());
@@ -263,37 +262,34 @@ const SCENARIOS: Scenario[] = [
       expect(p.include_account_credits).toBe(true);
       expect(p.per_currency.USD).toEqual({
         payer: "PARTNER",
-        payments: [{ method: "CASH", currency_code: "USD", amount: 80 }],
-        forgive: { amount: 20, reason: "Goodwill" },
+        payments: [{ method: "CASH", currency_code: "USD", amount: 95 }],
+        forgive: { amount: 5, reason: "Goodwill" },
       });
       expect(p.per_currency.LBP).toBeUndefined();
       expect(p.notes).toBe("Week 43");
     },
   },
   {
-    name: "Settle USD — $80 cash, $20 forgiven with a reason, notes",
+    name: "Settle USD — $5 discount with a reason → $95 cash, notes",
     write: "settle",
     drive: async () => {
       await openSettle();
-      type(firstPaymentAmount(), "80");
-      type(screen.getByTestId("partner-settle-forgive-input"), "20");
-      type(
-        await screen.findByTestId("partner-settle-forgive-reason"),
-        "Goodwill",
-      );
+      type(screen.getByTestId("settle-discount-usd"), "5");
+      type(await screen.findByTestId("settle-discount-reason"), "Goodwill");
+      await waitFor(() => expect(firstPaymentAmount().value).toBe("95"));
       type(screen.getByTestId("partner-settle-notes"), "Week 41");
       click(settleConfirmButton());
     },
     check: (calls) => {
       const p = settlePayload(calls);
-      expect(p.amount).toBe(80);
+      expect(p.amount).toBe(95);
       expect(p.currency).toBe("USD");
       expect(p.settlementMethod).toBe("CASH");
       expect(p.payments).toEqual([
-        { method: "CASH", currency_code: "USD", amount: 80 },
+        { method: "CASH", currency_code: "USD", amount: 95 },
       ]);
       expect(p.discount).toEqual({
-        amount_usd: 20,
+        amount_usd: 5,
         amount_lbp: 0,
         reason: "Goodwill",
       });
@@ -301,21 +297,15 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
-    name: "Settle USD — $98 paid, Waive the $2 gap",
+    // LIRA-372 — no Waive on settle: the cashier types the $2 discount and
+    // the payment follows it to $98.
+    name: "Settle USD — $2 discount typed, the payment follows to $98",
     write: "settle",
     drive: async () => {
       await openSettle();
-      type(firstPaymentAmount(), "98");
-      click(await screen.findByTestId("waive-remaining"));
-      await waitFor(() =>
-        expect(
-          (
-            screen.getByTestId(
-              "partner-settle-forgive-input",
-            ) as HTMLInputElement
-          ).value,
-        ).toBe("2"),
-      );
+      type(screen.getByTestId("settle-discount-usd"), "2");
+      await waitFor(() => expect(firstPaymentAmount().value).toBe("98"));
+      expect(screen.queryByTestId("waive-remaining")).toBeNull();
       click(settleConfirmButton());
     },
     check: (calls) => {

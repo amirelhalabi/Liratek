@@ -1,5 +1,16 @@
 /** @jest-environment jsdom */
 /**
+ * LIRA-310 (T010) — Waive on the partner Settle modal, REWRITTEN for
+ * LIRA-372 (owner 2026-11-05, rule 24): no settle screen shows Waive any
+ * more; the cashier types the discount. These are now guards that the Waive
+ * button is NOT offered (by amount and by day) when the payment is short,
+ * and that a short payment stays a partial settlement (no discount is
+ * invented for the gap).
+ *
+ * Renders the REAL page + real MultiPaymentInput. The payload is parsed
+ * through the core schemas (rule 24).
+ */
+/**
  * LIRA-310 (T010) — Waive on the partner Settle modal.
  *
  * Balance $100, $98 handed over → Remaining $2 → Waive puts the gap into the
@@ -134,7 +145,7 @@ function pay(amount: string) {
 
 // LIRA-318 — the forgive field now lives inside the payment box.
 const discountInput = () =>
-  screen.getByTestId("partner-settle-forgive-input") as HTMLInputElement;
+  screen.getByTestId("settle-discount-usd") as HTMLInputElement;
 
 /** LIRA-346 — Settle opens the by-day sheet: 20 Oct For +$100 is picked. */
 async function openByDay() {
@@ -161,7 +172,7 @@ async function submitByDay() {
   );
 }
 
-describe("Partners page — Waive (LIRA-310)", () => {
+describe("Partners page — no Waive on settle (LIRA-310 → LIRA-372)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockApi.partners.getAllBalances.mockResolvedValue([PARTNER]);
@@ -177,48 +188,28 @@ describe("Partners page — Waive (LIRA-310)", () => {
     mockApi.partners.settleDays.mockResolvedValue({ success: true, id: 9 });
   });
 
-  it("balance 100, paid 98: Waive sets the discount to 2 and sends it", async () => {
+  it("balance 100, paid 98: no Waive button; the $2 stays owed and no discount is sent", async () => {
     await openSettle();
     pay("98");
-    const waive = await screen.findByTestId("waive-remaining");
-    fireEvent.click(waive);
-    await waitFor(() => expect(discountInput().value).toBe("2"));
-    expect(screen.queryByTestId("remaining-row")).not.toBeInTheDocument();
-    const confirm = screen.getByText("Confirm Settlement") as HTMLButtonElement;
-    expect(confirm.disabled).toBe(false);
-    fireEvent.click(confirm);
-    await waitFor(() => expect(mockSettle).toHaveBeenCalledTimes(1));
-    const parsed = partnerSettleSchema.parse(mockSettle.mock.calls[0][0]);
-    expect(parsed.amount).toBe(98);
-    expect(parsed.discount).toEqual(
-      expect.objectContaining({ amount_usd: 2, amount_lbp: 0 }),
-    );
-  });
-
-  it("adds the gap to a discount already typed (1 + 1 = 2)", async () => {
-    await openSettle();
-    pay("98");
-    fireEvent.change(discountInput(), { target: { value: "1" } });
-    fireEvent.click(await screen.findByTestId("waive-remaining"));
-    await waitFor(() => expect(discountInput().value).toBe("2"));
+    expect(await screen.findByTestId("remaining-row")).toBeInTheDocument();
+    expect(screen.queryByTestId("waive-remaining")).not.toBeInTheDocument();
+    expect(discountInput().value).toBe("");
     fireEvent.click(screen.getByText("Confirm Settlement"));
     await waitFor(() => expect(mockSettle).toHaveBeenCalledTimes(1));
     const parsed = partnerSettleSchema.parse(mockSettle.mock.calls[0][0]);
-    expect(parsed.discount).toEqual(expect.objectContaining({ amount_usd: 2 }));
+    expect(parsed.amount).toBe(98);
+    expect(parsed.discount).toBeUndefined();
   });
-  // LIRA-346 — the by-day sheet keeps Waive → Forgive (not failing-first:
-  // written after the sheet).
-  it("by day: owed 100, paid 98, Waive forgives 2 in the USD section", async () => {
+
+  it("by day: owed 100, paid 98 — no Waive button, no forgive sent", async () => {
     await openByDay();
     pay("98");
-    fireEvent.click(await screen.findByTestId("waive-remaining"));
-    await waitFor(() => expect(discountInput().value).toBe("2"));
-    expect(screen.queryByTestId("remaining-row")).not.toBeInTheDocument();
+    expect(await screen.findByTestId("remaining-row")).toBeInTheDocument();
+    expect(screen.queryByTestId("waive-remaining")).not.toBeInTheDocument();
     const parsed = await submitByDay();
     expect(parsed.per_currency.USD).toEqual({
       payer: "PARTNER",
       payments: [{ method: "CASH", currency_code: "USD", amount: 98 }],
-      forgive: { amount: 2 },
     });
     expect(mockSettle).not.toHaveBeenCalled();
   });

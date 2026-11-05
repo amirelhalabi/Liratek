@@ -226,14 +226,8 @@
     "creditUsed": "Credit Used"
   },
   "forgive": {
-    "cappedToMax": "Capped to max ({{amount}})",
-    "lowerPaymentHint": "Lower the payment to {{target}} to forgive {{forgive}}.",
-    "afterForgive": "After Forgive",
-    "clientWillOwe": "Client will owe",
-    "label": "Forgive (no cash)",
-    "reasonPlaceholder": "Reason (optional)...",
-    "usd": "Forgive USD",
-    "lbp": "Forgive LBP"
+    "lowerPaymentHint": "Lower the payment to {{target}} for the {{forgive}} discount.",
+    "clientWillOwe": "Client will owe"
   },
   "repay": {
     "enterAmount": "Please enter a repayment amount.",

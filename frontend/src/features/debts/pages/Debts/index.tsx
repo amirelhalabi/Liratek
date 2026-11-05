@@ -46,13 +46,17 @@ import { useSellRate } from "@/hooks/useSellRate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { DataTable } from "@liratek/ui";
 import {
-  DiscountLine,
-  discountFieldClass,
+  SettleDiscountLine,
   type Money,
   type PaymentLine,
 } from "@liratek/ui";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
+import { isGeneralCash } from "@/shared/utils/isGeneralCash";
+import {
+  CashDrawerChoice,
+  type CashDrawerChoiceValue,
+} from "@/shared/components/CashDrawerChoice";
 import {
   computeRepaymentReduction,
   applyDebtDiscount,
@@ -73,8 +77,10 @@ import {
 import DebtDayCalendar from "../../components/DebtDayCalendar";
 import {
   allocateRepayment,
+  repaymentRoutesToSystemDrawer,
   ownTargetsOpen,
   planRepaymentTargets,
+  settleDiscountRoom,
   type DebtDayTargets,
   type ClientDebtDetails,
   type DebtItemRef,
@@ -329,6 +335,10 @@ export default function Debts() {
     exactUsd?: number;
     exactLbp?: number;
   } | null>(null);
+  // LIRA-371 — "OMT Cash Drawer | General" on Repay; SYSTEM each time the
+  // modal opens.
+  const [repayCashDrawer, setRepayCashDrawer] =
+    useState<CashDrawerChoiceValue>("SYSTEM");
   const [repayNote, setRepayNote] = useState("");
   const [repayTransactionTime, setRepayTransactionTime] = useState<
     string | undefined
@@ -590,6 +600,8 @@ export default function Debts() {
     dueLbp,
     discountUsd: repayDiscountUsdNum,
     discountLbp: repayDiscountLbpNum,
+    // LIRA-372 — the settle Discount line: $5 / 450,000 LBP per currency.
+    settleCap: true,
   });
 
   // CQ-10: standalone write-off amounts, capped at the outstanding balance
@@ -885,7 +897,9 @@ export default function Debts() {
         currency: "LBP",
       },
     ].filter((t) => t.amount > 0);
-  const repayFillTotals = repayHasPicker
+  // What the ticks cover BEFORE the discount — the cap the plan below
+  // measures the reduction (payment + discount + credit) against.
+  const repayGrossFillTotals = repayHasPicker
     ? repayTickedTotals(
         repayTickedUsd - repayCreditUseUsd,
         repayTickedLbp - repayCreditUseLbp,
@@ -893,6 +907,27 @@ export default function Debts() {
         dueLbp,
       )
     : undefined;
+  // LIRA-372 (owner 2026-11-05, option B) — the payment follows the
+  // discount: it fills to the ticked sum (or, with no picker, the whole due)
+  // NET of the discount, and `repayDiscountFillKey` re-fills it whenever the
+  // discount changes, even over a payment typed by hand. (`fillTotals` beats
+  // `discountMovesPayment` in MPI's prefill, so it must be net itself.)
+  const repayFillTotals: Money[] = repayHasPicker
+    ? repayTickedTotals(
+        repayTickedUsd - repayCreditUseUsd - repayAppliedDiscountUsd,
+        repayTickedLbp - repayCreditUseLbp - repayAppliedDiscountLbp,
+        repayRemainingDueUsd,
+        repayRemainingDueLbp,
+      )
+    : [
+        ...(repayRemainingDueUsd > 0
+          ? [{ amount: repayRemainingDueUsd, currency: "USD" }]
+          : []),
+        ...(repayRemainingDueLbp > 0
+          ? [{ amount: repayRemainingDueLbp, currency: "LBP" }]
+          : []),
+      ];
+  const repayDiscountFillKey = `${repayFillKey}|discount:${repayAppliedDiscountUsd}:${repayAppliedDiscountLbp}`;
   const repayWaiveTotals = repayHasPicker
     ? repayTickedTotals(
         repayTickedUsd - repayAppliedDiscountUsd,
@@ -907,22 +942,12 @@ export default function Debts() {
     ...(dueUsd > 0 ? [{ amount: dueUsd, currency: "USD" }] : []),
     ...(dueLbp > 0 ? [{ amount: dueLbp, currency: "LBP" }] : []),
   ];
-  // A typed forgive above what is due in its currency is cut to it.
-  const repayForgiveOverUsd = repayDiscountUsdNum > dueUsd + 0.004;
-  const repayForgiveOverLbp = repayDiscountLbpNum > dueLbp + 0.5;
-  const repayForgiveCapNote =
-    repayForgiveOverUsd || repayForgiveOverLbp
-      ? t("forgive.cappedToMax", {
-          amount: [
-            repayForgiveOverUsd ? `$${dueUsd.toFixed(2)}` : "",
-            repayForgiveOverLbp
-              ? `${formatNumber(Math.round(dueLbp))} LBP`
-              : "",
-          ]
-            .filter(Boolean)
-            .join(" + "),
-        })
-      : undefined;
+  // LIRA-372 — the Discount line's room per currency: min($5 / 450,000
+  // LBP, due). SettleDiscountLine shows the "Capped to max" note from it.
+  const repayDiscountRoom = {
+    USD: settleDiscountRoom("USD", dueUsd),
+    LBP: settleDiscountRoom("LBP", dueLbp),
+  };
 
   // LIRA-318 (owner decision 2026-10-13, review follow-up) — the forgive
   // never moves the payment, so a payment that already covers what is
@@ -998,9 +1023,9 @@ export default function Debts() {
     // the plan, so the ticks never change by themselves (Confirm is blocked
     // over it anyway — `repayForgiveBlocked`).
     const fillUsd =
-      repayFillTotals?.find((t) => t.currency === "USD")?.amount ?? 0;
+      repayGrossFillTotals?.find((t) => t.currency === "USD")?.amount ?? 0;
     const fillLbp =
-      repayFillTotals?.find((t) => t.currency === "LBP")?.amount ?? 0;
+      repayGrossFillTotals?.find((t) => t.currency === "LBP")?.amount ?? 0;
     const reductionUsd =
       f.reduceUsd + repayAppliedDiscountUsd + repayCreditUseUsd;
     const reductionLbp =
@@ -1050,15 +1075,8 @@ export default function Debts() {
     if (!Number.isFinite(f.reduceUsd) || !Number.isFinite(f.reduceLbp)) {
       return null;
     }
-    const isCash = (code: string): boolean => {
-      if (code === "GIFT_CARD" || code === "CUSTOMER_ACCOUNT") return false;
-      const m = methods.find((x) => x.code === code) as
-        | { drawer_name?: string; affects_drawer?: number }
-        | undefined;
-      return m && m.drawer_name !== undefined
-        ? m.affects_drawer === 1 && m.drawer_name === "General"
-        : code === "CASH";
-    };
+    // LIRA-371 — the shared cash test (same rule, one definition).
+    const isCash = (code: string): boolean => isGeneralCash(code, methods);
     const appliedUsd = Math.max(0, f.paidUSD - f.returnedUsd);
     const appliedLbp = Math.max(0, f.paidLBP - f.returnedLbp);
     const cashOf = (ccy: string) =>
@@ -1089,8 +1107,11 @@ export default function Debts() {
         .reduce((sum, l) => sum + l.amount, 0);
     const creditUsd = creditOf("USD");
     const creditLbp = creditOf("LBP");
-    const routed = result.routedUsd > 0 || result.routedLbp > 0;
-    if (!routed && creditUsd <= 0 && creditLbp <= 0) return null;
+    // LIRA-371 — the choice applies when the DEFAULT allocation routes cash
+    // to the system cash drawer (same function the server checks).
+    const choiceApplies = repaymentRoutesToSystemDrawer(result);
+    const routed = choiceApplies && repayCashDrawer !== "GENERAL";
+    if (!choiceApplies && creditUsd <= 0 && creditLbp <= 0) return null;
     const fmt = (usd: number, lbp: number): string =>
       [
         usd > 0.004 ? `$${usd.toFixed(2).replace(/\.00$/, "")}` : "",
@@ -1105,17 +1126,27 @@ export default function Debts() {
       repayReturnLegs
         .filter((l) => l.currencyCode === ccy && isCash(l.method))
         .reduce((sum, l) => sum + l.amount, 0);
+    // GENERAL keeps all of it in General (change still leaves General,
+    // owner 2026-11-05).
+    const movedUsd = routed ? result.routedUsd : 0;
+    const movedLbp = routed ? result.routedLbp : 0;
+    const systemDrawer: "OMT_System" | "Whish_System" =
+      repayOpenItems.find((i) => i.primaryDrawer)?.primaryDrawer ===
+      "Whish_System"
+        ? "Whish_System"
+        : "OMT_System";
     return {
+      choiceApplies,
+      systemDrawer,
       systemLabel:
-        repayOpenItems.find((i) => i.primaryDrawer)?.primaryDrawer ===
-        "Whish_System"
+        systemDrawer === "Whish_System"
           ? t("repay.whishCashDrawer")
           : t("repay.omtCashDrawer"),
       systemText: routed ? fmt(result.routedUsd, result.routedLbp) : "",
-      generalText: routed
+      generalText: choiceApplies
         ? fmt(
-            Math.max(0, cashOf("USD") - cashBackOf("USD") - result.routedUsd),
-            Math.max(0, cashOf("LBP") - cashBackOf("LBP") - result.routedLbp),
+            Math.max(0, cashOf("USD") - cashBackOf("USD") - movedUsd),
+            Math.max(0, cashOf("LBP") - cashBackOf("LBP") - movedLbp),
           )
         : "",
       creditText: fmt(creditUsd, creditLbp),
@@ -1353,6 +1384,8 @@ export default function Debts() {
         // LIRA-347 D2 — "Use credit".
         ...(repayCreditUseUsd > 0 ? { creditUseUSD: repayCreditUseUsd } : {}),
         ...(repayCreditUseLbp > 0 ? { creditUseLBP: repayCreditUseLbp } : {}),
+        // LIRA-371 — only when the choice is shown (rule 22: one payload).
+        ...(repayPreview?.choiceApplies ? { cashDrawer: repayCashDrawer } : {}),
         ...(repayTransactionTime
           ? { transaction_time: repayTransactionTime }
           : {}),
@@ -1378,6 +1411,7 @@ export default function Debts() {
         setShowRepaymentModal(false);
         setRepayPaymentLines([]);
         setRepayKeptChange(null);
+        setRepayCashDrawer("SYSTEM");
         setRepayReturnLegs([]);
         setRepayNote("");
         setRepayTransactionTime(undefined);
@@ -2102,6 +2136,7 @@ export default function Debts() {
                           setRepayMode("repay");
                           setRepayPaymentLines([]);
                           setRepayKeptChange(null);
+                          setRepayCashDrawer("SYSTEM");
                           setRepayReturnLegs([]);
                           setRepayDiscountUsd("");
                           setRepayDiscountLbp("");
@@ -3082,37 +3117,47 @@ export default function Debts() {
                     // Decision 9: an LBP overpay is LBP credit.
                     returnCurrencyFollowsTender: true,
                     hasClient: true,
-                    // Owner decision 2026-10-12 — Waive covers ONLY the
-                    // ticked items: its gap is measured against the ticked
-                    // sum net of the forgive (`repayWaiveTotals`), so it
-                    // never forgives an unticked item. The amount fills to
-                    // the GROSS ticked sum (LIRA-318: forgive never moves
-                    // the payment). No picker (no itemised debt) keeps the
-                    // whole-debt Waive.
-                    ...(repayFillTotals && repayWaiveTotals
-                      ? {
-                          fillTotals: repayFillTotals,
-                          fillKey: repayFillKey,
-                          waiveTotals: repayWaiveTotals,
-                        }
+                    // `repayWaiveTotals` (the ticked sum net of the
+                    // discount) still drives the "Remaining on ticked" row.
+                    // LIRA-372 (owner option B) — the payment fills to the
+                    // ticked sum / due NET of the discount, and re-fills
+                    // when the discount changes, even over a typed amount.
+                    fillTotals: repayFillTotals,
+                    fillKey: repayDiscountFillKey,
+                    ...(repayWaiveTotals
+                      ? { waiveTotals: repayWaiveTotals }
                       : {}),
-                    // LIRA-318 (owner 2026-10-13) — one "Forgive (no cash)"
-                    // line inside the payment box, under "Total Amount".
+                    // LIRA-372 — no Waive on any settle screen.
+                    waiveDisabled: true,
+                    // LIRA-318 (owner 2026-10-13) — one discount line inside
+                    // the payment box, under "Total Amount" (LIRA-372: the
+                    // shared "Discount").
                     // USD and LBP are kept apart (one scalar cannot hold a
-                    // mixed debt), each capped at what is due in it; the
-                    // backend re-validates. Typing it never moves the
-                    // payment; "Client will owe" shows what is left.
+                    // mixed debt), each capped at min($5 / 450,000 LBP,
+                    // due); the backend re-validates. The payment follows
+                    // it (LIRA-372); "Client will owe" shows what is left.
                     ...(hasDebt
                       ? {
                           totalBeforeDiscount: repayGrossTotals,
-                          afterDiscountLabel: t("forgive.afterForgive"),
-                          discountMovesPayment: false,
                           owedLabel: t("forgive.clientWillOwe"),
+                          // LIRA-372 — the ONE settle Discount line.
                           discountRow: (
-                            <DiscountLine
-                              label={t("forgive.label")}
-                              testId="debt-forgive-line"
-                              capNote={repayForgiveCapNote}
+                            <SettleDiscountLine
+                              currencies={["USD", "LBP"]}
+                              values={{
+                                USD: repayDiscountUsd,
+                                LBP: repayDiscountLbp,
+                              }}
+                              onChange={(c, raw) =>
+                                c === "USD"
+                                  ? setRepayDiscountUsd(raw)
+                                  : setRepayDiscountLbp(raw)
+                              }
+                              room={repayDiscountRoom}
+                              reason={{
+                                value: repayDiscountReason,
+                                onChange: setRepayDiscountReason,
+                              }}
                               hint={
                                 repayForgiveHint ? (
                                   <span
@@ -3123,99 +3168,10 @@ export default function Debts() {
                                   </span>
                                 ) : undefined
                               }
-                              reason={{
-                                value: repayDiscountReason,
-                                onChange: setRepayDiscountReason,
-                                placeholder: t("forgive.reasonPlaceholder"),
-                                testId: "debt-forgive-reason",
-                              }}
-                            >
-                              <span className="relative">
-                                <span className="absolute start-2 top-1/2 -translate-y-1/2 text-emerald-400 text-xs">
-                                  $
-                                </span>
-                                <input
-                                  type="text"
-                                  inputMode="decimal"
-                                  data-testid="debt-forgive-usd"
-                                  aria-label={t("forgive.usd")}
-                                  value={repayDiscountUsd}
-                                  onChange={(e) => {
-                                    const raw = normalizeDigits(
-                                      e.target.value,
-                                    ).replace(/,/g, "");
-                                    if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
-                                      setRepayDiscountUsd(raw);
-                                    }
-                                  }}
-                                  className={`${discountFieldClass(repayForgiveOverUsd)} ps-5`}
-                                  placeholder="0.00"
-                                />
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <input
-                                  type="text"
-                                  inputMode="numeric"
-                                  data-testid="debt-forgive-lbp"
-                                  aria-label={t("forgive.lbp")}
-                                  value={repayDiscountLbp}
-                                  onChange={(e) => {
-                                    const raw = normalizeDigits(
-                                      e.target.value,
-                                    ).replace(/,/g, "");
-                                    if (raw === "" || /^\d+$/.test(raw)) {
-                                      setRepayDiscountLbp(raw);
-                                    }
-                                  }}
-                                  className={discountFieldClass(
-                                    repayForgiveOverLbp,
-                                  )}
-                                  placeholder="0"
-                                />
-                                <span className="text-[11px] text-emerald-400/60">
-                                  LBP
-                                </span>
-                              </span>
-                            </DiscountLine>
+                            />
                           ),
                         }
                       : {}),
-                    // LIRA-310 — Waive: each currency's part of what is
-                    // left goes into the matching "Forgive (no cash)" field
-                    // (USD to cents, LBP whole), on top of what is typed.
-                    // The MPI discount stays hidden (one scalar cannot hold
-                    // a mixed USD + LBP debt), so the page takes the waive.
-                    onWaiveRemaining: (
-                      _amount: number,
-                      remainingByCurrency: Money[],
-                    ) => {
-                      const usd =
-                        remainingByCurrency.find((m) => m.currency === "USD")
-                          ?.amount ?? 0;
-                      const lbp =
-                        remainingByCurrency.find((m) => m.currency === "LBP")
-                          ?.amount ?? 0;
-                      if (usd > 0) {
-                        setRepayDiscountUsd((prev) =>
-                          (
-                            Math.round(
-                              ((parseFloat(prev.replace(/,/g, "")) || 0) +
-                                usd) *
-                                100,
-                            ) / 100
-                          ).toFixed(2),
-                        );
-                      }
-                      if (lbp > 0) {
-                        setRepayDiscountLbp((prev) =>
-                          String(
-                            Math.round(
-                              (parseFloat(prev.replace(/,/g, "")) || 0) + lbp,
-                            ),
-                          ),
-                        );
-                      }
-                    },
                   }
                 : {}),
               // Who pays (FEATURE_GUIDE §4.1): a repayment is the customer
@@ -3273,11 +3229,26 @@ export default function Debts() {
                 data-testid="repay-goes-to"
                 className="bg-slate-800/50 border border-slate-700/40 rounded-xl px-3 py-2 text-sm"
               >
-                <div className="text-xs font-medium text-slate-300 mb-1">
-                  {t("repay.goesTo")}
-                </div>
+                {repayPreview.choiceApplies ? (
+                  // LIRA-371 — the choice carries its own "Goes to" label.
+                  <div className="mb-1">
+                    <CashDrawerChoice
+                      value={repayCashDrawer}
+                      onChange={setRepayCashDrawer}
+                      systemDrawer={repayPreview.systemDrawer}
+                      direction="IN"
+                    />
+                  </div>
+                ) : (
+                  <div className="text-xs font-medium text-slate-300 mb-1">
+                    {t("repay.goesTo")}
+                  </div>
+                )}
                 {repayPreview.systemText && (
-                  <div className="flex items-center justify-between">
+                  <div
+                    data-testid="repay-goes-to-system"
+                    className="flex items-center justify-between"
+                  >
                     <span className="text-slate-400">
                       {repayPreview.systemLabel}
                     </span>
@@ -3287,7 +3258,10 @@ export default function Debts() {
                   </div>
                 )}
                 {repayPreview.generalText && (
-                  <div className="flex items-center justify-between">
+                  <div
+                    data-testid="repay-goes-to-general"
+                    className="flex items-center justify-between"
+                  >
                     <span className="text-slate-400">{t("repay.general")}</span>
                     <span dir="ltr" className="font-mono text-emerald-400">
                       {repayPreview.generalText}

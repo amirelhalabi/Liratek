@@ -1,13 +1,13 @@
 /** @jest-environment jsdom */
 
 /**
- * LIRA-310 (T009) — Waive on the Debts "Process Repayment" modal.
- *
- * The modal hides MultiPaymentInput's own discount (it cannot hold a mixed
- * USD + LBP figure), so the page takes the Waive itself: each currency's
- * part of what is left goes into the matching "Forgive (no cash)" field
- * (USD to cents, LBP whole) and is sent as the bundled repayment discount.
- * Repay mode only — a cash-out is a payout and never shows Waive.
+ * LIRA-310 (T009) — Waive on the Debts "Process Repayment" modal, REWRITTEN
+ * for LIRA-372 (owner 2026-11-05, rule 24): no settle screen shows Waive
+ * any more; the cashier types the discount in the shared Discount line and
+ * the payment follows it. These cases are now guards that Waive is NOT
+ * offered for a short payment (mixed currency, picker, typed discount, and
+ * cash-out), and that a short payment is sent as typed, with no discount
+ * invented for the gap.
  *
  * Rendered with the REAL repayment modal and payment sheet. Payload field
  * names are read through addRepaymentSchema (rule 24); the useApi() mock
@@ -178,16 +178,16 @@ const amountInputs = () =>
 const amountValue = (i = 0) => amountInputs()[i]?.value.replace(/,/g, "");
 const typeAmount = (value: string, i = 0) =>
   fireEvent.change(amountInputs()[i], { target: { value } });
-// LIRA-318 — the "Forgive (no cash)" line inside the payment box.
+// LIRA-372 — the shared Discount line inside the payment box.
 const discountBox = (label: "Amount (USD)" | "Amount (LBP)") =>
   screen.getByTestId(
-    label === "Amount (USD)" ? "debt-forgive-usd" : "debt-forgive-lbp",
+    label === "Amount (USD)" ? "settle-discount-usd" : "settle-discount-lbp",
   ) as HTMLInputElement;
 const waive = () => screen.queryByTestId("waive-remaining");
 const confirm = () => screen.getByText("Confirm Payment") as HTMLButtonElement;
 const sent = () => addRepaymentSchema.parse(mockAddRepayment.mock.calls[0][0]);
 
-it("$1.50 + 30,000 LBP left: Waive fills both discount boxes and sends them as the discount", async () => {
+it("$1.50 + 30,000 LBP left: no Waive; the short payment is sent as typed, no discount", async () => {
   setDebt([], 11.5, 120_000);
   render(<Debts />);
   fireEvent.click(await screen.findByText("Settle Debt"));
@@ -195,62 +195,38 @@ it("$1.50 + 30,000 LBP left: Waive fills both discount boxes and sends them as t
   await waitFor(() => expect(amountInputs()).toHaveLength(2));
   typeAmount("10", 0);
   typeAmount("90000", 1);
-  await waitFor(() => expect(waive()).toBeInTheDocument());
-  fireEvent.click(waive()!);
-  await waitFor(() => expect(discountBox("Amount (USD)").value).toBe("1.50"));
-  expect(discountBox("Amount (LBP)").value).toBe("30000");
-  // Remaining is gone: payment + discount settle the debt exactly.
-  expect(screen.queryByTestId("remaining-row")).not.toBeInTheDocument();
-  // The typed amounts are kept.
-  expect(amountValue(0)).toBe("10");
-  expect(amountValue(1)).toBe("90000");
+  await screen.findByTestId("remaining-row");
+  expect(waive()).not.toBeInTheDocument();
+  expect(discountBox("Amount (USD)").value).toBe("");
   fireEvent.click(confirm());
   await waitFor(() => expect(mockAddRepayment).toHaveBeenCalledTimes(1));
   const p = sent();
-  expect(p.discount).toEqual(
-    expect.objectContaining({ amount_usd: 1.5, amount_lbp: 30_000 }),
-  );
+  expect(p.discount).toBeUndefined();
   expect(p.amountUSD).toBeCloseTo(10, 2);
   expect(p.amountLBP).toBeCloseTo(90_000, 0);
 });
 
-it("adds to a discount already typed", async () => {
+it("a typed discount moves the payment; a later short payment shows no Waive", async () => {
   setDebt([], 20, 0);
   render(<Debts />);
   fireEvent.click(await screen.findByText("Settle Debt"));
   await waitFor(() => expect(amountValue()).toBe("20"));
   fireEvent.change(discountBox("Amount (USD)"), { target: { value: "1" } });
-  // LIRA-318 — a forgive amount never moves the payment.
-  await waitFor(() => expect(discountBox("Amount (USD)").value).toBe("1"));
-  expect(amountValue()).toBe("20");
+  await waitFor(() => expect(amountValue()).toBe("19"));
   typeAmount("17");
-  fireEvent.click(
-    (await screen.findByTestId("waive-remaining")) as HTMLElement,
-  );
-  await waitFor(() => expect(discountBox("Amount (USD)").value).toBe("3.00"));
-  fireEvent.click(confirm());
-  await waitFor(() => expect(mockAddRepayment).toHaveBeenCalledTimes(1));
-  expect(sent().discount).toEqual(expect.objectContaining({ amount_usd: 3 }));
+  await screen.findByTestId("remaining-row");
+  expect(waive()).not.toBeInTheDocument();
 });
 
-it("LIRA-308 picker kept: a waived gap keeps the typed amount and the ticked item", async () => {
+it("LIRA-308 picker kept: a short payment on a ticked item shows no Waive", async () => {
   setDebt([OMT], 135, 0);
   render(<Debts />);
   fireEvent.click(await screen.findByText("Settle Debt"));
   await screen.findByTestId("debt-item-picker");
   await waitFor(() => expect(amountValue()).toBe("135"));
   typeAmount("133.5");
-  fireEvent.click(
-    (await screen.findByTestId("waive-remaining")) as HTMLElement,
-  );
-  await waitFor(() => expect(discountBox("Amount (USD)").value).toBe("1.50"));
-  expect(amountValue()).toBe("133.5");
-  fireEvent.click(confirm());
-  await waitFor(() => expect(mockAddRepayment).toHaveBeenCalledTimes(1));
-  const p = sent();
-  expect(p.amountUSD).toBeCloseTo(133.5, 2);
-  expect(p.discount).toEqual(expect.objectContaining({ amount_usd: 1.5 }));
-  expect(p.targets).toEqual([{ kind: "charge", id: 12 }]);
+  await screen.findByTestId("remaining-row");
+  expect(waive()).not.toBeInTheDocument();
 });
 
 it("no Waive on a cash-out (payout)", async () => {

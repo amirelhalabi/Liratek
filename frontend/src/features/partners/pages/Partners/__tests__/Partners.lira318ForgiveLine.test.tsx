@@ -1,14 +1,15 @@
 /** @jest-environment jsdom */
 /**
- * LIRA-318 — one "Forgive (no cash)" line inside the payment box on
- * Partners → Settle (owner 2026-10-13). The separate "Discount / Forgive"
- * block below the payment form is gone.
+ * LIRA-318 — one discount line inside the payment box on Partners → Settle
+ * (owner 2026-10-13). The separate "Discount / Forgive" block below the
+ * payment form is gone.
  *
- * Owner decision: typing a forgive amount NEVER changes the payment amount
- * the cashier entered. The forgive is still capped at what is left after the
- * payment (`capSettlementDiscount`), and the payload's `discount` shape is
- * unchanged — asserted by parsing it through the core `partnerSettleSchema`
- * (rule 24).
+ * LIRA-372 (owner 2026-11-05) — rule 24 rewrite. The line is now the shared
+ * "Discount" (`SettleDiscountLine`), capped at $5 / 450,000 LBP, and the
+ * LIRA-318 rule "a forgive never moves the payment" is REVERSED: typing a
+ * discount sets the payment to owed − discount, even a payment typed by
+ * hand (option B). The payload's `discount` shape is unchanged — asserted
+ * by parsing it through the core schemas (rule 24).
  *
  * Renders the REAL page + real MultiPaymentInput.
  */
@@ -140,7 +141,7 @@ const paymentInput = () => {
 };
 
 const forgiveInput = () =>
-  screen.getByTestId("partner-settle-forgive-input") as HTMLInputElement;
+  screen.getByTestId("settle-discount-usd") as HTMLInputElement;
 
 /** LIRA-346 — Settle opens the by-day sheet: 20 Oct For +$100 is picked. */
 async function openByDay() {
@@ -167,7 +168,7 @@ async function submitByDay() {
   );
 }
 
-describe("Partners settle — Forgive line inside the payment box (LIRA-318)", () => {
+describe("Partners settle — Discount line inside the payment box (LIRA-318 → LIRA-372)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockApi.partners.getAllBalances.mockResolvedValue([PARTNER]);
@@ -183,82 +184,84 @@ describe("Partners settle — Forgive line inside the payment box (LIRA-318)", (
     mockApi.partners.settleDays.mockResolvedValue({ success: true, id: 9 });
   });
 
-  it("renders the forgive line inside the payment summary, not as a separate block", async () => {
+  it("renders the Discount line inside the payment summary, not as a separate block", async () => {
     await openSettle();
     const summary = screen.getByTestId("payment-summary");
     expect(
-      within(summary).getByTestId("partner-settle-forgive"),
+      within(summary).getByTestId("settle-discount-line"),
     ).toBeInTheDocument();
-    expect(within(summary).getByText("Forgive (no cash)")).toBeInTheDocument();
+    expect(within(summary).getByText("Discount")).toBeInTheDocument();
+    expect(screen.queryByText("Forgive (no cash)")).not.toBeInTheDocument();
     expect(
       screen.queryByText("Discount / Forgive (USD)"),
     ).not.toBeInTheDocument();
   });
 
-  it("paid 80 + forgive 20: payment stays 80, total shows 100 then After Forgive 80, payload unchanged", async () => {
+  it("typed 80 then discount 5: the payment drops to 95 (owner option B), total 100 then After Discount 95", async () => {
     await openSettle();
     fireEvent.change(paymentInput(), { target: { value: "80" } });
-    fireEvent.change(forgiveInput(), { target: { value: "20" } });
+    fireEvent.change(forgiveInput(), { target: { value: "5" } });
 
-    await waitFor(() => expect(forgiveInput().value).toBe("20"));
-    expect(paymentInput().value).toBe("80");
-
+    await waitFor(() => expect(paymentInput().value).toBe("95"));
     const summary = screen.getByTestId("payment-summary");
     expect(within(summary).getByText("$100.00")).toBeInTheDocument();
     const after = within(summary).getByTestId("after-page-discount");
-    expect(after).toHaveTextContent("After Forgive");
-    expect(after).toHaveTextContent("$80.00");
+    expect(after).toHaveTextContent("After Discount");
+    expect(after).toHaveTextContent("$95.00");
 
     fireEvent.click(screen.getByText("Confirm Settlement"));
     await waitFor(() => expect(mockSettle).toHaveBeenCalledTimes(1));
     const parsed = partnerSettleSchema.parse(mockSettle.mock.calls[0][0]);
-    expect(parsed.amount).toBe(80);
+    expect(parsed.amount).toBe(95);
     expect(parsed.currency).toBe("USD");
     expect(parsed.discount).toEqual(
-      expect.objectContaining({ amount_usd: 20, amount_lbp: 0 }),
+      expect.objectContaining({ amount_usd: 5, amount_lbp: 0 }),
     );
   });
 
-  it("forgive typed while the payment covers everything: payment does not move, hint says to lower it, no discount sent", async () => {
+  it("discount typed while the payment covers everything: the payment drops by it, the discount is sent", async () => {
     await openSettle();
     await waitFor(() => expect(paymentInput().value).toBe("100"));
-    fireEvent.change(forgiveInput(), { target: { value: "10" } });
-
-    expect(paymentInput().value).toBe("100");
-    expect(
-      await screen.findByTestId("partner-settle-discount-room-hint"),
-    ).toHaveTextContent(/lower the payment/i);
+    fireEvent.change(forgiveInput(), { target: { value: "4" } });
+    await waitFor(() => expect(paymentInput().value).toBe("96"));
 
     fireEvent.click(screen.getByText("Confirm Settlement"));
     await waitFor(() => expect(mockSettle).toHaveBeenCalledTimes(1));
     const parsed = partnerSettleSchema.parse(mockSettle.mock.calls[0][0]);
-    expect(parsed.amount).toBe(100);
-    expect(parsed.discount).toBeUndefined();
+    expect(parsed.amount).toBe(96);
+    expect(parsed.discount).toEqual(
+      expect.objectContaining({ amount_usd: 4, amount_lbp: 0 }),
+    );
   });
 
-  it("paid 90, forgive typed 20: capped to the $10 left, payment stays 90", async () => {
+  it("payment edited AFTER the discount to the full 100: the extra $5 goes back as change, the settlement stays 95", async () => {
     await openSettle();
-    fireEvent.change(paymentInput(), { target: { value: "90" } });
-    fireEvent.change(forgiveInput(), { target: { value: "20" } });
-
-    expect(await screen.findByTestId("discount-cap-note")).toHaveTextContent(
-      "Capped to max ($10.00)",
-    );
-    expect(paymentInput().value).toBe("90");
+    fireEvent.change(forgiveInput(), { target: { value: "5" } });
+    await waitFor(() => expect(paymentInput().value).toBe("95"));
+    fireEvent.change(paymentInput(), { target: { value: "100" } });
 
     fireEvent.click(screen.getByText("Confirm Settlement"));
     await waitFor(() => expect(mockSettle).toHaveBeenCalledTimes(1));
     const parsed = partnerSettleSchema.parse(mockSettle.mock.calls[0][0]);
-    expect(parsed.amount).toBe(90);
+    expect(parsed.amount).toBe(95);
     expect(parsed.discount).toEqual(
-      expect.objectContaining({ amount_usd: 10, amount_lbp: 0 }),
+      expect.objectContaining({ amount_usd: 5 }),
     );
+  });
+
+  it("discount typed 20: capped to the $5 max", async () => {
+    await openSettle();
+    fireEvent.change(forgiveInput(), { target: { value: "20" } });
+    expect(await screen.findByTestId("discount-cap-note")).toHaveTextContent(
+      "Capped to max ($5.00)",
+    );
+    await waitFor(() => expect(paymentInput().value).toBe("95"));
   });
 
   // Regression guard (behaviour unchanged, not failing-first): a paper-only
-  // settle has no payment box, so the same Forgive line sits below the
+  // settle has no payment box, so the same Discount line sits below the
   // plain amount and is still sent.
-  it("paper-only settle: forgive line still shows and is sent", async () => {
+  it("paper-only settle: the Discount line still shows and is sent", async () => {
     await openSettle();
     fireEvent.click(
       within(screen.getByTestId("partner-settle-cash-moved-toggle")).getByRole(
@@ -266,38 +269,39 @@ describe("Partners settle — Forgive line inside the payment box (LIRA-318)", (
       ),
     );
     expect(screen.queryByTestId("payment-summary")).not.toBeInTheDocument();
-    const amount = screen.getByPlaceholderText("0.00") as HTMLInputElement;
-    fireEvent.change(amount, { target: { value: "80" } });
-    fireEvent.change(forgiveInput(), { target: { value: "20" } });
+    const amount = screen.getByTestId(
+      "partner-settle-paper-amount",
+    ) as HTMLInputElement;
+    fireEvent.change(amount, { target: { value: "95" } });
+    fireEvent.change(forgiveInput(), { target: { value: "5" } });
 
     fireEvent.click(screen.getByText("Confirm Settlement"));
     await waitFor(() => expect(mockSettle).toHaveBeenCalledTimes(1));
     const parsed = partnerSettleSchema.parse(mockSettle.mock.calls[0][0]);
-    expect(parsed.amount).toBe(80);
+    expect(parsed.amount).toBe(95);
     expect(parsed.settlementMethod).toBe("CLIENT_ACCOUNT");
     expect(parsed.discount).toEqual(
-      expect.objectContaining({ amount_usd: 20, amount_lbp: 0 }),
+      expect.objectContaining({ amount_usd: 5, amount_lbp: 0 }),
     );
   });
-  // LIRA-346 — the by-day sheet keeps the one Forgive line inside the
-  // payment box (not failing-first: written after the sheet).
-  it("by day: paid 80 + forgive 20 — the line is in the payment box, payment stays 80, forgive sent per currency", async () => {
+  // LIRA-346 — the by-day sheet keeps the one Discount line inside the
+  // payment box.
+  it("by day: typed 80 + discount 5 — the line is in the payment box, the payment drops to 95, discount sent per currency", async () => {
     await openByDay();
     const summary = screen.getByTestId("payment-summary");
     expect(
-      within(summary).getByTestId("partner-settle-forgive"),
+      within(summary).getByTestId("settle-discount-line"),
     ).toBeInTheDocument();
     fireEvent.change(paymentInput(), { target: { value: "80" } });
-    fireEvent.change(forgiveInput(), { target: { value: "20" } });
-    await waitFor(() => expect(forgiveInput().value).toBe("20"));
-    expect(paymentInput().value).toBe("80");
+    fireEvent.change(forgiveInput(), { target: { value: "5" } });
+    await waitFor(() => expect(paymentInput().value).toBe("95"));
     const after = within(summary).getByTestId("after-page-discount");
-    expect(after).toHaveTextContent("After Forgive");
-    expect(after).toHaveTextContent("$80.00");
+    expect(after).toHaveTextContent("After Discount");
+    expect(after).toHaveTextContent("$95.00");
     const parsed = await submitByDay();
     expect(parsed.per_currency.USD?.payments).toEqual([
-      { method: "CASH", currency_code: "USD", amount: 80 },
+      { method: "CASH", currency_code: "USD", amount: 95 },
     ]);
-    expect(parsed.per_currency.USD?.forgive).toEqual({ amount: 20 });
+    expect(parsed.per_currency.USD?.forgive).toEqual({ amount: 5 });
   });
 });

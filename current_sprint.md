@@ -8422,3 +8422,27 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 **Tests:** proven failing first: core `TransactionRepository.lira373SettlementRefund` (a) (override accepted today), `refundMethodOverride` (e) rewritten from "override redirects the drawer" into the refusal guard (rule 24); frontend `TransactionsViewer.refundSettlementExact` (4/4 failing: untouched Confirm sent `[{CASH USD 6818.54}]`). Not failing-first: core (b) plain refund nets every drawer, OMT balance per currency, coverage and settled flags to 0 (already true today).
 
 **What users will notice:** refunding a supplier or partner settlement gives back exactly what the settlement moved, line by line, in the same drawers and currencies; the refund window lists each payment and nothing can be changed.
+
+## LIRA-371: Choose the cash drawer when settling OMT system items — BUILT 2026-11-05 (not committed)
+
+**Spec / plan / tasks:** `specs/371-settle-drawer-choice/` (owner clarifications 2026-11-05: OMT drawer stays the default; change on Debts always leaves General; no OMT batch Settle / Pay-Receive added on an OMT shop; "OMT drawer first" unchanged).
+
+**Built:** one optional key `cashDrawer` / `cash_drawer: "SYSTEM" | "GENERAL"` on `addRepaymentSchema`, `supplierSettleSchema`, `supplierSettleAccountSchema` (both shapes) and `supplierCashflowSchema` (`cashDrawerChoiceSchema`, `.optional()` only). Pure leaf `constants/cashDrawerChoice.ts` (values, refusal text, `systemCashDrawerChoiceApplies`). Debts: `DebtRepository.addRepayment` skips the internal RESERVE move on GENERAL and records `routed.cash_drawer`; refused (nothing written) when the default routes nothing (`repaymentRoutesToSystemDrawer`, shared with the Repay preview). Suppliers: `ServiceCashDrawerContext.cashDrawer`, `resolveServiceCashDrawer` returns the method's own drawer on GENERAL; one helper `_withCashDrawerChoice` on all four supplier paths, refused where it does not apply. UI: shared `CashDrawerChoice` (Split-pill classes + a tick on the picked one) and `isGeneralCash`; Debts Repay "Goes to", Settle Account sheet (`systemCashDrawer` prop from the page), Whish-shop bills batch Settle. No migration; void/refund mirror the stored drawer (no new reversal code).
+
+**Not built (deviation):** no Pay / Receive control: the main-system supplier never reaches that tab (`is_active !== 0 && !settlesByDay`). The server accepts the key on `/cashflow` and `suppliers:record-cashflow`.
+
+**Tests:** see the task notes in `specs/371-settle-drawer-choice/tasks.md` (failing-first lines per test). Web e2e `lira-web-092` 2/2.
+
+**What users will notice:** when a customer pays off an OMT send in cash on Settle Debt, or you settle the OMT account in cash, you can choose whether the cash goes into (or comes out of) the OMT Cash Drawer or General; OMT Cash Drawer stays the default.
+
+## LIRA-372: One Discount line on every settle screen — BUILT 2026-11-05 (not committed)
+
+**Spec / plan / tasks:** `specs/372-settle-discount-line/` (owner decisions 2026-11-05: one line on all 7 settle screens, $5 / 450,000 LBP for every role, both directions, no Waive on settle screens, the payment follows the discount; owner answer option B: the discount always wins, also over a payment typed by hand).
+
+**Built:** one capped schema `settleDiscountInputSchema` / `settleForgiveAmountSchema` (`validators/counterparty.ts`) on every settle wire key; pure helper `utils/settleDiscount.ts` (room, clamp, overpaid); shared `SettleDiscountLine` (`packages/ui`) through MPI `discountRow` on Debts Repay, Suppliers Pay / Receive, batch Settle (shop pays only), Settle Account (incl. OMT SMS), Partners by day and by amount. New booking: supplier Receive discount ("given", no FIFO coverage; its void skips the coverage give-back). Settle Account: preview passes the waive to the allocator, new `discount_reason`, settlement details carry the discount. MPI: in a two-currency box a `fillKey` re-fills each changed currency's last line. No migration.
+
+**Tests:** failing-first lines in `specs/372-settle-discount-line/tasks.md` / the implement report. Web e2e `lira-web-093` 4/4.
+
+**What users will notice:** every settle screen (Accounts, Suppliers, OMT Settle Account, Partners) has the same Discount line, up to $5 or 450,000 LBP; typing it lowers the amount to pay by itself; the Waive button is gone from these screens and bigger amounts go through Write off (admins); a supplier who pays you can now get a discount too. Voiding or refunding an Accounts payment that had a discount now restores the whole debt, discount included (from now on).
+
+**Owner decisions 2026-11-05 (after build):** A) a Debts repayment's void/refund reverses its bundled discount too ('Discount Reversal' row + negated COUNTERPARTY_DISCOUNT + coverage give-back, `TransactionRepository._reverseDebtBundledDiscount`; overturns the CQ-10 boundary). B) the $5 / 450,000 LBP cap is also checked server-side (`settleDiscountCapError`) in `DebtService.addRepayment`, `PartnerService.settle` and `PartnerSettlementRepository.settleDays`; admin Write off stays uncapped.

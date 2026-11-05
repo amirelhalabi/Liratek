@@ -196,9 +196,16 @@ describe("PartnerSettleSheet (LIRA-346)", () => {
     expect(onSettled).not.toHaveBeenCalled();
   });
 
-  it("only the partner's own day picked: the partner pays, Forgive is offered", async () => {
+  // LIRA-372 (rule 24 rewrite) — the shared Discount line replaces
+  // "Forgive"; it now shows for BOTH payers (asserted when the shop pays too).
+  it("only the partner's own day picked: the partner pays, the Discount line is offered", async () => {
     renderSheet();
     await screen.findByTestId("partner-settle-payer-usd");
+    // Both days picked: the shop pays — the Discount line shows too.
+    expect(
+      await screen.findByTestId("settle-discount-line"),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("partner-settle-forgive")).toBeNull();
     // Unpick 21 Oct: only the For +$100 is left.
     fireEvent.click(await dayButton("2026-10-21"));
     await waitFor(() =>
@@ -206,7 +213,7 @@ describe("PartnerSettleSheet (LIRA-346)", () => {
         "Karim pays you",
       ),
     );
-    expect(screen.getByTestId("partner-settle-forgive")).toBeInTheDocument();
+    expect(screen.getByTestId("settle-discount-line")).toBeInTheDocument();
   });
 
   it("a payment box that disappears (days now cancel out) sends no stale legs", async () => {

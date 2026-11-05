@@ -226,14 +226,8 @@
     "creditUsed": "استعمال رصيد"
   },
   "forgive": {
-    "cappedToMax": "حُدّد بالحد الأقصى ({{amount}})",
-    "lowerPaymentHint": "خفّض الدفعة إلى {{target}} لمسامحة {{forgive}}.",
-    "afterForgive": "بعد المسامحة",
-    "clientWillOwe": "سيبقى على الزبون",
-    "label": "مسامحة (من دون نقد)",
-    "reasonPlaceholder": "السبب (اختياري)...",
-    "usd": "مسامحة بالدولار",
-    "lbp": "مسامحة بالليرة"
+    "lowerPaymentHint": "خفّض الدفعة إلى {{target}} مع حسم {{forgive}}.",
+    "clientWillOwe": "سيبقى على الزبون"
   },
   "repay": {
     "enterAmount": "الرجاء إدخال مبلغ التسديد.",

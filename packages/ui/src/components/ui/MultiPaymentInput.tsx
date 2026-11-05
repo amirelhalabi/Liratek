@@ -304,8 +304,8 @@ export interface MultiPaymentInputProps {
    *  total before the extra. */
   maxExtra?: number;
   /** LIRA-318 (owner 2026-10-13) — a page that keeps its OWN discount
-   *  (POS / Maintenance checkout, Debts and Partners settle) renders its
-   *  line here, built with `DiscountLine`, so every page shows one
+   *  (POS / Maintenance checkout, and — LIRA-372 — every settle screen via
+   *  `SettleDiscountLine`) renders its line here, built with `DiscountLine`, so every page shows one
    *  Discount / Forgive line in the same place: under "Total Amount". The
    *  page still owns the value, the cap and the payload, and passes `totals`
    *  already net of it. Use with `showDiscount={false}`. */
@@ -316,11 +316,13 @@ export interface MultiPaymentInputProps {
   totalBeforeDiscount?: Money[];
   /** Label of the after-discount row. Default "After Discount". */
   afterDiscountLabel?: string;
-  /** LIRA-318 — false: a discount never moves the payment line (owner
-   *  decision for Debts and Partners: typing a forgive amount must not change
-   *  what the cashier entered as paid). The line auto-fills to the total
-   *  BEFORE the discount (`totalBeforeDiscount`), and `fillTotals`, when
-   *  given, must be gross too. Default true (the line follows the total). */
+  /** LIRA-318 — false: a discount never moves the payment line. The line
+   *  auto-fills to the total BEFORE the discount (`totalBeforeDiscount`),
+   *  and `fillTotals`, when given, must be gross too. Default true (the line
+   *  follows the total). LIRA-372 (owner 2026-11-05) reversed LIRA-318 for
+   *  Debts and Partners: no settle screen passes `false` any more — they
+   *  pass `fillTotals` net of the discount and put the discount in
+   *  `fillKey`, so even a typed payment follows it. Kept for callers. */
   discountMovesPayment?: boolean;
   /** LIRA-318 — label for what is still owed after this payment, e.g.
    *  "Client will owe". Replaces "Remaining (Debt)" and also shows at 0
@@ -1355,11 +1357,89 @@ export default function MultiPaymentInput({
   // removed and the one before it absorbs the rest — never below zero.
   // A single line then stays in sync through the auto-sync effect above.
   const prevFillKeyRef = useRef(fillKey);
+  // LIRA-372 — `fillTotals` as of the previous render (updated by the
+  // effect right after this one), so a `perCurrencyTotals` box re-fills
+  // only the currencies whose total changed together with `fillKey`.
+  const prevFillTotalsRef = useRef<Money[] | undefined>(fillTotals);
   useEffect(() => {
     if (prevFillKeyRef.current === fillKey) return;
     prevFillKeyRef.current = fillKey;
     if (!fillTotals) return;
+    const prevFill = prevFillTotalsRef.current;
     singleAmountTouchedRef.current = false;
+    // LIRA-372 (owner 2026-11-05, option B: "the discount always wins") —
+    // a `perCurrencyTotals` box settles each currency on its own, so the
+    // LAST line OF EACH CURRENCY whose fill total changed is re-filled to
+    // that currency's remaining (typed by hand or not). A currency whose
+    // total did not change keeps its lines; the other currency is never
+    // converted into it.
+    if (perCurrencyTotals) {
+      const sumOf = (list: Money[] | undefined, c: string) =>
+        (list ?? [])
+          .filter((t) => t.currency === c)
+          .reduce((acc, t) => acc + t.amount, 0);
+      let work = [...paymentLines];
+      const ccys = [...new Set(work.map((l) => l.currencyCode))];
+      for (const c of ccys) {
+        if (
+          prevFill !== undefined &&
+          Math.abs(sumOf(prevFill, c) - sumOf(fillTotals, c)) < 1e-9
+        ) {
+          continue;
+        }
+        const idx = work.map((l) => l.currencyCode).lastIndexOf(c);
+        const tail = work[idx];
+        const amount = Math.max(0, prefillAmountFor(c, tail.id, work));
+        work = work.map((l, i) => (i === idx ? { ...l, amount } : l));
+      }
+      setPaymentLines(work);
+      onChange(work);
+      return;
+    }
+    // LIRA-372 — a mixed box (e.g. Debts: USD + LBP lines, no
+    // `perCurrencyTotals`): when only some currencies' fill totals changed
+    // (a discount typed in USD), the LAST line OF THAT CURRENCY absorbs it,
+    // so a USD discount never lowers the LBP line. Falls back to the
+    // owner-answer-3 tail rule below when a changed currency has no line,
+    // or when its line would drop to 0 or below.
+    if (prevFill !== undefined && paymentLines.length > 1) {
+      const sumOf = (list: Money[] | undefined, c: string) =>
+        (list ?? [])
+          .filter((t) => t.currency === c)
+          .reduce((acc, t) => acc + t.amount, 0);
+      const allCcys = [
+        ...new Set([
+          ...prevFill.map((t) => t.currency),
+          ...fillTotals.map((t) => t.currency),
+        ]),
+      ];
+      const changed = allCcys.filter(
+        (c) => Math.abs(sumOf(prevFill, c) - sumOf(fillTotals, c)) >= 1e-9,
+      );
+      const lineCcys = paymentLines.map((l) => l.currencyCode);
+      if (
+        changed.length > 0 &&
+        changed.length < new Set(lineCcys).size &&
+        changed.every((c) => lineCcys.includes(c))
+      ) {
+        let work = [...paymentLines];
+        let ok = true;
+        for (const c of changed) {
+          const idx = work.map((l) => l.currencyCode).lastIndexOf(c);
+          const amount = prefillAmountFor(c, work[idx].id, work);
+          if (!(amount > 1e-9)) {
+            ok = false;
+            break;
+          }
+          work = work.map((l, i) => (i === idx ? { ...l, amount } : l));
+        }
+        if (ok) {
+          setPaymentLines(work);
+          onChange(work);
+          return;
+        }
+      }
+    }
     let work = [...paymentLines];
     while (work.length > 0) {
       const tail = work[work.length - 1];
@@ -1387,6 +1467,11 @@ export default function MultiPaymentInput({
     onChange(work);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fillKey]);
+  // Runs after the fillKey effect above (declaration order): remember this
+  // render's `fillTotals` for the next comparison.
+  useEffect(() => {
+    prevFillTotalsRef.current = fillTotals;
+  });
 
   // Sync the first line's method with initialMethod and notify the parent.
   // Fires:
@@ -3388,11 +3473,14 @@ export default function MultiPaymentInput({
             <span className="text-slate-400">{t("summary.totalAmount")}</span>
             <span className="font-mono text-white">
               {perCurrencyTotals
-                ? pcText(
-                    pcRows.map((r) => ({
-                      amount: r.total,
-                      currency: r.currency,
-                    })),
+                ? // LIRA-372 — with a page discount, "Total Amount" is the
+                  // total BEFORE it, each currency on its own.
+                  pcText(
+                    totalBeforeDiscount ??
+                      pcRows.map((r) => ({
+                        amount: r.total,
+                        currency: r.currency,
+                      })),
                   )
                 : fmtTarget(
                     toDisplayCurrency(
@@ -3438,7 +3526,15 @@ export default function MultiPaymentInput({
                 {afterDiscountLabel}
               </span>
               <span className="font-mono text-emerald-200 font-medium">
-                {fmtTarget(toDisplayCurrency(totalInTarget))}
+                {perCurrencyTotals
+                  ? // LIRA-372 — each currency on its own, never converted.
+                    pcText(
+                      pcRows.map((r) => ({
+                        amount: r.total,
+                        currency: r.currency,
+                      })),
+                    )
+                  : fmtTarget(toDisplayCurrency(totalInTarget))}
               </span>
             </div>
           )}

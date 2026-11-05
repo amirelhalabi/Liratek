@@ -13,6 +13,16 @@ export interface SplitToggleProps {
   disabled?: boolean;
 }
 
+/** The pill's classes, on (violet) or off (grey). Reused by every pill that
+ *  must look like this one (LIRA-371 CashDrawerChoice) — one definition. */
+export function splitPillClassName(active: boolean): string {
+  return `shrink-0 flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-all ${
+    active
+      ? "bg-violet-500/20 text-violet-300 border border-violet-500/40"
+      : "bg-slate-800 text-slate-400 border border-slate-600 hover:text-slate-200 hover:border-slate-500"
+  }`;
+}
+
 export function SplitToggle({
   active,
   onClick,
@@ -26,11 +36,7 @@ export function SplitToggle({
       data-testid={testId}
       onClick={onClick}
       disabled={disabled}
-      className={`shrink-0 flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-all ${
-        active
-          ? "bg-violet-500/20 text-violet-300 border border-violet-500/40"
-          : "bg-slate-800 text-slate-400 border border-slate-600 hover:text-slate-200 hover:border-slate-500"
-      }`}
+      className={splitPillClassName(active)}
     >
       {active ? (
         <>

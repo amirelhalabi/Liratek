@@ -25,6 +25,7 @@ import {
 } from "../repositories/PartnerSettlementRepository.js";
 import { NotFoundError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
+import { settleDiscountCapError } from "../validators/counterparty.js";
 import {
   partnerSettlementMethod,
   partnerSettlementNet,
@@ -255,6 +256,16 @@ export class PartnerService {
         throw new Error(
           "Partner discount supports one currency at a time — split into two calls",
         );
+      }
+
+      // LIRA-372 (owner decision B) — the settle-discount cap, server-side
+      // (same check as the schema; the admin Write off stays uncapped).
+      if (data.discount) {
+        const capError = settleDiscountCapError({
+          usd: data.discount.amount_usd,
+          lbp: data.discount.amount_lbp,
+        });
+        if (capError) throw new Error(capError);
       }
 
       if (data.payments && data.payments.length > 0) {

@@ -1,17 +1,15 @@
 /** @jest-environment jsdom */
 
 /**
- * LIRA-310 follow-up (owner decision 2026-10-12) — on the Debts "Process
- * Repayment" modal, Waive covers ONLY the ticked items.
+ * LIRA-310 follow-up (owner decision 2026-10-12) — Waive covered ONLY the
+ * ticked items. REWRITTEN for LIRA-372 (owner 2026-11-05, rule 24): Waive
+ * is gone from every settle screen. The "$1.50 on ticked" remaining row
+ * stays (it is driven by `waiveTotals`), but it carries no Waive button;
+ * the cashier types a discount instead, and the payment follows it.
  *
- * Owner example: the client owes a $14 sale (unticked) and a $20 Loto
- * ticket (ticked) and pays $18.50. The sheet's Remaining row shows "$1.50
- * on ticked [Waive]" above the "$15.50 total" (one row since owner
- * 2026-10-13 — the wording update is not proven failing-first); Waive puts $1.50 in Forgive (no cash); the repayment is
- * sent with a $1.50 discount and the Loto ticket as its only target, so the
- * ticket ends at $0 and the $14 sale stays owed (the server side of that —
- * the discount walking the same ticked targets — is pinned by
- * packages/core DebtRepository.lira308.test.ts, decision 8).
+ * Owner example kept: the client owes a $14 sale (unticked) and a $20 Loto
+ * ticket (ticked). Typing a $1.50 discount sets the payment to $18.50 and
+ * the repayment goes with the Loto ticket as its only target.
  *
  * Rendered with the REAL repayment modal and payment sheet. Payload field
  * names are read through addRepaymentSchema (rule 24); the useApi() mock
@@ -199,10 +197,10 @@ const amountInputs = () =>
 const amountValue = (i = 0) => amountInputs()[i]?.value.replace(/,/g, "");
 const typeAmount = (value: string, i = 0) =>
   fireEvent.change(amountInputs()[i], { target: { value } });
-// LIRA-318 — the "Forgive (no cash)" line inside the payment box.
+// LIRA-372 — the shared Discount line inside the payment box.
 const discountBox = (label: "Amount (USD)" | "Amount (LBP)") =>
   screen.getByTestId(
-    label === "Amount (USD)" ? "debt-forgive-usd" : "debt-forgive-lbp",
+    label === "Amount (USD)" ? "settle-discount-usd" : "settle-discount-lbp",
   ) as HTMLInputElement;
 const waive = () => screen.queryByTestId("waive-remaining");
 const tickedRow = () => screen.queryByTestId("remaining-ticked-row");
@@ -222,25 +220,18 @@ async function openWithLotoTicked() {
   expect(box(SALE).checked).toBe(false);
 }
 
-it("owner example: $14 sale unticked, $20 Loto ticked, $18.50 paid → Waive $1.50 forgives the Loto ticket only", async () => {
+it("owner example: $18.50 paid on the ticked $20 Loto ticket → \"$1.50 on ticked\" with no Waive; a $1.50 discount settles it", async () => {
   await openWithLotoTicked();
   typeAmount("18.5");
-  // One Remaining row: "$1.50 on ticked [Waive]" above "$15.50 total".
   await waitFor(() => expect(tickedRow()).toBeInTheDocument());
-  expect(screen.getByTestId("remaining-row").contains(tickedRow())).toBe(true);
   expect(tickedRow()!.textContent).toContain("on ticked");
   expect(tickedRow()!.textContent).toContain("1.50");
-  expect(
-    tickedRow()!.querySelector('[data-testid="waive-remaining"]'),
-  ).not.toBeNull();
-  fireEvent.click(waive()!);
-  await waitFor(() => expect(discountBox("Amount (USD)").value).toBe("1.50"));
-  // The typed amount and the ticks are kept; the ticked line is settled.
-  expect(amountValue()).toBe("18.5");
+  expect(waive()).not.toBeInTheDocument();
+  // The cashier types the discount; the payment follows to 18.50.
+  fireEvent.change(discountBox("Amount (USD)"), { target: { value: "1.5" } });
+  await waitFor(() => expect(amountValue()).toBe("18.5"));
   expect(tickedRow()).not.toBeInTheDocument();
   expect(box(SALE).checked).toBe(false);
-  // The $14 sale is still owed.
-  expect(screen.getByTestId("remaining-row").textContent).toContain("14");
   fireEvent.click(confirm());
   await waitFor(() => expect(mockAddRepayment).toHaveBeenCalledTimes(1));
   const p = sent();

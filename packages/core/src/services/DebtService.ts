@@ -12,6 +12,7 @@
 
 import type { OpenDebtItem } from "../utils/debtRepaymentAllocation.js";
 import type { DebtMonthRows } from "../utils/debtSettleDays.js";
+import type { CashDrawerChoice } from "../constants/cashDrawerChoice.js";
 import {
   DebtRepository,
   getDebtRepository,
@@ -22,6 +23,7 @@ import {
   type CounterpartyDiscountData,
 } from "../repositories/index.js";
 import { debtLogger } from "../utils/logger.js";
+import { settleDiscountCapError } from "../validators/counterparty.js";
 import { partitionLegs } from "../utils/payments.js";
 
 // =============================================================================
@@ -70,6 +72,9 @@ export interface RepaymentData {
    *  `credit_use_usd`). */
   creditUseUSD?: number;
   creditUseLBP?: number;
+  /** LIRA-371 — drawer choice (see DebtRepository.CreateRepaymentData
+   *  `cash_drawer`). */
+  cashDrawer?: CashDrawerChoice;
 }
 
 /** Input for DebtService.addCredit / addCreditOrThrow. */
@@ -247,6 +252,7 @@ export class DebtService {
       expectedOwed,
       creditUseUSD,
       creditUseLBP,
+      cashDrawer,
     } = data;
 
     // Validate
@@ -277,6 +283,17 @@ export class DebtService {
         success: false,
         error: "Repayment amount must be greater than zero",
       };
+    }
+
+    // LIRA-372 (owner decision B) — the settle-discount cap ($5 / 450,000
+    // LBP) holds on the server too, whatever the caller skipped. Admin Write
+    // off (`writeOffDebt`) is a different path and stays uncapped.
+    if (discount) {
+      const capError = settleDiscountCapError({
+        usd: discount.amount_usd,
+        lbp: discount.amount_lbp,
+      });
+      if (capError) return { success: false, error: capError };
     }
 
     // amountUSD/amountLBP are the DEBT REDUCTION; payments[] is the cash the
@@ -323,6 +340,8 @@ export class DebtService {
         ...(expectedOwed ? { expected_owed: expectedOwed } : {}),
         ...(creditUseUSD ? { credit_use_usd: creditUseUSD } : {}),
         ...(creditUseLBP ? { credit_use_lbp: creditUseLBP } : {}),
+        // LIRA-371 — "OMT Cash Drawer | General"; absent stays absent.
+        ...(cashDrawer ? { cash_drawer: cashDrawer } : {}),
       });
 
       debtLogger.info(

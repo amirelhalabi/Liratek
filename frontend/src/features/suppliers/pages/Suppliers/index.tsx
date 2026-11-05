@@ -11,6 +11,7 @@ import {
   balanceTextColor,
   CounterpartySettleModal,
   PageHeader,
+  SettleDiscountLine,
   type PaymentLine,
 } from "@liratek/ui";
 import { Plus, ArrowUpRight, ArrowDownLeft } from "lucide-react";
@@ -62,10 +63,19 @@ import {
   settleBoxConvertsCurrency,
   isOmtRowCovered,
   settlesByDay,
+  clampSettleDiscount,
+  settleDiscountOverpaid,
+  primaryCashDrawerName,
+  systemCashDrawerChoiceApplies,
   type OmtCoveredType,
   type SettlesByDayInput,
 } from "@liratek/core";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
+import {
+  CashDrawerChoice,
+  type CashDrawerChoiceValue,
+} from "@/shared/components/CashDrawerChoice";
+import { isGeneralCash } from "@/shared/utils/isGeneralCash";
 
 type Supplier = {
   id: number;
@@ -934,7 +944,23 @@ export default function SuppliersPage() {
   const { t: tc } = useTranslation("common");
   const { formatDateTime } = useFormat();
   const { methods } = usePaymentMethods();
-  const { partnerSystem } = useShopBase();
+  const { partnerSystem, baseSystem } = useShopBase();
+  // LIRA-371 — "OMT Cash Drawer | General" on the main-system supplier's
+  // settle screens: the system cash drawer when this provider runs on the
+  // shop's main system, else none (Katsh, products, the other system).
+  const mainSystemCashDrawer = (provider: string | null | undefined) =>
+    provider === baseSystem ? primaryCashDrawerName(baseSystem) : null;
+  // The same predicate the server checks, with the Debts screen's cash test.
+  const cashDrawerChoiceApplies = (
+    provider: string | null | undefined,
+    legs: ReadonlyArray<{ method: string }>,
+  ) =>
+    systemCashDrawerChoiceApplies({
+      provider,
+      baseSystem,
+      legs,
+      isGeneralCash: (m) => isGeneralCash(m, methods),
+    });
   const { user } = useAuth();
   // CQ-10 (D4): standalone write-off is admin-only; the bundled Pay/Receive
   // discount stays admin+staff, same as the Pay/Receive flow it's attached to.
@@ -965,12 +991,11 @@ export default function SuppliersPage() {
   );
   const [cashflowNote, setCashflowNote] = useState("");
   const [cashflowKey, setCashflowKey] = useState(0);
-  // CQ-10: bundled discount on the Pay/Receive form. MultiPaymentInput's
-  // totals here are ALWAYS single-currency (payAmount/payCurrency — the
-  // mixed-balance case already collapses to one net USD figure), so the
-  // built-in discount scalar maps cleanly: it's already denominated in
-  // payCurrency, no per-currency split needed.
-  const [cashflowDiscount, setCashflowDiscount] = useState(0);
+  // CQ-10 / LIRA-372: bundled discount on the Pay/Receive form, in
+  // payCurrency (the totals here are ALWAYS single-currency — the
+  // mixed-balance case already collapses to one net USD figure).
+  // LIRA-372 — the shared Discount line (typed text), both directions.
+  const [cashflowDiscountRaw, setCashflowDiscountRaw] = useState("");
   const [cashflowDiscountReason, setCashflowDiscountReason] = useState("");
   // Owner decision 2026-10-07: the rate the cashier actually used on the
   // Pay/Receive payment input (hand-edited or not — MultiPaymentInput
@@ -981,7 +1006,7 @@ export default function SuppliersPage() {
 
   // SUPPLIER_STOCK_INTAKE_PLAN.md owner decision D8: the standalone
   // "Write off" modal (CQ-10) is REMOVED — the bundled Pay-form discount
-  // (cashflowDiscount above, MultiPaymentInput's showDiscount) is now the
+  // (cashflowDiscountRaw above, the shared Discount line) is now the
   // ONLY forgiveness path. Do not resurrect a standalone write-off UI here.
 
   // LIRA-080: "Add Credit / Debt" modal (admin+staff). CREDIT = shop owes the
@@ -1031,6 +1056,8 @@ export default function SuppliersPage() {
         takesCommission: boolean;
         /** LIRA-359 — a box may be paid in the other currency. */
         convertsCurrency: boolean;
+        /** LIRA-371 — the account's provider (main system → drawer choice). */
+        provider: string | null;
       })
     | null
   >(null);
@@ -1060,6 +1087,13 @@ export default function SuppliersPage() {
   // SUPPLIER_SETTLEMENT row — stamp-only, legs reconcile per currency.
   const [settleRate, setSettleRate] = useState<number | undefined>();
   const [settleNote, setSettleNote] = useState("");
+  // LIRA-371 — drawer choice on the batch Settle confirm; SYSTEM per open.
+  const [settleCashDrawer, setSettleCashDrawer] =
+    useState<CashDrawerChoiceValue>("SYSTEM");
+  // LIRA-372 — the batch Settle's Discount line (shop pays only): typed
+  // text + optional reason, in `settleNetPayCurrency`.
+  const [settleDiscountRaw, setSettleDiscountRaw] = useState("");
+  const [settleDiscountReason, setSettleDiscountReason] = useState("");
   const [settleSubmitting, setSettleSubmitting] = useState(false);
   const [settleKey, setSettleKey] = useState(0);
   // COMMISSION_AT_SETTLEMENT_PLAN.md D8 — entry-mode UI for a NEW-MODEL
@@ -1487,6 +1521,15 @@ export default function SuppliersPage() {
   // points that way (PAY: we owe them; RECEIVE: they owe us), else 0.
   const cashflowOwed =
     cashflowDirection === defaultDirection ? Math.abs(payAmount) : 0;
+  // LIRA-372 — the Discount line on Pay AND Receive: capped at $5 / 450,000
+  // LBP and at what is owed in this direction (measured before the
+  // payment); the payment line follows it.
+  const cashflowDiscountClamp = clampSettleDiscount(
+    payCurrency,
+    parseFloat(cashflowDiscountRaw) || 0,
+    cashflowOwed,
+  );
+  const cashflowDiscount = cashflowDiscountClamp.applied;
 
   // SUPPLIER_STOCK_INTAKE_PLAN.md (D9) — the old FIFO "payment coverage"
   // math (itemsWithCoverage) assumed the balance was RECOMPUTED from live
@@ -1548,11 +1591,11 @@ export default function SuppliersPage() {
     }
   }, [activeTab, selectedSupplierId, defaultDirection]);
 
-  // CQ-10: discount is PAY-only (backend rejects it on RECEIVE) — clear it
-  // whenever the direction flips or the form remounts post-submit, so a
-  // stale discount never survives into a different supplier/direction.
+  // Clear the discount whenever the direction flips or the form remounts
+  // post-submit, so a stale discount never survives into a different
+  // supplier/direction.
   useEffect(() => {
-    setCashflowDiscount(0);
+    setCashflowDiscountRaw("");
     setCashflowDiscountReason("");
   }, [cashflowDirection, cashflowKey]);
 
@@ -1565,10 +1608,9 @@ export default function SuppliersPage() {
       return;
     }
     const trimmedNote = cashflowNote.trim();
-    // CQ-10: bundled discount — PAY only. MultiPaymentInput's onDiscountChange
-    // already emits the clamped value (capped at maxDiscount === payAmount)
-    // in payCurrency, so it maps 1:1 onto whichever currency field is owed.
-    const hasDiscount = cashflowDirection === "PAY" && cashflowDiscount > 0;
+    // CQ-10 / LIRA-372: bundled discount, Pay or Receive — already clamped
+    // (cap and what is owed) in payCurrency.
+    const hasDiscount = cashflowDiscount > 0;
     const trimmedDiscountReason = cashflowDiscountReason.trim();
     const discountFields = hasDiscount
       ? {
@@ -1989,10 +2031,40 @@ export default function SuppliersPage() {
         .reduce((s, p) => s + p.amount, 0),
     [settlePaymentLines],
   );
+  // LIRA-372 — the batch Discount line (only when the shop pays: a
+  // bills-only batch has nothing owed to discount, R7). Capped at $5 /
+  // 450,000 LBP and at the net pay; the legs then pay net pay − discount
+  // (the server reconciles the same `amount − waive`).
+  const settleDiscount =
+    !isBillsOnlyBatch && settleOwesCash
+      ? clampSettleDiscount(
+          settleNetPayCurrency,
+          parseFloat(settleDiscountRaw) || 0,
+          settleNetPayAmount,
+        )
+      : { applied: 0, capped: false, room: 0 };
+  const settleDiscountUsd =
+    settleNetPayCurrency === "USD" ? settleDiscount.applied : 0;
+  const settleDiscountLbp =
+    settleNetPayCurrency === "LBP" ? settleDiscount.applied : 0;
+  // The server refuses a discount that covers the whole net pay ("pay at
+  // least part of it", assertSettlementWaive) — and payment + discount may
+  // not exceed what is owed.
+  const settleDiscountBlocked =
+    settleDiscount.applied > 0 &&
+    (settleDiscount.applied >=
+      settleNetPayAmount -
+        (settleNetPayCurrency === "USD" ? 0.005 : 0.5) ||
+      settleDiscountOverpaid(
+        settleNetPayCurrency,
+        settleNetPayAmount,
+        settleNetPayCurrency === "USD" ? settleEnteredUsd : settleEnteredLbp,
+        settleDiscount.applied,
+      ));
   const settleUnderpaid =
     settleOwesCash &&
-    (settleEnteredUsd < settleNetPayUsd - 0.005 ||
-      settleEnteredLbp < settleNetPayLbp - 0.005);
+    (settleEnteredUsd < settleNetPayUsd - settleDiscountUsd - 0.005 ||
+      settleEnteredLbp < settleNetPayLbp - settleDiscountLbp - 0.005);
   // A currency that's simultaneously under AND over (a stray leg in the
   // "wrong" currency while the right one still falls short) reports as
   // underpaid — the operator still needs to add money before overpayment
@@ -2016,7 +2088,7 @@ export default function SuppliersPage() {
         : settleHasActiveLegs
       : settleHasActiveLegs // Top-up: no MultiPaymentInput renders, structurally always false
     : settleOwesCash
-      ? !settleHasActiveLegs || !settleLegsReconcile
+      ? !settleHasActiveLegs || !settleLegsReconcile || settleDiscountBlocked
       : settleHasActiveLegs;
   // LIRA-119 — same USD-hardcoding bug, second location: the "Owed … − Net
   // you pay" strip UNDER the row list (shown before the operator has even
@@ -2094,6 +2166,8 @@ export default function SuppliersPage() {
   const handleOpenSettleConfirm = () => {
     setSettlePaymentLines([]);
     setSettleNote("");
+    setSettleDiscountRaw("");
+    setSettleDiscountReason("");
     setSettleKey((k) => k + 1);
     // D8 — pre-select the entry mode/rate from the supplier's preference;
     // prefill RATE's unit count from the selection itself (the real count
@@ -2121,8 +2195,20 @@ export default function SuppliersPage() {
     // Owner follow-up (2026-08-13) — always reopen in the default "Top-up"
     // mode, same reset-on-open convention as settleEntryMode above.
     setSettleCommissionCollectionMode("TOP_UP");
+    setSettleCashDrawer("SYSTEM");
     setShowSettleConfirm(true);
   };
+
+  // LIRA-371 — the batch Settle's legs exactly as the payload sends them,
+  // and whether the drawer choice applies to them (one predicate, rule 14).
+  const settleChoiceLegs = [
+    ...settlePaymentLines.filter((p) => p.amount > 0),
+    ...(isBillsOnlyBatch ? [] : settleReturnLegs).filter((l) => l.amount > 0),
+  ];
+  const settleChoiceApplies = cashDrawerChoiceApplies(
+    selectedSupplier?.provider,
+    settleChoiceLegs,
+  );
 
   const handleBatchSettle = async () => {
     if (!selectedSupplierId || selectedSettleIds.size === 0) return;
@@ -2210,6 +2296,21 @@ export default function SuppliersPage() {
           : {}),
         // LIRA-256 — OMT supplier only, and only when not "All types".
         ...(settleCovered ? { covered_omt_service_types: settleCovered } : {}),
+        // LIRA-371 — only when the choice is shown (rule 22: one payload).
+        ...(settleChoiceApplies ? { cash_drawer: settleCashDrawer } : {}),
+        // LIRA-372 — the Discount line (shop pays only). `amount_*` stays
+        // the amount owed; the legs pay owed − discount.
+        ...(settleDiscount.applied > 0
+          ? {
+              discount: {
+                amount_usd: settleDiscountUsd,
+                amount_lbp: settleDiscountLbp,
+                ...(settleDiscountReason.trim()
+                  ? { reason: settleDiscountReason.trim() }
+                  : {}),
+              },
+            }
+          : {}),
       });
       if (!(result as { success: boolean }).success) {
         alert((result as { error?: string }).error || t("settle.failed"));
@@ -2368,6 +2469,10 @@ export default function SuppliersPage() {
                         // LIRA-359 — OMT is given exact USD and LBP.
                         convertsCurrency: false,
                         takesCommission: true,
+                        // LIRA-371 — the account parent's provider.
+                        provider:
+                          a.children.find((c) => c.is_parent)?.provider ??
+                          null,
                       })
                     }
                   />
@@ -2528,6 +2633,7 @@ export default function SuppliersPage() {
                               settleBoxConvertsCurrency(settleByDayInput),
                             takesCommission:
                               calendarTakesCommission(settleByDayInput),
+                            provider: selectedSupplier.provider ?? null,
                           })
                         }
                         className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold"
@@ -3126,7 +3232,12 @@ export default function SuppliersPage() {
                       // supplier who already owes us (or collecting from one we
                       // owe) owes nothing, so the whole amount is extra and
                       // goes to the account.
-                      totals: [{ amount: cashflowOwed, currency: payCurrency }],
+                      totals: [
+                        {
+                          amount: Math.max(0, cashflowOwed - cashflowDiscount),
+                          currency: payCurrency,
+                        },
+                      ],
                       totalAmountCurrency: payCurrency,
                       currency: payCurrency,
                       onChange: setCashflowLines,
@@ -3138,14 +3249,40 @@ export default function SuppliersPage() {
                       accountLabel: t("cashflow.accountLabel"),
                       cashOnlyReturn: true,
                       showPmFee: false,
-                      // CQ-10: discount is PAY-only (the supplier forgiving part
-                      // of what we owe them) — the backend rejects it on
-                      // RECEIVE. The single-currency totals here (payCurrency)
-                      // mean the built-in scalar discount maps 1:1, no custom
-                      // row needed (unlike Debts' mixed USD+LBP due).
-                      showDiscount: cashflowDirection === "PAY",
-                      maxDiscount: cashflowOwed,
-                      onDiscountChange: setCashflowDiscount,
+                      // LIRA-372 — the shared Discount line, Pay and Receive;
+                      // the payment follows it (owner option B: `fillKey`
+                      // re-fills even a typed amount).
+                      showDiscount: false,
+                      fillTotals: [
+                        {
+                          amount: Math.max(0, cashflowOwed - cashflowDiscount),
+                          currency: payCurrency,
+                        },
+                      ],
+                      fillKey: `discount:${cashflowDiscount}`,
+                      ...(cashflowOwed > 0
+                        ? {
+                            totalBeforeDiscount: [
+                              { amount: cashflowOwed, currency: payCurrency },
+                            ],
+                            discountRow: (
+                              <SettleDiscountLine
+                                currencies={[payCurrency]}
+                                values={{ [payCurrency]: cashflowDiscountRaw }}
+                                onChange={(_c, raw) =>
+                                  setCashflowDiscountRaw(raw)
+                                }
+                                room={{
+                                  [payCurrency]: cashflowDiscountClamp.room,
+                                }}
+                                reason={{
+                                  value: cashflowDiscountReason,
+                                  onChange: setCashflowDiscountReason,
+                                }}
+                              />
+                            ),
+                          }
+                        : {}),
                       paymentMethods: methods,
                       currencies: [
                         { code: "USD", symbol: "$" },
@@ -3174,23 +3311,6 @@ export default function SuppliersPage() {
                     confirmColor={cashflowDirection === "PAY" ? "red" : "green"}
                     isSubmitting={supplierCashflow.isPending}
                   >
-                    {cashflowDirection === "PAY" && cashflowDiscount > 0 && (
-                      <div>
-                        <label className="block text-xs text-slate-400 mb-1">
-                          {t("cashflow.discountReason")}
-                        </label>
-                        <input
-                          data-testid="supplier-cashflow-discount-reason"
-                          value={cashflowDiscountReason}
-                          onChange={(e) =>
-                            setCashflowDiscountReason(e.target.value)
-                          }
-                          className="w-full bg-slate-950 border border-emerald-700/40 rounded-lg px-3 py-2 text-white text-sm"
-                          placeholder={t("cashflow.discountReasonPlaceholder")}
-                        />
-                      </div>
-                    )}
-
                     <div>
                       <label className="block text-xs text-slate-400 mb-1">
                         {t("form.noteOptional")}
@@ -3902,9 +4022,9 @@ export default function SuppliersPage() {
       )}
 
       {/* D5 — batch settlement confirm step (admin-only), built on the
-          shared CounterpartySettleModal. No discount/reason field:
-          supplierSettleSchema carries no discount — a batch settle is
-          cash/commission only. */}
+          shared CounterpartySettleModal. LIRA-372: the shared Discount
+          line shows when the shop pays (net-pay branch), never on a
+          bills-only batch. */}
       {showSettleConfirm && selectedSupplier && isAdmin && (
         <CounterpartySettleModal
           title={
@@ -4223,10 +4343,52 @@ export default function SuppliersPage() {
                   // settlement defaults to LBP the way the owner expects.
                   totals: [
                     {
-                      amount: settleNetPayAmount,
+                      amount: Math.max(
+                        0,
+                        settleNetPayAmount - settleDiscount.applied,
+                      ),
                       currency: settleNetPayCurrency,
                     },
                   ],
+                  // LIRA-372 (owner 2026-11-05, option B) — the Discount
+                  // line; the payment follows it (fillKey re-fills even a
+                  // typed amount).
+                  fillTotals: [
+                    {
+                      amount: Math.max(
+                        0,
+                        settleNetPayAmount - settleDiscount.applied,
+                      ),
+                      currency: settleNetPayCurrency,
+                    },
+                  ],
+                  fillKey: `discount:${settleDiscount.applied}`,
+                  ...(settleOwesCash
+                    ? {
+                        totalBeforeDiscount: [
+                          {
+                            amount: settleNetPayAmount,
+                            currency: settleNetPayCurrency,
+                          },
+                        ],
+                        discountRow: (
+                          <SettleDiscountLine
+                            currencies={[settleNetPayCurrency]}
+                            values={{
+                              [settleNetPayCurrency]: settleDiscountRaw,
+                            }}
+                            onChange={(_c, raw) => setSettleDiscountRaw(raw)}
+                            room={{
+                              [settleNetPayCurrency]: settleDiscount.room,
+                            }}
+                            reason={{
+                              value: settleDiscountReason,
+                              onChange: setSettleDiscountReason,
+                            }}
+                          />
+                        ),
+                      }
+                    : {}),
                   totalAmountCurrency: settleNetPayCurrency,
                   currency: settleNetPayCurrency,
                   onChange: setSettlePaymentLines,
@@ -4254,6 +4416,15 @@ export default function SuppliersPage() {
                 }
           }
         >
+          {settleChoiceApplies && (
+            <CashDrawerChoice
+              value={settleCashDrawer}
+              onChange={setSettleCashDrawer}
+              systemDrawer={primaryCashDrawerName(baseSystem)}
+              // A bills commission comes IN; a net pay goes OUT.
+              direction={isBillsOnlyBatch ? "IN" : "OUT"}
+            />
+          )}
           <div>
             <label className="block text-xs text-slate-400 mb-1">
               {t("form.noteOptional")}
@@ -4287,6 +4458,7 @@ export default function SuppliersPage() {
           settlesFromSms={settlingAccount.omtAccount}
           convertsCurrency={settlingAccount.convertsCurrency}
           showCommission={settlingAccount.takesCommission}
+          systemCashDrawer={mainSystemCashDrawer(settlingAccount.provider)}
           onClose={() => setSettlingAccount(null)}
           onSettled={() => setSettlingAccount(null)}
           canSettleOldHistory={isAdmin}

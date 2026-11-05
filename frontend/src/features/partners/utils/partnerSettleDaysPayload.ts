@@ -241,7 +241,9 @@ export function buildPartnerSettleDaysPayload(
     const section: Section = {
       payer: p.payer,
       payments,
-      ...(p.payer === "PARTNER" && forgiveAmount > 0
+      // LIRA-372 — a discount for either payer (the server books a
+      // SHOP-payer forgive as "received", a PARTNER-payer one as "given").
+      ...(forgiveAmount > 0
         ? {
             forgive: {
               amount: forgiveAmount,

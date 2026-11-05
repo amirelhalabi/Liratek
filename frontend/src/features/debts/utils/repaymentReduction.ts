@@ -1,3 +1,5 @@
+import { clampSettleDiscount } from "@liratek/core";
+
 /**
  * computeRepaymentReduction
  *
@@ -156,6 +158,10 @@ export interface ApplyDebtDiscountInput {
   dueLbp: number;
   discountUsd: number;
   discountLbp: number;
+  /** LIRA-372 — the Settle Debt Discount line: also cap each currency at
+   *  $5 / 450,000 LBP (core `settleDiscountRoom`). Off for the admin Write
+   *  off, which forgives up to the whole due (FR-009). */
+  settleCap?: boolean;
 }
 
 export interface ApplyDebtDiscountResult {
@@ -173,15 +179,14 @@ export function applyDebtDiscount({
   dueLbp,
   discountUsd,
   discountLbp,
+  settleCap = false,
 }: ApplyDebtDiscountInput): ApplyDebtDiscountResult {
-  const appliedDiscountUsd = Math.min(
-    Math.max(0, discountUsd),
-    Math.max(0, dueUsd),
-  );
-  const appliedDiscountLbp = Math.min(
-    Math.max(0, discountLbp),
-    Math.max(0, dueLbp),
-  );
+  const appliedDiscountUsd = settleCap
+    ? clampSettleDiscount("USD", discountUsd, dueUsd).applied
+    : Math.min(Math.max(0, discountUsd), Math.max(0, dueUsd));
+  const appliedDiscountLbp = settleCap
+    ? clampSettleDiscount("LBP", discountLbp, dueLbp).applied
+    : Math.min(Math.max(0, discountLbp), Math.max(0, dueLbp));
   return {
     appliedDiscountUsd,
     appliedDiscountLbp,

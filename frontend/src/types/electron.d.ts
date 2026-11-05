@@ -1457,6 +1457,8 @@ export interface ElectronAPI {
       /** LIRA-347 — "Use credit", per currency. */
       creditUseUSD?: number;
       creditUseLBP?: number;
+      /** LIRA-371 — "OMT Cash Drawer | General" (addRepaymentSchema). */
+      cashDrawer?: "SYSTEM" | "GENERAL";
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     /** CQ-10: standalone debt write-off (admin-only) — pure forgiveness, no
      *  cash movement. Capped server-side at the client's outstanding balance
@@ -2071,6 +2073,8 @@ export interface ElectronAPI {
       /** LIRA-310 — Waive (supplier settle discount, ≤ $5 / 450,000 LBP).
        *  Rule 12/23: mirrors the core settle schema's `discount`. */
       discount?: { amount_usd: number; amount_lbp: number; reason?: string };
+      /** LIRA-371 — "OMT Cash Drawer | General" (supplierSettleSchema). */
+      cash_drawer?: "SYSTEM" | "GENERAL";
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     // OMT open-credit account settlement (LIRA-189, CONTRACT_W2.md §2.1) — ONE
     // payment across the account parent (OMT) + its children (OMT App,

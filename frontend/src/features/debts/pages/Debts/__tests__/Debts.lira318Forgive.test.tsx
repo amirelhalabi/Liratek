@@ -1,13 +1,18 @@
 /** @jest-environment jsdom */
 
 /**
- * LIRA-318 (owner 2026-10-13) — Debts → Settle Debt: one "Forgive (no cash)"
- * line inside the payment box replaces the separate green "Discount /
- * Forgive" box. Typing a forgive amount NEVER moves the payment the cashier
- * sees; the sheet shows "Client will owe $X" instead of "Remaining (Debt)".
- * The repayment payload is unchanged (discount {amount_usd, amount_lbp}),
- * read back through addRepaymentSchema (rule 24). The useApi() mock returns
- * ONE stable object (rule 25).
+ * LIRA-318 (owner 2026-10-13) — Debts → Settle Debt: one discount line
+ * inside the payment box replaces the separate green "Discount / Forgive"
+ * box; the sheet shows "Client will owe $X" instead of "Remaining (Debt)".
+ *
+ * LIRA-372 (owner 2026-11-05) — rule 24 rewrite. The line is now the shared
+ * "Discount" (capped $5 / 450,000 LBP), and LIRA-318's "a forgive NEVER
+ * moves the payment" is REVERSED: typing a discount sets the payment to
+ * owed − discount (ticked sum − discount with the picker), even a payment
+ * typed by hand (option B). A payment edited AFTER the discount so that it
+ * overshoots what is ticked still blocks Confirm with the hint. The payload
+ * is read back through addRepaymentSchema (rule 24); the useApi() mock
+ * returns ONE stable object (rule 25).
  */
 
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
@@ -160,8 +165,7 @@ const amountValue = (i = 0) => amountInputs()[i]?.value.replace(/,/g, "");
 const typeAmount = (value: string, i = 0) =>
   fireEvent.change(amountInputs()[i], { target: { value } });
 const forgiveUsd = () =>
-  (screen.queryByTestId("debt-forgive-usd") as HTMLInputElement | null) ??
-  screen.getByText("Amount (USD)").parentElement!.querySelector("input")!;
+  screen.getByTestId("settle-discount-usd") as HTMLInputElement;
 const confirm = () => screen.getByText("Confirm Payment") as HTMLButtonElement;
 const sent = () => addRepaymentSchema.parse(mockAddRepayment.mock.calls[0][0]);
 
@@ -173,16 +177,13 @@ async function openSettle(usd: number) {
   await waitFor(() => expect(amountValue()).toBe(String(usd)));
 }
 
-it("(a) owes $50: typing forgive 16 keeps the payment at 50", async () => {
+it("(a) owes $50: typing discount 4 moves the payment to 46", async () => {
   await openSettle(50);
-  fireEvent.change(forgiveUsd(), { target: { value: "16" } });
-  // Give any re-fill a chance to run before asserting it did not.
-  await waitFor(() => expect(forgiveUsd().value).toBe("16"));
-  await new Promise((r) => setTimeout(r, 50));
-  expect(amountValue()).toBe("50");
+  fireEvent.change(forgiveUsd(), { target: { value: "4" } });
+  await waitFor(() => expect(amountValue()).toBe("46"));
 });
 
-it("(a) owes $50, pays 16, no forgive: Client will owe $34.00", async () => {
+it("(a) owes $50, pays 16, no discount: Client will owe $34.00", async () => {
   await openSettle(50);
   typeAmount("16");
   const row = await screen.findByTestId("remaining-row");
@@ -191,13 +192,13 @@ it("(a) owes $50, pays 16, no forgive: Client will owe $34.00", async () => {
   expect(screen.queryByText("Remaining (Debt)")).toBeNull();
 });
 
-it("(b) forgive 20 + pay 30 on $50: After Forgive $30, owes $0.00, payload unchanged", async () => {
+it("(b) discount 5 on $50: the payment follows to 45, After Discount $45, owes $0.00, payload", async () => {
   await openSettle(50);
-  fireEvent.change(forgiveUsd(), { target: { value: "20" } });
-  typeAmount("30");
+  fireEvent.change(forgiveUsd(), { target: { value: "5" } });
+  await waitFor(() => expect(amountValue()).toBe("45"));
   const after = await screen.findByTestId("after-page-discount");
-  expect(after.textContent).toContain("After Forgive");
-  expect(after.textContent).toContain("$30.00");
+  expect(after.textContent).toContain("After Discount");
+  expect(after.textContent).toContain("$45.00");
   const owed = await screen.findByTestId("owed-after-row");
   expect(owed.textContent).toContain("Client will owe");
   expect(owed.textContent).toContain("$0.00");
@@ -205,34 +206,34 @@ it("(b) forgive 20 + pay 30 on $50: After Forgive $30, owes $0.00, payload uncha
   fireEvent.click(confirm());
   await waitFor(() => expect(mockAddRepayment).toHaveBeenCalledTimes(1));
   const p = sent();
-  expect(p.amountUSD).toBeCloseTo(30, 2);
-  expect(p.discount).toEqual(expect.objectContaining({ amount_usd: 20 }));
+  expect(p.amountUSD).toBeCloseTo(45, 2);
+  expect(p.discount).toEqual(expect.objectContaining({ amount_usd: 5 }));
 });
 
-it("(c) no separate Discount / Forgive box; the forgive line sits in the payment box", async () => {
+it("(c) no separate Discount / Forgive box; the Discount line sits in the payment box", async () => {
   await openSettle(50);
   expect(screen.queryByText("Discount / Forgive")).toBeNull();
-  expect(screen.queryByText("Amount (USD)")).toBeNull();
-  expect(screen.getByText("Forgive (no cash)")).toBeInTheDocument();
-  expect(screen.getByTestId("debt-forgive-usd")).toBeInTheDocument();
-  expect(screen.getByTestId("debt-forgive-lbp")).toBeInTheDocument();
+  expect(screen.queryByText("Forgive (no cash)")).toBeNull();
+  expect(screen.getByTestId("settle-discount-line")).toBeInTheDocument();
+  expect(screen.getByTestId("settle-discount-usd")).toBeInTheDocument();
+  expect(screen.getByTestId("settle-discount-lbp")).toBeInTheDocument();
 });
 
-it("typing more than is due shows the cap note; within the due it goes away", async () => {
+it("typing more than the $5 cap shows the cap note; within it the note goes away", async () => {
   await openSettle(50);
   fireEvent.change(forgiveUsd(), { target: { value: "70" } });
   expect(
     (await screen.findByTestId("discount-cap-note")).textContent,
-  ).toContain("$50.00");
-  fireEvent.change(forgiveUsd(), { target: { value: "40" } });
+  ).toContain("$5.00");
+  fireEvent.change(forgiveUsd(), { target: { value: "4" } });
   await waitFor(() =>
     expect(screen.queryByTestId("discount-cap-note")).toBeNull(),
   );
 });
 
-// ── Owner decision 2026-10-13 (review follow-up) — a forgive on top of a
-// payment that already covers what is ticked / due blocks Confirm, with a
-// hint naming the payment to type; the ticks never change by themselves.
+// ── Owner decision 2026-10-13, kept by LIRA-372 — a payment EDITED after
+// the discount that covers what is ticked blocks Confirm, with a hint naming
+// the payment to type; the ticks never change by themselves.
 const A = {
   kind: "charge",
   id: 21,
@@ -268,42 +269,32 @@ async function openWithItems() {
   await waitFor(() => expect(amountValue()).toBe("50"));
 }
 
-it("A $30 ticked, B $20 unticked, payment 30 + forgive 10: Confirm blocked, hint, B stays unticked", async () => {
+it("A $30 ticked, B $20 unticked, discount 5: the payment drops to 25, B stays unticked", async () => {
   await openWithItems();
   fireEvent.click(box(B));
   await waitFor(() => expect(amountValue()).toBe("30"));
-  fireEvent.change(forgiveUsd(), { target: { value: "10" } });
-  await waitFor(() => expect(forgiveUsd().value).toBe("10"));
-  await new Promise((r) => setTimeout(r, 50));
-  expect(amountValue()).toBe("30");
+  fireEvent.change(forgiveUsd(), { target: { value: "5" } });
+  await waitFor(() => expect(amountValue()).toBe("25"));
   expect(box(B).checked).toBe(false);
-  expect(confirm().disabled).toBe(true);
-  const line = screen.getByTestId("debt-forgive-line");
-  expect(line.textContent).toContain("Lower the payment to $20.00");
-  expect(line.textContent).toContain("$10.00");
-  // Lowering the payment clears the block.
-  typeAmount("20");
-  await waitFor(() => expect(confirm().disabled).toBe(false));
-  expect(box(B).checked).toBe(false);
+  expect(confirm().disabled).toBe(false);
 });
 
-it("all ticked, owes 50: payment 50 + forgive 16 blocked; payment 34 + forgive 16 sends", async () => {
+it("A ticked, discount 5, payment edited back to 30 afterwards: Confirm blocked with the hint", async () => {
   await openWithItems();
-  fireEvent.change(forgiveUsd(), { target: { value: "16" } });
+  fireEvent.click(box(B));
+  await waitFor(() => expect(amountValue()).toBe("30"));
+  fireEvent.change(forgiveUsd(), { target: { value: "5" } });
+  await waitFor(() => expect(amountValue()).toBe("25"));
+  typeAmount("30");
   await waitFor(() => expect(confirm().disabled).toBe(true));
-  expect(screen.getByTestId("debt-forgive-line").textContent).toContain(
-    "Lower the payment to $34.00",
-  );
-  typeAmount("34");
+  const line = screen.getByTestId("settle-discount-line");
+  expect(line.textContent).toContain("$25.00");
+  expect(box(B).checked).toBe(false);
+  typeAmount("25");
   await waitFor(() => expect(confirm().disabled).toBe(false));
-  fireEvent.click(confirm());
-  await waitFor(() => expect(mockAddRepayment).toHaveBeenCalledTimes(1));
-  const p = sent();
-  expect(p.amountUSD).toBeCloseTo(34, 2);
-  expect(p.discount).toEqual(expect.objectContaining({ amount_usd: 16 }));
 });
 
-it("no forgive, pays 60 on 50: a genuine overpay is allowed (change box)", async () => {
+it("no discount, pays 60 on 50: a genuine overpay is allowed (change box)", async () => {
   await openWithItems();
   typeAmount("60");
   expect(await screen.findByTestId("return-change")).toBeInTheDocument();

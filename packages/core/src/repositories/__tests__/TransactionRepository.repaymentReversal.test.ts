@@ -25,12 +25,12 @@
  *
  *   INVARIANT / BOUNDARY (green BOTH pre- and post-fix — not regressions,
  *   but required properties this change must not break):
- *     - "bundled discount boundary" — the discount's own ledger row/txn were
- *       never touched by the pre-fix code either (nothing reversed a
- *       repayment at all); what's new post-fix is that the coverage unwind
- *       correctly attributes ONLY the repayment's own budget, not the
- *       discount's — proven by asserting the exact partial covered_usd left
- *       behind, not just "something didn't change".
+ *     - "bundled discount" — LIRA-372 (owner decision A, 2026-11-05)
+ *       OVERTURNED the old CQ-10 boundary: the repayment's void now reverses
+ *       its bundled discount too (compensating ledger row + negated profit +
+ *       the discount's own coverage given back). The old boundary test was
+ *       rewritten into a guard of the new behaviour; the failing-first proof
+ *       for that change is lira372.discountBaseline / DebtRepository.lira372Cap.
  *     - "double-void/refund guards" — pre-existing `_assertReversible` /
  *       double-refund guards, unrelated to this change; proven here only to
  *       show the new step doesn't interfere with a DEBT_REPAYMENT-typed call.
@@ -637,35 +637,32 @@ describe("D3 — DEBT_REPAYMENT void/refund restores debt + unwinds coverage", (
     });
   });
 
-  // ── CQ-10 bundled-discount boundary ──────────────────────────────────────
+  // ── Bundled discount (LIRA-372 decision A: reversed with its repayment) ─
 
-  describe("bundled discount boundary — the discount is a SEPARATE, NON_REVERSIBLE transaction", () => {
+  describe("bundled discount — reversed together with its repayment (LIRA-372 decision A)", () => {
     beforeEach(() => {
       seedCharge(db, CLIENT_ID, "Custom Service Debt", 100);
     });
 
-    it("voiding the repayment leaves the bundled discount's ledger row/txn untouched, and only unwinds the repayment's OWN coverage share", () => {
+    it("voiding the repayment restores the FULL debt: discount row compensated, profit negated, all coverage given back", () => {
       const { id: repaymentId } = debtRepo.addRepayment({
         client_id: CLIENT_ID,
-        amount_usd: 60,
+        amount_usd: 96,
         amount_lbp: 0,
         created_by: 1,
-        discount: { amount_usd: 40, amount_lbp: 0, reason: "goodwill" },
+        discount: { amount_usd: 4, amount_lbp: 0, reason: "goodwill" },
       });
-      // 100 charge - 60 repaid - 40 forgiven = 0.
+      // 100 charge - 96 repaid - 4 forgiven = 0.
       expect(ledgerSum(db, CLIENT_ID).usd).toBeCloseTo(0, 2);
 
       const discountRowBefore = db
         .prepare(
           `SELECT amount_usd, transaction_id FROM debt_ledger WHERE transaction_type = 'Debt Discount'`,
         )
-        .get();
+        .get() as { amount_usd: number; transaction_id: number };
       const discountTxnBefore = db
-        .prepare(
-          `SELECT status, profit_usd FROM transactions WHERE type = 'COUNTERPARTY_DISCOUNT'`,
-        )
-        .get();
-      // Combo (repayment $60 + discount $40) fully covered the $100 charge.
+        .prepare(`SELECT status, profit_usd FROM transactions WHERE id = ?`)
+        .get(discountRowBefore.transaction_id);
       const serviceBefore = db
         .prepare(
           `SELECT covered_usd FROM debt_ledger WHERE transaction_type = 'Custom Service Debt'`,
@@ -676,33 +673,79 @@ describe("D3 — DEBT_REPAYMENT void/refund restores debt + unwinds coverage", (
       const txnId = repaymentTxnId(db, repaymentId);
       txnRepo.voidTransaction(txnId, 1);
 
-      // The discount's own row and transaction are BIT-FOR-BIT unchanged.
-      const discountRowAfter = db
-        .prepare(
-          `SELECT amount_usd, transaction_id FROM debt_ledger WHERE transaction_type = 'Debt Discount'`,
-        )
-        .get();
-      expect(discountRowAfter).toEqual(discountRowBefore);
-      const discountTxnAfter = db
-        .prepare(
-          `SELECT status, profit_usd FROM transactions WHERE type = 'COUNTERPARTY_DISCOUNT'`,
-        )
-        .get();
-      expect(discountTxnAfter).toEqual(discountTxnBefore);
+      // The original discount row and transaction are never mutated
+      // (additive convention) …
+      expect(
+        db
+          .prepare(
+            `SELECT amount_usd, transaction_id FROM debt_ledger WHERE transaction_type = 'Debt Discount'`,
+          )
+          .get(),
+      ).toEqual(discountRowBefore);
+      expect(
+        db
+          .prepare(`SELECT status, profit_usd FROM transactions WHERE id = ?`)
+          .get(discountRowBefore.transaction_id),
+      ).toEqual(discountTxnBefore);
 
-      // Only the repayment's $60 unwinds — the discount's $40 coverage share
-      // stays applied (proves the give-back budget is scoped to the
-      // 'Repayment' row's own amount, not the combined settlement).
+      // … a compensating 'Discount Reversal' row and a negating
+      // COUNTERPARTY_DISCOUNT row undo them.
+      const reversalRow = db
+        .prepare(
+          `SELECT amount_usd, transaction_id FROM debt_ledger WHERE transaction_type = 'Discount Reversal'`,
+        )
+        .get() as { amount_usd: number; transaction_id: number };
+      expect(reversalRow.amount_usd).toBeCloseTo(4, 2);
+      const negation = db
+        .prepare(
+          `SELECT type, profit_usd, reverses_id, client_id FROM transactions WHERE id = ?`,
+        )
+        .get(reversalRow.transaction_id) as {
+        type: string;
+        profit_usd: number;
+        reverses_id: number;
+        client_id: number;
+      };
+      expect(negation.type).toBe("COUNTERPARTY_DISCOUNT");
+      expect(negation.profit_usd).toBeCloseTo(4, 2);
+      expect(negation.reverses_id).toBe(discountRowBefore.transaction_id);
+      expect(negation.client_id).toBe(CLIENT_ID);
+
+      // Both coverage shares (repayment $96 + discount $4) are given back.
       const serviceAfter = db
         .prepare(
           `SELECT covered_usd FROM debt_ledger WHERE transaction_type = 'Custom Service Debt'`,
         )
         .get() as { covered_usd: number };
-      expect(serviceAfter.covered_usd).toBeCloseTo(40, 2);
+      expect(serviceAfter.covered_usd).toBeCloseTo(0, 2);
 
-      // Balance: 100 charge - 40 discount (still forgiven) - 60 repaid + 60
-      // reversal = 60 owed again.
-      expect(ledgerSum(db, CLIENT_ID).usd).toBeCloseTo(60, 2);
+      // The full $100 is owed again.
+      expect(ledgerSum(db, CLIENT_ID).usd).toBeCloseTo(100, 2);
+    });
+
+    it("a standalone write-off (no repayment link) is never reversed by an unrelated repayment's void", () => {
+      debtRepo.writeOffDebt({
+        client_id: CLIENT_ID,
+        amount_usd: 30,
+        amount_lbp: 0,
+        created_by: 1,
+      });
+      const { id: repaymentId } = debtRepo.addRepayment({
+        client_id: CLIENT_ID,
+        amount_usd: 20,
+        amount_lbp: 0,
+        created_by: 1,
+      });
+      txnRepo.voidTransaction(repaymentTxnId(db, repaymentId), 1);
+      expect(
+        db
+          .prepare(
+            `SELECT COUNT(*) AS n FROM debt_ledger WHERE transaction_type = 'Discount Reversal'`,
+          )
+          .get(),
+      ).toEqual({ n: 0 });
+      // 100 − 30 written off stays forgiven.
+      expect(ledgerSum(db, CLIENT_ID).usd).toBeCloseTo(70, 2);
     });
   });
 

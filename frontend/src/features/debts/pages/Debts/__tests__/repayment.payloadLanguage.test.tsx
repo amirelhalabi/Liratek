@@ -303,11 +303,14 @@ const CASES: Case[] = [
     run: async () => {
       setAccount(50, 0);
       await openSettle("debts-settle-open");
-      fireEvent.change(screen.getByTestId("debt-forgive-usd"), {
-        target: { value: "10" },
+      // LIRA-372 — the shared Discount line (≤ $5); the payment follows it.
+      fireEvent.change(screen.getByTestId("settle-discount-usd"), {
+        target: { value: "5" },
       });
-      fireEvent.change(amountInputs()[0], { target: { value: "40" } });
-      fireEvent.change(screen.getByTestId("debt-forgive-reason"), {
+      await waitFor(() =>
+        expect(amountInputs()[0].value.replace(/,/g, "")).toBe("45"),
+      );
+      fireEvent.change(screen.getByTestId("settle-discount-reason"), {
         target: { value: "loyal customer" },
       });
       await confirmSettle();
@@ -319,27 +322,30 @@ const CASES: Case[] = [
     run: async () => {
       setAccount(0, 900_000);
       await openSettle("debts-settle-open");
-      fireEvent.change(screen.getByTestId("debt-forgive-lbp"), {
+      fireEvent.change(screen.getByTestId("settle-discount-lbp"), {
         target: { value: "100000" },
       });
-      fireEvent.change(amountInputs()[0], { target: { value: "800000" } });
+      await waitFor(() =>
+        expect(amountInputs()[0].value.replace(/,/g, "")).toBe("800000"),
+      );
       await confirmSettle();
       return repaid();
     },
   },
   {
-    name: "repayment with Waive on the rest",
+    // LIRA-372 — no Waive on settle: the cashier types the $4 discount and
+    // the payment follows it to $46.
+    name: "repayment with a $4 discount typed on the rest",
     run: async () => {
       setAccount(50, 0);
       await openSettle("debts-settle-open");
-      // Waive only shows for a gap within the shared shortfall cap ($5).
-      fireEvent.change(amountInputs()[0], { target: { value: "46" } });
-      fireEvent.click(await screen.findByTestId("waive-remaining"));
+      fireEvent.change(screen.getByTestId("settle-discount-usd"), {
+        target: { value: "4" },
+      });
       await waitFor(() =>
-        expect(
-          (screen.getByTestId("debt-forgive-usd") as HTMLInputElement).value,
-        ).toBe("4.00"),
+        expect(amountInputs()[0].value.replace(/,/g, "")).toBe("46"),
       );
+      expect(screen.queryByTestId("waive-remaining")).toBeNull();
       await confirmSettle();
       return repaid();
     },

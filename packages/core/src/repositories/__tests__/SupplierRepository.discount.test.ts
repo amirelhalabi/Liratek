@@ -283,8 +283,13 @@ describe("CQ-10 — SupplierRepository discount/write-off", () => {
     });
   });
 
-  describe("RECEIVE-direction discount rejected", () => {
-    it("throws when discount is supplied on a RECEIVE cashflow", () => {
+  // LIRA-372 (owner 2026-11-05) — a RECEIVE discount is now allowed (the
+  // shop accepts a little less from the supplier; see
+  // SupplierRepository.lira372ReceiveDiscount.test.ts). What stays refused
+  // is a discount with nothing owed in that direction: a discount never
+  // creates credit.
+  describe("RECEIVE-direction discount with nothing owed to the shop", () => {
+    it("throws when the supplier owes the shop nothing", () => {
       expect(() =>
         repo.recordSupplierCashflow({
           supplier_id: 1,
@@ -293,7 +298,7 @@ describe("CQ-10 — SupplierRepository discount/write-off", () => {
           discount: { amount_usd: 5, amount_lbp: 0 },
           created_by: 1,
         }),
-      ).toThrow(/discount is only valid on PAY/i);
+      ).toThrow(/Failed to record supplier cashflow/i);
 
       // No rows written on rejection.
       expect(ledgerSum(db, 1).usd).toBeCloseTo(0, 2);

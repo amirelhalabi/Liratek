@@ -190,7 +190,7 @@ describe("CQ-10 — PartnerService discount/write-off", () => {
     resetTransactionRepository();
   });
 
-  describe("bundled with a settlement (owed $100, paid $60, discount $40)", () => {
+  describe("bundled with a settlement (owed $100, paid $96, discount $4)", () => {
     beforeEach(() => {
       seedForPos(db, 1, 100);
     });
@@ -198,11 +198,11 @@ describe("CQ-10 — PartnerService discount/write-off", () => {
     it("nets the partner's USD ledger to exactly 0", () => {
       service.settle({
         partnerId: 1,
-        amount: 60,
+        amount: 96,
         currency: "USD",
         settlementMethod: "CASH",
         userId: 1,
-        discount: { amount_usd: 40, amount_lbp: 0, reason: "goodwill" },
+        discount: { amount_usd: 4, amount_lbp: 0, reason: "goodwill" },
       });
       expect(ledgerBalanceUsd(db, 1)).toBeCloseTo(0, 2);
     });
@@ -210,11 +210,11 @@ describe("CQ-10 — PartnerService discount/write-off", () => {
     it("fully covers the FOR_POS row — the recognition gate (notPartnerPending) opens", () => {
       service.settle({
         partnerId: 1,
-        amount: 60,
+        amount: 96,
         currency: "USD",
         settlementMethod: "CASH",
         userId: 1,
-        discount: { amount_usd: 40, amount_lbp: 0 },
+        discount: { amount_usd: 4, amount_lbp: 0 },
       });
       const row = forPosRow(db, 1);
       expect(row.covered_amount).toBeGreaterThanOrEqual(row.amount - 0.005);
@@ -223,42 +223,42 @@ describe("CQ-10 — PartnerService discount/write-off", () => {
     it("posts ONE COUNTERPARTY_DISCOUNT transaction: amount 0, profit = -discount, valid counterparty metadata", () => {
       service.settle({
         partnerId: 1,
-        amount: 60,
+        amount: 96,
         currency: "USD",
         settlementMethod: "CASH",
         userId: 1,
-        discount: { amount_usd: 40, amount_lbp: 0, reason: "goodwill" },
+        discount: { amount_usd: 4, amount_lbp: 0, reason: "goodwill" },
       });
       const txn = discountTxn(db);
       expect(txn.amount_usd).toBe(0);
       expect(txn.amount_lbp).toBe(0);
-      expect(txn.profit_usd).toBeCloseTo(-40, 2);
+      expect(txn.profit_usd).toBeCloseTo(-4, 2);
       expect(txn.status).toBe("ACTIVE");
 
       const meta = JSON.parse(txn.metadata_json);
       const parsed = counterpartyMetadataSchema.parse(meta.counterparty);
       expect(parsed.kind).toBe("partner");
       expect(parsed.flow).toBe("IN");
-      expect(parsed.discount?.amount_usd).toBeCloseTo(40, 2);
+      expect(parsed.discount?.amount_usd).toBeCloseTo(4, 2);
     });
 
-    it("moves the drawer ONLY by the cash part ($60), never the discount", () => {
+    it("moves the drawer ONLY by the cash part ($96), never the discount", () => {
       service.settle({
         partnerId: 1,
-        amount: 60,
+        amount: 96,
         currency: "USD",
         settlementMethod: "CASH",
         userId: 1,
-        discount: { amount_usd: 40, amount_lbp: 0 },
+        discount: { amount_usd: 4, amount_lbp: 0 },
       });
-      expect(drawerBalance(db, "General", "USD")).toBeCloseTo(60, 2);
+      expect(drawerBalance(db, "General", "USD")).toBeCloseTo(96, 2);
     });
 
     it("rejects a discount that supplies BOTH currencies at once", () => {
       expect(() =>
         service.settle({
           partnerId: 1,
-          amount: 60,
+          amount: 96,
           currency: "USD",
           settlementMethod: "CASH",
           userId: 1,
@@ -269,19 +269,20 @@ describe("CQ-10 — PartnerService discount/write-off", () => {
 
     // Audit finding (post-implementation review): settlement amount and the
     // bundled discount are two separate ledger rows in the SAME direction —
-    // without a combined check, a caller could settle $60 + forgive $50 on a
-    // $100 balance, forgiving $10 that was never owed. Proven failing-first:
+    // without a combined check, a caller could settle $96 + forgive $5 on a
+    // $100 balance, forgiving $1 that was never owed. (LIRA-372: amounts
+    // lowered under the $5 settle-discount cap; was $60 + $50.) Proven failing-first:
     // temporarily removed the combined guard in PartnerService.settle — this
     // test went red (no throw, ledger overshot by -10) — then restored it.
     it("rejects a settlement + discount whose combined total exceeds the outstanding balance", () => {
       expect(() =>
         service.settle({
           partnerId: 1,
-          amount: 60,
+          amount: 96,
           currency: "USD",
           settlementMethod: "CASH",
           userId: 1,
-          discount: { amount_usd: 50, amount_lbp: 0 },
+          discount: { amount_usd: 5, amount_lbp: 0 },
         }),
       ).toThrow(/exceeds the outstanding balance/i);
       // Nothing was written — the FOR_POS row is untouched.

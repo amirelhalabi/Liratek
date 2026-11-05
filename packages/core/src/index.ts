@@ -74,6 +74,8 @@ export * from "./utils/settleDays.js";
 export * from "./utils/settleDaySelections.js";
 // LIRA-359 — a settle box paid in the other currency (one conversion).
 export * from "./utils/settleLegConversion.js";
+// LIRA-372 — settle Discount line helper (room, clamp, overpaid). Pure leaf.
+export * from "./utils/settleDiscount.js";
 // LIRA-346 — partner settle units (server side; the repository uses them).
 export * from "./utils/partnerSettleUnits.js";
 export * from "./utils/debtSettleDays.js";

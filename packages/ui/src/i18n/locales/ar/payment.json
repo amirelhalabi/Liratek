@@ -110,5 +110,12 @@
   "note": {
     "label": "ملاحظة (اختياري)",
     "placeholder": "مثلاً: سيدفع الباقي يوم الاثنين"
+  },
+  "cashDrawerChoice": {
+    "goesTo": "يذهب إلى",
+    "comesFrom": "يُؤخذ من",
+    "omt": "صندوق OMT النقدي",
+    "whish": "صندوق Whish النقدي",
+    "general": "الصندوق العام"
   }
 }

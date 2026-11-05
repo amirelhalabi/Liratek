@@ -437,11 +437,19 @@ view of the same idea (outstanding sale-level detail, not just a total).
   the `'Repayment'` row's own absolute amounts and applied newest-covered-first
   capped at each row's current coverage — exact when reversed in LIFO order
   (the common case), imprecise under interleaved repayments on the same
-  client (same accepted imprecision as the supplier analog). **Boundary**: a
-  bundled CQ-10 `'Debt Discount'`/`COUNTERPARTY_DISCOUNT` transaction is a
-  SEPARATE transaction_id and is never touched by this step — it stays
-  `NON_REVERSIBLE` by design; only the cash repayment's own share of any
-  shared coverage unwinds. See `TransactionRepository.repaymentReversal.test.ts`.
+  client (same accepted imprecision as the supplier analog). **Bundled
+  discount** (LIRA-372, owner decision A 2026-11-05 — overturns the old CQ-10
+  boundary that left it booked): a `'Debt Discount'` bundled with the
+  repayment carries `bundled_repayment_txn_id` on its COUNTERPARTY_DISCOUNT
+  metadata, and the repayment's void/refund is its reversal owner
+  (`_reverseDebtBundledDiscount`): a compensating `'Discount Reversal'`
+  debt_ledger row, a negating COUNTERPARTY_DISCOUNT row (same helper as the
+  supplier/partner sweep), and the discount's recorded coverage given back —
+  the FULL debt is owed again. The discount transaction itself stays
+  `NON_REVERSIBLE` on its own; a standalone admin write-off (no link), or a
+  discount booked before the link existed, stays booked. See
+  `TransactionRepository.repaymentReversal.test.ts` and
+  `lira372.discountBaseline.test.ts`.
 - `PARTNER_SETTLEMENT`/`PARTNER_PAYMENT` are flatly non-reversible — their
   FIFO `covered_amount` stamps have no unwind mechanism; correction is an
   opposite manual settlement/adjustment, never a void.
@@ -450,6 +458,8 @@ Discount'`/`DISCOUNT` entries, §2/§3/§4) are **by design** non-reversible
   (`NON_REVERSIBLE_TRANSACTION_TYPES`), the same posture as the settlement
   rows just above — not a gap, a decision: their FIFO coverage pass has no
   generic unwind, so correction is an opposite manual discount, never a void.
+  A discount BUNDLED with a supplier payment/settlement, a partner settlement
+  or (LIRA-372) a Debts repayment is reversed by its parent's void/refund.
 - Aging/overdue debt views are charge-only and keep showing a charge as
   outstanding until its `due_date` passes, even after it's been
   voided/refunded.

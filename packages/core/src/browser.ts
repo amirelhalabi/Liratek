@@ -129,6 +129,10 @@ export * from "./utils/whatsappPhone.js";
 // systemFloatDrawers.ts's own doc comment calls it the single definition).
 export * from "./constants/systemFloatDrawers.js";
 
+// LIRA-371 — cash-drawer choice (SYSTEM | GENERAL), its refusal text and the
+// supplier applicability predicate. Pure leaf, no imports (rule 29).
+export * from "./constants/cashDrawerChoice.js";
+
 // Which module owns which drawer, and which drawers no module may hide
 // (rule 14: this was four divergent copies, two of them gating whether
 // physical till cash got counted). Pure data + predicates, no Node deps, and
@@ -301,6 +305,8 @@ export * from "./utils/settleDays.js";
 export * from "./utils/settleDaySelections.js";
 // LIRA-359 — a settle box paid in the other currency (one conversion).
 export * from "./utils/settleLegConversion.js";
+// LIRA-372 — settle Discount line helper (room, clamp, overpaid). Pure leaf.
+export * from "./utils/settleDiscount.js";
 export * from "./utils/debtSettleDays.js";
 // LIRA-345 — which suppliers settle on the day calendar (pure leaf, rule 29).
 export * from "./utils/settlesByDay.js";

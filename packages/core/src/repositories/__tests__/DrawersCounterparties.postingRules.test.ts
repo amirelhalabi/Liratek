@@ -615,28 +615,37 @@ const cases: Case[] = [
 
   // ── SUPPLIER_PAYMENT + bundled COUNTERPARTY_DISCOUNT/supplier ──
   {
-    name: "recordSupplierCashflow PAY $60 + bundled $40 discount",
+    name: "recordSupplierCashflow PAY $60 + bundled $4 discount",
     rules: [
       { rule: "SUPPLIER_PAYMENT/pay", inputs: usd(60) },
-      { rule: "COUNTERPARTY_DISCOUNT/supplier", inputs: usd(40) },
+      { rule: "COUNTERPARTY_DISCOUNT/supplier", inputs: usd(4) },
     ],
     keys: (c) => ({
       drawers: { tender: "General" },
       providerSupplierId: c.supplierId,
     }),
+    // LIRA-372 — a discount never creates credit: the shop must owe at
+    // least payment + discount, so seed $100 owed before the snapshot.
+    setup: (c) => {
+      db.prepare(
+        `INSERT INTO supplier_ledger (tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, created_by)
+         VALUES (1, ?, 'TOP_UP', 100, 0, 1)`,
+      ).run(c.supplierId);
+    },
     act: (c) => {
       getSupplierRepository().recordSupplierCashflow({
         supplier_id: c.supplierId,
         direction: "PAY",
         payments: [{ method: "CASH", currency_code: "USD", amount: 60 }],
-        discount: { amount_usd: 40, amount_lbp: 0, reason: "volume" },
+        // LIRA-372: under the $5 / 450,000 LBP settle-discount cap.
+        discount: { amount_usd: 4, amount_lbp: 0, reason: "volume" },
         created_by: 1,
       });
     },
     rows: { SUPPLIER_PAYMENT: 1, COUNTERPARTY_DISCOUNT: 1 },
     // A supplier discount is a gain: profit +d.
     check: (_ctx, ids) =>
-      expect(discountProfit(ids)).toEqual({ usd: 40, lbp: 0 }),
+      expect(discountProfit(ids)).toEqual({ usd: 4, lbp: 0 }),
     // Owner decision 2026-10-07 (matching the Partners page): voiding the
     // payment also removes its bundled discount — every ledger nets to 0.
     // This case used to pin a −$40 supplier leftover (the DISCOUNT row had
@@ -754,10 +763,10 @@ const cases: Case[] = [
     reverse: { kind: "void" },
   },
   {
-    name: "partner settle $150 + bundled $40 discount (partner owed $200)",
+    name: "partner settle $150 + bundled $4 discount (partner owed $200)",
     rules: [
       { rule: "PARTNER_SETTLEMENT/partner-owes", inputs: usd(150) },
-      { rule: "COUNTERPARTY_DISCOUNT/partner-forgiven", inputs: usd(40) },
+      { rule: "COUNTERPARTY_DISCOUNT/partner-forgiven", inputs: usd(4) },
     ],
     keys: (c) => ({ drawers: { tender: "General" }, partnerId: c.partnerId }),
     setup: (c) => seedPartnerBalance(c.partnerId, 200, "USD"),
@@ -767,7 +776,8 @@ const cases: Case[] = [
         amount: 150,
         currency: "USD",
         settlementMethod: "CASH",
-        discount: { amount_usd: 40, amount_lbp: 0 },
+        // LIRA-372: under the $5 / 450,000 LBP settle-discount cap.
+        discount: { amount_usd: 4, amount_lbp: 0 },
         userId: 1,
       });
     },

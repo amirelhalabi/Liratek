@@ -151,6 +151,9 @@ export interface SectionMoney {
   /** Change (OUT) legs in this currency. */
   outSame: number;
   commission: number;
+  /** LIRA-372 — the section's discount (`per_currency.<C>.waive`), a
+   *  budget the server's allocator closes rows with, like the payment. */
+  waive?: number;
 }
 
 /**
@@ -214,7 +217,7 @@ export function allocateSection(
     ...(sms ? { commission_covers: true, commission_split: sms.split, whole_credit: true } : {}),
     paid: dirSign * (money.inSame - money.outSame),
     commission: money.commission,
-    waive: 0,
+    waive: money.waive ?? 0,
     eps: SETTLE_EPS[currency],
     ...(account
       ? {

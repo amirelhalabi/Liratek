@@ -137,6 +137,17 @@ export interface AllocateRepaymentResult {
   routedLbp: number;
 }
 
+/**
+ * LIRA-371 — the ONE "does the drawer choice apply" test on Debts → Repay:
+ * the DEFAULT allocation routes some cash to the system cash drawer. Shared
+ * by the Repay screen's preview and DebtRepository.addRepayment (rule 14).
+ */
+export function repaymentRoutesToSystemDrawer(
+  result: Pick<AllocateRepaymentResult, "routedUsd" | "routedLbp">,
+): boolean {
+  return result.routedUsd > 0 || result.routedLbp > 0;
+}
+
 const EPS_USD = 0.005;
 const EPS_LBP = 1;
 /** Sales use today's `_markSalesPaidFIFO` tolerance. */

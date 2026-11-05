@@ -2199,10 +2199,12 @@ test.describe.serial("lira-web-071 Shop Day", () => {
       .first()
       .click();
     await page.getByRole("button", { name: "Settle Debt" }).click();
-    // Lower the payment BEFORE the forgive, or Confirm stays disabled.
+    // LIRA-372 — the shared Discount line ($5 max). Typing it moves the
+    // payment (owner 2026-11-05), so the discount goes first and the $25
+    // cash is typed after it.
+    await page.getByTestId("settle-discount-usd").fill("5");
     await payLine(page, 0, "CASH", 25, "USD");
-    await page.getByTestId("debt-forgive-usd").fill("5");
-    await page.getByTestId("debt-forgive-reason").fill(reason);
+    await page.getByTestId("settle-discount-reason").fill(reason);
     await page.locator("#repay-note").fill(note);
     const res = waitPost(page, "/api/debts/repayments");
     await page.getByRole("button", { name: "Confirm Payment" }).click();

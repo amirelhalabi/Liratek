@@ -40,7 +40,6 @@ import Suppliers from "../index";
 import {
   endRun,
   firstPaymentAmount,
-  paymentDiscountInput,
   setGuardLanguage,
   settleConfirmButton,
   snapshotCalls,
@@ -378,12 +377,13 @@ const SCENARIOS: Scenario[] = [
       click(await screen.findByTestId("supplier-tile-WHISH_APP"));
       click(await screen.findByTestId("supplier-tab-manual"));
       await screen.findByTestId("multi-payment-input");
-      type(firstPaymentAmount(), "97");
-      type(paymentDiscountInput(), "3");
-      type(
-        await screen.findByTestId("supplier-cashflow-discount-reason"),
-        "Damaged box",
+      // LIRA-372 — the shared Discount line; its reason sits in the line
+      // and the payment follows the discount to 97.
+      type(screen.getByTestId("settle-discount-usd"), "3");
+      await waitFor(() =>
+        expect(firstPaymentAmount().value.replace(/,/g, "")).toBe("97"),
       );
+      type(screen.getByTestId("settle-discount-reason"), "Damaged box");
       type(screen.getByTestId("supplier-cashflow-note"), "October invoice");
       click(settleConfirmButton());
     },

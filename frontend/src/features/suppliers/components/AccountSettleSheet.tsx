@@ -1,5 +1,10 @@
 import { useId, useMemo, useState, type ReactNode } from "react";
-import { appEvents, MultiPaymentInput, type PaymentLine } from "@liratek/ui";
+import {
+  appEvents,
+  MultiPaymentInput,
+  SettleDiscountLine,
+  type PaymentLine,
+} from "@liratek/ui";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { formatNumber } from "@liratek/ui/i18n/format";
@@ -7,6 +12,7 @@ import { useFormat } from "@/i18n/useFormat";
 import {
   buildDaySelections,
   buildSettleDays,
+  clampSettleDiscount,
   coveredTypeLabel,
   owedSharesCollected,
   tickedOwedShares,
@@ -23,6 +29,7 @@ import {
   settleLegsNetIn,
   settleLegsTotalByCurrency,
   splitBoxLinesAcrossCurrencies,
+  systemCashDrawerChoiceApplies,
   type AccountSettleAllocResult,
   type DaySelectionsResult,
   type OmtCoveredType,
@@ -31,6 +38,11 @@ import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
 import { localDay } from "@/shared/utils/localDay";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
+import {
+  CashDrawerChoice,
+  type CashDrawerChoiceValue,
+} from "@/shared/components/CashDrawerChoice";
+import { isGeneralCash } from "@/shared/utils/isGeneralCash";
 import {
   countOpenSettleTransactions,
   SettleCalendar,
@@ -271,6 +283,11 @@ export interface AccountSettleSheetProps {
    *  the OMT account). The cashier types the SMS figure; the commission is
    *  worked out from it and closes the picked days with the money. */
   settlesFromSms?: boolean | undefined;
+  /** LIRA-371 — the system cash drawer when this supplier runs on the
+   *  shop's main system (the OMT account on an OMT shop, Whish on a Whish
+   *  shop): offers "OMT Cash Drawer | General" when a cash line is paid.
+   *  null / absent (Katsh, product suppliers, the other system) = no choice. */
+  systemCashDrawer?: "OMT_System" | "Whish_System" | null | undefined;
 }
 
 /** Old-history (T041) preview of one picked day. */
@@ -290,6 +307,7 @@ export function AccountSettleSheet({
   showCommission = true,
   convertsCurrency = false,
   settlesFromSms = false,
+  systemCashDrawer = null,
 }: AccountSettleSheetProps) {
   const { t } = useTranslation("suppliers");
   const { t: tc } = useTranslation("common");
@@ -555,6 +573,9 @@ export function AccountSettleSheet({
     LBP: "",
   });
   const [note, setNote] = useState("");
+  // LIRA-371 — "OMT Cash Drawer | General"; SYSTEM each time the sheet opens
+  // (the page mounts the sheet per open).
+  const [cashDrawer, setCashDrawer] = useState<CashDrawerChoiceValue>("SYSTEM");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -682,6 +703,36 @@ export function AccountSettleSheet({
     ).split;
   };
 
+  // ── LIRA-372 — the ONE settle Discount line, per currency ────────────
+  // Capped at $5 / 450,000 LBP and at what the box pays before it (the SMS
+  // figure in SMS mode, else what is owed after the credit). The payment
+  // follows it (owner 2026-11-05, option B); the commission worked out from
+  // the SMS never changes with it (FR-006).
+  const [discountRaw, setDiscountRaw] = useState<PerCurrency<string>>({
+    USD: "",
+    LBP: "",
+  });
+  const [discountReason, setDiscountReason] = useState("");
+  /** What a box pays BEFORE the discount, per currency (magnitude). */
+  const grossOf = (c: SettleCurrency): number =>
+    roundMoney(Math.abs(sms ? sms[c].sms : bases[c].owed), c);
+  const discountClamp = (c: SettleCurrency) =>
+    clampSettleDiscount(c, parseAmount(discountRaw[c]), grossOf(c));
+  const discountOf = (c: SettleCurrency): number =>
+    bases[c].canChooseDirection ? 0 : discountClamp(c).applied;
+  const discountLine = (currencies: SettleCurrency[]) => (
+    <SettleDiscountLine
+      currencies={currencies}
+      values={discountRaw}
+      onChange={(c, raw) => setDiscountRaw((prev) => ({ ...prev, [c]: raw }))}
+      room={Object.fromEntries(
+        currencies.map((c) => [c, discountClamp(c).room]),
+      )}
+      reason={{ value: discountReason, onChange: setDiscountReason }}
+    />
+  );
+  const discountFillKey = `discount:${discountOf("USD")}:${discountOf("LBP")}`;
+
   // LIRA-322 (owner 2026-10-15) — ONE payment box for every currency that
   // is owed in the same direction (the normal case). Only when OMT owes the
   // shop in one currency while the shop owes OMT in the other does that
@@ -698,7 +749,12 @@ export function AccountSettleSheet({
   /** What the main box is paying, per currency (the box's `totals`). */
   const mainTotals = mainCurrencies.map((c) => ({
     // LIRA-370 — settling from the SMS, the box pays what the SMS says.
-    amount: roundMoney(Math.abs(sms ? sms[c].sms : bases[c].owed), c),
+    // LIRA-372 — minus the discount (the payment follows it).
+    amount: roundMoney(grossOf(c) - discountOf(c), c),
+    currency: c,
+  }));
+  const mainGrossTotals = mainCurrencies.map((c) => ({
+    amount: grossOf(c),
     currency: c,
   }));
 
@@ -758,7 +814,8 @@ export function AccountSettleSheet({
         hasMoney:
           sumAmounts(lines[c]) > 0 ||
           sumAmounts(returnLegs[c]) > 0 ||
-          commission > 0,
+          commission > 0 ||
+          discountOf(c) > 0,
         commission,
       };
     }
@@ -772,6 +829,8 @@ export function AccountSettleSheet({
         ? settleLegsNetIn(toLegs(returnLegs[c]), c, rate)
         : sumAmounts(returnLegs[c], c),
       commission: withMoney[c].commission,
+      // LIRA-372 — preview = server: the discount closes rows like money.
+      waive: discountOf(c),
     });
     // A currency goes in the payload when money or commission was entered
     // in it (FR-002: an untouched currency stays unchanged), or when the
@@ -843,19 +902,75 @@ export function AccountSettleSheet({
     ];
     return parts.length > 0 ? parts.join(" + ") : null;
   })();
+  // LIRA-371 — the choice applies when some leg (IN or change) is General
+  // cash on the main-system supplier: the SAME predicate the server checks
+  // (systemCashDrawerChoiceApplies), with the Debts screen's cash test.
+  const systemBase = systemCashDrawer === "Whish_System" ? "WHISH" : "OMT";
+  const cashChoiceApplies = (legs: ReadonlyArray<{ method: string }>) =>
+    systemCashDrawer !== null &&
+    systemCashDrawerChoiceApplies({
+      provider: systemBase,
+      baseSystem: systemBase,
+      legs,
+      isGeneralCash: (m) => isGeneralCash(m, methods),
+    });
+  const showCashDrawerChoice = cashChoiceApplies(
+    includedSections.flatMap((s) => [
+      ...linesByCurrency[s.currency].filter((l) => l.amount > 0),
+      ...returnLegsByCurrency[s.currency].filter((l) => l.amount > 0),
+    ]),
+  );
+  // "Goes to" when the shop only collects; "Comes from" when it pays.
+  const cashDrawerDirection: "IN" | "OUT" = includedSections.every(
+    (s) => s.direction === "COLLECT",
+  )
+    ? "IN"
+    : "OUT";
   const hasCommissionProblem = includedSections.some(
     (s) => s.commissionProblem !== null,
   );
   const creditTooHigh = includedSections.some(
     (s) => s.alloc?.credit_used_too_high === true,
   );
+  // LIRA-372 — the server's discount refusals, shown before Confirm (R6).
+  const discountProblem: string | null = (() => {
+    const discounted = includedSections.filter(
+      (s) => discountOf(s.currency) > 0,
+    );
+    if (discounted.length === 0) return null;
+    if (new Set(discounted.map((s) => s.direction)).size > 1) {
+      return t("accountSettle.discountOpposite", {
+        name: account.account_name,
+      });
+    }
+    for (const s of discounted) {
+      const a = s.alloc;
+      if (!a) continue;
+      if (Math.abs(a.extra) > SETTLE_EPS[s.currency]) {
+        return t("accountSettle.discountWithExtra");
+      }
+      const waivedPartial = [a.partial, a.account_partial].some(
+        (part) =>
+          part !== null &&
+          a.takes.some(
+            (tk) =>
+              tk.source === "WAIVE" &&
+              tk.kind === part.kind &&
+              tk.id === part.id,
+          ),
+      );
+      if (waivedPartial) return t("accountSettle.discountPartial");
+    }
+    return null;
+  })();
   const confirmDisabled =
     submitting ||
     !unsettledQuery.isSuccess ||
     selection.selections.length === 0 ||
     includedSections.length === 0 ||
     hasCommissionProblem ||
-    creditTooHigh;
+    creditTooHigh ||
+    discountProblem !== null;
 
   /**
    * THE settle payload (rule 22): the normal settle and "Settle old history
@@ -882,6 +997,18 @@ export function AccountSettleSheet({
       ...(coveredTypes ? { covered_omt_service_types: coveredTypes } : {}),
       // "Set custom time" — the old-history settle carries it too.
       ...(transactionTime ? { transaction_time: transactionTime } : {}),
+      // LIRA-372 — the Discount line's reason, with a discount only.
+      ...(SETTLE_CURRENCIES.some((c) => (perCurrency[c]?.waive ?? 0) > 0) &&
+      discountReason.trim()
+        ? { discount_reason: discountReason.trim() }
+        : {}),
+      // LIRA-371 — only when the choice applies to THESE legs (the
+      // old-history settle moves no money, so it never carries it).
+      ...(cashChoiceApplies(
+        SETTLE_CURRENCIES.flatMap((c) => perCurrency[c]?.payments ?? []),
+      )
+        ? { cash_drawer: cashDrawer }
+        : {}),
     };
   };
 
@@ -933,6 +1060,8 @@ export function AccountSettleSheet({
             : s.commission > 0
               ? { commission: roundMoney(s.commission, c) }
               : {}),
+          // LIRA-372 — the Discount line (the server's `waive`).
+          ...(discountOf(c) > 0 ? { waive: roundMoney(discountOf(c), c) } : {}),
         };
       }
       const usedIn = (c: SettleCurrency) =>
@@ -1523,6 +1652,7 @@ export function AccountSettleSheet({
               onSmsChange={handleSmsChange}
               onChooseDirection={() => {}}
               returnLegs={returnLegsByCurrency}
+              discounts={{ USD: discountOf("USD"), LBP: discountOf("LBP") }}
               paymentInput={
                 <MultiPaymentInput
                   // Re-created when the currencies, the direction or the
@@ -1543,6 +1673,13 @@ export function AccountSettleSheet({
                   // LIRA-359 — other suppliers convert across currencies.
                   perCurrencyTotals={!convertsCurrency}
                   totals={mainTotals}
+                  // LIRA-372 (owner option B) — the Discount line; a new
+                  // discount re-fills each currency's line to what the box
+                  // pays minus it, even a typed one (per currency, MPI).
+                  fillTotals={mainTotals}
+                  fillKey={discountFillKey}
+                  totalBeforeDiscount={mainGrossTotals}
+                  discountRow={discountLine(mainCurrencies)}
                   // LIRA-343 — pre-filled with what the picked days owe
                   // minus the credit set, one Cash line per currency.
                   initialLines={mainTotals.map((tot) => ({
@@ -1585,8 +1722,8 @@ export function AccountSettleSheet({
                         }),
                       }
                     : {})}
-                  // Owner decision 2026-10-12 — no Waive on the Suppliers
-                  // page (the server supports it per currency, FR-011).
+                  // No Waive on any settle screen (LIRA-372: the cashier
+                  // types the discount).
                   waiveDisabled
                 />
               }
@@ -1609,6 +1746,7 @@ export function AccountSettleSheet({
                   setDirectionChoice((prev) => ({ ...prev, [s.currency]: dir }))
                 }
                 returnLegs={returnLegsByCurrency}
+                discounts={{ USD: discountOf("USD"), LBP: discountOf("LBP") }}
                 paymentInput={
                   s.coveredWithoutMoney ? null : (
                     <MultiPaymentInput
@@ -1627,21 +1765,41 @@ export function AccountSettleSheet({
                       }
                       totals={[
                         {
-                          amount: roundMoney(Math.abs(s.owed), s.currency),
+                          amount: roundMoney(
+                            grossOf(s.currency) - discountOf(s.currency),
+                            s.currency,
+                          ),
                           currency: s.currency,
                         },
                       ]}
                       // LIRA-343 (FR-010) — pre-filled with the pre-fill like
                       // the main box; a currency with nothing owed (the
                       // operator chose a direction) starts empty.
+                      // LIRA-372 — net of the discount, re-filled when it
+                      // changes (owner option B).
                       fillTotals={[
                         {
                           amount: s.canChooseDirection
                             ? 0
-                            : roundMoney(Math.abs(s.owed), s.currency),
+                            : roundMoney(
+                                grossOf(s.currency) - discountOf(s.currency),
+                                s.currency,
+                              ),
                           currency: s.currency,
                         },
                       ]}
+                      fillKey={discountFillKey}
+                      {...(s.canChooseDirection
+                        ? {}
+                        : {
+                            totalBeforeDiscount: [
+                              {
+                                amount: grossOf(s.currency),
+                                currency: s.currency,
+                              },
+                            ],
+                            discountRow: discountLine([s.currency]),
+                          })}
                       totalAmountCurrency={s.currency}
                       currency={s.currency}
                       onChange={(next) =>
@@ -1732,6 +1890,18 @@ export function AccountSettleSheet({
               </span>
             </div>
           )}
+          {unsettledQuery.isSuccess &&
+            showCashDrawerChoice &&
+            systemCashDrawer !== null && (
+              <div className="px-1">
+                <CashDrawerChoice
+                  value={cashDrawer}
+                  onChange={setCashDrawer}
+                  systemDrawer={systemCashDrawer}
+                  direction={cashDrawerDirection}
+                />
+              </div>
+            )}
 
           {canSettleOldHistory && unsettledQuery.isSuccess && (
             <OldHistoryPanel
@@ -1771,6 +1941,15 @@ export function AccountSettleSheet({
             value={transactionTime}
             onChange={setTransactionTime}
           />
+
+          {discountProblem && (
+            <p
+              className="text-amber-400 text-xs"
+              data-testid="supplier-account-settle-discount-problem"
+            >
+              {discountProblem}
+            </p>
+          )}
 
           {error && (
             <p
@@ -2017,6 +2196,7 @@ function CurrencySection({
   onChooseDirection,
   returnLegs,
   paymentInput,
+  discounts,
 }: {
   sections: SectionState[];
   accountName: string;
@@ -2031,6 +2211,8 @@ function CurrencySection({
   onChooseDirection: (dir: SettleDirection) => void;
   returnLegs: PerCurrency<PaymentLine[]>;
   paymentInput: ReactNode;
+  /** LIRA-372 — the discount per currency (SMS summary line). */
+  discounts: PerCurrency<number>;
 }) {
   const { t } = useTranslation("suppliers");
   const first = sections[0];
@@ -2134,6 +2316,19 @@ function CurrencySection({
                     extra: formatMoney(d.extraPart, s.currency),
                   })}
                 </p>
+                {/* LIRA-372 (US3 AS2) — SMS amount, Commission and
+                    Discount stay three separate figures; the discount
+                    never changes the commission. */}
+                {discounts[s.currency] > 0 && (
+                  <p
+                    className="text-xs text-emerald-300"
+                    data-testid={`supplier-account-settle-sms-discount-${lc}`}
+                  >
+                    {t("accountSettle.sms.discount", {
+                      amount: formatMoney(discounts[s.currency], s.currency),
+                    })}
+                  </p>
+                )}
                 {f.owedShares > SETTLE_EPS[s.currency] && (
                   <p className="text-xs text-emerald-300">
                     {t("accountSettle.sms.sharesIncluded", {

@@ -382,19 +382,18 @@ it("7 + 9 — LBP items show both currencies; an LBP debt fills and pays in LBP"
   expect(row(SALE).textContent).toContain("pays $14 · leaves $0");
 });
 
-it("8 — a forgive is applied with the payment to the ticked items; it never moves the payment", async () => {
+// LIRA-372 (owner 2026-11-05, rule 24 rewrite) — the discount now MOVES the
+// payment (option B: payment = ticked − discount, typed or not).
+it("8 — a discount is applied with the payment to the ticked items; the payment drops by it", async () => {
   await openSettle();
   await waitFor(() => expect(amountValue()).toBe("135"));
   fireEvent.click(box(SALE));
   fireEvent.click(box(OMT));
   await waitFor(() => expect(amountValue()).toBe("20"));
-  const discount = screen.getByTestId("debt-forgive-usd") as HTMLInputElement;
+  const discount = screen.getByTestId("settle-discount-usd") as HTMLInputElement;
   fireEvent.change(discount, { target: { value: "5" } });
-  // LIRA-318 (owner 2026-10-13) — typing forgive keeps the payment.
-  await waitFor(() => expect(discount.value).toBe("5"));
-  expect(amountValue()).toBe("20");
-  // The cashier lowers it: payment + forgive settle the ticked ticket.
-  typeAmount("15");
+  // Payment + discount settle the ticked ticket.
+  await waitFor(() => expect(amountValue()).toBe("15"));
   await waitFor(() =>
     expect(row(LOTO).textContent).toContain("pays $20 · leaves $0"),
   );
@@ -406,20 +405,20 @@ it("8 — a forgive is applied with the payment to the ticked items; it never mo
   expect(sent().targets).toEqual([{ kind: "charge", id: 11 }]);
 });
 
-it("8b — with a forgive typed, a tick change refills to the ticked sum (forgive not subtracted)", async () => {
+it("8b — with a discount typed, a tick change refills to the ticked sum minus the discount (LIRA-372)", async () => {
   await openSettle();
   await waitFor(() => expect(amountValue()).toBe("135"));
   fireEvent.click(box(SALE));
   fireEvent.click(box(OMT));
   await waitFor(() => expect(amountValue()).toBe("20"));
-  fireEvent.change(screen.getByTestId("debt-forgive-usd"), {
+  fireEvent.change(screen.getByTestId("settle-discount-usd"), {
     target: { value: "5" },
   });
-  typeAmount("15");
+  await waitFor(() => expect(amountValue()).toBe("15"));
   await waitFor(() => expect(box(OMT).checked).toBe(false));
   fireEvent.click(box(SALE));
-  // $20 Loto + $14 sale = $34, not $29.
-  await waitFor(() => expect(amountValue()).toBe("34"));
+  // $20 Loto + $14 sale = $34, minus the $5 discount = $29.
+  await waitFor(() => expect(amountValue()).toBe("29"));
 });
 
 it("no itemised debt (picker hidden): Confirm stays enabled", async () => {

@@ -191,7 +191,7 @@ describe("planPartnerSettle / buildPartnerSettleDaysPayload (LIRA-346)", () => {
     expect(lower.currencies.USD.prefill).toBe(80);
   });
 
-  it("change handed back goes as OUT legs; forgive only when the partner pays", () => {
+  it("change handed back goes as OUT legs; the discount goes for either payer (LIRA-372)", () => {
     const rows = [FOR_20, LBP_22];
     const payload = parse(
       buildPartnerSettleDaysPayload({
@@ -202,7 +202,7 @@ describe("planPartnerSettle / buildPartnerSettleDaysPayload (LIRA-346)", () => {
           USD: {
             lines: [{ method: "CASH", currencyCode: "USD", amount: 100 }],
             returnLegs: [{ method: "CASH", currencyCode: "USD", amount: 20 }],
-            forgive: { amount: 20, reason: " Goodwill " },
+            forgive: { amount: 5, reason: " Goodwill " },
           },
           LBP: {
             lines: [{ method: "CASH", currencyCode: "LBP", amount: 450000 }],
@@ -217,14 +217,15 @@ describe("planPartnerSettle / buildPartnerSettleDaysPayload (LIRA-346)", () => {
         { method: "CASH", currency_code: "USD", amount: 100 },
         { method: "CASH", currency_code: "USD", amount: 20, direction: "OUT" },
       ],
-      forgive: { amount: 20, reason: "Goodwill" },
+      forgive: { amount: 5, reason: "Goodwill" },
     });
     expect(payload.per_currency.LBP?.payments).toEqual([
       { method: "CASH", currency_code: "LBP", amount: 450000 },
     ]);
     expect(payload.notes).toBe("Week 43");
 
-    // The shop pays: a forgive typed earlier is never sent.
+    // LIRA-372 (rule 24 rewrite) — the shop pays: the discount is sent too
+    // (the server books it "received"). Was: never sent.
     const shopPays = parse(
       buildPartnerSettleDaysPayload({
         partnerId: 7,
@@ -238,7 +239,7 @@ describe("planPartnerSettle / buildPartnerSettleDaysPayload (LIRA-346)", () => {
         },
       }),
     );
-    expect(shopPays.per_currency.USD?.forgive).toBeUndefined();
+    expect(shopPays.per_currency.USD?.forgive).toEqual({ amount: 5 });
   });
 
   it("netting that closes everything with no money still sends the section, with no payments", () => {

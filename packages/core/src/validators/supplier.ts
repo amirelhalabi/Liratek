@@ -1,11 +1,15 @@
 import { z } from "zod";
-import { counterpartyDiscountInputSchema } from "./counterparty.js";
-import { isWithinShortfallMax, SHORTFALL_MAX } from "./exchange.js";
+import {
+  settleDiscountCapMessage,
+  settleDiscountInputSchema,
+} from "./counterparty.js";
+import { isWithinShortfallMax } from "./exchange.js";
 import { OMT_COVERED_TYPE_VALUES } from "../utils/omtCoveredTypes.js";
 import {
   clientDayInputSchema,
   localDayFormatSchema,
   transactionTimeSchema,
+  cashDrawerChoiceSchema,
 } from "./common.js";
 import {
   ACCOUNT_CREDIT_REASON_MAX,
@@ -89,31 +93,13 @@ const supplierPaymentLegSchema = z.object({
 });
 
 /**
- * LIRA-310 — the Waive on a supplier settlement (batch or account): the
- * counterparty discount shape, capped PER CURRENCY at `SHORTFALL_MAX`
- * (up to and including $5 / 450,000 LBP). Refined on the FIELD, never on
- * the parent object, so the settle schemas stay plain ZodObjects (`.shape`
- * is read by the backend suppliers API test). The repository re-checks the
- * cap and every money rule (trust boundary).
+ * LIRA-310 / LIRA-372 — the discount on a supplier settlement (batch,
+ * account, Pay / Receive): the ONE capped settle-discount schema
+ * (`settleDiscountInputSchema`, validators/counterparty.ts — $5 / 450,000
+ * LBP per currency). The repository re-checks the cap and every money rule
+ * (trust boundary).
  */
-const settlementDiscountSchema = counterpartyDiscountInputSchema.superRefine(
-  (d, ctx) => {
-    if (!isWithinShortfallMax(d.amount_usd, "USD")) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `The waived amount is more than $${SHORTFALL_MAX.USD}.`,
-        path: ["amount_usd"],
-      });
-    }
-    if (!isWithinShortfallMax(d.amount_lbp, "LBP")) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `The waived amount is more than ${SHORTFALL_MAX.LBP.toLocaleString("en-US")} LBP.`,
-        path: ["amount_lbp"],
-      });
-    }
-  },
-);
+const settlementDiscountSchema = settleDiscountInputSchema;
 
 export const supplierSettleSchema = z.object({
   supplier_id: z.number().int().positive(),
@@ -189,6 +175,10 @@ export const supplierSettleSchema = z.object({
   // LIRA-310 — Waive: the supplier accepted `amount − discount`. The legs
   // pay that; the gap posts as a bundled supplier DISCOUNT (received).
   discount: settlementDiscountSchema.optional(),
+  // LIRA-371 — "OMT Cash Drawer | General" on the main-system supplier:
+  // GENERAL moves every cash leg in / out of General instead of the system
+  // cash drawer (resolveServiceCashDrawer). Refused where it does not apply.
+  cash_drawer: cashDrawerChoiceSchema.optional(),
 });
 
 /** Pay a supplier / record a supplier paying us, via payment-method legs. */
@@ -199,23 +189,24 @@ export const supplierCashflowSchema = z
     payments: z.array(supplierPaymentLegSchema).min(1),
     note: z.string().optional(),
     exchange_rate: z.number().positive().optional(),
-    // CQ-10: a PAY-direction cashflow may bundle a forgiven remainder
-    // ("owed X, paid Y, discount Z") — posts its OWN 'DISCOUNT' supplier_ledger
-    // row + COUNTERPARTY_DISCOUNT transaction. Never valid on RECEIVE (the
-    // supplier can't simultaneously pay us AND forgive what we owe them) —
-    // SupplierRepository.recordSupplierCashflow also enforces this at the
-    // data layer as a safety net.
-    discount: counterpartyDiscountInputSchema.optional(),
+    // CQ-10 / LIRA-372: a cashflow may bundle a discount ("owed X, paid Y,
+    // discount Z") — posts its OWN 'DISCOUNT' supplier_ledger row +
+    // COUNTERPARTY_DISCOUNT transaction: "received" on PAY, "given" on
+    // RECEIVE. Capped at $5 / 450,000 LBP; the room (≤ owed − cash) is
+    // checked by SupplierRepository.recordSupplierCashflow.
+    discount: settlementDiscountSchema.optional(),
     // LIRA-352 — "Set custom time" on Add Credit / Debt (cash): every row
     // the payment writes takes this time, and a payment dated before a
     // drawer count resolves that count's open difference. Future check in
     // the service.
     transaction_time: transactionTimeSchema,
-  })
-  .refine((d) => !d.discount || d.direction === "PAY", {
-    message: "discount is only valid on PAY-direction cashflow",
-    path: ["discount"],
+    // LIRA-371 — "OMT Cash Drawer | General" on the main-system supplier:
+    // GENERAL moves every cash leg in / out of General instead of the system
+    // cash drawer (resolveServiceCashDrawer). Refused where it does not apply.
+    cash_drawer: cashDrawerChoiceSchema.optional(),
   });
+// LIRA-372 — no PAY-only refine any more: a discount is valid on PAY and on
+// RECEIVE (the shop accepts a little less from the supplier).
 
 // LIRA-322 (contracts/settle-account.md) — one currency's part of an
 // amount-first account settlement. `direction` must match what is owed in
@@ -254,6 +245,20 @@ const settleAccountPerCurrencySchema = z
     // Whether THIS supplier may convert is the server's call — the OMT
     // account refuses it (settleBoxConvertsCurrency).
     for (const currency of SETTLE_ACCOUNT_CURRENCIES) {
+      // LIRA-372 — the discount (waive) is capped in this section's own
+      // currency: $5 / 450,000 LBP (the one settle-discount cap).
+      const waive = pc[currency]?.waive;
+      if (
+        waive !== undefined &&
+        waive >= 0 &&
+        !isWithinShortfallMax(waive, currency)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: settleDiscountCapMessage(currency),
+          path: [currency, "waive"],
+        });
+      }
       pc[currency]?.payments.forEach((leg, i) => {
         if (leg.currency_code !== "USD" && leg.currency_code !== "LBP") {
           ctx.addIssue({
@@ -369,6 +374,17 @@ const supplierSettleAccountBaseSchema = z.object({
   // in scope): OMT's SMS pays owed shares of the ticked types. Amount-first
   // only.
   owed_shares_only: z.boolean().optional(),
+  // LIRA-372 — the reason typed on the Settle Account sheet's Discount line
+  // (per_currency.<C>.waive). Amount-first only. Stored on the DISCOUNT
+  // ledger row's note and the COUNTERPARTY_DISCOUNT details
+  // (SupplierRepository amount-first → postSupplierBundledDiscount): a
+  // snapshot as at saving time (rule 31 — no edit path reaches it).
+  discount_reason: z.string().max(500).optional(),
+  // Both shapes (legacy and per_currency).
+  // LIRA-371 — "OMT Cash Drawer | General" on the main-system supplier:
+  // GENERAL moves every cash leg in / out of General instead of the system
+  // cash drawer (resolveServiceCashDrawer). Refused where it does not apply.
+  cash_drawer: cashDrawerChoiceSchema.optional(),
 });
 
 /** Keys of the legacy whole-row payload that are refused next to `per_currency`. */
@@ -392,6 +408,7 @@ const AMOUNT_FIRST_ONLY_SETTLE_ACCOUNT_KEYS = [
   "credit_used",
   "transaction_time",
   "owed_shares_only",
+  "discount_reason",
 ] as const;
 
 /** Keys the legacy whole-row payload has always required. */

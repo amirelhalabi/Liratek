@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { normalizeClientPhone } from "../utils/phoneNumber.js";
+import { CASH_DRAWER_CHOICES } from "../constants/cashDrawerChoice.js";
 
 /**
  * Common validation schemas used across multiple entities
@@ -336,3 +337,10 @@ export const typedNoteField = z
   .max(500)
   .transform((s) => (s.trim() ? s.trim() : undefined))
   .optional();
+
+/**
+ * LIRA-371 — the cash-drawer choice on Debts → Repay and the main-system
+ * supplier's settle / Pay-Receive payloads. `.optional()` at every use,
+ * never `.default()` (rule 22): absent = today's routing.
+ */
+export const cashDrawerChoiceSchema = z.enum(CASH_DRAWER_CHOICES);

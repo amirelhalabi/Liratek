@@ -377,7 +377,7 @@ describe("LIRA-085 — PARTNER_SETTLEMENT / PARTNER_PAYMENT reversal", () => {
     });
   });
 
-  // ── Bundled CQ-10 discount ("owed 100, paid 60, forgive 40") ─────────────
+  // ── Bundled CQ-10 discount ("owed 100, paid 96, forgive 4" — LIRA-372: under the $5 cap) ─────────────
 
   describe("settlement with a bundled CQ-10 discount", () => {
     beforeEach(() => {
@@ -387,11 +387,11 @@ describe("LIRA-085 — PARTNER_SETTLEMENT / PARTNER_PAYMENT reversal", () => {
     function makeSettlementWithDiscount(): number {
       const entry = service.settle({
         partnerId: 1,
-        amount: 60,
+        amount: 96,
         currency: "USD",
         settlementMethod: "CASH",
         userId: 1,
-        discount: { amount_usd: 40, amount_lbp: 0, reason: "goodwill" },
+        discount: { amount_usd: 4, amount_lbp: 0, reason: "goodwill" },
       });
       return txnRepo.getBySourceId("partner_ledger", entry.id)!.id;
     }
@@ -402,12 +402,12 @@ describe("LIRA-085 — PARTNER_SETTLEMENT / PARTNER_PAYMENT reversal", () => {
       expect(forPosRow(db, 1).covered_amount).toBeCloseTo(100, 2);
     });
 
-    it("VOID sweeps the bundled discount too: ledger fully restores to +100 (not left at +40)", () => {
+    it("VOID sweeps the bundled discount too: ledger fully restores to +100 (not left at +4)", () => {
       const txnId = makeSettlementWithDiscount();
       txnRepo.voidTransaction(txnId, 1);
       // If the discount were left untouched (D3-style boundary), the ledger
-      // would sit at only +40 (100 - 60 settlement reversal - the still-
-      // standing -40 discount). This ticket's acceptance text requires the
+      // would sit at only +96 (100 - 96 settlement + 96 reversal - the
+      // still-standing -4 discount). This ticket's acceptance text requires the
       // FULL restore.
       expect(ledgerBalanceUsd(db, 1)).toBeCloseTo(100, 2);
     });
@@ -421,15 +421,15 @@ describe("LIRA-085 — PARTNER_SETTLEMENT / PARTNER_PAYMENT reversal", () => {
     it("VOID negates the discount's own COUNTERPARTY_DISCOUNT profit stamp — net profit returns to 0", () => {
       const txnId = makeSettlementWithDiscount();
       const before = discountTxnRow(db)!;
-      expect(before.profit_usd).toBeCloseTo(-40, 2); // "forgiven" = profit negative (D1)
-      expect(sumActiveProfitUsd(db)).toBeCloseTo(-40, 2);
+      expect(before.profit_usd).toBeCloseTo(-4, 2); // "forgiven" = profit negative (D1)
+      expect(sumActiveProfitUsd(db)).toBeCloseTo(-4, 2);
 
       txnRepo.voidTransaction(txnId, 1);
 
       // The original discount transaction is untouched (never mutated —
       // additive convention); a NEW reversal row negates it.
       const after = discountTxnRow(db)!;
-      expect(after.profit_usd).toBeCloseTo(-40, 2);
+      expect(after.profit_usd).toBeCloseTo(-4, 2);
       expect(after.status).toBe("ACTIVE");
 
       expect(sumActiveProfitUsd(db)).toBeCloseTo(0, 2);

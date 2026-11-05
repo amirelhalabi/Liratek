@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { idSchema } from "./common.js";
-import { counterpartyDiscountInputSchema } from "./counterparty.js";
+import {
+  settleDiscountInputSchema,
+  settleForgiveAmountSchema,
+} from "./counterparty.js";
 import { settleLegsCrossCurrency } from "../utils/settleLegConversion.js";
 
 /**
@@ -131,7 +134,8 @@ export const partnerSettleSchema = z
     // the side matching `currency` above is honored — PartnerService.settle
     // rejects a discount that supplies BOTH amount_usd AND amount_lbp
     // (ambiguous which currency it belongs to) rather than silently drop one.
-    discount: counterpartyDiscountInputSchema.optional(),
+    // LIRA-372 — capped at $5 / 450,000 LBP (one settle-discount cap).
+    discount: settleDiscountInputSchema.optional(),
     // CQ-11 — split-leg settlement (e.g. $60 CASH + $40 OMT), backing the
     // shared MultiPaymentInput settle modal. When present it SUPERSEDES
     // settlementMethod for money movement (PartnerRepository writes N
@@ -234,7 +238,10 @@ export const partnerSettleMonthSchema = z
 /** `YYYY-MM-DD` — a shop day. */
 export const partnerSettleDaySchema = z
   .string()
-  .regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, "Day must be YYYY-MM-DD");
+  .regex(
+    /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/,
+    "Day must be YYYY-MM-DD",
+  );
 
 /** Month rows read (calendar grid). */
 export const partnerMonthRowsSchema = z.object({
@@ -251,33 +258,33 @@ export const partnerDayDetailSchema = z.object({
 /** One currency of a settle-picked-days request. `payer` says who hands
  *  over the money: the partner (money IN to the shop) or the shop (money
  *  OUT). The legs pay the NET (IN − OUT change), in this currency only. */
-const partnerSettleDaysSectionSchema = z
-  .object({
-    payer: z.enum(["PARTNER", "SHOP"]),
-    payments: z.array(partnerSettlementLegSchema).default([]),
-    /** Forgive (today's bundled discount), oldest picked debts first. */
-    forgive: z
-      .object({
-        amount: z.number().nonnegative(),
-        reason: z.string().max(500).optional(),
-      })
-      .optional(),
-  })
-  .refine(
-    (s) => !s.payments.some((leg) => leg.method === "CLIENT_ACCOUNT"),
-    {
+const partnerSettleDaysSectionSchema = (currency: "USD" | "LBP") =>
+  z
+    .object({
+      payer: z.enum(["PARTNER", "SHOP"]),
+      payments: z.array(partnerSettlementLegSchema).default([]),
+      /** Forgive (today's bundled discount), oldest picked debts first.
+       *  LIRA-372 — capped at $5 / 450,000 LBP in this section's currency. */
+      forgive: z
+        .object({
+          amount: settleForgiveAmountSchema(currency),
+          reason: z.string().max(500).optional(),
+        })
+        .optional(),
+    })
+    .refine((s) => !s.payments.some((leg) => leg.method === "CLIENT_ACCOUNT"), {
       message: "CLIENT_ACCOUNT settles no money — it cannot be a payment leg",
       path: ["payments"],
-    },
-  )
-  .refine(
-    (s) =>
-      s.payments.length === 0 || s.payments.some((l) => l.direction !== "OUT"),
-    {
-      message: "A settlement needs at least one payment leg, not only change",
-      path: ["payments"],
-    },
-  );
+    })
+    .refine(
+      (s) =>
+        s.payments.length === 0 ||
+        s.payments.some((l) => l.direction !== "OUT"),
+      {
+        message: "A settlement needs at least one payment leg, not only change",
+        path: ["payments"],
+      },
+    );
 
 /**
  * Settle picked days (LIRA-346, D1–D10). `selections` = the head ids of the
@@ -301,8 +308,8 @@ export const partnerSettleDaysSchema = z
       .optional(),
     expected_owed: z.object({ usd: z.number(), lbp: z.number() }),
     per_currency: z.object({
-      USD: partnerSettleDaysSectionSchema.optional(),
-      LBP: partnerSettleDaysSectionSchema.optional(),
+      USD: partnerSettleDaysSectionSchema("USD").optional(),
+      LBP: partnerSettleDaysSectionSchema("LBP").optional(),
     }),
     notes: z.string().max(500).optional(),
     exchange_rate: z.number().positive().optional(),

@@ -36,6 +36,16 @@
 
 ## ✨ Highlights
 
+### Choose the cash drawer when settling OMT
+
+When a customer pays off an OMT send with cash on **Settle Debt**, or you settle the OMT account in cash on Suppliers → OMT → **Settle Account**, you can now choose the drawer: **OMT Cash Drawer** (the default, as before) or **General**. Pick General when the cash went into, or came out of, the main drawer. What the customer or OMT owes is the same either way; only the drawer changes, and voiding the payment puts the cash back in the drawer you chose. On a Whish shop the choice reads **Whish Cash Drawer**.
+![Settle Debt for a $200 OMT send paid in cash: "Goes to" OMT Cash Drawer or General, General picked, $200 in General](whats-new/1.35.0/settle-drawer-choice.png)
+
+### Discount on every settle screen
+
+Every settle screen now has the same **Discount** line inside the payment box: Accounts → Settle Debt, Suppliers → Pay / Receive, Suppliers → Settle, Suppliers → OMT → Settle Account, and Partners → Settle (by day and by amount). Type up to $5 or 450,000 LBP, with an optional reason, and the amount to pay drops by itself: owed $412.50, discount $2.50, pay $410.00. It works whether you pay or get paid, and the balance closes in full. On OMT's Settle Account the commission from the SMS does not change. Voiding the settlement puts the discount back.
+![Settle OMT account: SMS amount 307.20, Discount $2.50 "Rounded with OMT", paying $304.70 cash](whats-new/1.35.0/settle-discount.png)
+
 ### Settle OMT from its SMS
 
 On Suppliers → OMT → **Settle Account**, type the amount from OMT's SMS in the new **OMT SMS amount** box. It opens at what the SMS should say: what you owe minus the commission LiraTek expects. When OMT gave you more commission, or less, type their figure. LiraTek works the commission out ("$4.20 expected + $10.00 extra"), pays exactly the SMS amount and settles every picked day in one go. This works the same when OMT owes you: type the minus figure, and you receive exactly that amount with no change to give back. If the SMS includes only some commission (for example "including Western Union commission"), tick those types: every transfer still settles, and the commission on the other types is kept as owed by OMT until a later SMS includes it. If OMT asks for more than LiraTek shows, you get a warning to check for a missing transfer or fee.
@@ -199,10 +209,13 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 💸 OMT / Whish & suppliers
 
+- OMT: when you settle the OMT account in cash on Settle Account, you can now choose whether the cash comes from the OMT Cash Drawer (the default) or General. On a Whish shop the same choice shows for Whish, also when Whish pays you a bills commission in cash.
 - OMT: Settle Account now settles from the amount on OMT's SMS. Type it, and the commission is worked out, the payment matches the SMS and all the picked days close in one settlement, whether you pay OMT or OMT pays you. Before, the commission box never lowered the payment, an OMT that owed you asked for "change" back, and an empty commission box booked no commission at all. If you leave the box as it opens, the expected commission is booked.
 - OMT: ticking the commission types an SMS includes (one or several) no longer leaves the other transfers out. They settle too, and their commission is kept as "commission OMT still owes you", shown on Settle Account and under "Check against OMT's statement". It counts as profit when a later SMS includes it.
 - OMT: if OMT already holds credit with you that is more than the picked days owe, Settle Account switches to "OMT pays you". It uses the whole credit and you receive the SMS amount.
 - Suppliers: "Check against OMT's statement" no longer has boxes to type the SMS figure. It shows the figures only; type the SMS on Settle Account.
+- Suppliers / OMT: Pay / Receive, Settle and the OMT Settle Account now show one Discount line, up to $5 or 450,000 LBP, with a reason. Typing it lowers the amount to pay by itself. Settle and Settle Account had no discount before.
+- Suppliers: you can now take a discount when a supplier pays you (Receive), up to $5 or 450,000 LBP. It is booked as a discount given.
 - OMT/Whish: you can now give a discount on an OMT or Whish send, up to $5 or 450,000 LBP, on the payment box's Discount line. The customer pays less, OMT or Whish is still owed the full amount, and the discount shows on the Expenses page as "Discount given". Not on a receive, a partner's transfer or inside a customer session.
 - Suppliers: Katsh and iPick no longer show a Transactions button. Their sales and bills come out of your own prepaid balance and owe them nothing; their page keeps Settle Account, Payments and Commission Settlement.
 - OMT/Whish: typing 0 in "OMT fee (charged by OMT)" now really waives the fee. Before, 0 was ignored and the automatic fee was still added. Leave the box empty to use the automatic fee.
@@ -324,6 +337,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 🤝 Partners
 
+- Partners: Settle (by day and by amount) now shows the same Discount line as every other settle screen, up to $5 or 450,000 LBP, whether the partner pays you or you pay the partner. Typing a discount now lowers the amount to pay by itself (owes $500, discount $5 → pay $495). The Waive button is gone from these screens; bigger amounts go through Write off (admins).
 - OMT / Whish: on a "For Partner" receive, the note now says what really happens: no drawer moves, and the shop owes the partner the full amount received (the fee is not taken off). It used to say the drawer is credited and the fee is deducted.
 - Partners: when the partner list can't load on a form ("For Partner"), the message now says why (for example "Too many requests") instead of "[object Object]".
 - Partners: Settle now opens a calendar of the month. Settled days are green, open days show what is still owed in $ and LBP (short form, red or green by who owes whom; point at a day for the exact amounts), and the open days before today are already picked. Tap a day to add or skip it; to leave single entries out, untick them under "See transactions". Only the picked days are settled, and what the partner owes you and what you owe the partner on those days count against each other.
@@ -340,6 +354,9 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 📒 Accounts
 
+- Accounts: on Settle Debt, "Forgive (no cash)" is now the Discount line, up to $5 or 450,000 LBP. Typing it lowers the amount to pay by itself (owes $100, discount $5 → pay $95), also when you typed the payment first. The Waive button is gone; to forgive more, use Write off (admins).
+- Accounts: voiding or refunding a payment that had a discount now puts the whole debt back, discount included (owed $105, paid $100 with a $5 discount → after the void the client owes $105 again). This applies to payments made from now on; Write off entries are not affected.
+- Accounts: when a customer pays off an OMT send with cash on Settle Debt, "Goes to" now lets you choose the OMT Cash Drawer (the default) or General.
 - Accounts: new "Export Excel" button. It saves every client who has account history into one Excel file laid out like the import sheet: a list of names and phones, then one page per client with purchases on the left, payments and refunds on the right, totals, and the remaining balance in USD and LBP. Rows keep their real dates.
 - Accounts: an exported file can be imported into another shop with Import Excel. Every entry keeps its original date and the balances come out the same. Importing it back into the shop it came from is refused, because it would double every balance. Old handwritten sheets import as before.
 - Accounts: in the exported Excel file, each name on the first sheet is a link — click it to jump to that client's page, and "Back to list" at the top of each page takes you back.

@@ -193,7 +193,7 @@ describe("PartnerService — ledger row + money movement are atomic (G11)", () =
         currency: "USD",
         settlementMethod: "CASH",
         userId: 1,
-        discount: { amount_usd: 10, amount_lbp: 0, reason: "goodwill" },
+        discount: { amount_usd: 4, amount_lbp: 0, reason: "goodwill" },
       }),
     );
   });

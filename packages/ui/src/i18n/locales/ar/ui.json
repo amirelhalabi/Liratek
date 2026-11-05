@@ -41,7 +41,11 @@
     "extraLabel": "إضافة",
     "reasonAria": "سبب {{label}}",
     "reasonPlaceholder": "السبب (اختياري)",
-    "autoExtraHint": "تقريب للأعلى — امسحه لإرجاع الفكّة"
+    "autoExtraHint": "تقريب للأعلى — امسحه لإرجاع الفكّة",
+    "settleLabel": "حسم",
+    "settleUsd": "حسم بالدولار",
+    "settleLbp": "حسم بالليرة",
+    "cappedToMax": "حُدّد بالحد الأقصى ({{amount}})"
   },
   "notifications": {
     "moreOne": "+{{count}} إشعار إضافي",

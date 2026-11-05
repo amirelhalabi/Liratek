@@ -21,6 +21,7 @@
  */
 import { BaseRepository } from "./BaseRepository.js";
 import { DatabaseError } from "../utils/errors.js";
+import { settleDiscountCapError } from "../validators/counterparty.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { requestNow } from "../utils/requestNow.js";
 import { localDayExpr } from "./reportingTimeFragments.js";
@@ -975,6 +976,12 @@ export class PartnerSettlementRepository extends BaseRepository<{
         }
         const paid = s.payer === "PARTNER" ? net : -net;
         const waive = s.forgive?.amount ?? 0;
+        // LIRA-372 (owner decision B) — the settle-discount cap, server-side
+        // (same check and sentence as the schema).
+        const capError = settleDiscountCapError(
+          s.currency === "USD" ? { usd: waive } : { lbp: waive },
+        );
+        if (capError) throw new DatabaseError(capError);
         const alloc: AccountSettleAllocResult = allocateAccountSettlement({
           currency: s.currency,
           rows: scopeDay.filter((u) => u.currency === s.currency).map(toAlloc),

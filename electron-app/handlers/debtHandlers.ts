@@ -61,6 +61,8 @@ interface RepaymentData {
   expectedOwed?: { usd: number; lbp: number };
   creditUseUSD?: number;
   creditUseLBP?: number;
+  // LIRA-371 — addRepaymentSchema `cashDrawer`, forwarded as-is.
+  cashDrawer?: "SYSTEM" | "GENERAL";
 }
 
 export function registerDebtHandlers(): void {

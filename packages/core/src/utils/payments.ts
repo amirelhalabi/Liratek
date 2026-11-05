@@ -11,6 +11,7 @@
 
 import { getPaymentMethodRepository } from "../repositories/PaymentMethodRepository.js";
 import { primaryCashDrawerName } from "../constants/systemFloatDrawers.js";
+import type { CashDrawerChoice } from "../constants/cashDrawerChoice.js";
 
 /** Payment method code — now a plain string (dynamic from DB). */
 export type PaymentMethod = string;
@@ -171,6 +172,9 @@ export function isPrimarySystemProvider(
 export interface ServiceCashDrawerContext {
   provider: string;
   baseSystem: BaseSystem;
+  /** LIRA-371 — the cashier's "OMT Cash Drawer | General" choice. Only the
+   *  supplier settle / Pay-Receive paths set it; absent = today's routing. */
+  cashDrawer?: CashDrawerChoice;
 }
 
 /**
@@ -197,6 +201,12 @@ export interface ServiceCashDrawerContext {
  *     banknotes and must never land in the cash drawer, even if a future
  *     seed change ever flipped GIFT_CARD's `affects_drawer` flag.
  *
+ * LIRA-371 — `ctx.cashDrawer === "GENERAL"` (the cashier's "OMT Cash
+ * Drawer | General" choice, set ONLY by the supplier settle / Pay-Receive
+ * paths) skips the reroute: every leg resolves to its own method's drawer,
+ * so cash stays in / comes out of General. Absent or "SYSTEM" = the rule
+ * above, unchanged.
+ *
  * Does NOT repoint `payment_methods.CASH.drawer_name` — blocked twice
  * (`PaymentMethodRepository.ts`'s `is_system` guard, and
  * `isNonCashDrawerMethod` testing `drawer_name !== "General"`); this resolver
@@ -206,6 +216,7 @@ export function resolveServiceCashDrawer(
   method: string,
   ctx: ServiceCashDrawerContext,
 ): string {
+  if (ctx.cashDrawer === "GENERAL") return paymentMethodToDrawerName(method);
   if (
     ctx.provider === ctx.baseSystem &&
     isDrawerAffectingMethod(method) &&

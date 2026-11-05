@@ -4,8 +4,9 @@ import {
   idSchema,
   transactionTimeSchema,
   typedNoteField,
+  cashDrawerChoiceSchema,
 } from "./common.js";
-import { counterpartyDiscountInputSchema } from "./counterparty.js";
+import { settleDiscountInputSchema } from "./counterparty.js";
 
 /**
  * Debt management validation schemas
@@ -49,7 +50,8 @@ export const addRepaymentSchema = z
     // CQ-10: a repayment may bundle a forgiven remainder alongside the cash
     // paid ("owed X, paid Y, discount Z") — posts its OWN 'Debt Discount'
     // ledger row + COUNTERPARTY_DISCOUNT transaction (DebtRepository.addRepayment).
-    discount: counterpartyDiscountInputSchema.optional(),
+    // LIRA-372 — capped at $5 / 450,000 LBP (one settle-discount cap).
+    discount: settleDiscountInputSchema.optional(),
     // Owner decision (2026-08-08, repro: buy 89,000 vs. sell 90,000) — same
     // gap already fixed for FinancialServiceRepository/RechargeRepository:
     // the USD→LBP rate MultiPaymentInput actually converted the operator's
@@ -95,6 +97,10 @@ export const addRepaymentSchema = z
     // available credit).
     creditUseUSD: z.number().nonnegative().optional(),
     creditUseLBP: z.number().nonnegative().optional(),
+    // LIRA-371 — "OMT Cash Drawer | General": GENERAL keeps the cash that
+    // would be routed to the system cash drawer in General. Refused by
+    // DebtRepository.addRepayment when nothing would be routed.
+    cashDrawer: cashDrawerChoiceSchema.optional(),
   })
   .refine(
     (data) =>
