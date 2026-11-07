@@ -23,6 +23,11 @@ const TXNS_SCREENSHOT = path.join(
   __dirname,
   "../../public/whats-new/1.35.0/partner-txns-status.png",
 );
+// Owner 2026-11-07 (CornerTag) — the History list on the partner page.
+const HISTORY_SCREENSHOT = path.join(
+  __dirname,
+  "../../public/whats-new/1.35.0/partner-history.png",
+);
 
 test("partner Transactions / Payments windows over REST", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -50,6 +55,7 @@ test("partner Transactions / Payments windows over REST", async ({ page }) => {
       settlement_method: string | null;
       notes: string | null;
       settle_status?: string | null;
+      balance_after?: number | null;
     }>;
   };
 
@@ -104,18 +110,34 @@ test("partner Transactions / Payments windows over REST", async ({ page }) => {
     "SETTLEMENT",
   ]);
   expect(txns.length + pays.length).toBe(all.length);
+  // History: balance after each row, oldest to newest:
+  // +120 send, +30 adjustment, −100 settle, −15 write-off.
+  expect(
+    all
+      .map((e) => e.balance_after)
+      .reverse()
+      .map((b) => Math.round((b ?? NaN) * 100) / 100),
+  ).toEqual([120, 150, 50, 35]);
   expect(
     pays.find((e) => e.transaction_type === "SETTLEMENT")?.settlement_method,
   ).toBe("SPLIT");
 
-  // The page: two buttons with the counts, no inline table.
+  // The page: two buttons with the counts, and the History list (every
+  // row, with the balance after each) as the only inline table.
   await page.goto("/#/partners");
   await page.getByText(name).first().click();
   const openTxns = page.getByTestId("partner-open-transactions");
   const openPays = page.getByTestId("partner-open-payments");
   await expect(openTxns).toHaveText(/Transactions \(1\)/, { timeout: 15_000 });
   await expect(openPays).toHaveText(/Payments \(3\)/);
-  await expect(page.locator("table")).toHaveCount(0);
+  const history = page.getByTestId("partner-history");
+  await expect(history.locator("tbody tr")).toHaveCount(4);
+  await expect(history.locator("thead")).toContainText("Balance");
+  await expect(history.locator("tbody tr").first()).toContainText("$35.00");
+  await expect(history).toContainText("OMT send for the partner");
+  await expect(history).toContainText("Paid at the counter");
+  await expect(page.locator("table")).toHaveCount(1);
+  await page.screenshot({ path: HISTORY_SCREENSHOT });
 
   await openTxns.click();
   let dialog = page.getByRole("dialog");

@@ -26,7 +26,7 @@
  * after capturing this.
  */
 
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import Partners from "../index";
 import { openPartnerTable } from "@/features/partners/testing/partnerTableModals";
 
@@ -127,14 +127,14 @@ describe("Partners page — LedgerRow amount cell formats USDT as USDT (money-di
     render(<Partners />);
     fireEvent.click(await screen.findByText("Acme Partner"));
     // LIRA-340 — adjustments are listed in the Payments window.
-    await openPartnerTable("payments");
+    const dialog = await openPartnerTable("payments");
 
-    const amountCell = await screen.findByText(/^45\.50 USDT$/);
+    const amountCell = await within(dialog).findByText(/^45\.50 USDT$/);
     expect(amountCell).toBeInTheDocument();
     // The ONLY "LBP" that may legitimately appear is the "LBP Balance" card
     // label/value (0, unrelated to this USDT row) — assert the wrong LBP
     // rendering of THIS row specifically never appears.
-    expect(screen.queryByText(/^LBP 4[56]$/)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/^LBP 4[56]$/)).not.toBeInTheDocument();
   });
 
   it("the expanded financial-service detail row also formats its fs_amount as USDT, independent of the main amount cell", async () => {
@@ -171,25 +171,25 @@ describe("Partners page — LedgerRow amount cell formats USDT as USDT (money-di
     render(<Partners />);
     fireEvent.click(await screen.findByText("Acme Partner"));
     // LIRA-340 — business rows are listed in the Transactions window.
-    await openPartnerTable("transactions");
+    const dialog = await openPartnerTable("transactions");
 
     // Main ledger amount cell: 50 USDT.
-    const mainAmount = await screen.findByText(/^50\.00 USDT$/);
+    const mainAmount = await within(dialog).findByText(/^50\.00 USDT$/);
     expect(mainAmount).toBeInTheDocument();
 
     // Expand the row (it has financial_services details) to reveal the
     // fs_amount cell: 12.25 USDT — a SEPARATE call site, same bug class.
-    const row = (await screen.findByText("Binance receive detail")).closest(
-      "tr",
-    ) as HTMLElement;
+    const row = (
+      await within(dialog).findByText("Binance receive detail")
+    ).closest("tr") as HTMLElement;
     fireEvent.click(row);
 
-    const detailAmount = await screen.findByText(/^12\.25 USDT$/);
+    const detailAmount = await within(dialog).findByText(/^12\.25 USDT$/);
     expect(detailAmount.closest("td")).not.toBeNull();
     // Neither amount may have silently rounded through the LBP formatter
     // (fmtLBP(12.25) -> "LBP 12", fmtLBP(50) -> "LBP 50" — the exact wrong
     // strings the pre-fix ternaries produced for these two inputs).
-    expect(screen.queryByText(/^LBP 12$/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/^LBP 50$/)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/^LBP 12$/)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/^LBP 50$/)).not.toBeInTheDocument();
   });
 });

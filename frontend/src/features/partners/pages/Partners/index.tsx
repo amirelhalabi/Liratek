@@ -1275,10 +1275,12 @@ function LedgerRow({
   entry,
   showFee,
   showStatus,
+  showBalance,
 }: {
   entry: PartnerLedgerEntry;
   showFee: boolean;
   showStatus: boolean;
+  showBalance: boolean;
 }) {
   const { t } = useTranslation(["partners", "common"]);
   const { formatDateTime } = useFormat();
@@ -1351,6 +1353,21 @@ function LedgerRow({
             <Ltr>{fmtByCurrency(entry.amount, entry.currency)}</Ltr>
           </span>
         </td>
+        {showBalance && (
+          // Same sign and colour as the balance cards: positive = they owe us.
+          <td className="px-4 py-3 text-end font-mono text-xs whitespace-nowrap">
+            {entry.balance_after == null ? (
+              // A server older than this list sends none: show a dash.
+              <span className="text-slate-600">—</span>
+            ) : (
+              <span
+                className={balanceTextColor(-entry.balance_after, BALANCE_EPS)}
+              >
+                <Ltr>{fmtByCurrency(entry.balance_after, entry.currency)}</Ltr>
+              </span>
+            )}
+          </td>
+        )}
         {showFee && (
           <td className="px-4 py-3 text-end font-mono text-slate-300 text-xs whitespace-nowrap">
             {entry.fs_fee != null && entry.fs_fee > 0 ? (
@@ -1384,7 +1401,12 @@ function LedgerRow({
       {expanded && hasDetails && (
         <tr className="bg-slate-900/60">
           <td
-            colSpan={6 + (showFee ? 1 : 0) + (showStatus ? 1 : 0)}
+            colSpan={
+              6 +
+              (showFee ? 1 : 0) +
+              (showStatus ? 1 : 0) +
+              (showBalance ? 1 : 0)
+            }
             className="px-6 py-3"
           >
             <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-xs">
@@ -1482,11 +1504,13 @@ function LedgerTable({
   state: LedgerGroupState;
   onRetry: () => void;
   emptyLabel: string;
-  /** Owner 2026-11-07: only Transactions has Fee and Status columns. */
-  variant: PartnerLedgerGroup;
+  /** Owner 2026-11-07: only Transactions has Fee and Status columns; only
+   *  the History list (every row) has the Balance column. */
+  variant: PartnerLedgerGroup | "history";
 }) {
   const { t } = useTranslation(["partners", "common"]);
   const showStatus = variant === "transactions";
+  const showBalance = variant === "history";
   // Like the Suppliers OMT Fee column: only when some row has a fee.
   const showFee =
     showStatus && state.entries.some((e) => e.fs_fee != null && e.fs_fee > 0);
@@ -1530,6 +1554,11 @@ function LedgerTable({
               <th className="text-end text-xs text-slate-400 px-4 py-3 font-medium">
                 {t("ledger.amount")}
               </th>
+              {showBalance && (
+                <th className="text-end text-xs text-slate-400 px-4 py-3 font-medium">
+                  {t("ledger.balanceAfter")}
+                </th>
+              )}
               {showFee && (
                 <th className="text-end text-xs text-slate-400 px-4 py-3 font-medium">
                   {t("ledger.feeColumn")}
@@ -1556,6 +1585,7 @@ function LedgerTable({
                 entry={entry}
                 showFee={showFee}
                 showStatus={showStatus}
+                showBalance={showBalance}
               />
             ))}
           </tbody>
@@ -1610,6 +1640,8 @@ function DetailPanel({
   // core `group` filter (PARTNER_PAYMENT_ENTRY_TYPES), never re-derived here.
   const [txns, setTxns] = useState<LedgerGroupState>(LEDGER_LOADING);
   const [payments, setPayments] = useState<LedgerGroupState>(LEDGER_LOADING);
+  // Owner 2026-11-07 (CornerTag) — the History list: every row, no group.
+  const [history, setHistory] = useState<LedgerGroupState>(LEDGER_LOADING);
   const [openTable, setOpenTable] = useState<PartnerLedgerGroup | null>(null);
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
@@ -1679,7 +1711,24 @@ function DetailPanel({
     }
   }, [partner.id, payFrom, payTo, t]);
 
-  // `reloadToken` re-runs both reads after a money action (FR-008).
+  const loadHistory = useCallback(async () => {
+    setHistory(LEDGER_LOADING);
+    try {
+      const result = await apiRef.current.partners.getLedger(partner.id);
+      setHistory({ entries: result.entries, loading: false, error: null });
+    } catch {
+      setHistory({
+        entries: [],
+        loading: false,
+        error: t("ledger.loadFailed"),
+      });
+    }
+  }, [partner.id, t]);
+
+  // `reloadToken` re-runs every read after a money action (FR-008).
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory, reloadToken]);
   useEffect(() => {
     loadTxns();
   }, [loadTxns, reloadToken]);
@@ -1964,6 +2013,37 @@ function DetailPanel({
           {t("tables.payments")}
           {payments.loading ? "" : ` (${payments.entries.length})`}
         </button>
+      </div>
+
+      <div className="mt-4 flex min-h-0 flex-1 flex-col">
+        <div className="mb-2 flex items-center gap-2 px-1">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+            {t("tables.history")}
+          </h3>
+          <span className="text-xs text-slate-500">
+            {t("tables.historyHint")}
+          </span>
+          <button
+            type="button"
+            data-testid="partner-history-refresh"
+            onClick={loadHistory}
+            className="ms-auto flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            {t("common:actions.refresh")}
+          </button>
+        </div>
+        <div
+          data-testid="partner-history"
+          className="min-h-0 max-h-[45vh] flex-1 overflow-auto"
+        >
+          <LedgerTable
+            variant="history"
+            state={history}
+            onRetry={loadHistory}
+            emptyLabel={t("ledger.empty")}
+          />
+        </div>
       </div>
 
       {openTable === "transactions" && (

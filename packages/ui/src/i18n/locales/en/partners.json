@@ -109,6 +109,7 @@
     "notes": "Notes",
     "feeColumn": "Fee",
     "status": "Status",
+    "balanceAfter": "Balance",
     "settle": {
       "paid": "Paid",
       "partialPaid": "Partial · {{amount}}",
@@ -157,6 +158,8 @@
     "forPartner": "For Partner"
   },
   "tables": {
+    "history": "History",
+    "historyHint": "Every entry, newest first, with the balance after each one",
     "transactions": "Transactions",
     "payments": "Payments",
     "transactionsTitle": "{{name}} — Transactions",

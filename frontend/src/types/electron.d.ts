@@ -798,6 +798,8 @@ export interface PartnerLedgerEntry {
   settle_status?: "PAID" | "PARTIAL" | "UNPAID" | "VOIDED" | null;
   /** Covered amount in the row's currency, with `settle_status`. */
   settle_paid?: number | null;
+  /** History list: balance in `currency` after this row (positive = partner owes us). */
+  balance_after?: number | null;
 }
 
 export interface PartnerBalance {

@@ -113,6 +113,9 @@ export interface PartnerLedgerEntry {
   settle_status?: PartnerRowSettleStatus | null;
   /** Covered amount in the row's currency, with `settle_status`. */
   settle_paid?: number | null;
+  /** History list (owner 2026-11-07): the balance in `currency` after this
+   *  row, signed like PartnerBalance (positive = the partner owes us). */
+  balance_after?: number | null;
 }
 
 export interface PartnerBalance {
@@ -1046,11 +1049,26 @@ export class PartnerRepository extends BaseRepository<Partner> {
         params.push(...PARTNER_PAYMENT_ENTRY_TYPES);
       }
 
+      // Owner 2026-11-07 — `balance_after`: the partner's balance in the
+      // row's currency once the row is booked, signed like getBalance
+      // (DEBIT − CREDIT). Worked out over ALL the partner's rows before the
+      // filters apply, so a filtered list still shows the true figure. The
+      // window order (created_at, id) is the list order reversed, so each
+      // row's figure follows from the row below it.
       const sql = `
+        WITH running AS (
+          SELECT id,
+            SUM(CASE WHEN direction = 'DEBIT' THEN amount ELSE -amount END)
+              OVER (PARTITION BY currency ORDER BY created_at, id
+                    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS balance_after
+          FROM partner_ledger
+          WHERE partner_id = ? AND tenant_id = ?
+        )
         SELECT
           pl.id, pl.partner_id, pl.transaction_type, pl.reference_table, pl.reference_id,
           pl.amount, pl.currency, pl.direction, pl.notes, pl.user_id, pl.settlement_method,
           pl.created_at,
+          running.balance_after AS balance_after,
           fs.provider        AS fs_provider,
           fs.service_type    AS fs_service_type,
           fs.amount          AS fs_amount,
@@ -1064,13 +1082,19 @@ export class PartnerRepository extends BaseRepository<Partner> {
           fs.reference_number AS fs_reference_number,
           fs.phone_number     AS fs_phone_number
         FROM partner_ledger pl
+        JOIN running ON running.id = pl.id
         LEFT JOIN financial_services fs
           ON pl.reference_table = 'financial_services' AND pl.reference_id = fs.id
           AND fs.tenant_id = pl.tenant_id
         WHERE ${conditions.join(" AND ")}
-        ORDER BY pl.created_at DESC
+        ORDER BY pl.created_at DESC, pl.id DESC
       `;
-      return this.query<PartnerLedgerEntry>(sql, ...params);
+      return this.query<PartnerLedgerEntry>(
+        sql,
+        partnerId,
+        getCurrentTenantId(),
+        ...params,
+      );
     } catch (e) {
       throw new DatabaseError("Failed to get partner ledger entries", {
         cause: e,

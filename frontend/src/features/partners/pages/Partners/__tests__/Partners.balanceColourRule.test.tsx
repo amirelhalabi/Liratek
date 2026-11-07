@@ -233,9 +233,9 @@ describe("Partners page — LedgerRow colour handles USDT (Balance Pages colour 
 
     fireEvent.click(await screen.findByText("Acme Partner"));
     // LIRA-340 — adjustments are listed in the Payments window.
-    await openPartnerTable("payments");
+    const dialog = await openPartnerTable("payments");
 
-    const debitBadge = await screen.findByText("DEBIT");
+    const debitBadge = await within(dialog).findByText("DEBIT");
     const debitRow = debitBadge.closest("tr") as HTMLElement;
     // `entry.amount` is UNSIGNED — the row's `direction` (not currency)
     // decides the sign, so this must colour correctly for USDT exactly like
@@ -244,7 +244,7 @@ describe("Partners page — LedgerRow colour handles USDT (Balance Pages colour 
     expect(debitBadge.className).not.toMatch(/text-emerald-400/);
     expect(debitRow.className).toMatch(/hover:bg-red-900\/10/);
 
-    const creditBadge = await screen.findByText("CREDIT");
+    const creditBadge = await within(dialog).findByText("CREDIT");
     const creditRow = creditBadge.closest("tr") as HTMLElement;
     expect(creditBadge.className).toMatch(/text-emerald-400/);
     expect(creditBadge.className).not.toMatch(/text-red-400/);

@@ -109,6 +109,7 @@
     "notes": "ملاحظات",
     "feeColumn": "الرسم",
     "status": "الحالة",
+    "balanceAfter": "الرصيد",
     "settle": {
       "paid": "مدفوعة",
       "partialPaid": "جزئي · {{amount}}",
@@ -157,6 +158,8 @@
     "forPartner": "لشريك"
   },
   "tables": {
+    "history": "السجل",
+    "historyHint": "كل القيود، الأحدث أولاً، مع الرصيد بعد كل قيد",
     "transactions": "المعاملات",
     "payments": "الدفعات",
     "transactionsTitle": "{{name}} — المعاملات",

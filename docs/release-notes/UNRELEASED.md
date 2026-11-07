@@ -36,6 +36,11 @@
 
 ## ✨ Highlights
 
+### Partner history with a running balance
+
+Open a partner on the **Partners** page to see their **History** under the balance cards: every entry in one list, newest first, including transfers, settlements, write-offs and credit / debt entries. A **Balance** column shows what the partner owed after each entry, so you can show them how the total adds up, line by line. The Transactions and Payments windows are still there.
+![Partner History list: four entries with the balance after each, from $120.00 down to $35.00](whats-new/1.35.0/partner-history.png)
+
 ### Partner Transactions look like Suppliers
 
 A partner's **Transactions** window now shows a **Status** for every entry, like on Suppliers: **Paid**, **Partial** with the amount paid so far, **Unpaid** or **Voided**, matching the settle calendar. A **Fee** column appears when an entry has a fee, and the date moved to the end. The Transactions and Payments windows also have the Suppliers date filter, with **Today**, **Yesterday** and **This month**. On Suppliers, the Transactions window now has a **Refresh** button.
@@ -244,6 +249,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 - OMT/Whish page: an OMT send paid by OMT Wallet or Whish Wallet with the wallet fee is no longer refused. The payment box now asks for the amount, the OMT fee and the wallet fee together (for example $102 on a $100 send), so the customer pays the right total.
 - OMT/Whish page: when the sender's name and phone are filled in, picking OMT Wallet or Whish Wallet no longer puts the wallet fee on the customer's account. The wallet line now shows the full total (for example $102 on a $100 Intra send), and the send is recorded instead of refused.
 - OMT/Whish page: from now on, an OMT or Whish send put on the customer's account shows on Accounts what is owed, fee included, for example "OMT send $20 + $1 fee = $21, ref OMT-REF-2610". Before, the line read "$20" while $21 was owed. These sends also now record how the customer really paid (the customer's account, or several methods) instead of "Cash".
+- Partners page: a partner's page now shows their full History, every entry in one list with the balance after each one.
 - Partners page: from now on, a settlement paid in more than one way (for example $200 cash + $100 Whish) shows "via SPLIT" in the partner's history instead of only the first method.
 - On the Suppliers page, the Payments list is easier to read: notes show in full (up to two lines), dates fit on one line, and the LBP amount no longer runs into the note.
 - Suppliers: the Transactions and Payments lists open in their own window from two buttons, so the supplier page stays short. The tab for picking transactions to settle is now called "Settle".

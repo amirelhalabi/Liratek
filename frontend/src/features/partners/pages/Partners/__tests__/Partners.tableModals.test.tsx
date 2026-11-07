@@ -126,7 +126,7 @@ describe("LIRA-340 — Partners page: Transactions / Payments windows", () => {
     );
   });
 
-  it("header shows both counts from two group reads, and no inline ledger table", async () => {
+  it("header shows both counts from two group reads; the only inline table is History", async () => {
     await openPartner();
     expect(
       await screen.findByTestId("partner-open-transactions"),
@@ -140,8 +140,12 @@ describe("LIRA-340 — Partners page: Transactions / Payments windows", () => {
     expect(groups).toEqual(
       expect.arrayContaining(["transactions", "payments"]),
     );
-    expect(screen.queryByRole("table")).not.toBeInTheDocument();
-    expect(screen.queryByText("pos order")).not.toBeInTheDocument();
+    // Owner 2026-11-07 (CornerTag): the History list (every row) is now on
+    // the page; the Transactions / Payments tables still open in windows.
+    const history = await screen.findByTestId("partner-history");
+    const tables = screen.queryAllByRole("table");
+    expect(tables).toHaveLength(1);
+    expect(history).toContainElement(tables[0]);
   });
 
   it("Transactions window lists business rows and keeps the mode/provider/direction filters", async () => {
