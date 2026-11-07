@@ -794,6 +794,10 @@ export interface PartnerLedgerEntry {
   fs_customer: string | null;
   fs_reference_number: string | null;
   fs_phone_number: string | null;
+  /** Transactions window only: settle status from core's settle units. */
+  settle_status?: "PAID" | "PARTIAL" | "UNPAID" | "VOIDED" | null;
+  /** Covered amount in the row's currency, with `settle_status`. */
+  settle_paid?: number | null;
 }
 
 export interface PartnerBalance {

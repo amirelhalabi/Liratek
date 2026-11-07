@@ -19,6 +19,7 @@ import {
 } from "../constants/partnerObligation.js";
 import { paymentMethodToDrawerName } from "../utils/payments.js";
 import { allocateFifo } from "../utils/fifoCoverage.js";
+import type { PartnerRowSettleStatus } from "../utils/partnerSettleUnits.js";
 import { buildCounterpartyMetadata } from "../validators/counterparty.js";
 import { partnerSettlementMethod } from "../validators/partner.js";
 import {
@@ -106,6 +107,12 @@ export interface PartnerLedgerEntry {
   fs_customer: string | null;
   fs_reference_number: string | null;
   fs_phone_number: string | null;
+  /** Transactions window only (owner 2026-11-07): the row's settle status
+   *  from the settle units (`partnerRowSettleStatuses`). Null/absent = none
+   *  (Payments rows, USDT rows, or a database before v225). */
+  settle_status?: PartnerRowSettleStatus | null;
+  /** Covered amount in the row's currency, with `settle_status`. */
+  settle_paid?: number | null;
 }
 
 export interface PartnerBalance {

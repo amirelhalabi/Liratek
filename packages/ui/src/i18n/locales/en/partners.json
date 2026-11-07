@@ -106,7 +106,15 @@
     "empty": "No transactions found",
     "date": "Date",
     "type": "Type",
-    "notes": "Notes"
+    "notes": "Notes",
+    "feeColumn": "Fee",
+    "status": "Status",
+    "settle": {
+      "paid": "Paid",
+      "partialPaid": "Partial · {{amount}}",
+      "unpaid": "Unpaid",
+      "voided": "Voided"
+    }
   },
   "detail": {
     "inactive": "Inactive",

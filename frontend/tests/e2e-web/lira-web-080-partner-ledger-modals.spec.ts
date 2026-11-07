@@ -18,6 +18,11 @@ const SCREENSHOT = path.join(
   __dirname,
   "../../public/whats-new/1.35.0/partner-ledger.png",
 );
+// Owner 2026-11-07 — the Transactions window with its Status column.
+const TXNS_SCREENSHOT = path.join(
+  __dirname,
+  "../../public/whats-new/1.35.0/partner-txns-status.png",
+);
 
 test("partner Transactions / Payments windows over REST", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -44,6 +49,7 @@ test("partner Transactions / Payments windows over REST", async ({ page }) => {
       transaction_type: string;
       settlement_method: string | null;
       notes: string | null;
+      settle_status?: string | null;
     }>;
   };
 
@@ -89,6 +95,9 @@ test("partner Transactions / Payments windows over REST", async ({ page }) => {
   const txns = await ledger("transactions");
   const pays = await ledger("payments");
   expect(txns.map((e) => e.transaction_type)).toEqual(["FOR_OMT_SEND"]);
+  // Owner 2026-11-07 — the settlement and write-off paid toward the $120
+  // send, so it has a status over REST (from the settle units).
+  expect(txns[0].settle_status).toMatch(/^(PAID|PARTIAL)$/);
   expect(pays.map((e) => e.transaction_type).sort()).toEqual([
     "ADJUSTMENT",
     "DISCOUNT",
@@ -113,6 +122,12 @@ test("partner Transactions / Payments windows over REST", async ({ page }) => {
   await expect(dialog).toContainText(`${name} — Transactions`);
   await expect(dialog).toContainText("OMT send for the partner");
   await expect(dialog).not.toContainText("Paid at the counter");
+  await expect(dialog.locator("thead")).toContainText("Status");
+  await expect(dialog.locator("tbody")).toContainText(/Paid|Partial ·/);
+  await expect(
+    dialog.getByRole("button", { name: "This month" }),
+  ).toBeVisible();
+  await page.screenshot({ path: TXNS_SCREENSHOT });
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
 

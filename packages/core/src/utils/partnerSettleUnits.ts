@@ -263,8 +263,7 @@ export function buildPartnerSettleUnits(
   }
 
   return units.map((u) => {
-    const legacyEffect =
-      (u.legacyMinor + u.attrMinor) * sideSign(u.direction);
+    const legacyEffect = (u.legacyMinor + u.attrMinor) * sideSign(u.direction);
     const effect = u.effectMinor + legacyEffect;
     const remaining = u.netMinor - effect;
     const headSign = sideSign(u.direction);
@@ -295,6 +294,52 @@ export function isPartnerUnitOpen(u: PartnerSettleUnit): boolean {
   return toMinor(u.remaining, u.currency) !== 0;
 }
 
+/** A row's settle status in the Partners Transactions window (owner
+ *  2026-11-07, matching the Suppliers window). */
+export type PartnerRowSettleStatus = "PAID" | "PARTIAL" | "UNPAID" | "VOIDED";
+
+/**
+ * Status of every row in a DAY unit, keyed by partner_ledger id. Every
+ * member of a unit (the head and its reversals) shares the unit's status;
+ * `paid` is the covered magnitude in the unit's currency, capped at its net.
+ * PAYER units and rows outside any unit (USDT) are absent: no status.
+ *  - net 0 → VOIDED (reversed in full: nothing was ever owed);
+ *  - remaining 0 → PAID;
+ *  - flipped (voided or refunded after it was paid, the excess sits on the
+ *    account) → PAID. A judgment call: its day reads closed on the calendar.
+ *  - some coverage → PARTIAL, else UNPAID.
+ */
+export function partnerRowSettleStatuses(
+  units: readonly PartnerSettleUnit[],
+): Map<number, { status: PartnerRowSettleStatus; paid: number }> {
+  const out = new Map<
+    number,
+    { status: PartnerRowSettleStatus; paid: number }
+  >();
+  for (const u of units) {
+    if (u.unit_class !== "DAY") continue;
+    const netMinor = Math.abs(toMinor(u.net, u.currency));
+    const coveredMinor = Math.min(
+      Math.abs(toMinor(u.covered_effect, u.currency)),
+      netMinor,
+    );
+    const status: PartnerRowSettleStatus =
+      netMinor === 0
+        ? "VOIDED"
+        : !isPartnerUnitOpen(u) || u.flipped
+          ? "PAID"
+          : coveredMinor !== 0
+            ? "PARTIAL"
+            : "UNPAID";
+    const paid = fromMinor(
+      status === "PAID" ? netMinor : coveredMinor,
+      u.currency,
+    );
+    for (const id of u.member_ids) out.set(id, { status, paid });
+  }
+  return out;
+}
+
 /** Where an open unit sits: a DAY unit on its day unless it flipped. */
 export function partnerUnitScope(u: PartnerSettleUnit): "DAY" | "ACCOUNT" {
   return u.unit_class === "DAY" && !u.flipped ? "DAY" : "ACCOUNT";
@@ -306,6 +351,9 @@ export function partnerCoverSide(remaining: number): PartnerSide {
 }
 
 /** Signed effect of a coverage row (D4). */
-export function partnerCoverageEffect(side: PartnerSide, amount: number): number {
+export function partnerCoverageEffect(
+  side: PartnerSide,
+  amount: number,
+): number {
   return sideSign(side) * amount;
 }

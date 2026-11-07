@@ -57,5 +57,14 @@
   },
   "totals": {
     "total": "المجموع"
+  },
+  "dayRangeFilter": {
+    "label": "تصفية حسب التاريخ",
+    "from": "من",
+    "to": "إلى",
+    "today": "اليوم",
+    "yesterday": "أمس",
+    "thisMonth": "هذا الشهر",
+    "clear": "مسح"
   }
 }

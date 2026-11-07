@@ -391,15 +391,6 @@
     "outstanding": "المتبقي: {{amounts}}",
     "fullyCovered": "مغطّى بالكامل"
   },
-  "transactionsFilter": {
-    "label": "تصفية حسب التاريخ",
-    "from": "من",
-    "to": "إلى",
-    "today": "اليوم",
-    "yesterday": "أمس",
-    "thisMonth": "هذا الشهر",
-    "clear": "مسح"
-  },
   "archive": {
     "archive": "أرشفة",
     "archiveTitle": "إخفاء هذا المورّد من القائمة مع الاحتفاظ بسجلّه.",

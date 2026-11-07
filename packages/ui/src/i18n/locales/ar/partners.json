@@ -106,7 +106,15 @@
     "empty": "لا توجد عمليات",
     "date": "التاريخ",
     "type": "النوع",
-    "notes": "ملاحظات"
+    "notes": "ملاحظات",
+    "feeColumn": "الرسم",
+    "status": "الحالة",
+    "settle": {
+      "paid": "مدفوعة",
+      "partialPaid": "جزئي · {{amount}}",
+      "unpaid": "غير مدفوعة",
+      "voided": "ملغاة"
+    }
   },
   "detail": {
     "inactive": "غير نشط",

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { formatNumber } from "@liratek/ui/i18n/format";
@@ -14,7 +14,7 @@ import {
   SettleDiscountLine,
   type PaymentLine,
 } from "@liratek/ui";
-import { Plus, ArrowUpRight, ArrowDownLeft } from "lucide-react";
+import { Plus, ArrowUpRight, ArrowDownLeft, RefreshCw } from "lucide-react";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
 import { useShopBase } from "@/hooks/useShopBase";
@@ -22,7 +22,7 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { TableModal } from "@/shared/components/TableModal";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
-import { localDay, localMonth } from "@/shared/utils/localDay";
+import { DayRangeFilter } from "@/shared/components/DayRangeFilter";
 import {
   useSuppliersQuery,
   useSupplierBalancesQuery,
@@ -541,104 +541,6 @@ function balanceColor(amount: number): string {
  *  so a range never carries over to another supplier. */
 type TxnsRange = { supplierId: number | null; from: string; to: string };
 const NO_TXNS_RANGE: TxnsRange = { supplierId: null, from: "", to: "" };
-
-/** LIRA-343 (FR-016c) — two date fields + Today / Yesterday / This month /
- *  Clear. Days are the browser's own local days (rule 27: never the UTC day
- *  of `toISOString()`). */
-function TransactionsDateFilter({
-  from,
-  to,
-  onChange,
-  testId = "supplier-txns-date-filter",
-}: {
-  from: string;
-  to: string;
-  onChange: (from: string, to: string) => void;
-  /** The Payments window reuses this filter under its own test id. */
-  testId?: string;
-}) {
-  const { t } = useTranslation("suppliers");
-  const fromId = useId();
-  const toId = useId();
-  const today = () => localDay();
-  const yesterday = () => {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    return localDay(d);
-  };
-  const input =
-    "bg-slate-900 border border-slate-600 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500 [color-scheme:dark]";
-  const preset =
-    "px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-semibold";
-  return (
-    <div
-      role="group"
-      aria-label={t("transactionsFilter.label")}
-      data-testid={testId}
-      className="flex flex-wrap items-center gap-2"
-    >
-      <label htmlFor={fromId} className="text-xs text-slate-400">
-        {t("transactionsFilter.from")}
-      </label>
-      <input
-        id={fromId}
-        type="date"
-        value={from}
-        max={to || undefined}
-        // The server refuses From after To: moving From past To moves To
-        // along with it (and the reverse below), so the pair is never upside
-        // down. Plain string order is day order for `YYYY-MM-DD`.
-        onChange={(e) => {
-          const next = e.target.value;
-          onChange(next, to && next && next > to ? next : to);
-        }}
-        className={input}
-      />
-      <label htmlFor={toId} className="text-xs text-slate-400">
-        {t("transactionsFilter.to")}
-      </label>
-      <input
-        id={toId}
-        type="date"
-        value={to}
-        min={from || undefined}
-        onChange={(e) => {
-          const next = e.target.value;
-          onChange(from && next && next < from ? next : from, next);
-        }}
-        className={input}
-      />
-      <button
-        type="button"
-        className={preset}
-        onClick={() => onChange(today(), today())}
-      >
-        {t("transactionsFilter.today")}
-      </button>
-      <button
-        type="button"
-        className={preset}
-        onClick={() => onChange(yesterday(), yesterday())}
-      >
-        {t("transactionsFilter.yesterday")}
-      </button>
-      <button
-        type="button"
-        className={preset}
-        onClick={() => onChange(`${localMonth()}-01`, today())}
-      >
-        {t("transactionsFilter.thisMonth")}
-      </button>
-      <button
-        type="button"
-        className="px-2 py-1.5 text-xs font-semibold text-slate-400 hover:text-white underline underline-offset-[3px]"
-        onClick={() => onChange("", "")}
-      >
-        {t("transactionsFilter.clear")}
-      </button>
-    </div>
-  );
-}
 
 function SupplierAccountCard({
   account,
@@ -2053,8 +1955,7 @@ export default function SuppliersPage() {
   const settleDiscountBlocked =
     settleDiscount.applied > 0 &&
     (settleDiscount.applied >=
-      settleNetPayAmount -
-        (settleNetPayCurrency === "USD" ? 0.005 : 0.5) ||
+      settleNetPayAmount - (settleNetPayCurrency === "USD" ? 0.005 : 0.5) ||
       settleDiscountOverpaid(
         settleNetPayCurrency,
         settleNetPayAmount,
@@ -2471,8 +2372,7 @@ export default function SuppliersPage() {
                         takesCommission: true,
                         // LIRA-371 — the account parent's provider.
                         provider:
-                          a.children.find((c) => c.is_parent)?.provider ??
-                          null,
+                          a.children.find((c) => c.is_parent)?.provider ?? null,
                       })
                     }
                   />
@@ -3354,13 +3254,25 @@ export default function SuppliersPage() {
               testId="supplier-table-modal-backdrop"
             >
               <div className="space-y-3">
-                <TransactionsDateFilter
-                  from={txnsFrom}
-                  to={txnsTo}
-                  onChange={(from, to) =>
-                    setTxnsRange({ supplierId: selectedSupplierId, from, to })
-                  }
-                />
+                {/* Owner 2026-11-07: Refresh, like the Partners window. */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <DayRangeFilter
+                    testId="supplier-txns-date-filter"
+                    from={txnsFrom}
+                    to={txnsTo}
+                    onChange={(from, to) =>
+                      setTxnsRange({ supplierId: selectedSupplierId, from, to })
+                    }
+                  />
+                  <button
+                    type="button"
+                    onClick={() => allTxnsQuery.refetch()}
+                    className="ms-auto flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    {tc("actions.refresh")}
+                  </button>
+                </div>
                 {allTxnsQuery.isLoading ? (
                   <div className="text-slate-400 text-sm py-6 text-center">
                     {t("txns.loading")}
@@ -3598,7 +3510,7 @@ export default function SuppliersPage() {
                   selected supplier's panel is unaffected. */}
           {isSelectedAccountParent ? (
             <div className="space-y-3">
-              <TransactionsDateFilter
+              <DayRangeFilter
                 from={paymentsFrom}
                 to={paymentsTo}
                 onChange={(from, to) =>

@@ -57,5 +57,14 @@
   },
   "totals": {
     "total": "Total"
+  },
+  "dayRangeFilter": {
+    "label": "Filter by date",
+    "from": "From",
+    "to": "To",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "thisMonth": "This month",
+    "clear": "Clear"
   }
 }

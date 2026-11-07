@@ -321,6 +321,22 @@ describe("Suppliers page — Transactions window range on the server (LIRA-343 T
     );
   });
 
+  // Owner 2026-11-07: a Refresh button, like the Partners Transactions window.
+  it("Refresh reads the Transactions window again", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByTestId("supplier-tile-KATSH"));
+    const dialog = await openSupplierTable("transactions");
+    await waitFor(() =>
+      expect(mockGetAllSupplierTransactions).toHaveBeenCalledTimes(1),
+    );
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Refresh" }));
+    await waitFor(() =>
+      expect(mockGetAllSupplierTransactions).toHaveBeenCalledTimes(2),
+    );
+    expect(mockGetAllSupplierTransactions).toHaveBeenLastCalledWith("KATSH");
+  });
+
   it("From can never be after To", async () => {
     renderPage();
     fireEvent.click(await screen.findByTestId("supplier-tile-KATSH"));

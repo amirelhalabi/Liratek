@@ -24,6 +24,7 @@ import {
   type PartnerDayDetailRow,
 } from "../repositories/PartnerSettlementRepository.js";
 import { NotFoundError } from "../utils/errors.js";
+import { partnerRowSettleStatuses } from "../utils/partnerSettleUnits.js";
 import { logger } from "../utils/logger.js";
 import { settleDiscountCapError } from "../validators/counterparty.js";
 import {
@@ -44,7 +45,10 @@ export class PartnerService {
    *  resolved so callers that only pass a PartnerRepository keep working. */
   private settleRepoOverride: PartnerSettlementRepository | undefined;
 
-  constructor(repo: PartnerRepository, settleRepo?: PartnerSettlementRepository) {
+  constructor(
+    repo: PartnerRepository,
+    settleRepo?: PartnerSettlementRepository,
+  ) {
     this.repo = repo;
     this.settleRepoOverride = settleRepo;
   }
@@ -556,7 +560,10 @@ export class PartnerService {
     try {
       return this.settleRepo.getMonthRows(partnerId, month);
     } catch (e) {
-      partnerLogger.error({ error: e, partnerId, month }, "getSettleMonthRows failed");
+      partnerLogger.error(
+        { error: e, partnerId, month },
+        "getSettleMonthRows failed",
+      );
       throw e;
     }
   }
@@ -566,7 +573,10 @@ export class PartnerService {
     try {
       return this.settleRepo.getDayDetail(partnerId, day);
     } catch (e) {
-      partnerLogger.error({ error: e, partnerId, day }, "getSettleDayDetail failed");
+      partnerLogger.error(
+        { error: e, partnerId, day },
+        "getSettleDayDetail failed",
+      );
       throw e;
     }
   }
@@ -594,13 +604,17 @@ export class PartnerService {
       );
       return { success: true, id: result.id };
     } catch (e) {
-      partnerLogger.error({ error: e, partnerId: data.partnerId }, "settleDays failed");
+      partnerLogger.error(
+        { error: e, partnerId: data.partnerId },
+        "settleDays failed",
+      );
       const cause =
         e instanceof Error && e.cause instanceof Error ? e.cause.message : null;
       return {
         success: false,
         error:
-          cause ?? (e instanceof Error ? e.message : "Failed to settle the picked days"),
+          cause ??
+          (e instanceof Error ? e.message : "Failed to settle the picked days"),
       };
     }
   }
@@ -620,7 +634,11 @@ export class PartnerService {
       const partner = this.getPartnerById(partnerId);
       const balance = this.repo.getBalance(partnerId);
       const breakdown = this.repo.getBalanceBreakdown(partnerId);
-      const entries = this.repo.getLedgerEntries(partnerId, filters);
+      const entries = this.withSettleStatus(
+        partnerId,
+        this.repo.getLedgerEntries(partnerId, filters),
+        filters,
+      );
       return { partner, balance, breakdown, entries };
     } catch (e) {
       partnerLogger.error(
@@ -628,6 +646,35 @@ export class PartnerService {
         "getPartnerStatement failed",
       );
       throw e;
+    }
+  }
+
+  /** Owner 2026-11-07 — the Transactions window's Status column, read from
+   *  the settle units (the calendar's own model, rule 14). The Payments
+   *  window and a database without v225 get none; a units failure never
+   *  breaks the ledger read. */
+  private withSettleStatus(
+    partnerId: number,
+    entries: PartnerLedgerEntry[],
+    filters?: LedgerFilters,
+  ): PartnerLedgerEntry[] {
+    if (filters?.group !== "transactions") return entries;
+    if (!this.settleRepo.hasCoverageTable()) return entries;
+    try {
+      const byRow = partnerRowSettleStatuses(
+        this.settleRepo.loadUnits(partnerId),
+      );
+      return entries.map((e) => {
+        const s = byRow.get(e.id);
+        return {
+          ...e,
+          settle_status: s?.status ?? null,
+          settle_paid: s?.paid ?? null,
+        };
+      });
+    } catch (e) {
+      partnerLogger.warn({ error: e, partnerId }, "settle status unavailable");
+      return entries;
     }
   }
 

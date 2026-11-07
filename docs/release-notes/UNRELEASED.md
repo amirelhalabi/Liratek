@@ -36,6 +36,11 @@
 
 ## ✨ Highlights
 
+### Partner Transactions look like Suppliers
+
+A partner's **Transactions** window now shows a **Status** for every entry, like on Suppliers: **Paid**, **Partial** with the amount paid so far, **Unpaid** or **Voided**, matching the settle calendar. A **Fee** column appears when an entry has a fee, and the date moved to the end. The Transactions and Payments windows also have the Suppliers date filter, with **Today**, **Yesterday** and **This month**. On Suppliers, the Transactions window now has a **Refresh** button.
+![Partner Transactions window: a $120 OMT send for the partner, Status "Partial · $115.00", with the Today / Yesterday / This month date filter](whats-new/1.35.0/partner-txns-status.png)
+
 ### Choose the cash drawer when settling OMT
 
 When a customer pays off an OMT send with cash on **Settle Debt**, or you settle the OMT account in cash on Suppliers → OMT → **Settle Account**, you can now choose the drawer: **OMT Cash Drawer** (the default, as before) or **General**. Pick General when the cash went into, or came out of, the main drawer. What the customer or OMT owes is the same either way; only the drawer changes, and voiding the payment puts the cash back in the drawer you chose. On a Whish shop the choice reads **Whish Cash Drawer**.
@@ -280,6 +285,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 - Suppliers, Katsh and Whish: "Paid" and "Partial" in the Transactions window now follow real settlements, like OMT. A transfer that showed "Paid" only because of an old Pay / Receive payment shows as owed until a settlement uses that payment.
 - Settle Account (OMT, Katsh, Whish and product suppliers) now has "Set custom time", next to the note. Use it when you record a payment later than it happened, for example OMT paid on Monday but entered on Wednesday: the payment, what it settles and the drawer movement are all saved on Monday, so each day's balance, the settle calendar and your checkpoints stay right. With a custom time, the days picked by default are the open days before that day, and a payment can't be dated before a day it pays for. If a checkpoint after that time was short (or over) by this payment, the difference is resolved instead of the drawer moving twice.
 - OMT/Whish and Mobile Recharge (OMT App, Whish App, Binance, iPick, Katsh) History: from now on, when you correct a name or phone, the transaction in Transactions shows the new client name, phone and summary too. On OMT, Whish, OMT App and Whish App transfers, its Details also show the corrected sender, receiver or customer and note. On iPick and Katsh, correcting the note also changes the item text shown in Transactions. Before, Transactions kept showing the old name.
+- Suppliers: the Transactions window has a Refresh button, like on the Partners page.
 
 ## 🎨 Look & feel
 
@@ -351,6 +357,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 - Partners: on the settle calendar, "See transactions" opens a table of the picked days' entries next to the calendar (For / Through, notes, amount, what is left). Untick an entry there to leave it out of this settlement.
 - Partners: on the settle calendar, each payment box can now be paid in dollars or lira: a dollar amount can be paid in LBP (and the other way round), converted at the rate shown on the box. A "Total" line under the boxes shows what you pay in all, for example "$2,984.00 + 710,000 LBP".
 - Partners: when an earlier settlement paid the partner more than the days it closed, that extra now pays for the next days you pick. The settle calendar says so ("$984 you already paid … covers these days") instead of asking you to pay it again.
+- Partners: a partner's Transactions window now looks like the one on Suppliers: a Status for each entry (Paid, Partial with the amount paid, Unpaid or Voided, the same as the settle calendar), a Fee column when an entry has a fee, and the date at the end. Both the Transactions and Payments windows have the same date filter as Suppliers, with Today, Yesterday and This month.
 
 ## 📒 Accounts
 

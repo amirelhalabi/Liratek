@@ -63,6 +63,7 @@ import {
 } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { TableModal } from "@/shared/components/TableModal";
+import { DayRangeFilter } from "@/shared/components/DayRangeFilter";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { formatCurrency } from "@/utils/currency";
 import {
@@ -1233,7 +1234,52 @@ function parseTransactionType(raw: string | null): {
   return { modeBadge: null, modeColor: "", typeLabel: raw.replace(/_/g, " ") };
 }
 
-function LedgerRow({ entry }: { entry: PartnerLedgerEntry }) {
+/** Owner 2026-11-07 — the Status chip, same wording and colours as the
+ *  Suppliers Transactions window. The status itself comes from core. */
+function SettleStatusChip({ entry }: { entry: PartnerLedgerEntry }) {
+  const { t } = useTranslation("partners");
+  const chip = "px-1.5 py-0.5 rounded text-[10px] font-bold";
+  switch (entry.settle_status) {
+    case "PAID":
+      return (
+        <span className={`${chip} bg-green-900/50 text-green-300`}>
+          {t("ledger.settle.paid")}
+        </span>
+      );
+    case "PARTIAL":
+      return (
+        <span className={`${chip} bg-amber-900/50 text-amber-300`}>
+          {t("ledger.settle.partialPaid", {
+            amount: fmtByCurrency(entry.settle_paid ?? 0, entry.currency),
+          })}
+        </span>
+      );
+    case "UNPAID":
+      return (
+        <span className={`${chip} bg-red-900/50 text-red-400`}>
+          {t("ledger.settle.unpaid")}
+        </span>
+      );
+    case "VOIDED":
+      return (
+        <span className={`${chip} bg-slate-600/50 text-slate-300`}>
+          {t("ledger.settle.voided")}
+        </span>
+      );
+    default:
+      return <span className="text-slate-600">—</span>;
+  }
+}
+
+function LedgerRow({
+  entry,
+  showFee,
+  showStatus,
+}: {
+  entry: PartnerLedgerEntry;
+  showFee: boolean;
+  showStatus: boolean;
+}) {
   const { t } = useTranslation(["partners", "common"]);
   const { formatDateTime } = useFormat();
   const [expanded, setExpanded] = useState(false);
@@ -1259,12 +1305,11 @@ function LedgerRow({ entry }: { entry: PartnerLedgerEntry }) {
       <tr
         className={`transition-colors ${
           isDebit ? "hover:bg-red-900/10" : "hover:bg-emerald-900/10"
-        } ${hasDetails ? "cursor-pointer" : ""}`}
+        } ${hasDetails ? "cursor-pointer" : ""} ${
+          entry.settle_status === "VOIDED" ? "opacity-60" : ""
+        }`}
         onClick={() => hasDetails && setExpanded((v) => !v)}
       >
-        <td className="px-4 py-3 text-slate-300 whitespace-nowrap text-xs">
-          {formatDateTime(parseDbDate(entry.created_at), LEDGER_DATE_OPTIONS)}
-        </td>
         <td className="px-4 py-3">
           <div className="flex items-center gap-1.5 flex-wrap">
             {modeBadge && (
@@ -1306,8 +1351,25 @@ function LedgerRow({ entry }: { entry: PartnerLedgerEntry }) {
             <Ltr>{fmtByCurrency(entry.amount, entry.currency)}</Ltr>
           </span>
         </td>
+        {showFee && (
+          <td className="px-4 py-3 text-end font-mono text-slate-300 text-xs whitespace-nowrap">
+            {entry.fs_fee != null && entry.fs_fee > 0 ? (
+              <Ltr>{fmtByCurrency(entry.fs_fee, entry.fs_currency)}</Ltr>
+            ) : (
+              "—"
+            )}
+          </td>
+        )}
+        {showStatus && (
+          <td className="px-4 py-3 whitespace-nowrap">
+            <SettleStatusChip entry={entry} />
+          </td>
+        )}
         <td className="px-4 py-3 text-slate-400 text-xs max-w-[180px] truncate">
           {entry.notes ?? "—"}
+        </td>
+        <td className="px-4 py-3 text-slate-300 whitespace-nowrap text-xs">
+          {formatDateTime(parseDbDate(entry.created_at), LEDGER_DATE_OPTIONS)}
         </td>
         <td className="px-3 py-3 text-center w-8">
           {hasDetails ? (
@@ -1321,7 +1383,10 @@ function LedgerRow({ entry }: { entry: PartnerLedgerEntry }) {
       </tr>
       {expanded && hasDetails && (
         <tr className="bg-slate-900/60">
-          <td colSpan={6} className="px-6 py-3">
+          <td
+            colSpan={6 + (showFee ? 1 : 0) + (showStatus ? 1 : 0)}
+            className="px-6 py-3"
+          >
             <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-xs">
               {entry.fs_customer && (
                 <div className="flex gap-2">
@@ -1412,12 +1477,19 @@ function LedgerTable({
   state,
   onRetry,
   emptyLabel,
+  variant,
 }: {
   state: LedgerGroupState;
   onRetry: () => void;
   emptyLabel: string;
+  /** Owner 2026-11-07: only Transactions has Fee and Status columns. */
+  variant: PartnerLedgerGroup;
 }) {
   const { t } = useTranslation(["partners", "common"]);
+  const showStatus = variant === "transactions";
+  // Like the Suppliers OMT Fee column: only when some row has a fee.
+  const showFee =
+    showStatus && state.entries.some((e) => e.fs_fee != null && e.fs_fee > 0);
   return (
     <div className="overflow-auto rounded-xl border border-slate-700/50">
       {state.loading ? (
@@ -1450,9 +1522,6 @@ function LedgerTable({
           <thead className="bg-slate-900 sticky top-0 z-10">
             <tr>
               <th className="text-start text-xs text-slate-400 px-4 py-3 font-medium">
-                {t("ledger.date")}
-              </th>
-              <th className="text-start text-xs text-slate-400 px-4 py-3 font-medium">
                 {t("ledger.type")}
               </th>
               <th className="text-start text-xs text-slate-400 px-4 py-3 font-medium">
@@ -1461,15 +1530,33 @@ function LedgerTable({
               <th className="text-end text-xs text-slate-400 px-4 py-3 font-medium">
                 {t("ledger.amount")}
               </th>
+              {showFee && (
+                <th className="text-end text-xs text-slate-400 px-4 py-3 font-medium">
+                  {t("ledger.feeColumn")}
+                </th>
+              )}
+              {showStatus && (
+                <th className="text-start text-xs text-slate-400 px-4 py-3 font-medium">
+                  {t("ledger.status")}
+                </th>
+              )}
               <th className="text-start text-xs text-slate-400 px-4 py-3 font-medium">
                 {t("ledger.notes")}
+              </th>
+              <th className="text-start text-xs text-slate-400 px-4 py-3 font-medium">
+                {t("ledger.date")}
               </th>
               <th className="w-8" />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-700/60">
             {state.entries.map((entry) => (
-              <LedgerRow key={entry.id} entry={entry} />
+              <LedgerRow
+                key={entry.id}
+                entry={entry}
+                showFee={showFee}
+                showStatus={showStatus}
+              />
             ))}
           </tbody>
         </table>
@@ -1886,18 +1973,16 @@ function DetailPanel({
           testId="partner-table-modal-backdrop"
         >
           <div className="flex flex-wrap items-center gap-2 mb-3">
-            <input
-              type="date"
-              value={filterFrom}
-              onChange={(e) => setFilterFrom(e.target.value)}
-              className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
-            />
-            <span className="text-slate-500 text-xs">–</span>
-            <input
-              type="date"
-              value={filterTo}
-              onChange={(e) => setFilterTo(e.target.value)}
-              className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
+            {/* Owner 2026-11-07: the Suppliers From / To filter. */}
+            <DayRangeFilter
+              testId="partner-txns-date-filter"
+              accent="violet"
+              from={filterFrom}
+              to={filterTo}
+              onChange={(from, to) => {
+                setFilterFrom(from);
+                setFilterTo(to);
+              }}
             />
             <Select
               value={filterMode}
@@ -1959,6 +2044,7 @@ function DetailPanel({
             </button>
           </div>
           <LedgerTable
+            variant="transactions"
             state={txns}
             onRetry={loadTxns}
             emptyLabel={t("ledger.empty")}
@@ -1973,30 +2059,16 @@ function DetailPanel({
           testId="partner-table-modal-backdrop"
         >
           <div className="flex flex-wrap items-center gap-2 mb-3">
-            <input
-              type="date"
-              value={payFrom}
-              onChange={(e) => setPayFrom(e.target.value)}
-              className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
+            <DayRangeFilter
+              testId="partner-payments-date-filter"
+              accent="violet"
+              from={payFrom}
+              to={payTo}
+              onChange={(from, to) => {
+                setPayFrom(from);
+                setPayTo(to);
+              }}
             />
-            <span className="text-slate-500 text-xs">–</span>
-            <input
-              type="date"
-              value={payTo}
-              onChange={(e) => setPayTo(e.target.value)}
-              className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
-            />
-            {(payFrom || payTo) && (
-              <button
-                onClick={() => {
-                  setPayFrom("");
-                  setPayTo("");
-                }}
-                className="text-xs text-slate-400 hover:text-white transition-colors"
-              >
-                {t("filters.clearAll")}
-              </button>
-            )}
             <button
               onClick={loadPayments}
               className="ms-auto flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
@@ -2006,6 +2078,7 @@ function DetailPanel({
             </button>
           </div>
           <LedgerTable
+            variant="payments"
             state={payments}
             onRetry={loadPayments}
             emptyLabel={t("tables.paymentsEmpty")}
