@@ -122,6 +122,8 @@ export interface RefundMethodModalProps {
    *  amount to change, no change folding, no kept/added change — and Confirm
    *  sends NO override, so the server negates each leg in its own drawer. */
   exactReversal?: boolean;
+  /** Why the refund is exact only — picks the subtitle (default settlement). */
+  exactReason?: "settlement" | "binance";
   isSubmitting?: boolean;
   onCancel: () => void;
   /**
@@ -192,6 +194,7 @@ export function RefundMethodModal({
   allowKeptChange = false,
   allowAddedChange = false,
   exactReversal = false,
+  exactReason = "settlement",
   isSubmitting = false,
   onCancel,
   onConfirm,
@@ -438,7 +441,9 @@ export function RefundMethodModal({
       subtitle={
         <span data-testid="refund-subtitle">
           {exactReversal
-            ? t("refundModal.subtitleExact")
+            ? exactReason === "binance"
+              ? t("refundModal.subtitleExactBinance")
+              : t("refundModal.subtitleExact")
             : !hasLegsToOverride
               ? t("refundModal.subtitleUnitsOnly")
               : keptEligible

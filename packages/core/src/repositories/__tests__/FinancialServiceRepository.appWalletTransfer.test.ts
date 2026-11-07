@@ -39,7 +39,10 @@ jest.mock("../../db/connection", () => {
 
 const mockAddCredit = jest.fn();
 jest.mock("../../services/DebtService", () => ({
-  getDebtService: () => ({ addCredit: jest.fn(), addCreditOrThrow: mockAddCredit }),
+  getDebtService: () => ({
+    addCredit: jest.fn(),
+    addCreditOrThrow: mockAddCredit,
+  }),
   resetDebtService: jest.fn(),
 }));
 
@@ -1046,6 +1049,26 @@ describe("FinancialServiceRepository — app-wallet RECEIVE split payout (owner-
     );
   });
 
+  it("BINANCE RECEIVE paid out from the shop's Whish and OMT wallets debits Whish_App and OMT_App (owner 2026-11-07)", () => {
+    repo.createTransaction({
+      provider: "BINANCE",
+      serviceType: "RECEIVE",
+      amount: 100, // USDT gross
+      currency: "USDT",
+      commission: 2,
+      exchangeRate: 90_000,
+      payments: [
+        { method: "WHISH", currencyCode: "USD", amount: 60 },
+        { method: "OMT", currencyCode: "USD", amount: 38 },
+      ],
+    });
+
+    expect(balance(db, "Binance", "USDT")).toBeCloseTo(500 + 100, 2);
+    expect(balance(db, "Whish_App", "USD")).toBeCloseTo(500 - 60, 2);
+    expect(balance(db, "OMT_App", "USD")).toBeCloseTo(500 - 38, 2);
+    expect(balance(db, "General", "USD")).toBeCloseTo(1000, 2);
+  });
+
   it("no-legs fallback still books the single lump in the SERVICE cash currency (legacy/scripted callers)", () => {
     repo.createTransaction({
       provider: "WHISH_APP",
@@ -1062,5 +1085,59 @@ describe("FinancialServiceRepository — app-wallet RECEIVE split payout (owner-
       2,
     );
     expect(balance(db, "General", "USD")).toBeCloseTo(1000, 2);
+  });
+});
+
+// Cornertech 2026-11-06 (txns 16174 / 16188): a Whish App send paid with the
+// Binance method put $301 USD into the Binance drawer, which only holds USDT,
+// and admin had to move it by hand with a checkpoint. A Binance line must post
+// to the Binance drawer as USDT (1 USDT = $1).
+describe("FinancialServiceRepository — Binance payment line posts as USDT (Cornertech 2026-11-06)", () => {
+  let db: Database.Database;
+  let repo: FinancialServiceRepository;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { setDb } = require("../../db/connection");
+
+  beforeEach(() => {
+    db = createTestDb();
+    setDb(db);
+    initFixedTenantContext(1);
+    repo = new FinancialServiceRepository();
+  });
+
+  afterEach(() => {
+    resetTenantContext();
+    db.close();
+  });
+
+  it("WHISH_APP SEND $301 paid by Binance: Binance USDT +301, no Binance USD row", () => {
+    const usdtBefore = balance(db, "Binance", "USDT");
+    const whishBefore = balance(db, "Whish_App", "USD");
+
+    repo.createTransaction({
+      provider: "WHISH_APP",
+      serviceType: "SEND",
+      amount: 301,
+      currency: "USD",
+      commission: 0,
+      paidByMethod: "BINANCE",
+      exchangeRate: 90000,
+      payments: [{ method: "BINANCE", currencyCode: "USD", amount: 301 }],
+    });
+
+    expect(balance(db, "Binance", "USDT")).toBeCloseTo(usdtBefore + 301, 2);
+    expect(balance(db, "Whish_App", "USD")).toBeCloseTo(whishBefore - 301, 2);
+    const usdRows = db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM drawer_balances WHERE drawer_name = 'Binance' AND currency_code = 'USD'",
+      )
+      .get() as { n: number };
+    expect(usdRows.n).toBe(0);
+    const legs = db
+      .prepare(
+        "SELECT currency_code, amount FROM payments WHERE method = 'BINANCE'",
+      )
+      .all();
+    expect(legs).toEqual([{ currency_code: "USDT", amount: 301 }]);
   });
 });

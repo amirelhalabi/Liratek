@@ -50,6 +50,7 @@ import { isAuditOnlyPaymentMethod } from "../constants/auditOnlyPaymentMethods.j
 import {
   CHECKPOINT_DIFFERENCE_SOURCE_TABLE,
   CHECKPOINT_RESOLUTION_METHOD,
+  isCheckpointPaymentMethod,
 } from "../constants/checkpointAdjustment.js";
 import {
   OMT_CREDIT_REMOVED_EXPENSE_CATEGORY,
@@ -104,6 +105,9 @@ import { ADDED_CHANGE_NOT_ALLOWED_MESSAGE } from "../validators/common.js";
 import type { RefundAddedChange } from "../validators/transaction.js";
 import { allocateFifo } from "../utils/fifoCoverage.js";
 import {
+  BINANCE_REFUND_EXACT_MESSAGE,
+  binancePaidLegSql,
+  isBinancePaidLeg,
   isDrawerAffectingMethod,
   paymentMethodToDrawerName,
   resolveServiceCashDrawer,
@@ -471,7 +475,9 @@ function isInternalLegJs(p: {
     // here. The `endsWith("_System")` exclusion that used to live on this
     // line is deleted (rule 14 pair with customerCashLegSql below — change
     // both or neither).
-    !CUSTOMER_CASH_CURRENCIES.has(p.currency_code) || // USDT / crypto leg
+    // USDT / crypto leg — except a customer's Binance payment line, which
+    // is customer money in the Binance drawer (1 USDT = $1).
+    (!CUSTOMER_CASH_CURRENCIES.has(p.currency_code) && !isBinancePaidLeg(p)) ||
     note.startsWith("Cost:") || // cost/price-flow provider cost outflow
     note.endsWith("(cost outflow)") || // custom-service hidden cost outflow
     note.startsWith("Crypto ") // Binance crypto sent/received leg
@@ -492,7 +498,7 @@ function customerCashLegSql(a: string): string {
   return `${a}.amount != 0
       AND ${a}.method NOT IN (${methods})
       AND ${a}.drawer_name NOT IN (${drawers})
-      AND ${a}.currency_code IN (${currencies})
+      AND (${a}.currency_code IN (${currencies}) OR ${binancePaidLegSql(a)})
       AND COALESCE(${a}.note, '') NOT LIKE 'Cost:%'
       AND COALESCE(${a}.note, '') NOT LIKE '%(cost outflow)'
       AND COALESCE(${a}.note, '') NOT LIKE 'Crypto %'`;
@@ -1959,6 +1965,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
        ) l
        WHERE l.date BETWEEN ? AND ?
          AND ${customerCashLegSql("l")}
+         -- Cash only: a customer's Binance line (USDT) is customer money but
+         -- not cash, so it stays off the Cash Report.
+         AND l.currency_code IN ('USD', 'LBP')
        GROUP BY l.date, l.currency_code
        ORDER BY l.date DESC`,
       tenantId,
@@ -6782,6 +6791,25 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         { entityId: id },
       );
     }
+    // Cornertech 2026-11-06 — a Binance payment line sits in the Binance
+    // drawer as USDT, which a USD/LBP return-method override cannot mirror,
+    // so it is refunded by exact reversal only (the refund window shows it
+    // read-only).
+    if (refundLegs && refundLegs.length > 0) {
+      const rows = this.query<{
+        method: string;
+        drawer_name: string;
+        currency_code: string;
+        note: string | null;
+      }>(
+        `SELECT method, drawer_name, currency_code, note FROM payments WHERE transaction_id = ? AND tenant_id = ?`,
+        id,
+        getCurrentTenantId(),
+      );
+      if (rows.some(isBinancePaidLeg)) {
+        throw new DatabaseError(BINANCE_REFUND_EXACT_MESSAGE, { entityId: id });
+      }
+    }
     // Owner decision 2026-10-07 — refund kept change. Checked BEFORE any
     // write (same discipline as the override validation it feeds). No claim
     // → zeros and the unchanged path below.
@@ -9910,6 +9938,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       if (refundLegOverride && isOverridableLeg(p)) continue;
 
       const negatedAmount = -p.amount;
+      const literalCurrency = isCheckpointPaymentMethod(p.method);
       insertPaymentRow(this.db, {
         transactionId: reversalTxnId,
         method: p.method,
@@ -9919,6 +9948,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         note: "Reversal",
         createdBy: userId,
         tenantId,
+        literalCurrency,
       });
       // LIRA-258 (G34): an audit-only row (PM_FEE) never moved a drawer on
       // create — its money is inside another leg — so mirror it for the
@@ -9929,6 +9959,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         currencyCode: p.currency_code,
         delta: negatedAmount,
         tenantId,
+        literalCurrency,
       });
     }
 

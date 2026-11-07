@@ -9,6 +9,7 @@
   "row": {
     "currency": "العملة",
     "currencyLocked": "العملة مقفلة",
+    "binanceUsdt": "بينانس بالدولار فقط — يُسجَّل في بينانس كـ USDT",
     "remove": "إزالة"
   },
   "rateWarning": {

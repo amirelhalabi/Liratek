@@ -24,6 +24,7 @@
  */
 
 import type Database from "better-sqlite3";
+import { binancePaidLegSql } from "../utils/payments.js";
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import {
@@ -6873,10 +6874,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * LIRA-341 — per-row drill-down under the SESSION_DISCOUNT By Module row.
    * Mirrors {@link getBasketDiscountProfit} minus the `SUM`.
    */
-  getBasketDiscountDetail(
-    fromDt: string,
-    toDt: string,
-  ): ProfitOnlyDetailRow[] {
+  getBasketDiscountDetail(fromDt: string, toDt: string): ProfitOnlyDetailRow[] {
     const tenantId = getCurrentTenantId();
     return this.db
       .prepare(
@@ -7850,7 +7848,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           SELECT
             'txn:' || p.transaction_id AS unit_id,
             p.method AS method,
-            p.currency_code AS currency_code,
+            CASE WHEN ${binancePaidLegSql("p")} THEN 'USD' ELSE p.currency_code END AS currency_code,
             p.amount AS amount,
             CASE WHEN t.type = 'DEBT_REPAYMENT' THEN 1 ELSE 0 END AS is_debt_repayment,
             CASE WHEN t.type IN (${REFUND_ADJUSTMENT_TYPES_SQL}) THEN 1 ELSE 0 END AS is_partial_refund
@@ -7898,7 +7896,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           SELECT
             'session:' || p.session_id AS unit_id,
             p.method AS method,
-            p.currency_code AS currency_code,
+            CASE WHEN ${binancePaidLegSql("p")} THEN 'USD' ELSE p.currency_code END AS currency_code,
             p.amount AS amount,
             0 AS is_debt_repayment,
             0 AS is_partial_refund
@@ -7939,7 +7937,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           SELECT
             'orphan:' || p.id AS unit_id,
             p.method AS method,
-            p.currency_code AS currency_code,
+            CASE WHEN ${binancePaidLegSql("p")} THEN 'USD' ELSE p.currency_code END AS currency_code,
             p.amount AS amount,
             0 AS is_debt_repayment,
             0 AS is_partial_refund

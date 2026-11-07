@@ -80,6 +80,11 @@ import { cryptoAmounts, cryptoFeeDiscount } from "../../utils/cryptoAmounts";
 import { buildCryptoServiceFields } from "../../utils/cryptoServiceFields";
 import { toTelecomHistoryRow } from "../../utils/telecomHistoryRow";
 
+// How the shop can pay a Binance cash-out: cash, the client's account, or out
+// of the shop's Whish / OMT wallet (labels come from Settings, e.g. "Whish
+// Wallet"). The server already pays each line out of its own drawer.
+const BINANCE_CASHOUT_METHODS = ["CASH", "CUSTOMER_ACCOUNT", "WHISH", "OMT"];
+
 // Fix round 1 (major, rule 25 — render-loop): a stable, module-level empty
 // array so the shop-lines effect below never sets a FRESH `[]` reference on
 // its early-return/error paths. A fresh array on every fire is a state
@@ -958,7 +963,9 @@ export default function MobileRecharge() {
         ? daysTypedUsdField(telecomDaysCostUsd, telecomDaysPriceUsd)
         : {}),
       // LIRA-366: the cashier's note (never on a buy-back — money out).
-      ...(!isBuyback && telecomTypedNote ? { typedNote: telecomTypedNote } : {}),
+      ...(!isBuyback && telecomTypedNote
+        ? { typedNote: telecomTypedNote }
+        : {}),
     };
 
     const clientResult = await ensureRechargeClient({
@@ -2626,9 +2633,8 @@ export default function MobileRecharge() {
             setShowHistory={setShowHistory}
             paymentMethods={
               cryptoType === "RECEIVE"
-                ? methods.filter(
-                    (pm) =>
-                      pm.code === "CASH" || pm.code === "CUSTOMER_ACCOUNT",
+                ? methods.filter((pm) =>
+                    BINANCE_CASHOUT_METHODS.includes(pm.code),
                   )
                 : methods
             }

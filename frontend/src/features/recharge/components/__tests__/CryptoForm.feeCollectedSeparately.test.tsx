@@ -312,19 +312,18 @@ describe("CryptoForm — Binance mode C (Customer pays separately)", () => {
     ]);
   });
 
-  it("the USDT line offers USDT, while the shop's payout lines stay USD/LBP", async () => {
+  it("the Binance line is locked to USDT, while the shop's payout lines stay USD/LBP", async () => {
     render(<Harness initialCryptoType="RECEIVE" />);
 
     openPaymentSheet();
     const section = await screen.findByTestId("counter-flow-section");
-    const cfCurrency = section.querySelector<HTMLSelectElement>(
+    // A Binance line is never in USD/LBP on this sheet (the server refuses
+    // it), so its currency is a locked USDT field, not a choice.
+    const cfCurrency = section.querySelector<HTMLInputElement>(
       '[data-testid^="counter-flow-currency-"]',
     )!;
-    expect(Array.from(cfCurrency.options).map((o) => o.value)).toEqual([
-      "USDT",
-      "USD",
-      "LBP",
-    ]);
+    expect(cfCurrency.tagName).toBe("INPUT");
+    expect(cfCurrency.value).toBe("USDT");
     // Nothing outside the "Customer pays" section offers USDT.
     const outside = Array.from(
       document.querySelectorAll<HTMLOptionElement>("option[value='USDT']"),

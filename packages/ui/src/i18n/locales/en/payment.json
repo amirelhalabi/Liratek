@@ -9,6 +9,7 @@
   "row": {
     "currency": "Currency",
     "currencyLocked": "Currency locked",
+    "binanceUsdt": "Binance takes dollars — booked into Binance as USDT",
     "remove": "Remove"
   },
   "rateWarning": {

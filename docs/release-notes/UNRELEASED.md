@@ -198,6 +198,9 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 - When paying out, if the customer hands you a few dollars or pounds so you can give a round amount (for example $197 owed, the customer gives $3, you give $200), tap "+ Customer gives change" (or add a line under "Customer pays") and enter it. The payment window then expects you to pay out that much more, and both drawers are recorded correctly, with nothing booked as rounding. Up to $5 or 450,000 LBP; use the Exchange page for more. This works on OMT/Whish receive, Binance cash-out, Whish App / OMT App receive and "From client", Exchange, Hold Money pickups in one currency, and MTC / Alfa credit buy-back.
 - "+ Customer gives change" now also works on OMT/Whish receive done through your partner, and when you pay the customer out by wallet (for example $200 from Whish, $3 back in cash).
 - OMT/Whish page: a Whish receive done through your partner with the fee paid on top can be saved again. Before, it was refused.
+- From now on, money paid with Binance goes into the Binance drawer as USDT (1 USDT = $1), on every page. Before, a Whish App send or a sale paid with Binance showed dollars in the Binance drawer and had to be moved to USDT with a checkpoint. A Binance payment line is always in dollars; Lebanese pounds are no longer offered for it.
+- A sale or service paid with Binance now shows "Binance" in the Method column of the Transactions page, counts in the Binance row of Profits › Cash intake by method, and its Refund window shows what goes back (for example "49 USDT via Binance"). It is always refunded exactly as it was paid.
+- Binance cash-out: you can now pay the customer from your Whish Wallet or OMT Wallet, not only in cash or to their account.
 
 ## 💱 Exchange
 

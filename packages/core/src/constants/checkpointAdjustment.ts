@@ -28,6 +28,15 @@ export const CHECKPOINT_ADJUSTMENT_METHOD = "CHECKPOINT_ADJUSTMENT";
  */
 export const CHECKPOINT_RESOLUTION_METHOD = "CHECKPOINT_RESOLUTION";
 
+/** A checkpoint correction or resolution row: posted, and reversed, in the
+ *  currency exactly as counted (never re-mapped by `postingCurrency`). */
+export function isCheckpointPaymentMethod(method: string): boolean {
+  return (
+    method === CHECKPOINT_ADJUSTMENT_METHOD ||
+    method === CHECKPOINT_RESOLUTION_METHOD
+  );
+}
+
 /**
  * LIRA-335 — the expense category of the books-only "Drawer shortage"
  * expense a closed Short difference owns. Lives here (a pure leaf reachable
@@ -63,11 +72,10 @@ export const CHECKPOINT_DIFFERENCE_SOURCE_TABLE = "checkpoint_differences";
  * posted at all; this one decides whether a difference still needs the
  * owner's attention. A posted sub-cent correction records no difference.
  */
-export const CHECKPOINT_DIFFERENCE_EPSILON: Readonly<Record<string, number>> =
-  {
-    USD: 0.01,
-    LBP: 1,
-  };
+export const CHECKPOINT_DIFFERENCE_EPSILON: Readonly<Record<string, number>> = {
+  USD: 0.01,
+  LBP: 1,
+};
 
 /** The open-amount tolerance for `currencyCode` (see
  *  {@link CHECKPOINT_DIFFERENCE_EPSILON}). */

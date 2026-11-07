@@ -295,9 +295,7 @@ function latestTopUpTxnId(db: Database.Database): number {
   ).id;
 }
 
-function activeProfitSum(
-  db: Database.Database,
-): { usd: number; lbp: number } {
+function activeProfitSum(db: Database.Database): { usd: number; lbp: number } {
   const row = db
     .prepare(
       `SELECT COALESCE(SUM(profit_usd), 0) AS usd, COALESCE(SUM(profit_lbp), 0) AS lbp
@@ -338,10 +336,7 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
   // incidental fixture here; the concern is the void reversing both legs.
 
   describe("topUpApp", () => {
-    it.each([
-      ["USD", 100] as const,
-      ["LBP", 9_000_000] as const,
-    ])(
+    it.each([["USD", 100] as const, ["LBP", 9_000_000] as const])(
       "%s: create + void nets the source AND dest drawer to exactly 0",
       (currency, amount) => {
         const sourceBefore = balance(db, "General", currency);
@@ -385,9 +380,9 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
         expect(balance(db, "iPick", currency)).toBeCloseTo(destBefore, 2);
 
         const status = (
-          db.prepare(`SELECT status FROM transactions WHERE id = ?`).get(
-            txnId,
-          ) as { status: string }
+          db
+            .prepare(`SELECT status FROM transactions WHERE id = ?`)
+            .get(txnId) as { status: string }
         ).status;
         expect(status).toBe("VOIDED");
       },
@@ -397,10 +392,7 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
   // ── 2. topUpFromSupplier (iPick/Katsh/OMT_APP credit) ──────────────────
 
   describe("topUpFromSupplier", () => {
-    it.each([
-      ["USD", 100] as const,
-      ["LBP", 9_000_000] as const,
-    ])(
+    it.each([["USD", 100] as const, ["LBP", 9_000_000] as const])(
       "%s: create + void nets the dest drawer AND the supplier ledger to exactly 0",
       (currency, amount) => {
         const supplier = getSupplierRepository().getByProvider("iPick")!;
@@ -468,10 +460,7 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
   // ── 3. topUpFromPartner (Whish App via partner) ────────────────────────
 
   describe("topUpFromPartner", () => {
-    it.each([
-      ["USD", 100] as const,
-      ["LBP", 9_000_000] as const,
-    ])(
+    it.each([["USD", 100] as const, ["LBP", 9_000_000] as const])(
       "%s: create + void nets the dest drawer AND the partner ledger to exactly 0 " +
         "(VERIFIES _reversePartnerLedger already covers this row via reference_table/reference_id)",
       (currency, amount) => {
@@ -479,9 +468,7 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
           .prepare(`SELECT id FROM partners WHERE name = 'Whish Partner'`)
           .get() as { id: number };
         const destBefore = balance(db, "Whish_App", currency);
-        const partnerBalBefore = getPartnerRepository().getBalance(
-          partner.id,
-        );
+        const partnerBalBefore = getPartnerRepository().getBalance(partner.id);
 
         const result = repo.topUpFromPartner({
           provider: "WHISH_APP",
@@ -606,14 +593,8 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
 
         getTransactionRepository().voidTransaction(txnId, 1);
 
-        expect(balance(db, "General", currency)).toBeCloseTo(
-          generalBefore,
-          2,
-        );
-        expect(balance(db, "Whish_App", currency)).toBeCloseTo(
-          destBefore,
-          2,
-        );
+        expect(balance(db, "General", currency)).toBeCloseTo(generalBefore, 2);
+        expect(balance(db, "Whish_App", currency)).toBeCloseTo(destBefore, 2);
 
         // Rule 20 — profit nets to 0: the ORIGINAL row is marked VOIDED
         // (excluded from every `status = 'ACTIVE'` profit surface) and the
@@ -625,9 +606,9 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
         expect(profitAfterVoid[profitKey] - profitBefore[profitKey]).toBe(0);
 
         const originalStatus = (
-          db.prepare(`SELECT status FROM transactions WHERE id = ?`).get(
-            txnId,
-          ) as { status: string }
+          db
+            .prepare(`SELECT status FROM transactions WHERE id = ?`)
+            .get(txnId) as { status: string }
         ).status;
         expect(originalStatus).toBe("VOIDED");
       },
@@ -636,7 +617,9 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
     it("SPLIT payout across two drawers — create + void nets General, Binance, the dest drawer, AND profit to exactly 0", () => {
       const currency = "USD";
       const generalBefore = balance(db, "General", currency);
-      const binanceBefore = balance(db, "Binance", currency);
+      // The Binance drawer holds USDT: a USD Binance line posts as USDT 1:1
+      // (Cornertech 2026-11-06).
+      const binanceBefore = balance(db, "Binance", "USDT");
       const destBefore = balance(db, "Whish_App", currency);
       const profitBefore = activeProfitSum(db);
 
@@ -657,7 +640,7 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
         -500,
         2,
       );
-      expect(balance(db, "Binance", currency) - binanceBefore).toBeCloseTo(
+      expect(balance(db, "Binance", "USDT") - binanceBefore).toBeCloseTo(
         -300,
         2,
       );
@@ -685,7 +668,7 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
       getTransactionRepository().voidTransaction(txnId, 1);
 
       expect(balance(db, "General", currency)).toBeCloseTo(generalBefore, 2);
-      expect(balance(db, "Binance", currency)).toBeCloseTo(binanceBefore, 2);
+      expect(balance(db, "Binance", "USDT")).toBeCloseTo(binanceBefore, 2);
       expect(balance(db, "Whish_App", currency)).toBeCloseTo(destBefore, 2);
       const profitAfterVoid = activeProfitSum(db);
       expect(profitAfterVoid.usd - profitBefore.usd).toBe(0);
@@ -793,10 +776,7 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
         -legLbp,
         2,
       );
-      expect(balance(db, "Whish_App", "USD") - destBefore).toBeCloseTo(
-        1000,
-        2,
-      );
+      expect(balance(db, "Whish_App", "USD") - destBefore).toBeCloseTo(1000, 2);
 
       // Profit is `fee` verbatim — a CLEAN INTEGER (`toBe`, not
       // `toBeCloseTo`) — NOT re-derived from the leg's own conversion.

@@ -331,6 +331,7 @@ export function resolveBackTimedDrawerMovement(
       drawerName: n.drawer_name,
       currencyCode: n.currency_code,
       amount: offset,
+      literalCurrency: true,
       note: `Resolves checkpoint #${first.closing_id} (${n.drawer_name})`,
       createdBy: input.userId,
       tenantId,
@@ -339,6 +340,7 @@ export function resolveBackTimedDrawerMovement(
       drawerName: n.drawer_name,
       currencyCode: n.currency_code,
       delta: offset,
+      literalCurrency: true,
       tenantId,
     });
     const now = requestNow();

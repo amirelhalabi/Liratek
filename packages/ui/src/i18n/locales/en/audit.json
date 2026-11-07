@@ -309,6 +309,7 @@
     "title": "Refund — Choose Return Method",
     "subtitleUnitsOnly": "A reversal entry will be created. Review the returned phone(s) below, then confirm.",
     "subtitleExact": "A settlement is refunded exactly as it was made: each payment below is reversed in its own drawer and currency.",
+    "subtitleExactBinance": "Paid with Binance, so it is refunded exactly as it was paid: the USDT goes back out of the Binance drawer. Choosing another return method is not available.",
     "exactHandBack": "Shop hands back",
     "exactTakeBack": "Shop takes back",
     "subtitleKept": "A reversal entry will be created. Choose which drawer(s) the refund is handed back from, and adjust the rate if needed. Hand back what the customer originally paid — in cash or a wallet in {{currency}} it may be short by up to {{cap}}, and the rest is kept as profit.",

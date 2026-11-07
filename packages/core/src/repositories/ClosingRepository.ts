@@ -789,6 +789,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
               drawerName: a.drawer_name,
               currencyCode: a.currency_code,
               amount: a.delta,
+              literalCurrency: true,
               note: `Checkpoint reconciliation for ${closingDate}`,
               createdBy: data.user_id,
               tenantId,
@@ -797,6 +798,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
               drawerName: a.drawer_name,
               currencyCode: a.currency_code,
               delta: a.delta,
+              literalCurrency: true,
               tenantId,
             });
           }

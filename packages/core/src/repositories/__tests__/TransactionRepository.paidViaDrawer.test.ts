@@ -290,7 +290,9 @@ describe("TransactionRepository.getRecent — typeFilters paid_via_drawer (LIRA-
     expect(ids).not.toContain(omtPaid);
   });
 
-  it("Binance Send adds a sale paid by a USD Binance leg; a USDT-only leg is not visible so it stays out", () => {
+  // Cornertech 2026-11-06: a Binance payment line now posts as USDT and is
+  // the customer's money (visible); the shop's own crypto leg is not.
+  it("Binance Send adds a sale paid by a Binance line (USD or USDT); a crypto leg is not visible so it stays out", () => {
     const usd = seedTxn(db, {
       type: "SALE",
       legs: [{ method: "BINANCE", drawer: "Binance", amount: 25 }],
@@ -301,9 +303,22 @@ describe("TransactionRepository.getRecent — typeFilters paid_via_drawer (LIRA-
         { method: "BINANCE", drawer: "Binance", amount: 25, currency: "USDT" },
       ],
     });
+    const crypto = seedTxn(db, {
+      type: "SALE",
+      legs: [
+        {
+          method: "BINANCE",
+          drawer: "Binance",
+          amount: 25,
+          currency: "USDT",
+          note: "Crypto received from customer",
+        },
+      ],
+    });
     const ids = recent([BINANCE_SEND]);
     expect(ids).toContain(usd);
-    expect(ids).not.toContain(usdt);
+    expect(ids).toContain(usdt);
+    expect(ids).not.toContain(crypto);
   });
 
   it("never leaks another tenant's rows or legs", () => {

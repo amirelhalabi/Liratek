@@ -44,7 +44,7 @@ import {
   type CounterpartyKind,
   type CounterpartyFlow,
 } from "../validators/counterparty.js";
-import { isDrawerAffectingMethod } from "../utils/payments.js";
+import { isDrawerAffectingMethod, postingCurrency } from "../utils/payments.js";
 import { requestNow } from "../utils/requestNow.js";
 import { TYPED_NOTE_SEPARATOR, withTypedNote } from "../utils/typedNote.js";
 import { debtLogger } from "../utils/logger.js";
@@ -446,19 +446,25 @@ export interface ApplyDrawerDeltaInput {
   /** Signed amount: positive credits the drawer, negative debits it. */
   delta: number;
   tenantId: number;
+  /** Checkpoint corrections only: post in `currencyCode` exactly as counted,
+   *  skipping `postingCurrency` (so a stray Binance USD balance can be zeroed). */
+  literalCurrency?: boolean;
 }
 
 export function applyDrawerDelta(
   db: Database.Database,
   input: ApplyDrawerDeltaInput,
 ): void {
+  const currencyCode = input.literalCurrency
+    ? input.currencyCode
+    : postingCurrency(input.drawerName, input.currencyCode);
   db.prepare(
     `INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
      VALUES (?, ?, ?, ?)
      ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
        balance = drawer_balances.balance + excluded.balance,
        updated_at = CURRENT_TIMESTAMP`,
-  ).run(input.tenantId, input.drawerName, input.currencyCode, input.delta);
+  ).run(input.tenantId, input.drawerName, currencyCode, input.delta);
 }
 
 /**
@@ -494,12 +500,17 @@ export interface InsertPaymentRowInput {
   createdBy?: number | null;
   tenantId: number;
   createdAt?: string | null;
+  /** Checkpoint corrections only — see `ApplyDrawerDeltaInput.literalCurrency`. */
+  literalCurrency?: boolean;
 }
 
 export function insertPaymentRow(
   db: Database.Database,
   input: InsertPaymentRowInput,
 ): void {
+  const currencyCode = input.literalCurrency
+    ? input.currencyCode
+    : postingCurrency(input.drawerName, input.currencyCode);
   db.prepare(
     `INSERT INTO payments (
        transaction_id, session_id, method, drawer_name, currency_code,
@@ -510,7 +521,7 @@ export function insertPaymentRow(
     input.sessionId ?? null,
     input.method,
     input.drawerName,
-    input.currencyCode,
+    currencyCode,
     input.amount,
     input.note ?? null,
     input.createdBy ?? null,

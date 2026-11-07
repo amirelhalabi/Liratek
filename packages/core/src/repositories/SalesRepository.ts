@@ -129,6 +129,8 @@ import {
   type PaymentMethod,
   type PaymentDirection,
   type BaseSystem,
+  BINANCE_REFUND_EXACT_MESSAGE,
+  isBinancePaidLeg,
   isDrawerAffectingMethod,
   paymentMethodToDrawerName,
   partitionLegs,
@@ -3824,6 +3826,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     }[];
 
     const hasOverride = !!params.refundLegs && params.refundLegs.length > 0;
+    // Cornertech 2026-11-06 — same rule as the whole-sale refund: a Binance
+    // payment line (USDT) is refunded by exact reversal only.
+    if (hasOverride && originalPayments.some(isBinancePaidLeg)) {
+      throw new Error(BINANCE_REFUND_EXACT_MESSAGE);
+    }
 
     // Pro-rate the tender by the SAME base the profit arm uses (the line's
     // share), in whole cents / whole LBP — `_itemRefundLegRows`, the rows

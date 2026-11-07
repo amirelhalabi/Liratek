@@ -93,6 +93,7 @@ import { useSessionItemRefund } from "../hooks/useSessionItemRefund";
 import {
   refundCanAddChange,
   refundCanKeepChange,
+  refundExactReason,
   type RefundLegOverride,
   type RefundUnitExtraOverride,
 } from "../refundLegOverride";
@@ -1129,9 +1130,17 @@ export default function TransactionsViewer({
             refundModalRow.payments,
             refundBookedRate?.bookedRate ?? fallbackRate ?? 89000,
           )}
-          // LIRA-373 — a settlement refunds by exact reversal only: the
-          // original legs shown locked, Confirm sends no override.
-          exactReversal={isSettlementTransactionType(refundModalRow.type)}
+          // LIRA-373 — a settlement, and a sale paid with Binance (USDT),
+          // refund by exact reversal only: the original legs shown locked,
+          // Confirm sends no override.
+          exactReversal={
+            refundExactReason(refundModalRow.type, refundModalRow.payments) !==
+            null
+          }
+          exactReason={
+            refundExactReason(refundModalRow.type, refundModalRow.payments) ??
+            "settlement"
+          }
           isSubmitting={isRefunding}
           onCancel={() => {
             setRefundModalRow(null);

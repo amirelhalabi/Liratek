@@ -140,6 +140,60 @@ export function paymentMethodToDrawerName(method: string): string {
   return FALLBACK_DRAWER_MAP[method] ?? "General";
 }
 
+/** The Binance drawer holds USDT only (1 USDT = $1). */
+export const BINANCE_DRAWER_NAME = FALLBACK_DRAWER_MAP.BINANCE;
+
+/**
+ * A customer's payment line made with the Binance method: it sits in the
+ * Binance drawer as USDT (see `postingCurrency`) but is money the customer
+ * paid, worth the same in dollars (1 USDT = $1). The shop's own crypto legs
+ * of a Binance send / cash-out ("Crypto sent…" / "Crypto received…") are
+ * not. ONE definition in two forms (rule 14): the JS predicate for per-row
+ * legs and the SQL fragment for reports.
+ */
+export function isBinancePaidLeg(p: {
+  method: string;
+  drawer_name: string;
+  currency_code: string;
+  note: string | null;
+}): boolean {
+  return (
+    p.method === "BINANCE" &&
+    p.drawer_name === BINANCE_DRAWER_NAME &&
+    p.currency_code === "USDT" &&
+    !(p.note ?? "").startsWith("Crypto ")
+  );
+}
+
+export const BINANCE_REFUND_EXACT_MESSAGE =
+  "A sale paid with Binance can only be refunded exactly as it was paid — the USDT goes back out of the Binance drawer; choosing return methods is not supported for it";
+
+/** SQL mirror of `isBinancePaidLeg` for a `payments` alias. */
+export function binancePaidLegSql(a: string): string {
+  return `(${a}.method = 'BINANCE' AND ${a}.drawer_name = '${BINANCE_DRAWER_NAME}' AND ${a}.currency_code = 'USDT' AND COALESCE(${a}.note, '') NOT LIKE 'Crypto %')`;
+}
+
+export const BINANCE_LBP_REFUSED_MESSAGE =
+  "Binance only takes USDT — enter the Binance line in dollars.";
+
+/**
+ * The currency a payment row or drawer delta actually posts in. A Binance
+ * line arrives in USD (legs reconcile in USD/LBP only), but the Binance
+ * drawer holds USDT, so it posts as USDT at the same amount. LBP into
+ * Binance has no meaning and is refused. Cornertech 2026-11-06: Whish App
+ * sends paid by Binance opened a USD balance in the Binance drawer that had
+ * to be moved to USDT by hand with a checkpoint.
+ */
+export function postingCurrency(
+  drawerName: string,
+  currencyCode: string,
+): string {
+  if (drawerName !== BINANCE_DRAWER_NAME) return currencyCode;
+  if (currencyCode === "USD") return "USDT";
+  if (currencyCode === "LBP") throw new Error(BINANCE_LBP_REFUSED_MESSAGE);
+  return currencyCode;
+}
+
 /**
  * Primary-System Cash Drawer plan §8.2 (docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md):
  * the shop's two "system" providers, OMT and WHISH, each have a base/primary
@@ -164,7 +218,9 @@ export function isPrimarySystemProvider(
   provider: string | null | undefined,
   baseSystem: BaseSystem,
 ): boolean {
-  return (provider === "OMT" || provider === "WHISH") && provider === baseSystem;
+  return (
+    (provider === "OMT" || provider === "WHISH") && provider === baseSystem
+  );
 }
 
 /** Context a call site threads into {@link resolveServiceCashDrawer}: which

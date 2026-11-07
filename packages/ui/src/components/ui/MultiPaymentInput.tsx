@@ -611,6 +611,22 @@ function PaymentLineRow({
   // right next to the field.
   const showSymbol = currencyCode === "USD";
   const { t } = useTranslation("payment");
+  // A Binance line is never in LBP. Where the sheet offers USDT (the Binance
+  // cash-out's "Customer pays") it is in USDT; everywhere else it is paid in
+  // dollars and the server books it into the Binance drawer as USDT
+  // (1 USDT = $1).
+  const binanceCurrency =
+    method === "BINANCE"
+      ? currencies.some((c) => c.code === "USDT")
+        ? "USDT"
+        : "USD"
+      : null;
+  const binanceDollarLine = binanceCurrency === "USD";
+  useEffect(() => {
+    if (binanceCurrency && currencyCode !== binanceCurrency)
+      onCurrencyChange(binanceCurrency);
+  }, [binanceCurrency, currencyCode, onCurrencyChange]);
+  const locked = currencyLocked || binanceCurrency !== null;
 
   return (
     <div
@@ -636,7 +652,7 @@ function PaymentLineRow({
           stylesheet paints a dropdown caret on EVERY select and reserves
           2.5rem for it, which cut "LBP" down to "LE" at this width. */}
       <div className="relative w-20 shrink-0">
-        {currencyLocked ? (
+        {locked ? (
           <>
             <svg
               data-testid={`${testIdPrefix}-lock-${lineId}`}
@@ -661,7 +677,11 @@ function PaymentLineRow({
               value={currencyCode}
               readOnly
               disabled
-              title={t("row.currencyLocked")}
+              title={
+                binanceDollarLine
+                  ? t("row.binanceUsdt")
+                  : t("row.currencyLocked")
+              }
               className={`w-full ${bg} border border-slate-600 rounded-lg ps-6 pe-1 ${py} text-white text-sm cursor-not-allowed`}
             />
           </>

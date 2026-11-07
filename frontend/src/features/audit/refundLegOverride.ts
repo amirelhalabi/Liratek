@@ -24,6 +24,7 @@ import {
   REFUND_KEPT_CHANGE_TYPES,
   REFUND_LEG_AMOUNT_EPSILON,
   REFUND_VALUE_TOLERANCE_USD,
+  isSettlementTransactionType,
   type RefundLegInput,
   type RefundUnitExtraInput,
 } from "@liratek/core";
@@ -577,4 +578,20 @@ export function buildUnitExtras(
     entries.push({ unit_id: id, is_defective: true });
   }
   return entries.length > 0 ? entries : undefined;
+}
+
+/**
+ * Why a refund is exact reversal only, or null when the cashier may choose
+ * return methods. ONE derivation (rule 14) for both refund windows:
+ * - "settlement": LIRA-373, a supplier/partner settlement.
+ * - "binance": a customer's Binance line sits in the Binance drawer as USDT,
+ *   which a USD/LBP return method cannot mirror (the server refuses it too).
+ */
+export function refundExactReason(
+  type: string | null | undefined,
+  legs: TransactionPaymentLeg[] | undefined,
+): "settlement" | "binance" | null {
+  if (isSettlementTransactionType(type)) return "settlement";
+  if ((legs ?? []).some((l) => l.currency_code === "USDT")) return "binance";
+  return null;
 }
