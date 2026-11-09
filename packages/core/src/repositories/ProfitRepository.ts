@@ -861,11 +861,18 @@ export function saleTotalPaidUsdEquiv(alias: string): string {
 function saleExtraUsdEquiv(alias: string): string {
   const supported = salesExtraSupported();
   if (!supported) return "0";
+  // The unary `+` on every correlated `tenant_id` term in this file is
+  // REQUIRED (same trick as constants/partnerObligation.ts:233): without it
+  // SQLite answers the sub-query through `idx_transactions_tenant_id` — one
+  // tenant = the shop's whole transactions table — instead of
+  // `idx_transactions_source` / the rowid. Measured on Cornertech
+  // (2026-11-10): `/api/profits/summary` ~19 s for ONE day, freezing the API.
+  // Guarded by ProfitRepository.correlatedTenantIndex.guard.test.ts.
   return `COALESCE((SELECT SUM(${extraChargeProfit("sxt", "usd", true)}
                               + ${extraChargeProfit("sxt", "lbp", true)} / COALESCE(NULLIF(${alias}.exchange_rate_snapshot, 0), 1))
                      FROM transactions sxt
                      WHERE sxt.source_table = 'sales' AND sxt.source_id = ${alias}.id
-                       AND sxt.tenant_id = ${alias}.tenant_id), 0)`;
+                       AND +sxt.tenant_id = ${alias}.tenant_id), 0)`;
 }
 
 const salesExtraSupport = new WeakMap<object, boolean>();
@@ -1222,7 +1229,7 @@ export function exchangeNotDebtPending(exAlias: string): string {
           AND xdt.source_id = ${exAlias}.id
           AND xdt.type = 'EXCHANGE'
           AND xdt.reverses_id IS NULL
-          AND xdt.tenant_id = ${exAlias}.tenant_id
+          AND +xdt.tenant_id = ${exAlias}.tenant_id
         ORDER BY xdt.id
         LIMIT 1)`,
   );
@@ -1486,7 +1493,7 @@ export function notReversedByRefund(alias: string): string {
     WHERE r.reverses_id = ${alias}.id
       AND r.type = 'REFUND'
       AND r.status = 'ACTIVE'
-      AND r.tenant_id = ${alias}.tenant_id
+      AND +r.tenant_id = ${alias}.tenant_id
       -- Finding #8 (adversarial review, LIRA-232) — a non-SALE session item
       -- refund's own REFUND row DOES set reverses_id (pointing at the
       -- member it PARTIALLY refunds — unlike a SALE item refund's REFUND
@@ -2135,7 +2142,7 @@ export function waivedShortfallSource(alias: string): string {
                            SELECT 1 FROM transactions wsorig
                            WHERE wsorig.id = ${alias}.reverses_id
                              AND wsorig.type = 'WAIVED_SHORTFALL'
-                             AND wsorig.tenant_id = ${alias}.tenant_id
+                             AND +wsorig.tenant_id = ${alias}.tenant_id
                          )))`;
 }
 
@@ -2156,7 +2163,7 @@ export function basketDiscountSource(alias: string): string {
                            SELECT 1 FROM transactions bdorig
                            WHERE bdorig.id = ${alias}.reverses_id
                              AND bdorig.type = 'BASKET_DISCOUNT'
-                             AND bdorig.tenant_id = ${alias}.tenant_id
+                             AND +bdorig.tenant_id = ${alias}.tenant_id
                          )))`;
 }
 
@@ -2200,7 +2207,7 @@ export function keptChangeSource(alias: string): string {
                            SELECT 1 FROM transactions kcorig
                            WHERE kcorig.id = ${alias}.reverses_id
                              AND kcorig.type = 'KEPT_CHANGE'
-                             AND kcorig.tenant_id = ${alias}.tenant_id
+                             AND +kcorig.tenant_id = ${alias}.tenant_id
                          )))`;
 }
 
@@ -2278,7 +2285,7 @@ export function refundKeptChangeAmount(
             WHEN ${alias}.type = 'REFUND_UNDO' AND json_valid(${alias}.metadata_json) THEN -COALESCE((
               SELECT ${own("rkcu")} FROM transactions rkcu
               WHERE rkcu.id = CAST(json_extract(${alias}.metadata_json, '$.refundTransactionId') AS INTEGER)
-                AND rkcu.type = 'REFUND' AND rkcu.tenant_id = ${alias}.tenant_id
+                AND rkcu.type = 'REFUND' AND +rkcu.tenant_id = ${alias}.tenant_id
             ), 0)
             ELSE 0 END)`;
 }
@@ -2495,7 +2502,7 @@ export function holdMoneyCountEligible(alias: string): string {
                     WHERE hmv.reverses_id = ${alias}.id
                       AND hmv.type = '${TRANSACTION_TYPES.HOLD_MONEY_COLLECT_VOID}'
                       AND hmv.status = 'ACTIVE'
-                      AND hmv.tenant_id = ${alias}.tenant_id)`;
+                      AND +hmv.tenant_id = ${alias}.tenant_id)`;
 }
 
 /**
@@ -2517,7 +2524,7 @@ export function warrantyCostCountEligible(alias: string): string {
     AND NOT EXISTS (SELECT 1 FROM transactions wcr
                     WHERE wcr.reverses_id = ${alias}.id
                       AND wcr.type = '${TRANSACTION_TYPES.WARRANTY_COST}'
-                      AND wcr.tenant_id = ${alias}.tenant_id)`;
+                      AND +wcr.tenant_id = ${alias}.tenant_id)`;
 }
 
 /**
@@ -2536,7 +2543,7 @@ export function wrongNumberRecoverySource(alias: string): string {
                     WHERE wnr.reverses_id = ${alias}.id
                       AND wnr.type = '${TRANSACTION_TYPES.REFUND}'
                       AND wnr.status = 'ACTIVE'
-                      AND wnr.tenant_id = ${alias}.tenant_id)`;
+                      AND +wnr.tenant_id = ${alias}.tenant_id)`;
 }
 
 /**
@@ -2860,7 +2867,7 @@ export function exchangeKeptProfitUsd(exAlias: string): string {
               WHERE kpt.source_table = 'exchange_transactions'
                 AND kpt.source_id = ${exAlias}.id
                 AND kpt.type = 'EXCHANGE'
-                AND kpt.tenant_id = ${exAlias}.tenant_id
+                AND +kpt.tenant_id = ${exAlias}.tenant_id
               LIMIT 1
             ), 0)`;
 }
@@ -3283,7 +3290,7 @@ function salePlusRefundProfitSubquery(
   return `COALESCE((
               SELECT SUM(${stampNetOfRefundKeptChange("t", currency, supported)}) FROM transactions t
               WHERE t.source_table = 'sales' AND t.source_id = ${saleAlias}.id
-                AND t.type IN (${SALE_LEDGER_TYPES_SQL}) AND t.status = 'ACTIVE' AND t.tenant_id = ?
+                AND t.type IN (${SALE_LEDGER_TYPES_SQL}) AND t.status = 'ACTIVE' AND +t.tenant_id = ?
             ), 0)`;
 }
 
@@ -3863,7 +3870,7 @@ function pendingLegacyCommissionForKey(
                 AND ${embeddedCommission("fs2", hasCommissionModelColumn)}
                 AND ${notRefunded("fs2")}
                 AND ${dateRange("fs2.created_at")}
-                AND fs2.tenant_id = ? AND t2.tenant_id = ?
+                AND fs2.tenant_id = ? AND +t2.tenant_id = ?
             ), 0)`;
 }
 

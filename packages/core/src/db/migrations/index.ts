@@ -14900,7 +14900,9 @@ DROP TABLE IF EXISTS supplier_settlement_coverage;`);
       if (!tableExists(db, "tenant_subscriptions")) return;
       for (const col of ["trial_started_at", "trial_ends_at"] as const) {
         if (!columnExists(db, "tenant_subscriptions", col)) {
-          db.exec(`ALTER TABLE tenant_subscriptions ADD COLUMN ${col} DATETIME;`);
+          db.exec(
+            `ALTER TABLE tenant_subscriptions ADD COLUMN ${col} DATETIME;`,
+          );
         }
       }
       db.exec(
@@ -15032,7 +15034,8 @@ CREATE INDEX IF NOT EXISTS idx_resale_line_give_backs_line ON resale_line_give_b
       db.exec(`DROP INDEX IF EXISTS idx_resale_line_give_backs_line;
 DROP TABLE IF EXISTS resale_line_give_backs;`);
     },
-  },  {
+  },
+  {
     version: 224,
     name: "vouchers_redeemed_session_id",
     description:
@@ -15196,14 +15199,16 @@ DROP TABLE IF EXISTS partner_settlement_coverage;`);
       "LIRA-360: insurance renewal reminders. Adds custom_services.insurance_type " +
       "(one of COMPULSORY, THIRD_PARTY, DOMESTIC_WORKER, ALL_RISK, LIFE; NULL for " +
       "every other category and for insurance sold before this version) and the " +
-      "\"Won't renew\" mark renewal_dismissed_at / renewal_dismissed_by. Columns " +
+      '"Won\'t renew" mark renewal_dismissed_at / renewal_dismissed_by. Columns ' +
       "only: no existing row changes.",
     type: "typescript" as const,
     up(db: Database.Database) {
       if (!tableExists(db, "custom_services")) return;
       for (const col of INSURANCE_V227_COLUMNS) {
         if (!columnExists(db, "custom_services", col)) {
-          db.exec(`ALTER TABLE custom_services ADD COLUMN ${col} TEXT DEFAULT NULL`);
+          db.exec(
+            `ALTER TABLE custom_services ADD COLUMN ${col} TEXT DEFAULT NULL`,
+          );
         }
       }
     },
@@ -15267,7 +15272,9 @@ DROP TABLE IF EXISTS kpi_snapshots;`);
         tableExists(db, "tenant_subscriptions") &&
         columnExists(db, "tenant_subscriptions", "enabled_features")
       ) {
-        db.exec(`ALTER TABLE tenant_subscriptions DROP COLUMN enabled_features`);
+        db.exec(
+          `ALTER TABLE tenant_subscriptions DROP COLUMN enabled_features`,
+        );
       }
     },
   },
@@ -15305,6 +15312,38 @@ CREATE INDEX IF NOT EXISTS idx_omt_owed_shares_fs ON omt_owed_shares(tenant_id, 
       db.exec(`DROP INDEX IF EXISTS idx_omt_owed_shares_fs;
 DROP INDEX IF EXISTS idx_omt_owed_shares_live;
 DROP TABLE IF EXISTS omt_owed_shares;`);
+    },
+  },
+  {
+    version: 230,
+    name: "partner_ledger_reference_index",
+    description:
+      "Index partner_ledger by (reference_table, reference_id, " +
+      "transaction_type, currency). Every profit query decides partner " +
+      "recognition through nested sub-queries that look partner_ledger up " +
+      "by exactly these columns (constants/partnerObligation.ts), and the " +
+      "table only had partner_id / created_at indexes, so each outer row " +
+      "scanned the whole ledger several times (Cornertech /api/profits/summary " +
+      "~19 s, 2026-11-10). Index only; no data change.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // Index only. Guarded because the via-runner migration tests replay
+      // every pending migration on minimal fixtures whose partner_ledger
+      // lacks these columns (or the table itself).
+      const cols = [
+        "reference_table",
+        "reference_id",
+        "transaction_type",
+        "currency",
+      ];
+      if (!cols.every((c) => columnExists(db, "partner_ledger", c))) return;
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_partner_ledger_reference
+           ON partner_ledger(reference_table, reference_id, transaction_type, currency)`,
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP INDEX IF EXISTS idx_partner_ledger_reference`);
     },
   },
 ];
@@ -15362,7 +15401,8 @@ function lotoSettledCheckpoints(
       let ids: number[] = [];
       try {
         const parsed: unknown = JSON.parse(s.checkpoint_ids ?? "[]");
-        if (Array.isArray(parsed)) ids = parsed.map(Number).filter((n) => n > 0);
+        if (Array.isArray(parsed))
+          ids = parsed.map(Number).filter((n) => n > 0);
       } catch {
         ids = [];
       }
@@ -15371,7 +15411,8 @@ function lotoSettledCheckpoints(
         | { id: number }
         | undefined;
       if (!row) continue;
-      for (const id of ids) ledgerByCheckpoint.set(`${s.tenant_id}:${id}`, row.id);
+      for (const id of ids)
+        ledgerByCheckpoint.set(`${s.tenant_id}:${id}`, row.id);
     }
   }
   const settled = db

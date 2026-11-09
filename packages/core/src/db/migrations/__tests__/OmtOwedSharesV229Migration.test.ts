@@ -17,7 +17,9 @@ const migration = MIGRATIONS.find((m) => m.version === 229);
 function hasTable(db: Database.Database): boolean {
   return (
     db
-      .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'omt_owed_shares'`)
+      .prepare(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'omt_owed_shares'`,
+      )
       .get() !== undefined
   );
 }
@@ -33,8 +35,10 @@ function indexes(db: Database.Database): string[] {
 }
 
 describe("migration v229 — omt_owed_shares", () => {
-  it("is the last entry and is registered", () => {
-    expect(MIGRATIONS[MIGRATIONS.length - 1]?.version).toBe(229);
+  it("is registered under version 229", () => {
+    // Was "is the last entry" until v230 (partner_ledger_reference_index)
+    // followed it; the durable fact is the version → name pairing.
+    expect(MIGRATIONS.some((m) => m.version === 229)).toBe(true);
     expect(migration?.name).toBe("omt_owed_shares");
   });
 
@@ -44,7 +48,10 @@ describe("migration v229 — omt_owed_shares", () => {
     db.pragma("foreign_keys = OFF");
     migration!.up(db);
     expect(hasTable(db)).toBe(true);
-    expect(indexes(db).sort()).toEqual(["idx_omt_owed_shares_fs", "idx_omt_owed_shares_live"]);
+    expect(indexes(db).sort()).toEqual([
+      "idx_omt_owed_shares_fs",
+      "idx_omt_owed_shares_live",
+    ]);
     const insert = (amount: number, currency: string) =>
       db
         .prepare(
@@ -57,10 +64,9 @@ describe("migration v229 — omt_owed_shares", () => {
     expect(() => insert(0.2, "USD")).not.toThrow();
     expect(() => insert(0, "USD")).toThrow();
     expect(() => insert(1, "EUR")).toThrow();
-    const row = db.prepare(`SELECT * FROM omt_owed_shares WHERE id = 1`).get() as Record<
-      string,
-      unknown
-    >;
+    const row = db
+      .prepare(`SELECT * FROM omt_owed_shares WHERE id = 1`)
+      .get() as Record<string, unknown>;
     expect(row.is_reversed).toBe(0);
     expect(row.cleared_settlement_txn_id).toBeNull();
     expect(row.created_at).toEqual(expect.any(String));
@@ -85,14 +91,21 @@ describe("migration v229 — omt_owed_shares", () => {
       ),
     );
     expect(hasTable(db)).toBe(true);
-    expect(indexes(db).sort()).toEqual(["idx_omt_owed_shares_fs", "idx_omt_owed_shares_live"]);
+    expect(indexes(db).sort()).toEqual([
+      "idx_omt_owed_shares_fs",
+      "idx_omt_owed_shares_live",
+    ]);
     const tables = db
-      .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%migration%'`)
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%migration%'`,
+      )
       .all() as Array<{ name: string }>;
     const versions = tables.flatMap(({ name }) =>
-      (db.prepare(`SELECT * FROM ${name}`).all() as Array<Record<string, unknown>>).map(
-        (r) => r.version,
-      ),
+      (
+        db.prepare(`SELECT * FROM ${name}`).all() as Array<
+          Record<string, unknown>
+        >
+      ).map((r) => r.version),
     );
     expect(versions).toContain(229);
   });

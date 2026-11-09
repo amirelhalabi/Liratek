@@ -1454,6 +1454,9 @@ CREATE TABLE IF NOT EXISTS partner_ledger (
 
 CREATE INDEX IF NOT EXISTS idx_partner_ledger_partner_id ON partner_ledger(partner_id);
 CREATE INDEX IF NOT EXISTS idx_partner_ledger_created_at ON partner_ledger(created_at);
+-- v230: the partner-obligation sub-queries (constants/partnerObligation.ts) look
+-- partner_ledger up by these four columns on every profit row.
+CREATE INDEX IF NOT EXISTS idx_partner_ledger_reference ON partner_ledger(reference_table, reference_id, transaction_type, currency);
 
 -- v225 (LIRA-346): what each partner settlement paid on each partner row
 -- (partner_ledger_id = the row group's head), per currency, with the side of
@@ -3334,4 +3337,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- tenant_subscriptions.enabled_features, declared above.
     (228, 'kpi_snapshots'),
     -- v229 (LIRA-370) adds omt_owed_shares, declared above.
-    (229, 'omt_owed_shares');
+    (229, 'omt_owed_shares'),
+    (230, 'partner_ledger_reference_index');

@@ -412,6 +412,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 - Dashboard: profit is no longer shown there, for any user. The "Net profit — last 30 days" tile and the trend chart's Profit view are gone; the chart shows product and telecom sales. Profit stays on the Profits page.
 - New "Wrong-number credits recovered" line: credits sent back for cards recharged onto the wrong number, which lower the loss from those cards.
+- Web app: the Profits page opens much faster, and other people using the shop no longer get errors or a frozen app while someone has it open. Nothing on the page changes.
 
 ## 📈 Monthly progress
 
