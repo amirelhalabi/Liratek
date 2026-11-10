@@ -692,7 +692,7 @@ async function getBackupsSection(flySection) {
 
   const base = {
     bucket: "liratek-backups",
-    prefix: "web/liratek",
+    prefix: "platform + tenants/<id>.db (web/liratek frozen at the 2026-11-10 split)",
     syncInterval: "1s",
     // LITESTREAM_* only exist on the Fly machine's env, never locally — this
     // is a statement about the LOCAL env this dashboard runs in, not about

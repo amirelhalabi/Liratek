@@ -65,7 +65,7 @@ else
 fi
 
 # ── Per-tenant restore-if-empty (per-tenant mode only) ───────────────────────
-# UNVERIFIED / documented gap, not a full solution: Litestream 0.5's `restore`
+# Restore is one file per call (proved on Fly 2026-11-10, see the restore below). Litestream 0.5's `restore`
 # command takes exactly one DB_PATH or REPLICA_URL per invocation — there is
 # no "restore every database under this dir replica" command (checked against
 # the reference CLI docs, litestream.io/reference/restore/, 2026-09-27: the
@@ -122,7 +122,15 @@ if [ "$TENANT_DB_MODE" = "per-tenant" ]; then
       tenant_db_path="$TENANT_DATABASES_DIR/$tenant_id.db"
       if [ ! -f "$tenant_db_path" ]; then
         echo "[entrypoint] no database for tenant $tenant_id at $tenant_db_path — attempting restore from replica"
-        if litestream restore -if-replica-exists -if-db-not-exists "$tenant_db_path"; then
+        # Restore by REPLICA URL, not by path: Litestream 0.5.17 only resolves
+        # a path to a `path:` entry, so a file under the `dir:` entry fails
+        # with "database not found in config" (seen on Fly, 2026-11-10). The
+        # URL mirrors litestream.yml's `tenants` replica; the URL form proved
+        # a full restore of tenants 1 and 5 the same night.
+        tenant_replica_url="s3://$LITESTREAM_BUCKET/tenants/$tenant_id.db?endpoint=$LITESTREAM_ENDPOINT&region=auto"
+        if AWS_ACCESS_KEY_ID="$LITESTREAM_ACCESS_KEY_ID" \
+          AWS_SECRET_ACCESS_KEY="$LITESTREAM_SECRET_ACCESS_KEY" \
+          litestream restore -if-replica-exists -o "$tenant_db_path" "$tenant_replica_url"; then
           echo "[entrypoint] tenant $tenant_id restore step completed"
         else
           echo "[entrypoint] tenant $tenant_id restore returned non-zero — continuing; that shop's requests will error until it is provisioned/restored"

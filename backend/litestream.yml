@@ -23,10 +23,11 @@ dbs:
       type: s3
       bucket: ${LITESTREAM_BUCKET}
 
-      # Prefix inside the bucket. Named for the deployment rather than the
-      # database, so the per-tenant split can add sibling prefixes without
-      # reorganising what is already there.
-      path: web/liratek
+      # Prefix inside the bucket. Since the per-tenant split (2026-11-10) this
+      # file is the platform database only, so it replicates to `platform`.
+      # `web/liratek` is left as it was at the split: the frozen history of
+      # the old shared file (every shop's data up to 2026-11-10 01:40 UTC).
+      path: platform
 
       # R2's S3-compatible endpoint: https://<account-id>.r2.cloudflarestorage.com
       endpoint: ${LITESTREAM_ENDPOINT}

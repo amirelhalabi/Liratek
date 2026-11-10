@@ -187,7 +187,14 @@ Fly's encrypted volume. See `DEPLOYMENT.md` § 6.
 
 ## Backups
 
-Litestream → R2 `liratek-backups`, prefix `web/liratek`, 1 s sync.
+Litestream → R2 `liratek-backups`, 1 s sync, one prefix per file:
+
+- `platform/` — `/data/liratek.db` (tenants, subscriptions, super admin).
+- `tenants/<id>.db/` — `/data/tenants/<id>.db`, one per shop, picked up automatically.
+- `web/liratek/` — frozen: the old shared file's history up to the split
+  (2026-11-10 01:40 UTC). Nothing writes to it. Keep it until the per-tenant
+  layout has run cleanly for a few weeks; deleting it cannot be undone.
+
 Fly's volume also snapshots daily (5 retained).
 
 **The bucket holds `.ltx` transaction segments, not a `.db` file.** There is
@@ -200,9 +207,15 @@ hypothesis:
 ```bash
 yarn api:ssh
   cd /app/backend
+  export TENANT_DATABASES_DIR=/data/tenants   # the entrypoint sets it; an ssh shell does not
   litestream restore -o /tmp/check.db /data/liratek.db
   node -e "const d=require('/app/node_modules/better-sqlite3');const b=new d('/tmp/check.db',{readonly:true});console.log(b.pragma('integrity_check')[0].integrity_check, b.prepare('SELECT COUNT(*) c FROM tenants').get().c)"
-  rm /tmp/check.db
+  # A shop file: restore by replica URL. `litestream restore /data/tenants/1.db`
+  # fails with "database not found in config" — a path only matches a `path:` entry.
+  AWS_ACCESS_KEY_ID=$LITESTREAM_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$LITESTREAM_SECRET_ACCESS_KEY \
+    litestream restore -o /tmp/check-1.db "s3://$LITESTREAM_BUCKET/tenants/1.db?endpoint=$LITESTREAM_ENDPOINT&region=auto"
+  node -e "const d=require('/app/node_modules/better-sqlite3');const b=new d('/tmp/check-1.db',{readonly:true});console.log(b.pragma('integrity_check')[0].integrity_check, b.prepare('SELECT COUNT(*) c FROM transactions').get().c)"
+  rm /tmp/check.db /tmp/check-1.db
 ```
 
 R2 is **EU-jurisdiction**: it answers only on
@@ -212,20 +225,23 @@ credential. Check the endpoint before the token.
 
 ---
 
-## Per-tenant database mode (not live yet)
+## Per-tenant database mode (live since 2026-11-10)
 
-`TENANT_DB_MODE` (`shared` default, `per-tenant`) and `TENANT_DATABASES_DIR`
-are wired end to end — boot-time migration of every shop file, a Litestream
-`dir` replica for the tenants directory, an empty-volume restore attempt, and
-a deploy-verifier check for the per-tenant boot marker — but **nothing sets
-`TENANT_DB_MODE=per-tenant` today**; production stays on `shared` until
-Phase D actually splits the file. See
-`docs/plans/ongoing_plans/PRODUCTION_DATABASE_AND_HOSTING_PLAN.md` § 12.4 for
-the full runbook (split tool, file layout, restore drill, rollback) when that
-day comes. **Unverified**: whether `litestream restore` resolves a
-`dir`-configured replica for a tenant file that does not yet exist locally
-the same way it resolves the single-file `path` replica above — flagged
-clearly in § 12.4, not assumed.
+`TENANT_DB_MODE=per-tenant` is a Fly secret. `/data/liratek.db` is the
+platform file (tenants, subscriptions, super-admin users, sign-up and sign-in
+tables). Each shop is `/data/tenants/<id>.db`; a new shop's file is created
+at provisioning and replicated within seconds. Every boot migrates every shop
+file and logs `"Tenant databases migrated"` with `failed`/`missing`; the
+deploy verifier fails on either. On an empty volume the entrypoint restores
+the platform file, reads its `tenants` table, and restores each shop file by
+replica URL.
+
+Pre-split files kept on the volume until the layout has run cleanly for a
+while: `/data/liratek.db.pre-split` (+ `-wal`/`-shm`, the original shared
+file — open all three together, never one alone) and
+`/data/phase-d/source.db` (the consistent snapshot the split was made from).
+How the split was run, and the runbook, is § 12.4 of
+`docs/plans/ongoing_plans/PRODUCTION_DATABASE_AND_HOSTING_PLAN.md`.
 
 **Two boot-time guards protect the flip itself** (§ 12.4), so setting the env
 var without having run the split doesn't take every shop down silently:
