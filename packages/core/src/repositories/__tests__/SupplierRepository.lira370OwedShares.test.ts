@@ -275,4 +275,39 @@ describe("LIRA-370 — owed shares, OMT asks more, undo", () => {
       expect(snapshot()).toEqual(startWithNew);
     });
   });
+
+  // LIRA-378 (owner 2026-11-09): nothing ticked = OMT pays no commission in
+  // this SMS. The sheet sends `covered_omt_service_types: []`.
+  // RULE 17 — run before the schema change: both cases failed at parse
+  // (`Array must contain at least 1 element(s)`).
+  describe("SMS includes no commission (nothing ticked)", () => {
+    beforeEach(() => seedTestShopOmt(db, acc, true));
+
+    it("SMS at the gross −223.50: every transfer closes, profit 0, all $6.20 stays owed by OMT", () => {
+      const before = drawerTotals(db);
+      settle({ direction: "COLLECT", money: 223.5, sms: -223.5, covered: [] });
+      expect(r2(drawerTotals(db).usd - before.usd)).toBe(223.5);
+      expect(r2(profitTotals(db).usd)).toBe(0);
+      expect(balance()).toBe(0);
+      expect(queue()).toHaveLength(0);
+      expect(sharesTotal()).toBe(6.2);
+      expect(liveShares().map((x) => x.t).sort()).toEqual([
+        "CASH_TO_BUSINESS",
+        "INTRA",
+        "INTRA",
+        "ONLINE_BROKERAGE",
+        "WESTERN_UNION",
+      ]);
+    });
+
+    // An SMS that still implies commission contradicts "nothing ticked":
+    // the cashier must say which types it includes (smsNeedsTickedTypes).
+    it("SMS −225.50 with nothing ticked is refused — the $2.00 is commission, so a type must be ticked; nothing written", () => {
+      const start = snapshot();
+      expect(() =>
+        settle({ direction: "COLLECT", money: 225.5, sms: -225.5, covered: [] }),
+      ).toThrow(/no commission type is ticked/);
+      expect(snapshot()).toEqual(start);
+    });
+  });
 });

@@ -43,9 +43,13 @@ export interface MultiSelectProps {
    * Optional sections. When given, each group is a collapsible header
    * (collapsed by default) with its own checkbox that ticks or clears every
    * option in it; options not in any group are listed after. Absent = the
-   * flat list, as before, so existing callers are unchanged.
+   * flat list, as before, so existing callers are unchanged. `key` names
+   * the group in test ids (`${testId}-group-${key}`) when the label is
+   * translated; default = the label.
    */
-  groups?: { label: string; options: string[] }[];
+  groups?: { label: string; options: string[]; key?: string }[];
+  /** Start with every group expanded (default: collapsed). */
+  groupsOpen?: boolean;
 }
 
 export default function MultiSelect({
@@ -60,11 +64,12 @@ export default function MultiSelect({
   testId,
   getOptionLabel,
   groups,
+  groupsOpen = false,
 }: MultiSelectProps) {
   const { t } = useTranslation("ui");
   const count = values.length;
   const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(
-    () => new Set(),
+    () => new Set(groupsOpen ? (groups ?? []).map((g) => g.label) : []),
   );
   const toggleGroupOpen = (label: string) =>
     setOpenGroups((prev) => {
@@ -137,7 +142,9 @@ export default function MultiSelect({
     );
   };
 
-  const renderGroups = (list: { label: string; options: string[] }[]) => {
+  const renderGroups = (
+    list: { label: string; options: string[]; key?: string }[],
+  ) => {
     const grouped = new Set(list.flatMap((g) => g.options));
     const rest = options.filter((o) => !grouped.has(o));
     return (
@@ -169,7 +176,7 @@ export default function MultiSelect({
                     { label: g.label },
                   )}
                   data-testid={
-                    testId ? `${testId}-group-toggle-${g.label}` : undefined
+                    testId ? `${testId}-group-toggle-${g.key ?? g.label}` : undefined
                   }
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={(e) => {
@@ -212,7 +219,7 @@ export default function MultiSelect({
                   aria-checked={allOn ? true : someOn ? "mixed" : false}
                   aria-label={t("multiSelect.selectAll", { label: g.label })}
                   data-testid={
-                    testId ? `${testId}-group-${g.label}` : undefined
+                    testId ? `${testId}-group-${g.key ?? g.label}` : undefined
                   }
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={(e) => {

@@ -24,6 +24,7 @@ import { supplierSettleAccountSchema } from "@liratek/core";
 import { AccountSettleSheet } from "../AccountSettleSheet";
 import type { AccountUnsettledRow } from "../../hooks/useSuppliers";
 import { OMT_ACCOUNT, queueRow } from "../../testing/accountSettleFixtures";
+import { tickAllCoveredTypes } from "../../testing/coveredTypesPicker";
 
 const mockSettleSupplierAccount = jest.fn();
 const mockGetSupplierAccountUnsettled = jest.fn();
@@ -96,7 +97,10 @@ const PAY_ROWS: AccountUnsettledRow[] = [
   send(818, 21, "INTRA", 0.1, "2026-10-26 09:00:00"),
 ];
 
-function renderSheet(rows: AccountUnsettledRow[], settlesFromSms = true) {
+// LIRA-378 (owner 2026-11-09): the SMS sheet opens with NOTHING ticked (= OMT
+// pays no commission); the SMS case here is about the expected commission,
+// so it first ticks "All types" — the old default.
+async function renderSheet(rows: AccountUnsettledRow[], settlesFromSms = true) {
   mockGetSupplierAccountUnsettled.mockResolvedValue(rows);
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -111,6 +115,10 @@ function renderSheet(rows: AccountUnsettledRow[], settlesFromSms = true) {
       />
     </QueryClientProvider>,
   );
+  if (settlesFromSms) {
+    await screen.findByTestId("supplier-account-settle-section-usd");
+    await tickAllCoveredTypes("supplier-account-settle-covered");
+  }
 }
 
 const amountInput = (section: HTMLElement) =>
@@ -213,7 +221,7 @@ describe("AccountSettleSheet — one Discount line (LIRA-372)", () => {
   });
 
   it("SMS mode: discount 2.30 → pay 770, the commission stays $4.20, three summary lines", async () => {
-    renderSheet(PAY_ROWS);
+    await renderSheet(PAY_ROWS);
     const usd = await screen.findByTestId("supplier-account-settle-section-usd");
     await waitFor(() => expect(num(amountInput(usd))).toBe(772.3));
     fireEvent.change(discountUsd(), { target: { value: "2.3" } });

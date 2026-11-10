@@ -87,6 +87,7 @@ import {
   outstandingEstimate,
   owedSharesCollected,
   smsCommissionWeight,
+  smsNeedsTickedTypes,
   tickedOwedShares,
 } from "../utils/omtSmsSettlement.js";
 import {
@@ -7238,22 +7239,12 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           : this._amountFirstScope(queue, data, covers);
       // LIRA-370 — the shares OMT still owes us (the SMS may pay some).
       const owedShares = covers ? this.getAccountOwedShares(accountId) : [];
+      // LIRA-378 — the ticked types scope COMMISSION only here, and an
+      // old-style (model 0) transfer carries none (netted at creation), so
+      // it is never held back by the choice. The "Tick All types" refusal
+      // that used to live here would block the new default (nothing
+      // ticked = no commission) for any shop with an old-style row open.
       if (covers) {
-        const oldStyle = scope.rows.find(
-          (r) =>
-            r.kind === "FINANCIAL_SERVICE" &&
-            r.commission_model === 0 &&
-            !isOmtRowCovered(
-              { provider: r.source_provider, omt_service_type: r.omt_service_type },
-              data.covered_omt_service_types,
-            ),
-        );
-        if (oldStyle) {
-          throw new DatabaseError(
-            "Tick “All types” to settle an old-style OMT transfer of another " +
-              `type. (Account settlement: transfer #${oldStyle.id} is commission_model 0)`,
-          );
-        }
         if (data.owed_shares_only === true) {
           const ticked = owedShares.filter(
             (sh) =>
@@ -8161,6 +8152,17 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         currency,
       });
       smsExpected = fig.expectedCommission + fig.owedSharesIncluded;
+      // LIRA-378 — nothing ticked = no commission; an SMS that still
+      // implies some needs its types ticked (the sheet blocks on the same
+      // rule).
+      if (smsNeedsTickedTypes(coveredTypes, sms.commission, currency)) {
+        throw new DatabaseError(
+          `The SMS amount implies ${fmt(sms.commission)} of commission but no ` +
+            "commission type is ticked. Tick the types this SMS includes. " +
+            `(Account settlement: ${label} SMS ${section.sms_amount} with ` +
+            "covered_omt_service_types [])",
+        );
+      }
       if (
         section.commission !== undefined &&
         Math.abs(section.commission - sms.commission) > eps

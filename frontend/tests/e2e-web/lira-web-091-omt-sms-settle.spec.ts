@@ -2,7 +2,9 @@
  * lira-web-091 — settle the OMT account from the amount on OMT's SMS
  * (LIRA-370, specs/370-omt-sms-amount-settle). Real browser sheet + REST.
  *
- * 1. We owe OMT: one past day with an Intra send. The SMS box opens at
+ * 1. We owe OMT: one past day with an Intra send. The sheet opens with no
+ *    commission type ticked (LIRA-378: the SMS box at the gross owed, the
+ *    expected commission "stays owed"); ticking All types brings the box to
  *    owed − expected commission; the cashier types $10 less (OMT gave $10
  *    more commission). One settlement closes the day: the OMT drawer pays
  *    exactly the SMS figure and the settlement's profit is expected + $10.
@@ -17,6 +19,7 @@
  * money check is a delta.
  */
 import type { Locator, Page } from "@playwright/test";
+import { tickAllSmsTypes } from "./helpers/omtSmsSettle";
 import {
   test,
   expect,
@@ -179,6 +182,19 @@ test.describe.serial("lira-web-091 OMT settle from the SMS amount", () => {
 
     const sheet = await openSheetOnDay(page, today, DAY);
     const sms = sheet.getByTestId("supplier-account-settle-sms-usd");
+    // LIRA-378 — opens with nothing ticked: no commission, the box at the
+    // gross owed, the expected commission "stays owed". What's new
+    // screenshot of that default (rule 30), landscape.
+    await expect(sms).toHaveValue(OWED.toFixed(2));
+    await expect(sheet.getByTestId("supplier-account-settle-covered")).toContainText("No commission");
+    await expect(sheet.getByTestId("supplier-account-settle-sms-includes-none")).toBeVisible();
+    await expect(sheet.getByTestId("supplier-account-settle-sms-stays-owed-usd")).toContainText(
+      `$${EXPECTED_COMMISSION.toFixed(2)}`,
+    );
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await sheet.screenshot({ path: "public/whats-new/1.35.0/omt-sms-no-commission.png" });
+    // Ticking All types brings the expected figure back.
+    await tickAllSmsTypes(sheet);
     await expect(sms).toHaveValue(EXPECTED.toFixed(2));
     await sms.fill(SMS.toFixed(2));
     const line = sheet.getByTestId("supplier-account-settle-sms-commission-usd");

@@ -36,6 +36,11 @@
 
 ## ✨ Highlights
 
+### OMT pays no commission unless you tick it
+
+On Suppliers → OMT → **Settle Account**, the box **"Which OMT commission does this SMS include?"** now opens on **No commission**. The OMT SMS amount box opens at the full amount owed, and every transfer's commission is kept as "commission OMT still owes you". If OMT's SMS does include commission, tick the types it names, or **All types** in one tick, and the SMS amount and the commission update by themselves. If you type an SMS amount lower than the amount owed while nothing is ticked, Settle stays off until you tick the types, because that difference is commission. Before, the sheet opened on All types and deducted the commission even when OMT had not paid it yet.
+![Settle Account for OMT: the commission-types box on "No commission", the SMS amount at the full $308.00 owed, and "$0.80 of commission on other types stays owed by OMT"](whats-new/1.35.0/omt-sms-no-commission.png)
+
 ### Download a backup of your shop
 
 Web app: admins have a new **Backup** tab in **Settings**. Press **Download backup** to save all your shop's data to your computer as one file, named with your shop and today's date and time. The file holds only your shop. Sign-in sessions and one-time links are left out. Keep it somewhere safe: it holds your customers, sales and staff accounts.
@@ -228,7 +233,8 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 ## 💸 OMT / Whish & suppliers
 
 - OMT: when you settle the OMT account in cash on Settle Account, you can now choose whether the cash comes from the OMT Cash Drawer (the default) or General. On a Whish shop the same choice shows for Whish, also when Whish pays you a bills commission in cash.
-- OMT: Settle Account now settles from the amount on OMT's SMS. Type it, and the commission is worked out, the payment matches the SMS and all the picked days close in one settlement, whether you pay OMT or OMT pays you. Before, the commission box never lowered the payment, an OMT that owed you asked for "change" back, and an empty commission box booked no commission at all. If you leave the box as it opens, the expected commission is booked.
+- OMT: Settle Account now settles from the amount on OMT's SMS. Type it, and the commission is worked out, the payment matches the SMS and all the picked days close in one settlement, whether you pay OMT or OMT pays you. Before, the commission box never lowered the payment, an OMT that owed you asked for "change" back, and an empty commission box booked no commission at all.
+- OMT: on Settle Account, "Which OMT commission does this SMS include?" now opens with nothing ticked, which means **OMT is not paying any commission in this SMS**: the SMS box opens at the full amount owed and every transfer's commission stays as "commission OMT still owes you". Tick the types the SMS includes (or **All types** in one tick) to book that commission. If the SMS amount you type is less than the amount owed while nothing is ticked, Settle stays off until you tick the types, because the difference is commission. Before, the sheet opened on "All types" and deducted the commission even when OMT had not paid it.
 - OMT: ticking the commission types an SMS includes (one or several) no longer leaves the other transfers out. They settle too, and their commission is kept as "commission OMT still owes you", shown on Settle Account and under "Check against OMT's statement". It counts as profit when a later SMS includes it.
 - OMT: if OMT already holds credit with you that is more than the picked days owe, Settle Account switches to "OMT pays you". It uses the whole credit and you receive the SMS amount.
 - Suppliers: "Check against OMT's statement" no longer has boxes to type the SMS figure. It shows the figures only; type the SMS on Settle Account.

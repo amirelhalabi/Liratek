@@ -27,6 +27,7 @@ import { supplierSettleAccountSchema } from "@liratek/core";
 import { AccountSettleSheet } from "../AccountSettleSheet";
 import type { AccountUnsettledRow } from "../../hooks/useSuppliers";
 import { OMT_ACCOUNT, queueRow } from "../../testing/accountSettleFixtures";
+import { tickAllCoveredTypes } from "../../testing/coveredTypesPicker";
 
 const mockSettleSupplierAccount = jest.fn();
 const mockGetSupplierAccountUnsettled = jest.fn();
@@ -110,7 +111,10 @@ const COLLECT_ROWS: AccountUnsettledRow[] = [
   },
 ];
 
-function renderSheet(rows: AccountUnsettledRow[], settlesFromSms = true) {
+// LIRA-378 (owner 2026-11-09): the SMS sheet now opens with NOTHING ticked
+// (= OMT pays no commission). These cases are about the commission the SMS
+// works out, so each one first ticks "All types" — the old default.
+async function renderSheet(rows: AccountUnsettledRow[], settlesFromSms = true) {
   mockGetSupplierAccountUnsettled.mockResolvedValue(rows);
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -125,6 +129,10 @@ function renderSheet(rows: AccountUnsettledRow[], settlesFromSms = true) {
       />
     </QueryClientProvider>,
   );
+  if (settlesFromSms) {
+    await screen.findByTestId("supplier-account-settle-section-usd");
+    await tickAllCoveredTypes("supplier-account-settle-covered");
+  }
 }
 
 const amountInput = (section: HTMLElement) =>
@@ -153,7 +161,7 @@ describe("AccountSettleSheet — settle OMT from the SMS amount (LIRA-370)", () 
   });
 
   it("opens at the expected figure: SMS 772.30, commission $4.20, the box pays 772.30", async () => {
-    renderSheet(PAY_ROWS);
+    await renderSheet(PAY_ROWS);
     const usd = await screen.findByTestId("supplier-account-settle-section-usd");
     expect(smsInput().value).toBe("772.30");
     expect(commissionLine()).toContain("$4.20");
@@ -161,7 +169,7 @@ describe("AccountSettleSheet — settle OMT from the SMS amount (LIRA-370)", () 
   });
 
   it("untouched box: the payload carries the expected figure and its commission (never 0)", async () => {
-    renderSheet(PAY_ROWS);
+    await renderSheet(PAY_ROWS);
     await screen.findByTestId("supplier-account-settle-section-usd");
     const parsed = await submitAndParse();
     expect(parsed.per_currency?.USD?.sms_amount).toBe(772.3);
@@ -169,7 +177,7 @@ describe("AccountSettleSheet — settle OMT from the SMS amount (LIRA-370)", () 
   });
 
   it("SMS 762.30: commission $14.20 ($4.20 + $10.00 extra), pays 762.30, every row closes", async () => {
-    renderSheet(PAY_ROWS);
+    await renderSheet(PAY_ROWS);
     const usd = await screen.findByTestId("supplier-account-settle-section-usd");
     fireEvent.change(smsInput(), { target: { value: "762.30" } });
     await waitFor(() => expect(commissionLine()).toContain("$14.20"));
@@ -189,7 +197,7 @@ describe("AccountSettleSheet — settle OMT from the SMS amount (LIRA-370)", () 
   });
 
   it("SMS 790: OMT asks $13.50 more — a warning, commission $0.00", async () => {
-    renderSheet(PAY_ROWS);
+    await renderSheet(PAY_ROWS);
     await screen.findByTestId("supplier-account-settle-section-usd");
     fireEvent.change(smsInput(), { target: { value: "790" } });
     await waitFor(() =>
@@ -199,7 +207,7 @@ describe("AccountSettleSheet — settle OMT from the SMS amount (LIRA-370)", () 
   });
 
   it("SMS 774.50: less than expected is a note, not a warning", async () => {
-    renderSheet(PAY_ROWS);
+    await renderSheet(PAY_ROWS);
     await screen.findByTestId("supplier-account-settle-section-usd");
     fireEvent.change(smsInput(), { target: { value: "774.50" } });
     await waitFor(() => expect(screen.getByTestId("supplier-account-settle-sms-less-usd")).toBeTruthy());
@@ -208,7 +216,7 @@ describe("AccountSettleSheet — settle OMT from the SMS amount (LIRA-370)", () 
   });
 
   it("OMT owes us: SMS −249.70 receives 249.70, commission $26.20, no change to return", async () => {
-    renderSheet(COLLECT_ROWS);
+    await renderSheet(COLLECT_ROWS);
     const usd = await screen.findByTestId("supplier-account-settle-section-usd");
     expect(smsInput().value).toBe("-229.70");
     fireEvent.change(smsInput(), { target: { value: "-249.70" } });
@@ -224,7 +232,7 @@ describe("AccountSettleSheet — settle OMT from the SMS amount (LIRA-370)", () 
   });
 
   it("an OMT credit smaller than the days: the SMS opens net of it (758.10)", async () => {
-    renderSheet([
+    await renderSheet([
       ...PAY_ROWS,
       { ...ledger(900, 0, "2026-10-27 08:00:00"), amount_usd: -14.2, remaining_usd: -14.2, row_scope: "ACCOUNT", entry_type: "PAYMENT" },
     ]);
@@ -237,7 +245,7 @@ describe("AccountSettleSheet — settle OMT from the SMS amount (LIRA-370)", () 
   // Not proven failing-first: the sheet change was written before this
   // rewrite (the core tests for the same rule were seen failing first).
   it("an OMT credit bigger than the days flips to OMT pays you: SMS −227.70, receive 227.70, the whole credit used", async () => {
-    renderSheet([
+    await renderSheet([
       ...PAY_ROWS,
       { ...ledger(900, 0, "2026-10-27 08:00:00"), amount_usd: -1000, remaining_usd: -1000, row_scope: "ACCOUNT", entry_type: "PAYMENT" },
     ]);
@@ -257,7 +265,7 @@ describe("AccountSettleSheet — settle OMT from the SMS amount (LIRA-370)", () 
   });
 
   it("any other supplier keeps the plain commission field (no SMS box)", async () => {
-    renderSheet(PAY_ROWS, false);
+    await renderSheet(PAY_ROWS, false);
     await screen.findByTestId("supplier-account-settle-section-usd");
     expect(screen.queryByTestId("supplier-account-settle-sms-usd")).toBeNull();
     expect(screen.getByTestId("supplier-account-settle-commission-usd")).toBeTruthy();

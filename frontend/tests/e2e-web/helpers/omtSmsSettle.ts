@@ -10,8 +10,15 @@ import { expect, type Locator } from "@playwright/test";
  * re-fills the payment box).
  *
  * The sign follows the prefill: negative = OMT pays the shop.
+ *
+ * LIRA-378: the sheet now opens with nothing ticked (= no commission), and
+ * a gross SMS then books every transfer's expected commission as "owed by
+ * OMT" — shared-DB state that later specs (091, 093) would see inside their
+ * expected figure. Ticking All types first keeps the pre-LIRA-378 fixture:
+ * commission 0, nothing left owed.
  */
 export async function smsAtGross(sheet: Locator): Promise<void> {
+  await tickAllSmsTypes(sheet);
   for (const c of ["usd", "lbp"] as const) {
     const sms = sheet.getByTestId(`supplier-account-settle-sms-${c}`);
     if ((await sms.count()) === 0) continue;
@@ -27,4 +34,21 @@ export async function smsAtGross(sheet: Locator): Promise<void> {
       sheet.getByTestId(`supplier-account-settle-sms-commission-${c}`),
     ).toContainText(c === "usd" ? "$0.00" : "0 LBP");
   }
+}
+
+/**
+ * LIRA-378 (owner 2026-11-09) — the OMT Settle Account sheet opens with
+ * NOTHING ticked in "Which OMT commission does this SMS include?", which
+ * means OMT pays no commission in this SMS (the box opens at the gross
+ * owed). Specs whose subject IS the expected commission tick "All types"
+ * first — one tick on the group header — to get the pre-LIRA-378 figure
+ * (owed − expected commission). The list lives in a portal, so the header
+ * is found on the page, not inside the sheet.
+ */
+export async function tickAllSmsTypes(sheet: Locator): Promise<void> {
+  const page = sheet.page();
+  await sheet.getByTestId("supplier-account-settle-covered").click();
+  await page.getByTestId("supplier-account-settle-covered-group-ALL").click();
+  await page.keyboard.press("Escape");
+  await expect(sheet.getByTestId("supplier-account-settle-sms-includes")).toBeVisible();
 }

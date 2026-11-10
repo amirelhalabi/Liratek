@@ -29,6 +29,16 @@ export const omtCoveredTypesSchema = z
 export type OmtCoveredTypesInput = z.input<typeof omtCoveredTypesSchema>;
 
 /**
+ * LIRA-378 (owner 2026-11-09) — the settle-account key may ALSO be `[]`:
+ * on the OMT Settle Account sheet nothing ticked means "OMT pays no
+ * commission in this SMS", and the sheet says so explicitly instead of
+ * leaving the key out. Only meaningful next to an SMS amount
+ * (refineSettleAccount refuses `[]` everywhere else, where it would mean
+ * "every new-style transfer waits").
+ */
+const omtSmsCoveredTypesSchema = z.array(z.enum(OMT_COVERED_TYPE_VALUES));
+
+/**
  * Supplier ledger validation schemas (CQ-8, rule 14).
  *
  * Lifted verbatim (field names unchanged) from electron-app/schemas/index.ts
@@ -335,8 +345,9 @@ const supplierSettleAccountBaseSchema = z.object({
   // When present, the batch is REFUSED if a new-style (commission_model = 1)
   // OMT transfer of another type is selected (decision S1); stamped on the
   // settlement's metadata for the record. Absent = all types = unchanged
-  // behaviour (S3).
-  covered_omt_service_types: omtCoveredTypesSchema.optional(),
+  // behaviour (S3). LIRA-378: `[]` = the SMS includes no commission — only
+  // with an SMS amount (refineSettleAccount).
+  covered_omt_service_types: omtSmsCoveredTypesSchema.optional(),
   // LIRA-310 — Waive: settle the selected rows for less than they net to
   // (PAY → received, COLLECT → forgiven). Refused with a surplus.
   discount: settlementDiscountSchema.optional(),
@@ -425,6 +436,22 @@ function refineSettleAccount(
   d: z.infer<typeof supplierSettleAccountBaseSchema>,
   ctx: z.RefinementCtx,
 ): void {
+  // LIRA-378 — `[]` ("the SMS includes no commission") needs an SMS amount
+  // in some section; anywhere else it would mean "nothing can be settled".
+  if (
+    d.covered_omt_service_types !== undefined &&
+    d.covered_omt_service_types.length === 0 &&
+    !Object.values(d.per_currency ?? {}).some(
+      (sec) => sec?.sms_amount !== undefined,
+    )
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "covered_omt_service_types: [] (no commission) is only used when settling from the SMS amount",
+      path: ["covered_omt_service_types"],
+    });
+  }
   if (d.per_currency !== undefined) {
     for (const key of LEGACY_ONLY_SETTLE_ACCOUNT_KEYS) {
       if (d[key] !== undefined) {

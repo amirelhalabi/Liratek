@@ -51,6 +51,7 @@ import {
   SIX_USD_ROWS,
 } from "../../../testing/accountSettleFixtures";
 import { toggleCoveredType } from "../../../testing/coveredTypesPicker";
+import { tickAllCoveredTypes } from "../../../testing/coveredTypesPicker";
 
 // LIRA-343 — the Settle Account calendar works from the device's today; pin
 // it so the fixtures' October days are always "before today" and October is
@@ -687,6 +688,9 @@ const SCENARIOS: Scenario[] = [
       const usd = await within(sheet).findByTestId(
         "supplier-account-settle-section-usd",
       );
+      // LIRA-378: the SMS below implies commission, so its types must be
+      // ticked (nothing ticked = no commission).
+      await tickAllCoveredTypes("supplier-account-settle-covered");
       expect(
         within(usd).queryByTestId("supplier-account-settle-commission-usd"),
       ).toBeNull();
@@ -732,6 +736,9 @@ const SCENARIOS: Scenario[] = [
       const box = await within(sheet).findByTestId(
         "supplier-account-settle-section-usd-lbp",
       );
+      // LIRA-378: the SMS below implies commission, so its types must be
+      // ticked (nothing ticked = no commission).
+      await tickAllCoveredTypes("supplier-account-settle-covered");
       type(
         within(box).getByTestId("supplier-account-settle-sms-lbp"),
         "890000",

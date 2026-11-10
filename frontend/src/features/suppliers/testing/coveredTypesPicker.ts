@@ -54,6 +54,23 @@ export async function isCoveredTypeTicked(
   return ticked;
 }
 
+/**
+ * LIRA-378 — on the SMS sheet (nothing ticked = no commission) the list is
+ * one "All types" group; its header checkbox ticks every type at once.
+ */
+export async function tickAllCoveredTypes(prefix: string): Promise<void> {
+  const button = await screen.findByTestId(prefix);
+  if (button.getAttribute("aria-expanded") !== "true") {
+    await act(async () => {
+      fireEvent.click(button);
+    });
+  }
+  await act(async () => {
+    fireEvent.click(await screen.findByTestId(`${prefix}-group-ALL`));
+  });
+  await closeCoveredPicker(prefix);
+}
+
 /** The closed button reads "All types" when nothing is ticked. */
 export function coveredPickerShowsAllTypes(prefix: string): boolean {
   return (screen.getByTestId(prefix).textContent ?? "").includes("All types");

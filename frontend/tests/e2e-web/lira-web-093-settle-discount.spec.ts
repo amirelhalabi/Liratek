@@ -19,6 +19,7 @@
  */
 import { mkdirSync } from "node:fs";
 import type { Locator, Page } from "@playwright/test";
+import { tickAllSmsTypes } from "./helpers/omtSmsSettle";
 import {
   test,
   expect,
@@ -206,13 +207,29 @@ test.describe.serial("lira-web-093 settle Discount line", () => {
     const rowId = await transfer(page, auth, { serviceType: "SEND", amount: 300, fee: 8, type: "INTRA", day: DAY });
     const row = (await queue(page, auth, id)).find((r) => r.kind === "FINANCIAL_SERVICE" && r.id === rowId)!;
     const OWED = money(row.remaining_usd);
-    const COMMISSION = money(row.expected_commission_usd ?? 0);
+    const OWN_COMMISSION = money(row.expected_commission_usd ?? 0);
+    // LIRA-378 — ticking All types also collects the commission OMT still
+    // owes from earlier specs' settlements (rule 15: shared DB; 091 leaves
+    // an Intra share on purpose), and that counts as this settlement's
+    // profit too. Read it, never assume 0.
+    const shares = (
+      await getJson<{ shares: Array<{ currency: string; amount: number }> }>(
+        page,
+        auth,
+        `/api/suppliers/${id}/account-owed-shares`,
+      )
+    ).shares;
+    const OWED_SHARES = money(
+      shares.filter((sh) => sh.currency === "USD").reduce((t, sh) => t + sh.amount, 0),
+    );
+    const COMMISSION = money(OWN_COMMISSION + OWED_SHARES);
     const SMS = money(OWED - COMMISSION);
     const DISCOUNT = 2.5;
     const PAID = money(SMS - DISCOUNT);
     const drawerBefore = await omtDrawerUsd(page, auth);
 
     const sheet = await openSheetOnDay(page, today, DAY);
+    await tickAllSmsTypes(sheet); // LIRA-378: the SMS here includes the commission
     const usd = sheet.getByTestId("supplier-account-settle-section-usd");
     await expect.poll(() => amountOf(usd)).toBeCloseTo(SMS, 2);
     await expect(sheet.getByTestId("waive-remaining")).toHaveCount(0);

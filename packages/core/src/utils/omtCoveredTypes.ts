@@ -9,6 +9,11 @@
  * `undefined` = no choice = ALL types covered = exactly the behaviour
  * before this feature (decision S3).
  *
+ * `[]` = NO type covered (LIRA-378, owner 2026-11-09): on the OMT Settle
+ * Account sheet nothing ticked means OMT pays no commission in this SMS —
+ * every transfer's expected commission stays owed by OMT. Only the SMS
+ * settle sends it; the other screens still use `undefined`.
+ *
  * Pure leaf: imports only from `./omtFees.js` (rule 29 — reachable from
  * `browser.ts`, so no Node built-in and no db import, at any depth).
  */
@@ -53,6 +58,7 @@ export function omtRowCoveredType(row: {
  * `covered`?
  *
  *   covered === undefined        → true  (all types — today's behaviour)
+ *   covered = []                 → false for every OMT row (no commission)
  *   row.provider !== "OMT"       → true  (only OMT counter rows have types)
  *   row.omt_service_type == null → covered includes "UNSPECIFIED"
  *   otherwise                    → covered includes row.omt_service_type

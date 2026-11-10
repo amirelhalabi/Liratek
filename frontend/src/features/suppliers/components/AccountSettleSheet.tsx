@@ -19,6 +19,7 @@ import {
   deriveSmsCommission,
   expectedSmsFigure,
   outstandingEstimate,
+  smsNeedsTickedTypes,
   type SmsDerivation,
   daySelectionRowKey,
   isSettleStaleMessage,
@@ -147,6 +148,9 @@ type SmsFigures = PerCurrency<{
   derived: SmsDerivation;
   /** Commission of unticked types' transfers left owed by OMT. */
   staysOwed: number;
+  /** LIRA-378 — nothing ticked, yet the SMS implies commission: Settle is
+   *  blocked until the cashier ticks the types the SMS includes. */
+  needsTypes: boolean;
 }>;
 
 /** The credit box's text for an amount: "8.70" / "450000". */
@@ -359,13 +363,18 @@ export function AccountSettleSheet({
   // device's last choice; undefined = all types).
   // LIRA-345: none for a supplier that does not settle by statement type.
   // LIRA-370 (research R7) — settling from the SMS, the choice decides
-  // where commission goes, so the sheet opens on "All types" every time.
+  // where commission goes, so nothing is remembered between openings.
+  // LIRA-378 (owner 2026-11-09) — and it opens with NOTHING ticked (`[]`):
+  // OMT pays no commission unless the cashier says which types the SMS
+  // includes. `undefined` (= all types) is never sent in SMS mode.
   const [coveredTypes, setCoveredTypes] = useState<
     OmtCoveredType[] | undefined
   >(() =>
-    showStatementTypes && !settlesFromSms
-      ? loadCoveredTypes(account.account_supplier_id)
-      : undefined,
+    settlesFromSms
+      ? []
+      : showStatementTypes
+        ? loadCoveredTypes(account.account_supplier_id)
+        : undefined,
   );
   // LIRA-370 — settling from the SMS, the ticked types scope the commission
   // only: every transfer of the picked days stays in (owner 2026-11-03).
@@ -584,7 +593,8 @@ export function AccountSettleSheet({
   );
 
   const handleCoveredChange = (next: OmtCoveredType[] | undefined) => {
-    setCoveredTypes(next);
+    // LIRA-378 — SMS mode never holds `undefined`: empty = no commission.
+    setCoveredTypes(settlesFromSms ? (next ?? []) : next);
     if (!settlesFromSms) saveCoveredTypes(account.account_supplier_id, next);
   };
 
@@ -678,12 +688,14 @@ export function AccountSettleSheet({
           coveredTypes !== undefined &&
           !coveredTypes.includes((r.omt_service_type ?? "UNSPECIFIED") as OmtCoveredType),
       );
+      const derived = deriveSmsCommission({ ...fig, sms: value, currency: c });
       out[c] = {
         expected: fig.expected,
         expectedCommission: fig.expectedCommission,
         owedShares: fig.owedSharesIncluded,
         sms: value,
-        derived: deriveSmsCommission({ ...fig, sms: value, currency: c }),
+        derived,
+        needsTypes: smsNeedsTickedTypes(coveredTypes, derived.commission, c),
         staysOwed: roundMoney(
           unticked.reduce((t, r) => t + outstandingEstimate(r, c), 0),
           c,
@@ -963,6 +975,9 @@ export function AccountSettleSheet({
     }
     return null;
   })();
+  // LIRA-378 — the same rule the server refuses on (smsNeedsTickedTypes).
+  const smsNeedsTypes =
+    sms !== null && SETTLE_CURRENCIES.some((c) => sms[c].needsTypes);
   const confirmDisabled =
     submitting ||
     !unsettledQuery.isSuccess ||
@@ -970,6 +985,7 @@ export function AccountSettleSheet({
     includedSections.length === 0 ||
     hasCommissionProblem ||
     creditTooHigh ||
+    smsNeedsTypes ||
     discountProblem !== null;
 
   /**
@@ -1305,7 +1321,9 @@ export function AccountSettleSheet({
         const key = accountRowKey(r);
         const q = queueByKey.get(key);
         const open = q !== undefined && isSettleRowOpen(q);
-        const waiting = open && isSettleRowWaiting(q, coveredTypes);
+        // LIRA-378 — the row scope, not the commission scope: in SMS mode
+        // every picked transfer stays in whatever is ticked.
+        const waiting = open && isSettleRowWaiting(q, rowScopeTypes);
         return {
           key,
           id: r.id,
@@ -1484,21 +1502,34 @@ export function AccountSettleSheet({
               onChange={handleCoveredChange}
               testIdPrefix="supplier-account-settle-covered"
               heading={t("settleTab.coveredHeading")}
+              emptyMeans={settlesFromSms ? "none" : "all"}
             />
           )}
 
           {/* LIRA-370 (R7) — settling from the SMS, the ticked types decide
-              whose commission this SMS pays: said out loud, never silent. */}
-          {settlesFromSms && coveredTypes !== undefined && (
-            <p
-              className="text-xs text-amber-300"
-              data-testid="supplier-account-settle-sms-includes"
-            >
-              {t("accountSettle.sms.includes", {
-                types: coveredTypes.map((ct) => coveredTypeLabel(ct)).join(", "),
-              })}
-            </p>
-          )}
+              whose commission this SMS pays: said out loud, never silent.
+              LIRA-378 — nothing ticked is said out loud too. */}
+          {settlesFromSms &&
+            coveredTypes !== undefined &&
+            (coveredTypes.length === 0 ? (
+              <p
+                className="text-xs text-amber-300"
+                data-testid="supplier-account-settle-sms-includes-none"
+              >
+                {t("accountSettle.sms.includesNone", {
+                  name: account.account_name,
+                })}
+              </p>
+            ) : (
+              <p
+                className="text-xs text-amber-300"
+                data-testid="supplier-account-settle-sms-includes"
+              >
+                {t("accountSettle.sms.includes", {
+                  types: coveredTypes.map((ct) => coveredTypeLabel(ct)).join(", "),
+                })}
+              </p>
+            ))}
           {settlesFromSms && owedShares.length > 0 && (
             <div
               className="bg-indigo-950/40 border border-indigo-800/60 rounded-xl px-3 py-2 text-xs text-indigo-200"
@@ -2334,6 +2365,16 @@ function CurrencySection({
                     {t("accountSettle.sms.sharesIncluded", {
                       amount: formatMoney(f.owedShares, s.currency),
                       name: accountName,
+                    })}
+                  </p>
+                )}
+                {f.needsTypes && (
+                  <p
+                    className="text-amber-400 text-xs font-semibold"
+                    data-testid={`supplier-account-settle-sms-needs-types-${lc}`}
+                  >
+                    {t("accountSettle.sms.needsTypes", {
+                      amount: formatMoney(d.commission, s.currency),
                     })}
                   </p>
                 )}

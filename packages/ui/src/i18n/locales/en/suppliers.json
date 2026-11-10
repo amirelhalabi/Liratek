@@ -169,6 +169,8 @@
       "lessThanExpected": "Less than expected ({{expected}}).",
       "staysOwed": "{{amount}} of commission on other types stays owed by {{name}}.",
       "includes": "This SMS includes: {{types}}",
+      "includesNone": "This SMS includes no commission — {{name}} still owes it. Tick the types it includes if it does.",
+      "needsTypes": "This SMS amount includes {{amount}} of commission, but no type is ticked. Tick the types the SMS includes before settling.",
       "owedShares": "Commission {{name}} still owes you: {{amount}} ({{types}})",
       "discount": "Discount: {{amount}}"
     },
@@ -221,7 +223,8 @@
   },
   "coveredTypes": {
     "defaultHeading": "Which commission does this SMS include?",
-    "types": "Types"
+    "types": "Types",
+    "none": "No commission"
   },
   "drawer": {
     "omtCash": "OMT Cash Drawer",

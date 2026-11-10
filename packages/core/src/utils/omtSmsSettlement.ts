@@ -157,6 +157,25 @@ export function expectedSmsFigure(args: {
   };
 }
 
+/**
+ * LIRA-378 (owner 2026-11-09) — nothing ticked says "this SMS includes no
+ * commission"; an SMS figure that still implies commission contradicts it,
+ * so the cashier must tick the types it includes. The sheet blocks Settle
+ * and the server refuses on this ONE rule (rule 14). `undefined` (all
+ * types, the other screens) is never blocked.
+ */
+export function smsNeedsTickedTypes(
+  coveredTypes: readonly OmtCoveredType[] | undefined,
+  commission: number,
+  currency: SmsCurrency,
+): boolean {
+  return (
+    coveredTypes !== undefined &&
+    coveredTypes.length === 0 &&
+    toMinor(commission, currency) > 0
+  );
+}
+
 /** The commission an SMS figure implies, split into expected and extra. */
 export function deriveSmsCommission(args: {
   owed: number;
