@@ -14,6 +14,18 @@
 # does nothing is worse than none, because you would believe you had one.
 # Same rule as tenantDomains.ts.
 
+# History kept per database (LIRA-377, shop restore "to an earlier time").
+# Litestream 0.5 defaults are interval 24h / retention 24h, i.e. about one
+# day. Retention deletes snapshots older than `retention` and then prunes the
+# smaller files below the last deleted snapshot, so the restorable window
+# moves between `retention - interval` and `retention`: 192h guarantees at
+# least 7 days, 168h could give only 6. One global block on purpose:
+# per-database `snapshot` values are applied process-wide and conflicting
+# values are a startup error (research.md R1, specs/377-shop-restore).
+snapshot:
+  interval: 24h
+  retention: 192h
+
 dbs:
   - path: ${DATABASE_PATH}
 

@@ -197,6 +197,13 @@ Litestream → R2 `liratek-backups`, 1 s sync, one prefix per file:
 
 Fly's volume also snapshots daily (5 retained).
 
+**History kept: at least 7 days** (`snapshot: interval 24h, retention 192h` in
+`backend/litestream.yml`, since 2026-11-10 15:00 UTC; before that, about 1
+day). Any file can be restored to any moment in that window with
+`litestream restore -timestamp <RFC3339 UTC> …`. The window is between
+`retention − interval` (7 days) and `retention` (8 days), so do not lower 192h
+to 168h. Full 7 days exist from 2026-11-17 onward.
+
 **The bucket holds `.ltx` transaction segments, not a `.db` file.** There is
 nothing to download and open; `litestream restore` reassembles them. The
 `0000/`–`0009/` folders are compaction levels.
