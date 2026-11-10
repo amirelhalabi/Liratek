@@ -108,3 +108,7 @@ transaction(data);
 ### Release note (rule 30)
 
 A migration by itself is invisible to users. If it ships a user-visible change, the feature that uses it owns the line in `docs/release-notes/UNRELEASED.md`. If the migration itself changes what users see, add the line here, e.g. restored data or a changed default.
+
+### Platform file (web)
+
+On web, migrations also run on the platform file `/data/liratek.db` (tenants + subscriptions, no shop data). Never seed per-shop rows from `SELECT id FROM tenants` — take shop ids from a shop table (e.g. `users`). Guarded by `packages/core/src/db/__tests__/migrationsPlatformFile.guard.test.ts`.

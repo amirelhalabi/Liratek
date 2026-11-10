@@ -322,7 +322,7 @@ load-bearing for tenant resolution).
 | **B** | Control-plane split: `tenants`, `tenant_subscriptions`, super-admin users/sessions, platform audit. **Touches login, impersonation, subscriptions.**                                       | 2–3 days | A          | ✅ Built (§ 12)                                                                                       |
 | **C** | Provisioning creates a tenant database from `create_db.sql` + migrations + config seed + first admin. Tenant delete becomes "archive the file" — the 68-table cascade becomes unnecessary. | ~1 day   | A, B       | ✅ Built (§ 12; migration v187 adds `provisioning` status)                                            |
 | **D** | Move the live tenants (**CornerTech id 1, Test id 5**, not N=1) into `/data/tenants/<id>.db`; extract control-plane rows; flip the mode flag (§ 11.1).                                    | hours    | C          | ✅ Done 2026-11-10 (§ 12.8)                                                                           |
-| **E** | Hosting. **Done as Fly.io** (`fly.toml`, `fra`, one machine); tunnel out of the serving path. Remaining, optional: Cloudflare proxied + wildcard `*.liratek.shop`, retiring `tenantDomains.ts`. | —        | D          | ✅ core / ⬜ wildcard                                                                                 |
+| **E** | Hosting. **Done as Fly.io** (`fly.toml`, `fra`, one machine); tunnel out of the serving path. Remaining, optional: Cloudflare proxied + wildcard `*.liratek.shop`, retiring `tenantDomains.ts`. | —        | D          | ✅ Done. Wildcard dropped 2026-11-10: designed for Cloudflare → VPS; on Vercel → Fly it needs a nameserver move (MX/SPF/DKIM live in Cloudflare) or a proxied hop that breaks per-IP rate limits. Per-shop records are already automatic (`tenantDomains.ts`). |
 | **F** | Durability. **Litestream → R2 live** for the shared file, restore proven (§ 10). Remaining: switch `backend/litestream.yml` to the `dir` + `watch` layout, prove a restore from it, delete the `web/liratek` prefix. | ~½ day   | D          | ✅ Done 2026-11-10 — per-tenant restore proven; `web/liratek` kept frozen (§ 12.8)                    |
 
 ### Invariants to enforce, not assume
@@ -820,6 +820,9 @@ yarn api:ssh
    mv /data/liratek.db-wal /data/liratek.db.pre-split-wal
    mv /data/liratek.db-shm /data/liratek.db.pre-split-shm
    mv /data/liratek.db.new /data/liratek.db
+   # Litestream's local state belongs to the OLD file; leave it and the
+   # platform backup stalls (§ 12.8 item 8). Move it aside too.
+   mv /data/.liratek.db-litestream /data/liratek.db-litestream.pre-split-state
    # ssh runs as root, the app as node: without this the app cannot write.
    chown node:node /data/liratek.db /data/tenants/*.db
    ```
@@ -1010,6 +1013,17 @@ Ran at 01:35–01:45 UTC (03:35 Beirut, both shops closed), from the Mac via
    all `integrity ok` with full counts. After `e874f857` deployed (01:49 UTC),
    the platform file restored again from the new `platform/` prefix: `ok`,
    2 tenants.
+
+8. **Platform backup stalled after the prefix change, fixed 01:56 UTC.** The
+   platform file's local Litestream state (`/data/.liratek.db-litestream`)
+   still belonged to the old shared file (local TXID 0x27309). Litestream
+   errored every few minutes (`open ltx file …/0000000000000001-…ltx: no
+   such file or directory`) and the deploy verifier did NOT catch it — it
+   only checks the boot line. Fix: renamed the folder to
+   `/data/liratek.db-litestream.pre-split-state` and restarted the machine.
+   Litestream started at TXID 1; a restore 3 minutes later matched the live
+   platform file and `tenants/1.db` exactly. **Any future swap of a
+   replicated file must also move its `.<name>-litestream` folder aside.**
 
 What the runbook got wrong, fixed above: deleting the WAL (data loss),
 missing `chown`, using `/tmp`, step 9 deleting the live platform backup, and
