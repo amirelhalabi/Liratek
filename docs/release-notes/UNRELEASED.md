@@ -46,6 +46,11 @@ On Suppliers → OMT → **Settle Account**, the box **"Which OMT commission doe
 Web app: admins have a new **Backup** tab in **Settings**. Press **Download backup** to save all your shop's data to your computer as one file, named with your shop and today's date and time. The file holds only your shop. Sign-in sessions and one-time links are left out. Keep it somewhere safe: it holds your customers, sales and staff accounts.
 ![Settings, Backup tab: "Download backup" with the button that saves the shop's data as one file](whats-new/1.35.0/shop-backup-download.png)
 
+### Restore your shop to an earlier time
+
+Web app: in **Settings → Backup**, admins can now put the shop back as it was at an earlier moment, or restore it from a backup file downloaded earlier. Before anything changes you see **what will be lost**: sales, money in, money out, expenses, checkpoints and settlements. Type the shop's name to confirm. A copy from just before the restore is kept at the top of the list, so one click undoes it. Everyone signs in again afterwards, and the shop owner gets an email. Restore to a time can go back 7 days from 17 November.
+![Settings, Backup tab: restoring to Nov 10, 9:10 AM, with "What will be lost: Sales 1 ($19), Money in $19, Money out none" and the shop name to type before "Restore the shop"](whats-new/1.35.0/shop-restore.png)
+
 ### Partner history with a running balance
 
 Open a partner on the **Partners** page to see their **History** under the balance cards: every entry in one list, newest first, including transfers, settlements, write-offs and credit / debt entries. A **Balance** column shows what the partner owed after each entry, so you can show them how the total adds up, line by line. The Transactions and Payments windows are still there.

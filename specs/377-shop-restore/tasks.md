@@ -130,10 +130,10 @@ description: "Task list for LIRA-377 Shop restore"
 
 ## Phase 7: Polish & cross-cutting
 
-- [ ] T053 [P] `docs/OPERATIONS.md`: restore points, `/data/restore-work/`, `/data/restore-points/`, sweep, how to restore a shop by hand if the web flow fails.
-- [ ] T054 [P] Release note in `docs/release-notes/UNRELEASED.md` (Settings / Web app heading) + What's new `### Restore your shop` card in `## ✨ Highlights` with a real landscape PNG at `frontend/public/whats-new/<next version>/shop-restore.png` taken by the e2e spec; "What users will notice:" line in the LIRA-377 ticket in `current_sprint.md`; run `node scripts/build-release-notes.cjs --check` (rule 30).
-- [ ] T055 `yarn typecheck` and `yarn lint`; full core suite `--maxWorkers=2`; affected backend/frontend test files only.
-- [ ] T056 Production check on the Test shop (tenant 5) after deploy, quickstart §4: backup-check ok → two sales 2 min apart → restore between them → backup-check within 5 min ok (SC-007) → restore the before-copy → second sale back → no `level=ERROR` litestream lines for `5.db`. Measure the block time on the 11 MB shop copy (SC-002 < 15 s).
+- [x] T053 [P] `docs/OPERATIONS.md`: restore points, `/data/restore-work/`, `/data/restore-points/`, sweep, how to restore a shop by hand if the web flow fails.
+- [x] T054 [P] Release note in `docs/release-notes/UNRELEASED.md` (Settings / Web app heading) + What's new `### Restore your shop` card in `## ✨ Highlights` with a real landscape PNG at `frontend/public/whats-new/<next version>/shop-restore.png` taken by the e2e spec; "What users will notice:" line in the LIRA-377 ticket in `current_sprint.md`; run `node scripts/build-release-notes.cjs --check` (rule 30).
+- [x] T055 `yarn typecheck` and `yarn lint`; full core suite `--maxWorkers=2`; affected backend/frontend test files only.
+- [x] T056 Production check on the Test shop (tenant 5) after deploy, quickstart §4: backup-check ok → two sales 2 min apart → restore between them → backup-check within 5 min ok (SC-007) → restore the before-copy → second sale back → no `level=ERROR` litestream lines for `5.db`. Measure the block time on the 11 MB shop copy (SC-002 < 15 s).
 
 ---
 
@@ -159,3 +159,11 @@ description: "Task list for LIRA-377 Shop restore"
 2. Phase 2 + US1 → MVP: time restore on the web, verified on the Test shop.
 3. US2 file restore, then US4 till PCs. The server-side hold (T042–T043) and `SHOP_RESTORING` (T044) must be merged before restore is exposed to any shop with paired PCs: until then T031 refused a restore for a shop with paired devices (guard removed 2026-11-10 once T042–T044 were built). The guard does NOT wait for T045 (PC side), because PCs keep old desktop builds for a while. Checked 2026-11-10: an old PC treats an unknown error code (`SHOP_RESTORING`) as a plain refusal and tries again on the next tick (`sender.ts` `stopWith`, `syncClient.ts` check-in), never as "re-pair". It ignores the new `restore` field and refreshes its copy on the normal 5-minute timer. So old PCs are safe, only slower to show the restored shop.
 4. US3 undo, polish, release note, production check.
+
+## Production check (T056), 2026-11-10 18:45–18:48 UTC, Test shop (tenant 5)
+
+- Client A created 18:45:17, restore point T = 18:46:17, client B created 18:47:18.
+- Restore to T: prepare 11.8 s (Litestream fetch), confirm 5.5 s. Afterwards A present, B gone; the old token answers 401.
+- Undo (the before-copy): B back. `yarn api:backup-check`: every database restores, tenant 5 not lagging (SC-007). No error lines in the logs.
+- Finding: the swap itself logged `ms: 5149` and `ms: 5058` on a small shop, against 19–30 ms in local tests. Likely the online backup waiting about 5 s (busy timeout) for Litestream's read lock. Still under SC-002 (15 s), but the shop is paused for that time. Follow-up: measure where the 5 s goes before restoring a busy shop.
+- Web e2e (T036, T041, T052) not written: the web e2e server runs the shared file, and restore needs per-tenant mode plus Litestream. Covered instead by `backend/src/api/__tests__/restore.test.ts` (real pool, real swap) and this production check.

@@ -8485,7 +8485,7 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 
 **What users will notice:** the Profits page on the web app opens much faster, and other staff no longer see errors while someone has it open.
 
-## LIRA-377: Restore a shop on the web (to an earlier time, or from a backup file) — BUILT 2026-11-10 (not deployed)
+## LIRA-377: Restore a shop on the web (to an earlier time, or from a backup file) — DEPLOYED 2026-11-10, checked on the Test shop
 
 **Asked by:** owner, 2026-11-10, after "Download backup" shipped (`829d64d6`): extend backup to backup and restore.
 
@@ -8493,7 +8493,7 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 
 **Spec:** `specs/377-shop-restore/spec.md`. Restore-to-a-time window: 7 days (owner, 2026-11-10). Desktop restore is out of scope (separate gap: the desktop makes local backups but has no restore button).
 
-**Built (2026-11-10):** migration v231 (`shop_restores`, platform-only; review kind `restore_removed`), shop pause in the pool, candidate preparation, preview (owner chose separate Money in / Money out lines), swap by online backup into the live file (Linux-proven on Fly), routes `/api/restore/*`, Litestream source, sweep, owner email, audit, till-PC hold + `SHOP_RESTORING` + PC banner + Apply with another client / walk-in. Tasks: `specs/377-shop-restore/tasks.md`. Not done: web e2e (the web e2e server runs the shared file, restore needs one file per shop), What's new card + screenshot and the production check on the Test shop (T056) — both after deploy.
+**Built (2026-11-10):** migration v231 (`shop_restores`, platform-only; review kind `restore_removed`), shop pause in the pool, candidate preparation, preview (owner chose separate Money in / Money out lines), swap by online backup into the live file (Linux-proven on Fly), routes `/api/restore/*`, Litestream source, sweep, owner email, audit, till-PC hold + `SHOP_RESTORING` + PC banner + Apply with another client / walk-in. Tasks: `specs/377-shop-restore/tasks.md`. Production check on the Test shop passed 2026-11-10 (restore, undo, backups; details at the end of tasks.md). What's new card with a real screenshot added. Not done: web e2e (the web e2e server runs the shared file); follow-up: the swap paused the shop about 5 s in production (19–30 ms locally), find out why before a busy shop restores.
 
 **What users will notice:** web admins can restore the shop in Settings › Backup to a moment in the last 7 days or from a downloaded backup file, after a preview of what will be lost; a copy from just before is kept to undo it; paired till PCs show "Shop restored" and reload the shop.
 
