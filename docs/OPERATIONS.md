@@ -202,7 +202,11 @@ nothing to download and open; `litestream restore` reassembles them. The
 `0000/`–`0009/` folders are compaction levels.
 
 Restore drill — run it periodically, because a backup nobody has restored is a
-hypothesis:
+hypothesis. **`yarn api:backup-check`** does the whole drill in ~15 s: restores
+the platform file and every shop file from R2 on the machine, checks integrity
+and fails if a copy is more than 5 minutes behind the live file. `yarn
+api:verify` cannot see a replication stall that starts after boot; this can.
+The manual steps:
 
 ```bash
 yarn api:ssh

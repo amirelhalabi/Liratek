@@ -52,6 +52,7 @@
     "api:status": "node scripts/fly.mjs status",
     "api:ssh": "node scripts/fly.mjs ssh console",
     "api:secrets": "node scripts/fly.mjs secrets list",
+    "api:backup-check": "node scripts/backup-check.mjs",
     "ops": "node tools/ops-dashboard/server.mjs",
     "ops:prune": "node scripts/prune-orphan-domains.mjs",
     "check:tenant-scoping": "node scripts/check-tenant-scoping.mjs",
