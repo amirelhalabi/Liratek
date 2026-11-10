@@ -1,12 +1,13 @@
 # Production Database & Hosting Plan
 
-> **Status (2026-09-28)**: Phases 0, A, B, C ✅ **shipped** — commits `4dcd16c0`, `161dd1c0`,
-> `a4c791d4`, `7c150b2f`, all pushed and deployed; CI green; desktop e2e 315/315 green (v187 safe
-> on desktop). Production runs **`TENANT_DB_MODE=shared`** (verified on the machine: env unset,
-> `/data/tenants` empty, schema v187). The split was **dry-run on a production snapshot**
-> (2026-09-28): `ok`, 70 tables × 2 shops match, 0 FK violations, boot guards pass — after two
-> real-data fixes (§ 12.7). **Only Phase D remains** (runbook § 12.4), incl. the Litestream
-> restore drill (unverified until run). Owner schedules it.
+> **Status (2026-11-10)**: **Phase D done — production runs `TENANT_DB_MODE=per-tenant`.**
+> `/data/liratek.db` is the platform file; shops are `/data/tenants/1.db` (CornerTech) and
+> `/data/tenants/5.db` (Test). Split at 2026-11-10 01:40 UTC from a `VACUUM INTO` snapshot;
+> per-table counts matched, 0 FK violations, verifier green, restore from R2 proven for all
+> three files. Phase F per-tenant done (platform → `platform/` prefix, shops → `tenants/`,
+> `web/liratek` frozen as the pre-split archive). What happened, and what the runbook got
+> wrong, is § 12.8. Phases 0, A, B, C shipped 2026-09-27/28 (`4dcd16c0`, `161dd1c0`,
+> `a4c791d4`, `7c150b2f`).
 > Blocks `docs/plans/todo_plans/OFFLINE_DESKTOP_FALLBACK_PLAN.md` (its Step 1).
 > **Written**: 2026-09-09. Supersedes the "one shared file" assumption in
 > `MULTI_TENANT_IMPLEMENTATION_PLAN.md`.
@@ -320,9 +321,9 @@ load-bearing for tenant resolution).
 | **A** | Tenant-aware `getDatabase()`: connection map keyed by tenant id, migrate-on-open, idle close. Failing-first tests.                                                                         | ~1 day   | 0          | ✅ Built (§ 11)                                                                                       |
 | **B** | Control-plane split: `tenants`, `tenant_subscriptions`, super-admin users/sessions, platform audit. **Touches login, impersonation, subscriptions.**                                       | 2–3 days | A          | ✅ Built (§ 12)                                                                                       |
 | **C** | Provisioning creates a tenant database from `create_db.sql` + migrations + config seed + first admin. Tenant delete becomes "archive the file" — the 68-table cascade becomes unnecessary. | ~1 day   | A, B       | ✅ Built (§ 12; migration v187 adds `provisioning` status)                                            |
-| **D** | Move the live tenants (**CornerTech id 1, Test id 5**, not N=1) into `/data/tenants/<id>.db`; extract control-plane rows; flip the mode flag (§ 11.1).                                    | hours    | C          | ⬜ Next — runbook § 12.4, dry-run on a prod snapshot passed 2026-09-28                                |
+| **D** | Move the live tenants (**CornerTech id 1, Test id 5**, not N=1) into `/data/tenants/<id>.db`; extract control-plane rows; flip the mode flag (§ 11.1).                                    | hours    | C          | ✅ Done 2026-11-10 (§ 12.8)                                                                           |
 | **E** | Hosting. **Done as Fly.io** (`fly.toml`, `fra`, one machine); tunnel out of the serving path. Remaining, optional: Cloudflare proxied + wildcard `*.liratek.shop`, retiring `tenantDomains.ts`. | —        | D          | ✅ core / ⬜ wildcard                                                                                 |
-| **F** | Durability. **Litestream → R2 live** for the shared file, restore proven (§ 10). Remaining: switch `backend/litestream.yml` to the `dir` + `watch` layout, prove a restore from it, delete the `web/liratek` prefix. | ~½ day   | D          | ✅ single file / ⬜ per-tenant                                                                        |
+| **F** | Durability. **Litestream → R2 live** for the shared file, restore proven (§ 10). Remaining: switch `backend/litestream.yml` to the `dir` + `watch` layout, prove a restore from it, delete the `web/liratek` prefix. | ~½ day   | D          | ✅ Done 2026-11-10 — per-tenant restore proven; `web/liratek` kept frozen (§ 12.8)                    |
 
 ### Invariants to enforce, not assume
 
@@ -811,12 +812,21 @@ yarn api:ssh
    # Swap the platform file in. Stop the app first (fly machine stop), or
    # accept a brief blip — there is no way to hot-swap the file the running
    # process has open.
-   mv /data/liratek.db /data/liratek.db.pre-split-backup
+   # RENAME the live triple, never rm the WAL: on 2026-11-10 the -wal was
+   # 179 MB beside an 11.7 MB main file, i.e. most recent data lived ONLY in
+   # the WAL. Deleting it would have made the "backup" stale. Keep the three
+   # names matching (X, X-wal, X-shm) so SQLite finds the WAL when opened.
+   mv /data/liratek.db     /data/liratek.db.pre-split
+   mv /data/liratek.db-wal /data/liratek.db.pre-split-wal
+   mv /data/liratek.db-shm /data/liratek.db.pre-split-shm
    mv /data/liratek.db.new /data/liratek.db
-   rm -f /data/liratek.db-wal /data/liratek.db-shm  # stale WAL beside a
-                                                     # DIFFERENT file is how a
-                                                     # restore corrupts (§ 4d)
+   # ssh runs as root, the app as node: without this the app cannot write.
+   chown node:node /data/liratek.db /data/tenants/*.db
    ```
+
+   Work in `/data/<dir>`, not `/tmp`: `/tmp` is the container's root fs and
+   the restart in step 6 wipes it. Copy the step 2 snapshot off the box
+   (`yarn api ssh sftp get …`) before this step.
 
 6. **Set `TENANT_DB_MODE=per-tenant`** (Fly secret, triggers a machine
    update on its own — no separate deploy needed for the env var alone):
@@ -865,10 +875,12 @@ yarn api:ssh
    derive ids from) or to force a specific list for a one-off drill; set it
    (see `docker-entrypoint.sh`'s comment) before restarting the machine.
 
-9. **Retire the `web/liratek` prefix** — once step 8 is proven and a few
-   days have passed with `per-tenant` mode stable, the old single-file
-   replica prefix (`platform` is now the live one) can be deleted from R2.
-   Not urgent, and not reversible — keep it until you are confident.
+9. **Do NOT delete `web/liratek` as part of this runbook.** Until
+   `e874f857`, `litestream.yml` still pointed the platform file at
+   `web/liratek`, so this step as first written would have deleted the LIVE
+   platform backup. Since `e874f857` the platform file replicates to
+   `platform/` and `web/liratek` is a frozen archive of the shared file up to
+   the split. Deleting it is an owner decision, weeks later, not a step.
 
 **Rollback**, if step 6/7 goes wrong before step 9: set
 `TENANT_DB_MODE=shared` back, restore `/data/liratek.db.pre-split-backup`
@@ -972,3 +984,40 @@ cross-shop rows, a platform file holding only `tenants`, `tenant_subscriptions`,
 and its session; the boot guards report split done and no missing shops. Facts confirmed on the
 way: production shops are ids **1 cornertech** and **5 test**; most web data belongs to the Test
 shop; the 179 MB `liratek.db-wal` is a harmless high-water mark (1 live frame).
+
+### 12.8 Phase D as run (2026-11-10)
+
+Ran at 01:35–01:45 UTC (03:35 Beirut, both shops closed), from the Mac via
+`yarn api ssh console`.
+
+1. Snapshot: `VACUUM INTO /data/phase-d/source.db` (188 ms, sha256
+   `bfd607bf…`, last transaction 2026-11-09 22:19). Copied off the box to the
+   owner's Mac (`~/Documents/LiraTek/backup-pre-split-20261110/`).
+2. Split dry run, then `--write` into `/data/phase-d/out`: `ok: true`,
+   309 table counts verified, `mismatches: []`, no unexpected rows or tables,
+   all three files `integrity ok` with 0 FK violations.
+   `rewrittenLegacyImpersonatorRows` was EMPTY, not 1 as § 12.4 predicted:
+   the oldest audit row is now 2026-10-07, so the 2026-09-09 row is gone.
+3. Live file vs snapshot just before the swap: same max ids on transactions,
+   payments, debt_ledger and audit_log — nothing written in between.
+4. Renamed the live triple to `liratek.db.pre-split{,-wal,-shm}`, moved the
+   output in, `chown node:node`.
+5. `secrets set TENANT_DB_MODE=per-tenant` → restart; `yarn api:verify` all
+   green (`failed:0`, `missing:0`); sign-in directory: zero differences.
+6. Per-shop counts against the snapshot matched exactly (CornerTech 5,161
+   transactions, Test 166; 5,327 total). Platform file has 0 shop rows.
+7. Restore drill from R2: platform file by path, shop files by replica URL —
+   all `integrity ok` with full counts. After `e874f857` deployed (01:49 UTC),
+   the platform file restored again from the new `platform/` prefix: `ok`,
+   2 tenants.
+
+What the runbook got wrong, fixed above: deleting the WAL (data loss),
+missing `chown`, using `/tmp`, step 9 deleting the live platform backup, and
+the entrypoint's per-shop restore by path (fixed in `e874f857` — Litestream
+0.5.17 says "database not found in config" for a file under a `dir:` entry).
+
+Kept on the volume until the layout has run cleanly for a few weeks:
+`/data/liratek.db.pre-split{,-wal,-shm}` and `/data/phase-d/source.db`.
+Rollback after shops have worked in per-tenant mode loses their new data
+(§ 12.4 Rollback) — it is no longer a routine option.
+
