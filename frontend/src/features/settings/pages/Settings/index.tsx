@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Tag } from "lucide-react";
@@ -20,6 +20,8 @@ import ResetDataPanel from "./ResetDataPanel";
 import SignedInDevices from "./SignedInDevices";
 // LIRA-306 US3: paired PCs for offline work (web app).
 import PairedPcsPanel from "./PairedPcsPanel";
+// Web app: an admin downloads a backup file of their own shop.
+import ShopBackupPanel from "./ShopBackupPanel";
 // LIRA-306: pair THIS desktop PC for offline work (desktop app).
 import { PairThisPcCard } from "@/features/offline/components/PairThisPcCard";
 // LIRA-280: Connect Google, on the tab about how this user signs in.
@@ -41,6 +43,7 @@ type TabKey =
   | "carrier-lines"
   | "profits"
   | "license"
+  | "backup"
   | "reset";
 
 /** Every valid tab key — the single source of truth for the `?tab=` deep
@@ -62,6 +65,7 @@ const TAB_KEYS: readonly TabKey[] = [
   "carrier-lines",
   "profits",
   "license",
+  "backup",
   "reset",
 ];
 
@@ -95,8 +99,10 @@ const DESKTOP_ONLY_TABS: readonly TabKey[] = [
 
 /** Tabs that act on the server's shop data, which a desktop PC does not
  *  hold (LIRA-306, constitution E1):
- *    - "paired-pcs" — the PCs paired for offline work, and Unpair. */
-const WEB_ONLY_TABS: readonly TabKey[] = ["paired-pcs"];
+ *    - "paired-pcs" — the PCs paired for offline work, and Unpair.
+ *    - "backup" — download a backup file of the shop's server data (the
+ *      desktop keeps its own local backups on Diagnostics). */
+const WEB_ONLY_TABS: readonly TabKey[] = ["paired-pcs", "backup"];
 
 function isTabAvailable(key: TabKey): boolean {
   if (WEB_ONLY_TABS.includes(key)) return !isElectron();
@@ -143,6 +149,7 @@ export default function Settings() {
     { key: "carrier-lines", label: t("tabs.carrierLines") },
     { key: "diagnostics", label: t("tabs.diagnostics") },
     { key: "license", label: t("tabs.license") },
+    { key: "backup", label: t("tabs.backup") },
     // Deliberately last — a destructive admin-only action, kept away from
     // the tabs an operator reaches for day to day.
     { key: "reset", label: t("tabs.reset") },
@@ -152,18 +159,31 @@ export default function Settings() {
   // than present-and-broken on the web build.
   const tabs = allTabs.filter((tab) => isTabAvailable(tab.key));
 
+  // The tab bar scrolls sideways when it is wider than the card; keep the
+  // active tab in view (a `?tab=` deep link may open one past the edge).
+  const tabBarRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    tabBarRef.current
+      ?.querySelector<HTMLElement>(`[data-tab="${active}"]`)
+      ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [active]);
+
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
       <PageHeader title={t("page.title")} />
 
       {/* Tab Navigation Section */}
       <div className="flex-1 min-h-0 bg-slate-800 rounded-xl border border-slate-700 shadow-lg flex flex-col overflow-hidden">
-        <div className="flex gap-2 p-2 border-b border-slate-700 shrink-0">
+        <div
+          ref={tabBarRef}
+          className="flex gap-2 p-2 border-b border-slate-700 shrink-0 overflow-x-auto"
+        >
           {tabs.map((tab) => (
             <button
               key={tab.key}
+              data-tab={tab.key}
               onClick={() => setActive(tab.key)}
-              className={`px-3 py-1 rounded ${active === tab.key ? "bg-violet-600 text-white" : "text-slate-300 hover:bg-slate-800"}`}
+              className={`shrink-0 whitespace-nowrap px-3 py-1 rounded ${active === tab.key ? "bg-violet-600 text-white" : "text-slate-300 hover:bg-slate-800"}`}
             >
               {tab.label}
             </button>
@@ -201,6 +221,9 @@ export default function Settings() {
           )}
           {active === "license" && isTabAvailable("license") && (
             <LicensePanel />
+          )}
+          {active === "backup" && isTabAvailable("backup") && (
+            <ShopBackupPanel />
           )}
           {active === "reset" && <ResetDataPanel />}
         </div>

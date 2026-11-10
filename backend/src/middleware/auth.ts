@@ -168,8 +168,15 @@ function maybeRenewToken(res: Response, payload: LiratekJwtPayload): void {
       { expiresIn: JWT_EXPIRES_IN as jwt.SignOptions["expiresIn"] },
     );
     res.setHeader(RENEWED_TOKEN_HEADER, renewed);
-    // Or a browser cannot read it cross-origin.
-    res.setHeader("Access-Control-Expose-Headers", RENEWED_TOKEN_HEADER);
+    // Or a browser cannot read it cross-origin. ADD to the list CORS already
+    // set (server.ts exposes Content-Disposition for the backup download) —
+    // replacing it hid the file name on every renewed request.
+    const exposed = String(res.getHeader("Access-Control-Expose-Headers") ?? "")
+      .split(",")
+      .map((h) => h.trim())
+      .filter(Boolean);
+    if (!exposed.includes(RENEWED_TOKEN_HEADER)) exposed.push(RENEWED_TOKEN_HEADER);
+    res.setHeader("Access-Control-Expose-Headers", exposed.join(", "));
   } catch {
     // Deliberately silent — see the doc comment.
   }

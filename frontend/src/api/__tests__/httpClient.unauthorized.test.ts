@@ -14,6 +14,7 @@
 
 import {
   requestJson,
+  requestFile,
   setToken,
   getToken,
   setImpersonationToken,
@@ -302,5 +303,35 @@ describe("requestJson — 401 handling", () => {
     }
     // Logging out must not swallow the diagnosis.
     expect(captured?.message).toBe("Invalid or expired session");
+  });
+});
+
+describe("requestFile — 401 handling", () => {
+  afterEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  it("a rejected session on a file download ends the session like requestJson does", async () => {
+    let fired = 0;
+    const onUnauthorized = () => {
+      fired += 1;
+    };
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    setToken("dead-token");
+    (globalThis as unknown as { fetch: unknown }).fetch = jest.fn(async () => ({
+      ok: false,
+      status: 401,
+      headers: { get: (h: string) => (h === "Content-Type" ? "application/json" : null) },
+      json: async () => ({ error: "Invalid token" }),
+    }));
+    try {
+      const res = await requestFile("/api/backup/download?stamp=2026-11-10-1430");
+      expect(res.success).toBe(false);
+      expect(getToken()).toBeNull();
+      expect(fired).toBe(1);
+    } finally {
+      window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    }
   });
 });

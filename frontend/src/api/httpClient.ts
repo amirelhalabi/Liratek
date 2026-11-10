@@ -218,6 +218,83 @@ export function clearImpersonationSession(): void {
   sessionStorage.removeItem(IMPERSONATION_USERNAME_KEY);
 }
 
+/**
+ * The headers every API request carries: JSON content type and, when
+ * authenticated, the bearer token plus this browser's day and UTC offset.
+ * Shared by `requestJson` and `requestFile` so the two never drift.
+ */
+function buildRequestHeaders(auth: boolean): {
+  headers: Record<string, string>;
+  sentToken: string | null;
+} {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  let sentToken: string | null = null;
+  if (auth) {
+    const token = getToken();
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+      sentToken = token;
+    }
+    headers["X-Client-Day"] = localDay();
+    // LIRA-237: the browser's own UTC offset (minutes to ADD to a UTC
+    // instant to reach this browser's local wall clock — the JS
+    // convention `-date.getTimezoneOffset()`), so server-side reporting
+    // queries can bucket a stored UTC row into THIS browser's day instead
+    // of the Fly host's (UTC, rule 27) — see
+    // `ProfitRepository.localtimeModifier()`'s doc comment for the full
+    // mechanism. Sent as a string; the server range-validates and
+    // silently ignores anything malformed.
+    headers["X-Client-Tz-Offset"] = String(-new Date().getTimezoneOffset());
+  }
+  return { headers, sentToken };
+}
+
+/**
+ * GET a file (authenticated). The server answers either the file itself or,
+ * on refusal, the usual `{ success:false, error }` JSON envelope (HTTP 200,
+ * rule 19c) — told apart by Content-Type. The file name comes from the
+ * `Content-Disposition` header when the page can read it.
+ */
+export async function requestFile(
+  path: string,
+): Promise<
+  | { success: true; data: { blob: Blob; fileName: string | null } }
+  | { success: false; error: string }
+> {
+  const url = `${getBaseUrl()}${path.startsWith("/") ? "" : "/"}${path}`;
+  const { headers, sentToken } = buildRequestHeaders(true);
+  const res = await fetch(url, { method: "GET", headers });
+  // Same "a 401 only condemns the session it was sent with" rule as
+  // requestJson's 401 branch, without its silent retry: the user can click
+  // the download again.
+  if (res.status === 401 && sentToken && getToken() === sentToken) {
+    if (getImpersonationToken() === sentToken) clearImpersonationSession();
+    else setToken(null);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
+    }
+  }
+  const type = res.headers?.get("Content-Type") ?? "";
+  if (type.includes("application/json")) {
+    const data = (await res.json()) as { success?: boolean; error?: string; message?: string } | null;
+    return {
+      success: false,
+      error: data?.error || data?.message || `Request failed (${res.status})`,
+    };
+  }
+  if (!res.ok) {
+    return { success: false, error: `Request failed (${res.status})` };
+  }
+  const disposition = res.headers?.get("Content-Disposition") ?? "";
+  const match = /filename="?([^";]+)"?/i.exec(disposition);
+  return {
+    success: true,
+    data: { blob: await res.blob(), fileName: match?.[1] ?? null },
+  };
+}
+
 export async function requestJson<T>(
   path: string,
   options?: {
@@ -234,31 +311,10 @@ export async function requestJson<T>(
   let retriedAfterImpersonationEnded = false;
 
   for (;;) {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-
     // Remembered so a 401 can tell "the server rejected OUR credential" from
     // "we never sent one", AND so a late 401 belonging to an OLD session cannot
     // discard a newer one — see the !res.ok branch below.
-    let sentToken: string | null = null;
-    if (options?.auth !== false) {
-      const token = getToken();
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-        sentToken = token;
-      }
-      headers["X-Client-Day"] = localDay();
-      // LIRA-237: the browser's own UTC offset (minutes to ADD to a UTC
-      // instant to reach this browser's local wall clock — the JS
-      // convention `-date.getTimezoneOffset()`), so server-side reporting
-      // queries can bucket a stored UTC row into THIS browser's day instead
-      // of the Fly host's (UTC, rule 27) — see
-      // `ProfitRepository.localtimeModifier()`'s doc comment for the full
-      // mechanism. Sent as a string; the server range-validates and
-      // silently ignores anything malformed.
-      headers["X-Client-Tz-Offset"] = String(-new Date().getTimezoneOffset());
-    }
+    const { headers, sentToken } = buildRequestHeaders(options?.auth !== false);
 
     const res = await fetch(url, {
       method,

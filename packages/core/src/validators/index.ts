@@ -89,3 +89,5 @@ export * from "./app.js";
 export * from "./userPreferences.js";
 // LIRA-348: Audit & Transactions open on today, 50 at a time (keyset paging).
 export * from "./tablePaging.js";
+// Web "Download backup" (Settings › Backup): the browser's local file stamp.
+export * from "./backup.js";

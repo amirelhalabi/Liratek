@@ -152,6 +152,7 @@ import type {
 import * as api from "./backendApi";
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
+import type { ShopBackupPayload } from "@liratek/core";
 // LIRA-306 T093 — maintenance metadata edit payload (rule 21).
 import type { MaintenanceUpdateMetadataInput } from "@liratek/core";
 // Session basket checkout payload, derived from the core schema (rule 21).
@@ -593,6 +594,9 @@ export class ElectronApiAdapter implements ApiAdapter {
   revokePairedPc = (id: number) => api.revokePairedPc(id);
   getOfflineReviewPreview = (id: number) => api.getOfflineReviewPreview(id);
   renumberPairedPc = (id: number) => api.renumberPairedPc(id);
+  // Web "Download backup" (Settings › Backup) — web-only.
+  downloadShopBackup = (query: ShopBackupPayload) =>
+    api.downloadShopBackup(query);
   createCheckpoint = (data: CreateCheckpointPayload) =>
     api.createCheckpoint(data);
   getCheckpointTimeline = (filters?: CheckpointFilters) =>

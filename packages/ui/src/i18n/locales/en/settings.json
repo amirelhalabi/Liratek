@@ -130,6 +130,13 @@
     "checkNow": "Check now",
     "removeHint": "Leave the box empty and press Save to remove the key. Removing it restores full access — it never locks anything."
   },
+  "backup": {
+    "title": "Download backup",
+    "intro": "Save a copy of all your shop's data to this computer, as one file. Sign-in sessions and one-time links are not included. Keep the file somewhere safe: it holds your customers, sales and staff accounts.",
+    "download": "Download backup",
+    "preparing": "Preparing backup…",
+    "failed": "The backup could not be downloaded. Please try again."
+  },
   "pairedPcs": {
     "state": {
       "standby": "Ready (online)",
@@ -204,6 +211,7 @@
     "carrierLines": "Carrier Lines",
     "diagnostics": "Diagnostics",
     "license": "Licence",
+    "backup": "Backup",
     "reset": "Reset Data"
   },
   "google": {

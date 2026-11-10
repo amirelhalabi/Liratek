@@ -70,6 +70,9 @@ app.use(
   cors({
     origin: CORS_ORIGIN,
     credentials: true,
+    // The backup download's file name (Settings › Backup) — readable by the
+    // page only when listed here, in setups where the API is cross-origin.
+    exposedHeaders: ["Content-Disposition"],
   }),
 );
 // Body size limit. Express's default is 100 kB, which is far too small for
@@ -189,6 +192,8 @@ import userEmailRoutes from "./api/userEmail.js";
 // LIRA-331: a user's own UI language.
 import userPreferencesRoutes from "./api/userPreferences.js";
 import offlineRoutes from "./api/offline.js";
+// Web "Download backup" (Settings › Backup): an admin downloads their own shop.
+import backupRoutes from "./api/backup.js";
 import { startOfflineProcessorTimer } from "./offline/processorTimer.js";
 import passwordResetRoutes from "./api/passwordReset.js";
 import googleAuthRoutes from "./api/googleAuth.js";
@@ -287,6 +292,7 @@ app.use("/api/user-preferences", userPreferencesRoutes);
 app.use("/api/password-reset", passwordResetRoutes);
 // LIRA-306 offline desktop fallback: PC device-key routes (review routes: US3).
 app.use("/api/offline", offlineRoutes);
+app.use("/api/backup", backupRoutes);
 
 app.get("/api", (_req, res) => {
   res.json({ message: "LiraTek API Server", version: "1.0.0" });

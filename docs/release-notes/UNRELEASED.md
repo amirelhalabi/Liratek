@@ -36,6 +36,11 @@
 
 ## ✨ Highlights
 
+### Download a backup of your shop
+
+Web app: admins have a new **Backup** tab in **Settings**. Press **Download backup** to save all your shop's data to your computer as one file, named with your shop and today's date and time. The file holds only your shop. Sign-in sessions and one-time links are left out. Keep it somewhere safe: it holds your customers, sales and staff accounts.
+![Settings, Backup tab: "Download backup" with the button that saves the shop's data as one file](whats-new/1.35.0/shop-backup-download.png)
+
 ### Partner history with a running balance
 
 Open a partner on the **Partners** page to see their **History** under the balance cards: every entry in one list, newest first, including transfers, settlements, write-offs and credit / debt entries. A **Balance** column shows what the partner owed after each entry, so you can show them how the total adds up, line by line. The Transactions and Payments windows are still there.
@@ -402,6 +407,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 - Settings → Users now lists admin users too, so an admin account can be seen, deactivated or given a new password there.
 - Reset Data: if the list of what will be removed can't load, you now see why, with a Retry button. If it takes long, a Retry button appears too. Before, "Reset All Data" just stayed greyed out.
 - Shop Config: if the shop settings can't load, you now see why, with a Retry button, instead of an empty form. If they take long, a Retry button appears too.
+- Web app: admins have a new **Backup** tab in Settings with a **Download backup** button. It saves all your shop's data to your computer as one file, named with your shop and today's date and time. The file holds only your shop. Sign-in sessions and one-time links are left out.
 
 ## 🧾 Expenses
 

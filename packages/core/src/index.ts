@@ -300,3 +300,22 @@ export {
   resetOfflineSnapshotService,
   type OfflineSnapshotServiceDeps,
 } from "./services/OfflineSnapshotService.js";
+// Web "Download backup" (Settings › Backup) — server-only (rule 29).
+export {
+  buildTenantBackupFile,
+  type BuildTenantBackupFileOptions,
+  type TenantBackupFile,
+} from "./db/tenantSnapshot.js";
+export {
+  ShopBackupRepository,
+  getShopBackupRepository,
+  resetShopBackupRepository,
+  type ShopBackupRepositoryOptions,
+} from "./repositories/ShopBackupRepository.js";
+export {
+  ShopBackupService,
+  getShopBackupService,
+  resetShopBackupService,
+  type ShopBackupServiceDeps,
+  type ShopBackupFile,
+} from "./services/ShopBackupService.js";

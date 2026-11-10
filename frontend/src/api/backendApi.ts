@@ -6,6 +6,7 @@ import {
   isImpersonationActive,
   clearImpersonationSession,
   storeNewLoginToken,
+  requestFile,
 } from "./httpClient";
 import { decodeJwtPayload } from "@/shared/utils/jwt";
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
@@ -309,6 +310,7 @@ import type {
 } from "@liratek/ui";
 
 import type { AccountPicture, GoogleLinkView } from "@liratek/core";
+import type { ShopBackupPayload } from "@liratek/core";
 import type {
   SalesDateRangeInput,
   UpdateCategoryPayload,
@@ -3752,6 +3754,45 @@ export async function revokePairedPc(
     async () => ({ success: false, error: WEB_ONLY }),
     async () =>
       requestJson(`/api/offline/devices/${id}/revoke`, { method: "POST" }),
+  );
+}
+
+// ── Web "Download backup" (Settings › Backup) — web-only ──────────────────
+// The desktop keeps its local backups (Settings › Diagnostics), so its branch
+// is a clear refusal, still routed through ipcOrHttp (rule 19/22). The query
+// type comes from the core schema (rule 21); `stamp` is the browser's local
+// time for the file name (rule 27).
+export async function downloadShopBackup(
+  query: ShopBackupPayload,
+): Promise<{
+  success: boolean;
+  data?: { blob: Blob; fileName: string };
+  error?: string;
+}> {
+  return ipcOrHttp<{
+    success: boolean;
+    data?: { blob: Blob; fileName: string };
+    error?: string;
+  }>(
+    async () => ({ success: false, error: WEB_ONLY }),
+    async () => {
+      const qs = query.stamp
+        ? `?stamp=${encodeURIComponent(query.stamp)}`
+        : "";
+      const res = await requestFile(`/api/backup/download${qs}`);
+      if (!res.success) return res;
+      return {
+        success: true,
+        data: {
+          blob: res.data.blob,
+          // The server names the file; only when the header is unreadable
+          // does the page fall back to a generic name with the same stamp.
+          fileName:
+            res.data.fileName ??
+            `liratek-backup${query.stamp ? `-${query.stamp}` : ""}.db`,
+        },
+      };
+    },
   );
 }
 

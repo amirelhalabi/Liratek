@@ -234,32 +234,76 @@ function verifyOnlyOwnShop(copy: Database.Database, tenantId: number): void {
   }
 }
 
+interface ShopCopyFileOptions {
+  tenantId: number;
+  sourceDb: Database.Database;
+  file: string;
+  Ctor: typeof Database;
+  label: string;
+  /** Inside the strip transaction, BEFORE secrets are stripped. */
+  beforeStrip?: (copy: Database.Database) => void;
+  /** Inside the strip transaction, AFTER stripping, before sequences reset. */
+  afterStrip?: (copy: Database.Database) => void;
+}
+
+/**
+ * Steps 1, 2, 4, 6 and 7 of the header — the ONE way a single-shop file is
+ * made from the server's database (rule 14). Shared by the offline copy
+ * (`buildTenantSnapshot`) and the web "Download backup"
+ * (`buildTenantBackupFile`); each adds only its own extras through the hooks.
+ */
+function writeShopCopyFile(o: ShopCopyFileOptions): { foreignKeyViolations: number } {
+  const { tenantId, sourceDb } = o;
+  const known = sourceDb.prepare(`SELECT 1 FROM tenants WHERE id = ?`).get(tenantId);
+  if (!known) throw new Error(`${o.label}: unknown shop ${tenantId}`);
+
+  sourceDb.prepare("VACUUM INTO ?").run(o.file);
+  const copy = new o.Ctor(o.file);
+  try {
+    narrowToTenant(copy, tenantId, { sourceDb, keepOwnSubscriptionRow: true, label: o.label });
+    copy.transaction(() => {
+      o.beforeStrip?.(copy);
+      stripSecrets(copy);
+      o.afterStrip?.(copy);
+      resetSequences(copy);
+    })();
+    verifyOnlyOwnShop(copy, tenantId);
+    copy.exec("VACUUM");
+    const integrity = (copy.pragma("integrity_check") as { integrity_check: string }[])[0]
+      ?.integrity_check;
+    if (integrity !== "ok") {
+      throw new Error(`${o.label}: integrity_check failed for shop ${tenantId}: ${integrity}`);
+    }
+    return { foreignKeyViolations: (copy.pragma("foreign_key_check") as unknown[]).length };
+  } finally {
+    copy.close();
+  }
+}
+
 export function buildTenantSnapshot(opts: BuildTenantSnapshotOptions): TenantSnapshot {
   const started = Date.now();
   const { tenantId } = opts;
   const Ctor = opts.DatabaseCtor ?? Database;
   const sourceDb = opts.sourceDb ?? getDatabase();
 
-  const known = sourceDb.prepare(`SELECT 1 FROM tenants WHERE id = ?`).get(tenantId);
-  if (!known) throw new Error(`buildTenantSnapshot: unknown shop ${tenantId}`);
-
   const dir = fs.mkdtempSync(path.join(opts.tmpRoot ?? os.tmpdir(), "liratek-snapshot-"));
   try {
     const file = path.join(dir, "copy.db");
-    sourceDb.prepare("VACUUM INTO ?").run(file);
-
     const copyId = crypto.randomUUID();
     const builtAt = (opts.now ? opts.now() : new Date()).toISOString();
     let schemaVersion = 0;
     let highWater: Record<string, number> = {};
-    let foreignKeyViolations = 0;
 
-    const copy = new Ctor(file);
-    try {
-      narrowToTenant(copy, tenantId, { sourceDb, keepOwnSubscriptionRow: true, label: "offline snapshot" });
-      copy.transaction(() => {
+    const { foreignKeyViolations } = writeShopCopyFile({
+      tenantId,
+      sourceDb,
+      file,
+      Ctor,
+      label: "buildTenantSnapshot",
+      beforeStrip: (copy) => {
         highWater = readHighWater(copy);
-        stripSecrets(copy);
+      },
+      afterStrip: (copy) => {
         schemaVersion = getCurrentVersion(copy);
         copy
           .prepare(
@@ -267,19 +311,8 @@ export function buildTenantSnapshot(opts: BuildTenantSnapshotOptions): TenantSna
              VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
           )
           .run(tenantId, copyId, builtAt, schemaVersion, JSON.stringify(highWater), builtAt, builtAt);
-        resetSequences(copy);
-      })();
-      verifyOnlyOwnShop(copy, tenantId);
-      copy.exec("VACUUM");
-      const integrity = (copy.pragma("integrity_check") as { integrity_check: string }[])[0]
-        ?.integrity_check;
-      if (integrity !== "ok") {
-        throw new Error(`buildTenantSnapshot: integrity_check failed for shop ${tenantId}: ${integrity}`);
-      }
-      foreignKeyViolations = (copy.pragma("foreign_key_check") as unknown[]).length;
-    } finally {
-      copy.close();
-    }
+      },
+    });
 
     const raw = fs.readFileSync(file);
     const gzip = zlib.gzipSync(raw);
@@ -305,4 +338,47 @@ export function buildTenantSnapshot(opts: BuildTenantSnapshotOptions): TenantSna
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+}
+
+export interface BuildTenantBackupFileOptions {
+  tenantId: number;
+  /** Where to write the file; must not exist yet. The caller owns (and
+   * deletes) it. */
+  destPath: string;
+  /** Default: `getDatabase()` — in per-tenant mode that is the shop's own
+   * file, in shared mode the one file every shop shares. Either way the copy
+   * is narrowed to `tenantId` and verified. */
+  sourceDb?: Database.Database;
+  DatabaseCtor?: typeof Database;
+}
+
+export interface TenantBackupFile {
+  sizeBytes: number;
+  buildMs: number;
+  foreignKeyViolations: number;
+}
+
+/**
+ * Web "Download backup" (Settings › Backup): the same single-shop file as
+ * the offline copy, with the same sign-in material stripped, but WITHOUT an
+ * `offline_copy_meta` row (a restored backup must never look like an offline
+ * working copy to the desktop's boot decision) and not gzipped — the route
+ * streams the plain SQLite file.
+ */
+export function buildTenantBackupFile(opts: BuildTenantBackupFileOptions): TenantBackupFile {
+  const started = Date.now();
+  const { foreignKeyViolations } = writeShopCopyFile({
+    tenantId: opts.tenantId,
+    sourceDb: opts.sourceDb ?? getDatabase(),
+    file: opts.destPath,
+    Ctor: opts.DatabaseCtor ?? Database,
+    label: "buildTenantBackupFile",
+  });
+  const sizeBytes = fs.statSync(opts.destPath).size;
+  const buildMs = Date.now() - started;
+  if (foreignKeyViolations > 0) {
+    dbLogger.warn({ tenantId: opts.tenantId, foreignKeyViolations }, "shop backup has dangling references");
+  }
+  dbLogger.info({ tenantId: opts.tenantId, sizeBytes, buildMs }, "shop backup built");
+  return { sizeBytes, buildMs, foreignKeyViolations };
 }

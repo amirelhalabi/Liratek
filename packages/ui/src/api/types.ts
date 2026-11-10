@@ -64,6 +64,8 @@ import type {
   ReviewItemView,
   ReviewListQuery,
 } from "@liratek/core";
+// Web "Download backup" (Settings › Backup; rule 21).
+import type { ShopBackupPayload } from "@liratek/core";
 // LIRA-306 T093 — maintenance metadata edit payload (rule 21).
 import type { MaintenanceUpdateMetadataInput } from "@liratek/core";
 // LIRA-297 item 3 — product create/update and item-cost write payloads,
@@ -2059,6 +2061,17 @@ export type ApiAdapter = {
   renumberPairedPc: (id: number) => Promise<{
     success: boolean;
     data?: { renumberRequested: true };
+    error?: string;
+  }>;
+
+  // ---------------------------------------------------------------------------
+  // Web "Download backup" (Settings › Backup) — web-only; the desktop branch
+  // answers { success:false, error:"Available on the web app" }. `stamp` is
+  // the browser's local YYYY-MM-DD-HHmm for the file name (rule 27).
+  // ---------------------------------------------------------------------------
+  downloadShopBackup: (query: ShopBackupPayload) => Promise<{
+    success: boolean;
+    data?: { blob: Blob; fileName: string };
     error?: string;
   }>;
 
