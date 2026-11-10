@@ -3732,12 +3732,20 @@ function refundOriginalIdExpr(alias: string): string {
  * none), so this refactor changes no bind-param count or order anywhere it
  * is substituted in.
  */
-function profitTxnRowMembership(alias: string, origAlias: string): string {
+function profitTxnRowMembership(
+  alias: string,
+  origAlias: string,
+  /** true inside the orphan probe (`t3`): the row is correlated on the
+   *  client/user key, so the tenant term gets the unary `+` (see
+   *  saleExtraUsdEquiv) and the planner cannot pick the tenant index. The
+   *  main SELECT's own `t` keeps the plain term. */
+  correlated = false,
+): string {
   return `${alias}.status = 'ACTIVE'
           AND ${alias}.type IN (${PROFIT_TXN_TYPES})
           AND ${refundOriginalIsProfitEvent(alias, origAlias)}
           AND ${dateRange(`COALESCE(${origAlias}.created_at, ${alias}.created_at)`)}
-          AND ${alias}.tenant_id = ?`;
+          AND ${correlated ? "+" : ""}${alias}.tenant_id = ?`;
 }
 
 /**
@@ -3763,8 +3771,8 @@ function allocationRecognitionGates(
               AND ${notRefunded(fsAlias)}
               AND ${allocationNotDebtPending(scaAlias)}
               AND ${dateRange(`${scaAlias}.created_at`)}
-              AND ${scaAlias}.tenant_id = ?
-              AND ${ftAlias}.tenant_id = ?`;
+              AND +${scaAlias}.tenant_id = ?
+              AND +${ftAlias}.tenant_id = ?`;
 }
 
 /**
@@ -3788,7 +3796,7 @@ function keptChangeRecognitionGates(
   return `${kcAlias}.status = 'ACTIVE'
               AND (${keptChangeOrWaivedSource(kcAlias)} OR (${refundKeptChangeRow(kcAlias, supported)}))
               AND ${dateRange(refundKeptChangeDay(kcAlias))}
-              AND ${kcAlias}.tenant_id = ?`;
+              AND +${kcAlias}.tenant_id = ?`;
 }
 
 /**
@@ -9063,7 +9071,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           -- wrongly look "already covered" and lose its orphan row too.
           SELECT 1 FROM transactions t3
           ${refundOriginalJoin("t3", "orig3")}
-          WHERE ${profitTxnRowMembership("t3", "orig3")}
+          WHERE ${profitTxnRowMembership("t3", "orig3", true)}
             AND COALESCE(orig3.user_id, t3.user_id) IS k.user_id
         )
         UNION ALL
@@ -9091,7 +9099,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         LEFT JOIN users xu ON xu.id = xc.user_id AND xu.tenant_id = ?
         WHERE ${extraChargeRow("xc", hasExtra)}
           AND ${dateRange(extraChargeDay("xc"))}
-          AND xc.tenant_id = ?
+          AND +xc.tenant_id = ?
         GROUP BY xc.user_id
         ) GROUP BY user_id
       ) WHERE NOT ${PROFIT_ATTRIBUTION_ROW_IS_EMPTY}
@@ -9799,7 +9807,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           -- getByUser's identical orphan fix.
           SELECT 1 FROM transactions t3
           ${refundOriginalJoin("t3", "orig3")}
-          WHERE ${profitTxnRowMembership("t3", "orig3")}
+          WHERE ${profitTxnRowMembership("t3", "orig3", true)}
             AND (
               (t3.client_id IS NOT NULL AND t3.client_id = k.client_id_key)
               OR (t3.client_id IS NULL AND k.client_id_key IS NULL
@@ -9828,7 +9836,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         LEFT JOIN clients xcl ON xcl.id = xc.client_id AND xcl.tenant_id = ?
         WHERE ${extraChargeRow("xc", hasExtra)}
           AND ${dateRange(extraChargeDay("xc"))}
-          AND xc.tenant_id = ?
+          AND +xc.tenant_id = ?
         GROUP BY CASE WHEN xc.client_id IS NOT NULL THEN xc.client_id END,
                  CASE WHEN xc.client_id IS NULL THEN ${keptChangeAttributedClientName("xc")} END
         ) GROUP BY CASE WHEN client_id IS NOT NULL THEN client_id END,

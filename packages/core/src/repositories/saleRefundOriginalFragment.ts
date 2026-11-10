@@ -23,7 +23,7 @@ export function saleItemRefundOriginalIdSql(
 ): string {
   return `CASE WHEN ${alias}.type IN (${typesSql}) AND ${alias}.source_table = 'sales' THEN (
             SELECT MIN(o.id) FROM transactions o
-            WHERE o.tenant_id = ${alias}.tenant_id
+            WHERE +o.tenant_id = ${alias}.tenant_id
               AND o.source_table = 'sales'
               AND o.source_id = ${alias}.source_id
               AND o.type = 'SALE'
