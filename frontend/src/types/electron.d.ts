@@ -3737,6 +3737,8 @@ export interface ElectronAPI {
     }>;
     openWebApp: () => Promise<OfflineEnvelope>;
     installUpdate: () => Promise<OfflineEnvelope>;
+    /** LIRA-377 — clears the status view's `restoreNotice` banner. */
+    dismissRestoreNotice: () => Promise<{ success: boolean; error?: string }>;
   };
 
   /** LIRA-312 — must match preload.ts's `wrongNumbers` binding. */

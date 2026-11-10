@@ -93,7 +93,9 @@ const SPECIAL_CASED_TABLES = new Set(["tenants", "tenant_subscriptions"]);
  */
 const LITESTREAM_TABLE_PREFIX = "_litestream_";
 
-function isLitestreamTable(name: string): boolean {
+/** Exported for the shop-restore checks (LIRA-377), which must ignore the
+ * same tables (rule 14). */
+export function isLitestreamTable(name: string): boolean {
   return name.startsWith(LITESTREAM_TABLE_PREFIX);
 }
 
@@ -135,6 +137,10 @@ export const PLATFORM_ONLY_TABLES: readonly string[] = [
   // (target_tenant_id) but belong to the platform: www reads it before any
   // shop is chosen, so it stays whole in platform.db.
   "signin_directory",
+  // v231 (LIRA-377): the shop-restore record. It names its shop
+  // (target_tenant_id) but must survive the shop file being replaced, so
+  // it lives only in platform.db.
+  "shop_restores",
 ];
 
 const KNOWN_TABLES_WITHOUT_TENANT_ID = new Set([

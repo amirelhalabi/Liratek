@@ -2174,6 +2174,9 @@ contextBridge.exposeInMainWorld("api", {
     sendNow: () => ipcRenderer.invoke("offline:send-now"),
     openWebApp: () => ipcRenderer.invoke("offline:open-web-app"),
     installUpdate: () => ipcRenderer.invoke("offline:install-update"),
+    // LIRA-377: clears the "Shop restored" banner (before sign-in too)
+    dismissRestoreNotice: () =>
+      ipcRenderer.invoke("offline:dismiss-restore-notice"),
   },
 
   // LIRA-333 — open a link outside LiraTek (WhatsApp hosts only; the

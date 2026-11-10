@@ -184,6 +184,20 @@ describe("device-key routes", () => {
     expect(deviceAuth.deviceRateLimitIdentity(req("nope"))).toBeNull();
   });
 
+  it("LIRA-377: an event route that hits the shop mid-restore answers SHOP_RESTORING, not a generic failure", async () => {
+    const spy = jest.spyOn(core.OfflineEventService.prototype, "statusSince").mockImplementation(() => {
+      throw new core.ShopRestoringError(2);
+    });
+    const res = await request(app).get("/api/offline/events/status").set("x-liratek-device-key", key);
+    spy.mockRestore();
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      success: false,
+      code: "SHOP_RESTORING",
+      error: "The shop is being restored, try again in a moment",
+    });
+  });
+
   it("a revoked key is refused with DEVICE_REVOKED", async () => {
     db.prepare(`UPDATE offline_devices SET revoked_at = '2026-10-11T00:00:00Z' WHERE device_no = 2`).run();
     const res = await request(app).get("/api/offline/events/status").set("x-liratek-device-key", key);

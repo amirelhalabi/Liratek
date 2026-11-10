@@ -229,6 +229,24 @@ yarn api:ssh
   rm /tmp/check.db /tmp/check-1.db
 ```
 
+**Shop restore (Settings › Backup, web, admins; LIRA-377).** A restore builds a
+candidate file in `/data/restore-work/` (time: `litestream restore -timestamp`;
+file: the upload; undo: a before-copy), migrates and prepares it, then copies
+it INTO `/data/tenants/<id>.db` with SQLite's online backup while that one shop
+is paused for under a second. It never renames over the live file: a rename
+silently stops Litestream for that shop. Just before the copy it saves
+`/data/restore-points/<id>/before-<UTC stamp>.sqlite`, which is the "undo".
+A sweep deletes unconfirmed candidates after 15 minutes and before-copies
+after 7 days (the newest per shop is always kept). Every restore is a row in
+the platform table `shop_restores`. If the web flow ever fails half-way, the
+live file is unchanged. To put a before-copy back by hand, prefer the web
+flow (it is listed first in Settings › Backup). Only if the web app is down:
+in `yarn api:ssh` run
+`node -e "const D=require('/app/node_modules/better-sqlite3');new D('<before-copy>',{readonly:true}).backup('/data/tenants/<id>.db').then(()=>console.log('ok'))"`
+(copy INTO the file, never `mv`/`cp` over it), then restart the machine so
+the app reopens the file, then run `yarn api:backup-check`. Sessions in that
+copy are still valid; ask the shop to sign out and in.
+
 R2 is **EU-jurisdiction**: it answers only on
 `https://<account>.eu.r2.cloudflarestorage.com`. The default endpoint returns
 `403 AccessDenied` for the same bucket and keys — indistinguishable from a bad

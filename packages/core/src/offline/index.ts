@@ -11,6 +11,7 @@ export * from "./idRange.js";
 export * from "./channelPolicy.js";
 export * from "./reviewKinds.js";
 export * from "./idPositions.js";
+export * from "./restoreRefs.js";
 export * from "./schemaShape.js";
 export * from "./tables.js";
 export * from "./canonicalJson.js";

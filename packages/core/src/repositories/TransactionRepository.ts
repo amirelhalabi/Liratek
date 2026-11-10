@@ -486,7 +486,7 @@ function isInternalLegJs(p: {
 
 /** SQL mirror of isInternalLegJs, negated (keeps customer-cash legs). Values
  *  come from module constants, never user input. */
-function customerCashLegSql(a: string): string {
+export function customerCashLegSql(a: string): string {
   const methods = [...INTERNAL_LEG_METHODS].map((m) => `'${m}'`).join(", ");
   const drawers = [...PROVIDER_STOCK_DRAWERS].map((d) => `'${d}'`).join(", ");
   const currencies = [...CUSTOMER_CASH_CURRENCIES]
@@ -502,6 +502,18 @@ function customerCashLegSql(a: string): string {
       AND COALESCE(${a}.note, '') NOT LIKE 'Cost:%'
       AND COALESCE(${a}.note, '') NOT LIKE '%(cost outflow)'
       AND COALESCE(${a}.note, '') NOT LIKE 'Crypto %'`;
+}
+
+/** Gross IN / OUT sums of `payments` legs by sign: an IN leg (customer
+ *  paid, payout received) is stored positive, an OUT leg (change returned,
+ *  payout handed over) negative — `partitionLegs`' direction, as stored.
+ *  OUT is returned as a positive figure; neither nets the other. Shared by
+ *  the Cash Report and the shop-restore preview (rule 14). */
+export function legsInSumSql(a: string): string {
+  return `SUM(CASE WHEN ${a}.amount > 0 THEN ${a}.amount ELSE 0 END)`;
+}
+export function legsOutSumSql(a: string): string {
+  return `SUM(CASE WHEN ${a}.amount < 0 THEN -${a}.amount ELSE 0 END)`;
 }
 
 /**
@@ -1949,8 +1961,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       `SELECT
          l.date,
          l.currency_code,
-         ROUND(SUM(CASE WHEN l.amount > 0 THEN l.amount ELSE 0 END), 2) AS total_in,
-         ROUND(SUM(CASE WHEN l.amount < 0 THEN -l.amount ELSE 0 END), 2) AS total_out
+         ROUND(${legsInSumSql("l")}, 2) AS total_in,
+         ROUND(${legsOutSumSql("l")}, 2) AS total_out
        FROM (
          SELECT ${localDayExpr("t.created_at")} AS date,
                 p.currency_code, p.amount, p.method, p.drawer_name, p.note

@@ -76,6 +76,12 @@ export function endedTrialEndFor(tenantId: number): number | null {
 const running = new Set<number>();
 /** Shops whose round was asked for while one was running (re-run it). */
 const rerun = new Set<number>();
+/**
+ * Shops whose merge rounds are paused while their file is swapped (shop
+ * restore, LIRA-377). A held shop's round returns at once without touching
+ * its events, so the 60 s sweep picks them up after `release()`.
+ */
+const restoreHeld = new Set<number>();
 
 export class OfflineMergeProcessor {
   private readonly engine: ReplayEngine;
@@ -99,6 +105,19 @@ export class OfflineMergeProcessor {
     return running.has(tenantId);
   }
 
+  /** Stops new rounds for this shop until `release()` (shop restore). */
+  static hold(tenantId: number): void {
+    restoreHeld.add(tenantId);
+  }
+
+  static release(tenantId: number): void {
+    restoreHeld.delete(tenantId);
+  }
+
+  static isHeld(tenantId: number): boolean {
+    return restoreHeld.has(tenantId);
+  }
+
   /** Shops with events waiting (the periodic sweep, restart-safe). */
   tenantsWithWork(): number[] {
     const perTenant = listTenantDatabaseIds();
@@ -116,6 +135,9 @@ export class OfflineMergeProcessor {
 
   async runRound(tenantId: number): Promise<RoundReport> {
     const started = Date.now();
+    if (restoreHeld.has(tenantId)) {
+      return { tenantId, processed: 0, ms: 0, perSecond: 0, stoppedDevices: [] };
+    }
     if (running.has(tenantId)) {
       // The running round re-checks before it ends, so this work is not
       // left for the 60 s sweep.

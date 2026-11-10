@@ -21,6 +21,7 @@ import type { OfflineStatusView } from "@liratek/core";
 import logger from "@/utils/logger";
 import { StandbyScreen } from "./StandbyScreen";
 import { OfflineBanner } from "./OfflineBanner";
+import { RestoreNoticeBanner } from "./RestoreNoticeBanner";
 
 const POLL_MS = 5_000;
 
@@ -61,6 +62,10 @@ export function OfflineGate({ children }: { children: ReactNode }) {
   if (status && (status.mode === "offline" || status.mode === "finishing")) {
     return (
       <div className="flex h-screen flex-col">
+        <RestoreNoticeBanner
+          notice={status.restoreNotice}
+          onChanged={() => void load()}
+        />
         <OfflineBanner status={status} onChanged={() => void load()} />
         <div className="min-h-0 flex-1">{children}</div>
       </div>

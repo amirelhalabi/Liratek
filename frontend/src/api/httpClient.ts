@@ -295,6 +295,63 @@ export async function requestFile(
   };
 }
 
+/**
+ * POST a raw body (a file) and read the usual JSON envelope back
+ * (authenticated). Same 401 and sliding-renewal rules as `requestJson`,
+ * without its silent retry (the user can upload again). Never throws on an
+ * HTTP error: a non-JSON answer becomes `{ success:false, error, code? }` —
+ * a 413 (the route's size limit) reads as `FILE_TOO_LARGE`.
+ */
+export async function requestRawBody<T>(
+  path: string,
+  body: Blob,
+  options?: { contentType?: string; contentEncoding?: string },
+): Promise<T | { success: false; error: string; code?: string }> {
+  const url = `${getBaseUrl()}${path.startsWith("/") ? "" : "/"}${path}`;
+  const { headers, sentToken } = buildRequestHeaders(true);
+  headers["Content-Type"] = options?.contentType ?? "application/octet-stream";
+  if (options?.contentEncoding) {
+    headers["Content-Encoding"] = options.contentEncoding;
+  }
+  const res = await fetch(url, { method: "POST", headers, body });
+
+  const renewed = res.headers?.get("X-Renewed-Token");
+  if (
+    renewed &&
+    sentToken &&
+    !getImpersonationToken() &&
+    getToken() === sentToken
+  ) {
+    setToken(renewed);
+  }
+  if (res.status === 401 && sentToken && getToken() === sentToken) {
+    if (getImpersonationToken() === sentToken) clearImpersonationSession();
+    else setToken(null);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
+    }
+  }
+
+  const text = await res.text();
+  let data: unknown = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = null;
+  }
+  if (data && typeof data === "object" && "success" in data) {
+    return data as T;
+  }
+  if (res.status === 413) {
+    return { success: false, code: "FILE_TOO_LARGE", error: "FILE_TOO_LARGE" };
+  }
+  const msg =
+    (data as { error?: string; message?: string } | null)?.error ||
+    (data as { message?: string } | null)?.message ||
+    `Request failed (${res.status})`;
+  return { success: false, error: msg };
+}
+
 export async function requestJson<T>(
   path: string,
   options?: {

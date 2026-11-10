@@ -114,6 +114,7 @@ import { requireOpenTrial } from "./middleware/requireOpenTrial.js";
 import { startLapseSweep } from "./services/lapseSweep.js";
 import { startKpiSnapshotSweep } from "./services/kpiSnapshotSweep.js";
 import { startSessionSweep } from "./services/sessionSweep.js";
+import { startRestorePointSweep } from "./services/restorePointSweep.js";
 import { startAuthCleanupSweep } from "./services/authCleanupSweep.js";
 import { scheduleSigninDirectoryCheck } from "./database/signinDirectoryCheck.js";
 import { startEmailOutbox, stopEmailOutbox } from "./email/outboxWorker.js";
@@ -194,6 +195,8 @@ import userPreferencesRoutes from "./api/userPreferences.js";
 import offlineRoutes from "./api/offline.js";
 // Web "Download backup" (Settings › Backup): an admin downloads their own shop.
 import backupRoutes from "./api/backup.js";
+// LIRA-377 web shop restore (admins; per-tenant mode only).
+import restoreRoutes from "./api/restore.js";
 import { startOfflineProcessorTimer } from "./offline/processorTimer.js";
 import passwordResetRoutes from "./api/passwordReset.js";
 import googleAuthRoutes from "./api/googleAuth.js";
@@ -293,6 +296,7 @@ app.use("/api/password-reset", passwordResetRoutes);
 // LIRA-306 offline desktop fallback: PC device-key routes (review routes: US3).
 app.use("/api/offline", offlineRoutes);
 app.use("/api/backup", backupRoutes);
+app.use("/api/restore", restoreRoutes);
 
 app.get("/api", (_req, res) => {
   res.json({ message: "LiraTek API Server", version: "1.0.0" });
@@ -374,6 +378,10 @@ httpServer.listen(PORT, HOST, () => {
   // LIRA-306: merge rounds for events uploaded by paired PCs (gathering
   // pause after an upload + a 60 s restart-safe sweep) -- processorTimer.ts.
   startOfflineProcessorTimer();
+
+  // LIRA-377: expire unconfirmed restores (15 min) and delete before-restore
+  // copies older than 7 days (newest per shop kept) -- restorePointSweep.ts.
+  startRestorePointSweep();
 
   // LIRA-288: once, a minute after boot, compare the www sign-in directory
   // with every shop's records and WARN on drift (never fixes, never blocks)

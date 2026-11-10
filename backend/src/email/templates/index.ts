@@ -24,6 +24,9 @@ import { passwordSetTemplate } from "./passwordSet.js";
 import { passwordChangedTemplate } from "./passwordChanged.js";
 import { emailChangeNoticeTemplate } from "./emailChangeNotice.js";
 
+// LIRA-377: owner notice after a web shop restore
+import { shopRestoredTemplate } from "./shopRestored.js";
+
 const TEMPLATES: Readonly<Record<string, EmailTemplate>> = {
   [signupInviteTemplate.name]: signupInviteTemplate,
   // [auth-B] entries: "user-invite", "verify-email"
@@ -43,6 +46,9 @@ const TEMPLATES: Readonly<Record<string, EmailTemplate>> = {
   // LIRA-293: "password-changed", "email-change-notice"
   [passwordChangedTemplate.name]: passwordChangedTemplate,
   [emailChangeNoticeTemplate.name]: emailChangeNoticeTemplate,
+
+  // LIRA-377: "shop-restored"
+  [shopRestoredTemplate.name]: shopRestoredTemplate,
 };
 
 /** Throws for an unknown name: a row naming a template that does not exist

@@ -21,6 +21,8 @@ import {
   getSubscriptionRepository,
   TenantDatabasePool,
   checkPlatformSplitStatus,
+  OfflineMergeProcessor,
+  type ShopFilePort,
 } from "@liratek/core";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
@@ -33,6 +35,7 @@ import { migrateAllTenants } from "./migrateAllTenants.js";
 import { isPerTenantDbMode } from "./tenantDbMode.js";
 import { createPerTenantStorageProvisioner } from "./perTenantStorageProvisioner.js";
 import { checkTenantCompleteness } from "./tenantCompletenessCheck.js";
+import { createShopFileSwap } from "../restore/shopFileSwap.js";
 
 // Named to avoid shadowing the CommonJS module wrapper's own `__filename`/
 // `__dirname` parameters — ts-jest keeps `import.meta.url` as-is (this
@@ -114,6 +117,7 @@ const IDLE_SWEEP_INTERVAL_MS = 60_000;
 let dbInstance: Database.Database | null = null;
 let tenantPool: TenantDatabasePool | null = null;
 let stopIdleSweep: (() => void) | null = null;
+let shopFilePort: ShopFilePort | null = null;
 
 /**
  * Pragmas + SQLCipher key applied to EVERY connection this backend opens —
@@ -154,6 +158,44 @@ function configureConnection(db: Database.Database): void {
  * itself enforces "missing file throws, never bootstraps"; this factory is
  * only ever called after that check passes).
  */
+/** Brings one shop file to the current schema — the pool's and shop restore's one migrate step. */
+function migrateTenantFile(db: Database.Database): void {
+  runMigrations(db);
+  // LIRA-306: each shop file's ids must stay below the offline range.
+  assertServerIdsBelowOfflineRange(db);
+}
+
+/** LIRA-377: the shop-file port (`null` outside per-tenant mode). */
+export function getShopFilePort(): ShopFilePort | null {
+  return shopFilePort;
+}
+
+/**
+ * LIRA-377 shop restore work directories, next to the tenants directory on
+ * the same volume (a rename across filesystems fails, research R5). Neither
+ * is under `tenants/` and no file in them ends in `.db`, so the shop lister
+ * and Litestream never see them (data-model §4). Overridable for tests.
+ */
+const RESTORE_WORK_DIR =
+  process.env.RESTORE_WORK_DIR ?? path.join(path.dirname(TENANT_DATABASES_DIR), "restore-work");
+const RESTORE_POINTS_DIR =
+  process.env.RESTORE_POINTS_DIR ?? path.join(path.dirname(TENANT_DATABASES_DIR), "restore-points");
+
+export interface ShopRestoreEnvironment {
+  dirs: { tenantsDir: string; workDir: string; pointsDir: string };
+  /** The same create_db.sql every new shop file starts from (read on demand). */
+  createDbSql: () => string;
+}
+
+/** LIRA-377: where restore files live (`null` outside per-tenant mode). */
+export function getShopRestoreEnvironment(): ShopRestoreEnvironment | null {
+  if (!shopFilePort) return null;
+  return {
+    dirs: { tenantsDir: TENANT_DATABASES_DIR, workDir: RESTORE_WORK_DIR, pointsDir: RESTORE_POINTS_DIR },
+    createDbSql: () => fs.readFileSync(SCHEMA_SQL_PATH, "utf-8"),
+  };
+}
+
 function openTenantDatabase(filePath: string): Database.Database {
   return openAndConfigure(filePath, (fp) => new Database(fp), configureConnection);
 }
@@ -213,10 +255,20 @@ function installTenantDbRouting(): void {
   tenantPool = new TenantDatabasePool({
     dir: TENANT_DATABASES_DIR,
     openDatabase: openTenantDatabase,
-    migrate: (db: Database.Database) => {
-      runMigrations(db);
-      // LIRA-306: each shop file's ids must stay below the offline range.
-      assertServerIdsBelowOfflineRange(db);
+    migrate: migrateTenantFile,
+  });
+
+  // LIRA-377 shop restore: the SAME opener and migrate function as the pool,
+  // so a migrated candidate can never be poisoned when the pool reopens it.
+  shopFilePort = createShopFileSwap({
+    tenantsDir: TENANT_DATABASES_DIR,
+    pool: tenantPool,
+    openDatabase: openTenantDatabase,
+    migrate: migrateTenantFile,
+    merge: {
+      hold: (id) => OfflineMergeProcessor.hold(id),
+      release: (id) => OfflineMergeProcessor.release(id),
+      isRunning: (id) => OfflineMergeProcessor.isRunning(id),
     },
   });
 

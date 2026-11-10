@@ -44,10 +44,13 @@ import { getOfflineMaxAttempts } from "../config/env.js";
 import { classOf, policyEntry, recordedSchema } from "./channelPolicy.js";
 import { describeShape, isCompatible, type ShapeNode } from "./schemaShape.js";
 import { rewriteIdPositions } from "./idPositions.js";
+import { collectIdReferences, tableOfReference } from "./restoreRefs.js";
 import { isOfflineId } from "./idRange.js";
+import { MANIFEST_KEY_TABLES } from "./tables.js";
 import { dayAt } from "./skew.js";
 import type { OfflineEventStatus, OfflineReviewKind } from "./reviewKinds.js";
 import type { OfflineBinding, BindingResult } from "./bindings/types.js";
+import type { RemovedReference } from "./views.js";
 import { getOfflineBinding } from "./bindings/index.js";
 import { offlineActorPolicy } from "./actorPolicy.js";
 import { offlineRatesSchema, offlineRatesToRows } from "../validators/offline.js";
@@ -64,6 +67,8 @@ import { getRateRepository } from "../repositories/RateRepository.js";
 import { getAuditService } from "../services/AuditService.js";
 import { DuplicateDetector } from "../services/DuplicateDetector.js";
 import { getClosingRepository } from "../repositories/ClosingRepository.js";
+import { getShopRestoresRepository } from "../repositories/ShopRestoresRepository.js";
+import { getOfflineSnapshotRepository } from "../repositories/OfflineSnapshotRepository.js";
 import { toSqliteUtc } from "../utils/requestNow.js";
 import { offlineLogger } from "../utils/logger.js";
 
@@ -109,7 +114,24 @@ export interface ReplayDeps {
     result: BindingResult;
   }) => void | { outcome: "none" } | { outcome: "skipped" | "held"; note: ReplayNote };
   maxAttempts?: () => number;
+  /** LIRA-377: the shop's latest finished restore (platform `shop_restores`).
+   *  Default: `ShopRestoresRepository.latestDone`. */
+  latestRestore?: (tenantId: number) => RestoreEpoch | null;
+  /** LIRA-377: when the copy an event was recorded on was built (UTC ISO),
+   *  or null if unknown. Default: `OfflineSnapshotRepository.findByCopyId`. */
+  copyBuiltAt?: (copyId: string) => string | null;
 }
+
+/** The part of a finished shop restore the replay hold needs (LIRA-377). */
+export interface RestoreEpoch {
+  id: number;
+  restored_to: string | null;
+  finished_at: string | null;
+}
+
+
+export const RESTORE_REMOVED_REASON =
+  "Points at something the restore removed — pick a client or book as walk-in, or dismiss and re-enter it";
 
 export interface ReplayOptions {
   /** auto = merge round; apply = an admin pressed Apply on the review list */
@@ -121,9 +143,15 @@ export interface ReplayOptions {
   release?: boolean;
   /** runs inside the booking transaction, just before COMMIT */
   onBooked?: (outcome: { serverIds: Record<string, number[]> }) => void;
+  /** apply only (LIRA-377): book this payload instead of the stored one —
+   *  the stored payload with a removed client replaced. The event row's
+   *  `payload_json` (and its hash) is never changed. */
+  payloadOverride?: Record<string, unknown>;
 }
 
 class TechnicalReplayError extends Error {}
+
+const MANIFEST_TABLES = new Set(MANIFEST_KEY_TABLES);
 
 export const UNLINKED_PART = "This item was booked, but this part could not be linked";
 
@@ -152,6 +180,8 @@ export class ReplayEngine {
   private readonly actorHook?: ReplayDeps["actorHook"];
   private readonly duplicateHook?: ReplayDeps["duplicateHook"];
   private readonly maxAttempts: () => number;
+  private readonly latestRestore: (tenantId: number) => RestoreEpoch | null;
+  private readonly copyBuiltAt: (copyId: string) => string | null;
 
   constructor(deps: ReplayDeps = {}) {
     this.bindings = deps.bindings ?? getOfflineBinding;
@@ -164,6 +194,8 @@ export class ReplayEngine {
     this.actorHook = deps.actorHook ?? offlineActorPolicy(this.users);
     this.duplicateHook = deps.duplicateHook ?? new DuplicateDetector().check;
     this.maxAttempts = deps.maxAttempts ?? getOfflineMaxAttempts;
+    this.latestRestore = deps.latestRestore ?? ((t) => getShopRestoresRepository().latestDone(t));
+    this.copyBuiltAt = deps.copyBuiltAt ?? ((id) => getOfflineSnapshotRepository().findByCopyId(id)?.built_at ?? null);
   }
 
   /** Must be called inside the event's tenant context. Never throws: an
@@ -182,7 +214,10 @@ export class ReplayEngine {
       return this.stored(event);
     }
 
-    const payload = this.parseJson<Record<string, unknown>>(event.payload_json) ?? {};
+    const payload =
+      (opts.mode === "apply" ? opts.payloadOverride : undefined) ??
+      this.parseJson<Record<string, unknown>>(event.payload_json) ??
+      {};
     const cls = classOf(event.channel);
 
     // 1. policy + schema compatibility (FR-016)
@@ -241,6 +276,20 @@ export class ReplayEngine {
         ofSettled ? UNLINKED_PART : "Refers to an offline item that was not booked",
         { offlineIds: unmapped },
       );
+    }
+
+    // 3b. a reference a shop restore removed (LIRA-377, FR-021) — before
+    // anything is booked. Ids are never reissued after a restore (every
+    // sqlite_sequence is raised), so a missing row was removed by it.
+    const removed = this.removedByRestore(event, parsed.data as Record<string, unknown>);
+    if (removed) {
+      return this.hold(opts, event, "restore_removed", RESTORE_REMOVED_REASON, {
+        restoreId: removed.restore.id,
+        restoredTo: removed.restore.restored_to,
+        removed: removed.refs,
+        // kept so the cashier can re-enter it from the details (Dismiss case)
+        payload,
+      });
     }
 
     // 4. actor (O-new-7)
@@ -468,6 +517,43 @@ export class ReplayEngine {
       for (const ids of Object.values(created)) for (const id of ids) settledCreated.add(id);
     }
     return { blocking: deps.filter((d) => !settled.has(d)), settledCreated };
+  }
+
+  /**
+   * LIRA-377: the references of this event whose row is missing, when the
+   * shop's latest restore finished after the COPY the event was recorded on
+   * was built (falling back to the event's recorded time when the copy is
+   * unknown); else null (today's behaviour). The copy decides, not the
+   * clock: a PC offline through the restore keeps selling on its
+   * pre-restore copy (spec US4 Case B) — a copy is always built before the
+   * events recorded on it, so this only ever widens the hold. Mapped offline ids are checked through the map,
+   * plain server ids as they are; a position whose table cannot be named
+   * from its key is skipped (never guessed).
+   */
+  private removedByRestore(
+    event: OfflineEventRow,
+    payload: Record<string, unknown>,
+  ): { restore: RestoreEpoch; refs: RemovedReference[] } | null {
+    const restore = this.latestRestore(event.tenant_id);
+    if (!restore?.finished_at) return null;
+    const finished = Date.parse(restore.finished_at);
+    const builtAt = event.copy_id ? this.copyBuiltAt(event.copy_id) : null;
+    const recorded = Date.parse(builtAt ?? event.corrected_at ?? event.occurred_at);
+    if (!Number.isFinite(finished) || !Number.isFinite(recorded) || finished <= recorded) return null;
+    const refs: RemovedReference[] = [];
+    const seen = new Set<string>();
+    for (const ref of collectIdReferences(payload)) {
+      const table = tableOfReference(ref);
+      if (!table || !MANIFEST_TABLES.has(table)) continue;
+      const serverId = isOfflineId(ref.value) ? this.idMap.lookup(ref.value) : ref.value;
+      if (serverId === undefined) continue; // unmapped: already held as waiting
+      if (this.rowCapture.rowExists(table, serverId)) continue;
+      const key = `${table}:${serverId}:${ref.path}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      refs.push({ table, id: serverId, label: ref.label ?? `#${serverId}`, path: ref.path });
+    }
+    return refs.length > 0 ? { restore, refs } : null;
   }
 
   private checkActor(actorUserId: number, channel: string): ActorCheck {

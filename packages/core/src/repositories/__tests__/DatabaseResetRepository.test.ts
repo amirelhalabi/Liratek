@@ -597,6 +597,8 @@ describe("DatabaseResetRepository", () => {
         "signin_codes",
         // LIRA-288: the www sign-in directory (platform level).
         "signin_directory",
+        // LIRA-377: the platform's record of shop restores.
+        "shop_restores",
         "sso_handoff_tokens",
         "sync_errors",
         "sync_queue",

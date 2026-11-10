@@ -57,6 +57,8 @@
  *   www -> shop sign-in hand-off with no `tenant_id` column.
  *   `signin_codes` (v199, LIRA-287) likewise: www "email me a code"
  *   sign-in codes, owned by an email address, never by a shop.
+ *   `shop_restores` (v231, LIRA-377): the platform's record of every shop
+ *   restore. A Reset Data must not erase the history of restores.
  * - RESET_ZERO_TABLES: rows are KEPT and specific "balance-like" columns
  *   are set to 0, never deleted. `drawer_balances.balance` is the original
  *   member — zeroing (not deleting) is load-bearing:
@@ -166,6 +168,7 @@ export const RESET_EXCLUDED_TABLES: readonly string[] = [
   "signup_invitations",
   "signin_codes",
   "signin_directory",
+  "shop_restores",
   "sso_handoff_tokens",
   "sync_errors",
   "sync_queue",

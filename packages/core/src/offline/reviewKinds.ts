@@ -1,6 +1,7 @@
 /**
  * Review-list item kinds (LIRA-306, R13) — PURE, browser-safe.
- * The same 14 values as the `offline_review_items.kind` CHECK (v210).
+ * The same 15 values as the `offline_review_items.kind` CHECK (v210, plus
+ * `restore_removed` from v231).
  */
 export const OFFLINE_REVIEW_KINDS = [
   "possible_duplicate",
@@ -17,6 +18,7 @@ export const OFFLINE_REVIEW_KINDS = [
   "user_switched_off",
   "pc_data_mismatch",
   "rate_changed",
+  "restore_removed",
 ] as const;
 
 export type OfflineReviewKind = (typeof OFFLINE_REVIEW_KINDS)[number];
@@ -37,6 +39,7 @@ export const OFFLINE_REVIEW_KIND_LABELS: Record<OfflineReviewKind, string> = {
   user_switched_off: "Done by a user who is switched off now",
   pc_data_mismatch: "The PC's data does not match what it sent",
   rate_changed: "Exchange rate changed during the outage",
+  restore_removed: "Points at something the restore removed",
 };
 
 /** Kinds that hold an event (Apply / Dismiss); the rest are notes. */
@@ -45,6 +48,7 @@ export const OFFLINE_HOLDING_KINDS: readonly OfflineReviewKind[] = [
   "held_checkpoint",
   "waiting",
   "refused",
+  "restore_removed",
 ];
 
 export const OFFLINE_EVENT_STATUSES = [

@@ -21,8 +21,8 @@ import { isOfflineId, parseIdLike } from "./idRange.js";
 /** Keys whose STRING value is a JSON document holding more id positions. */
 export const EMBEDDED_JSON_KEYS: readonly string[] = ["form_data", "formData"];
 
-const SINGLE_ID_KEY = /(^id$|_id$|[a-z0-9]Id$)/;
-const ID_ARRAY_KEY = /(^ids$|_ids$|[a-z0-9]Ids$)/;
+export const SINGLE_ID_KEY = /(^id$|_id$|[a-z0-9]Id$)/;
+export const ID_ARRAY_KEY = /(^ids$|_ids$|[a-z0-9]Ids$)/;
 
 export function isIdKey(key: string): boolean {
   return SINGLE_ID_KEY.test(key) || ID_ARRAY_KEY.test(key);

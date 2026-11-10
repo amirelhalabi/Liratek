@@ -16,6 +16,7 @@ import type { Express, NextFunction, Request, Response } from "express";
 import type DatabaseCtor from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
+import type { z } from "zod";
 
 jest.mock("../../server.js", () => ({
   logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
@@ -163,6 +164,25 @@ describe("review routes — admin only", () => {
     expect(missing.body).toMatchObject({ success: false, code: "NOT_FOUND" });
     const bad = await admin(request(app).post(`/api/offline/review/abc/apply`));
     expect(bad.body.success).toBe(false);
+  });
+
+  it("LIRA-377: Apply forwards the replacement choice to the service; an unknown body key is refused", async () => {
+    const id = storeHeldCheckpoint(4);
+    const spy = jest.spyOn(core.OfflineReviewService.prototype, "apply");
+    const body: z.input<typeof core.reviewApplySchema> = { walkIn: true };
+    const res = await admin(request(app).post(`/api/offline/review/${id}/apply`)).send(body);
+    expect(res.status).toBe(200);
+    // a held checkpoint takes no replacement — the service says so
+    expect(res.body).toMatchObject({ success: false, code: "NOT_APPLICABLE" });
+    expect(spy).toHaveBeenCalledWith(id, 20, { walkIn: true });
+    const unknown = await admin(request(app).post(`/api/offline/review/${id}/apply`)).send({ walk_in: true });
+    expect(unknown.body.success).toBe(false);
+    expect(spy).toHaveBeenCalledTimes(1);
+    // an Apply with NO body (an older web bundle) still reaches the service as before
+    const plain = await admin(request(app).post(`/api/offline/review/${id}/apply`));
+    expect(plain.body.code).not.toBe("VALIDATION_ERROR");
+    expect(spy).toHaveBeenLastCalledWith(id, 20, {});
+    spy.mockRestore();
   });
 });
 

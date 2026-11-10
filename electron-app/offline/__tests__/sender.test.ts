@@ -285,6 +285,32 @@ describe("OfflineSender", () => {
     expect(rows()[0]!.delivery).toBe("waiting");
   });
 
+  it("LIRA-377: SHOP_RESTORING → events kept, never 're-pair', the next pass sends them", async () => {
+    addEvents(2);
+    const restoring = server({
+      envelope: {
+        success: false,
+        code: "SHOP_RESTORING",
+        error: "The shop is being restored, try again in a moment",
+      },
+    });
+    expect(await sender(restoring.fetch).sendWaiting()).toEqual({
+      sent: 0,
+      waiting: 2,
+    });
+    expect(store.read()?.lastError).toBe(
+      "The shop is being restored, try again in a moment",
+    );
+    expect(store.read()?.lastError).not.toMatch(/re-pair/i);
+    expect(rows().map((r) => r.delivery)).toEqual(["waiting", "waiting"]);
+    // no give-up: the next tick's pass sends everything
+    const back = server();
+    expect(await sender(back.fetch).sendWaiting()).toEqual({
+      sent: 2,
+      waiting: 0,
+    });
+  });
+
   it("re-pairing (same PC number, new key) keeps events and sequence; the new key sends them", async () => {
     addEvents(2);
     store.savePairing(

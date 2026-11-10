@@ -42,6 +42,7 @@ import { getDatabase } from "./connection.js";
 import { getCurrentVersion } from "./migrations/index.js";
 import {
   discoverTenantScopedTables,
+  isLitestreamTable,
   narrowToTenant,
   PLATFORM_ONLY_TABLES,
   quoteIdent,
@@ -107,6 +108,13 @@ export const SNAPSHOT_SECRET_SETTING_PATTERN = /api_key|token|secret|password/i;
 export const SNAPSHOT_KEPT_SETTING_KEYS: Readonly<Record<string, string>> = {
   [PROFITS_PASSWORD_SETTING_KEY]: "scrypt hash; deleting it would unlock Profits offline",
 };
+
+/** True when a `system_settings.key_name` is an integration secret that a
+ * copy drops (pattern match, minus the kept keys). The ONE predicate — shop
+ * restore reuses it to carry these keys over from the live file (rule 14). */
+export function isSnapshotSecretSettingKey(keyName: string): boolean {
+  return SNAPSHOT_SECRET_SETTING_PATTERN.test(keyName) && !(keyName in SNAPSHOT_KEPT_SETTING_KEYS);
+}
 
 export interface BuildTenantSnapshotOptions {
   tenantId: number;
@@ -189,7 +197,7 @@ function stripSecrets(copy: Database.Database): void {
     }[];
     const del = copy.prepare(`DELETE FROM system_settings WHERE id = ?`);
     for (const k of keys) {
-      if (SNAPSHOT_SECRET_SETTING_PATTERN.test(k.key_name) && !(k.key_name in SNAPSHOT_KEPT_SETTING_KEYS)) {
+      if (isSnapshotSecretSettingKey(k.key_name)) {
         del.run(k.id);
       }
     }
@@ -209,11 +217,19 @@ function resetSequences(copy: Database.Database): void {
   }
 }
 
-/** Throws when anything that is not the shop's own data survived. */
-function verifyOnlyOwnShop(copy: Database.Database, tenantId: number): void {
+/** Step 7: throws when anything that is not the shop's own data survived —
+ * a row whose `tenant_id` is not `tenantId` (or NULL), a non-empty global
+ * table outside `SNAPSHOT_GLOBAL_TABLES_ALLOWED`, or a `tenants` table that
+ * is not exactly `[tenantId]`. Exported for the shop-restore file checks
+ * (rule 14, no copies). */
+export function verifyOnlyOwnShop(copy: Database.Database, tenantId: number): void {
   const problems: string[] = [];
   const scoped = new Set(discoverTenantScopedTables(copy));
   for (const table of allTables(copy)) {
+    // Litestream's own bookkeeping (`_litestream_seq`/`_lock`) sits in every
+    // replicated file; it is never shop data (LIRA-377: a restore candidate or
+    // a before-restore copy of the live file carries it).
+    if (isLitestreamTable(table)) continue;
     if (scoped.has(table)) {
       const n = (
         copy

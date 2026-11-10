@@ -29,6 +29,8 @@ export const MAP_EXCLUDED_TABLES: readonly string[] = [
   "signin_directory",
   "sync_queue",
   "sync_errors",
+  // LIRA-377: platform-only, keyed by target_tenant_id (no tenant_id column).
+  "shop_restores",
 ];
 
 /** Every id-range table whose rows the manifest cross-checks (N5). */

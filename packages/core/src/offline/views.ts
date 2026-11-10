@@ -33,6 +33,23 @@ export interface ReviewItemView {
   resolvedAt: string | null;
 }
 
+/** LIRA-377 — one entry of a `restore_removed` item's `details.removed`:
+ *  a row the event points at that a shop restore removed. `label` is the
+ *  name the PC showed; `path` locates the reference in the stored payload. */
+export interface RemovedReference {
+  table: string;
+  id: number;
+  label: string;
+  path: string;
+}
+
+/** `details` of a `restore_removed` review item (data-model §2). */
+export interface RestoreRemovedDetails {
+  restoreId: number;
+  restoredTo: string | null;
+  removed: RemovedReference[];
+}
+
 export interface OfflineHistoryView {
   eventId: string;
   seq: number;

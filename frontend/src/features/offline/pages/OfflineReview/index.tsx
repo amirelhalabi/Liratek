@@ -16,12 +16,14 @@ import type {
   CheckpointExpectedFigure,
   OfflineHistoryView,
   ReviewAction,
+  ReviewApplyInput,
   ReviewDismissInput,
   ReviewItemView,
 } from "@liratek/core";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import logger from "@/utils/logger";
 import { useFormat } from "@/i18n/useFormat";
+import { RestoreRemovedPanel } from "../../components/RestoreRemovedPanel";
 
 type Group = { kind: string; label: string; count: number };
 
@@ -98,6 +100,9 @@ export function OfflineReview() {
   const [pending, setPending] = useState<{
     id: number;
     action: ReviewAction;
+    /** LIRA-377: the replacement client / walk-in choice for a restore_removed item */
+    applyBody?: ReviewApplyInput;
+    text?: string;
   } | null>(null);
   // FR-032 / O-new-27: a drawer count's PC vs server figures, shown before Apply
   const [figures, setFigures] = useState<CheckpointExpectedFigure[] | null>(null);
@@ -135,14 +140,16 @@ export function OfflineReview() {
   }, [isAdmin, tab, loadHistory]);
 
   const run = useCallback(
-    async (id: number, action: ReviewAction) => {
+    async (id: number, action: ReviewAction, applyBody?: ReviewApplyInput) => {
       setBusy(true);
       try {
         const a = apiRef.current;
         const dismissBody: ReviewDismissInput = {};
         const r =
           action === "apply"
-            ? await a.applyOfflineReviewItem(id)
+            ? applyBody
+              ? await a.applyOfflineReviewItem(id, applyBody)
+              : await a.applyOfflineReviewItem(id)
             : action === "dismiss"
               ? await a.dismissOfflineReviewItem(id, dismissBody)
               : action === "reviewed"
@@ -229,7 +236,7 @@ export function OfflineReview() {
           className="mt-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3"
         >
           <p className="text-sm text-amber-200">
-            {confirmText(pending.action)}
+            {pending.text ?? confirmText(pending.action)}
           </p>
           {figures && figures.length > 0 && (
             <div className="mt-2">
@@ -267,7 +274,9 @@ export function OfflineReview() {
             <button
               type="button"
               disabled={busy}
-              onClick={() => void run(pending.id, pending.action)}
+              onClick={() =>
+                void run(pending.id, pending.action, pending.applyBody)
+              }
               className="px-3 py-1.5 rounded-lg bg-violet-600 text-white text-sm"
             >
               {t("review.confirm")}
@@ -327,22 +336,47 @@ export function OfflineReview() {
                           {matchText(i, t)}
                         </div>
                       )}
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {i.actions.map((a) => (
-                          <button
-                            key={a}
-                            type="button"
-                            disabled={busy}
-                            aria-label={t("review.itemAction", {
-                              action: t(ACTION_LABEL_KEY[a]),
+                      {i.kind === "restore_removed" && (
+                        <RestoreRemovedPanel
+                          itemId={i.id}
+                          details={i.details}
+                          canBook={i.actions.includes("apply")}
+                          busy={busy}
+                          when={when}
+                          onBook={(applyBody, text) => {
+                            setFigures(null);
+                            setPending({
                               id: i.id,
-                            })}
-                            onClick={() => void onAction(i.id, a)}
-                            className="px-3 py-1 rounded-lg bg-slate-700 text-sm text-white hover:bg-slate-600"
-                          >
-                            {t(ACTION_LABEL_KEY[a])}
-                          </button>
-                        ))}
+                              action: "apply",
+                              applyBody,
+                              text,
+                            });
+                          }}
+                        />
+                      )}
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {i.actions
+                          // a restore_removed item is booked only with a
+                          // choice (the panel above); plain Apply is refused
+                          .filter(
+                            (a) =>
+                              !(i.kind === "restore_removed" && a === "apply"),
+                          )
+                          .map((a) => (
+                            <button
+                              key={a}
+                              type="button"
+                              disabled={busy}
+                              aria-label={t("review.itemAction", {
+                                action: t(ACTION_LABEL_KEY[a]),
+                                id: i.id,
+                              })}
+                              onClick={() => void onAction(i.id, a)}
+                              className="px-3 py-1 rounded-lg bg-slate-700 text-sm text-white hover:bg-slate-600"
+                            >
+                              {t(ACTION_LABEL_KEY[a])}
+                            </button>
+                          ))}
                       </div>
                     </li>
                   ))}

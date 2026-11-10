@@ -22,6 +22,8 @@ import SignedInDevices from "./SignedInDevices";
 import PairedPcsPanel from "./PairedPcsPanel";
 // Web app: an admin downloads a backup file of their own shop.
 import ShopBackupPanel from "./ShopBackupPanel";
+// LIRA-377: an admin restores the shop to an earlier time, a file, or undoes a restore.
+import ShopRestorePanel from "./ShopRestorePanel";
 // LIRA-306: pair THIS desktop PC for offline work (desktop app).
 import { PairThisPcCard } from "@/features/offline/components/PairThisPcCard";
 // LIRA-280: Connect Google, on the tab about how this user signs in.
@@ -223,7 +225,10 @@ export default function Settings() {
             <LicensePanel />
           )}
           {active === "backup" && isTabAvailable("backup") && (
-            <ShopBackupPanel />
+            <div className="space-y-6">
+              <ShopBackupPanel />
+              <ShopRestorePanel />
+            </div>
           )}
           {active === "reset" && <ResetDataPanel />}
         </div>

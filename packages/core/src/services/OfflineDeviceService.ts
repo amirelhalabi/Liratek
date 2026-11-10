@@ -31,6 +31,7 @@ import { checkinSchema, pairDeviceSchema, type CheckinInput, type PairDeviceInpu
 import type { MobileAuthService } from "./MobileAuthService.js";
 import { offlineLogger } from "../utils/logger.js";
 import { getUserRepository } from "../repositories/UserRepository.js";
+import { getShopRestoresRepository, type ShopRestoreRow } from "../repositories/ShopRestoresRepository.js";
 
 const KEY_RE = /^ltd_(\d{1,9})_([0-9a-f]{12})_([0-9a-f]{64})$/;
 
@@ -52,7 +53,28 @@ const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
 export type VerifyKeyResult =
   | { ok: true; tenantId: number; deviceId: number; deviceNo: number; keyId: string }
-  | { ok: false; code: "INVALID_DEVICE_KEY" | "DEVICE_REVOKED" | "SHOP_INACTIVE"; error: string };
+  | { ok: false; code: "INVALID_DEVICE_KEY" | "DEVICE_REVOKED" | "SHOP_INACTIVE" | "SHOP_RESTORING"; error: string };
+
+/** LIRA-377: the shop's file is being swapped by a restore — the PC retries
+ *  on its next tick, never re-pairs. */
+export const SHOP_RESTORING_MESSAGE = "The shop is being restored, try again in a moment";
+
+/** The pool's ShopRestoringError, by name (src and dist copies of the class
+ *  differ under jest, so `instanceof` is not used). */
+export function isShopRestoringError(err: unknown): boolean {
+  return err instanceof Error && err.name === "ShopRestoringError";
+}
+
+/** LIRA-377: the shop's latest finished restore, told to PCs at check-in. */
+export interface PcRestoreNotice {
+  id: number;
+  /** UTC ISO instant the shop was restored to (null: a file restore with no instant). */
+  restoredTo: string | null;
+  /** UTC ISO instant the restore finished. */
+  restoredAt: string | null;
+  /** who restored it — a snapshot "as at restore time" (rule 31). */
+  byName: string | null;
+}
 
 export interface PairResult {
   success: boolean;
@@ -83,6 +105,8 @@ export interface CheckinResult {
      * once it has ended (research R8). null: not on a trial, or unknown.
      */
     trial: PcTrialState | null;
+    /** LIRA-377: the shop's latest finished restore (platform), else null. */
+    restore: PcRestoreNotice | null;
   };
   error?: string;
   code?: string;
@@ -107,6 +131,8 @@ export interface OfflineDeviceServiceDeps {
   shopStatus?: (tenantId: number) => "active" | "suspended" | "archived" | null;
   /** LIRA-332: the shop's trial for check-in; defaults to SubscriptionService. */
   trialStatus?: (tenantId: number) => PcTrialState | null;
+  /** LIRA-377: the shop's latest finished restore; defaults to ShopRestoresRepository.latestDone. */
+  latestRestore?: (tenantId: number) => ShopRestoreRow | null;
 }
 
 /** LIRA-332 default: the trial part of the shop's subscription view. */
@@ -132,9 +158,11 @@ export class OfflineDeviceService {
   private readonly schemaVersion: () => number;
   private readonly shopStatus: NonNullable<OfflineDeviceServiceDeps["shopStatus"]>;
   private readonly trialStatus: NonNullable<OfflineDeviceServiceDeps["trialStatus"]>;
+  private readonly latestRestore: NonNullable<OfflineDeviceServiceDeps["latestRestore"]>;
 
   constructor(deps: OfflineDeviceServiceDeps) {
     this.trialStatus = deps.trialStatus ?? defaultTrialStatus;
+    this.latestRestore = deps.latestRestore ?? ((t) => getShopRestoresRepository().latestDone(t));
     this.mobileAuth = deps.mobileAuth;
     this.auth = deps.auth;
     this.devices = deps.devices ?? getOfflineDeviceRepository();
@@ -207,11 +235,12 @@ export class OfflineDeviceService {
     const parsed = parseDeviceKey(key);
     const invalid = { ok: false as const, code: "INVALID_DEVICE_KEY" as const, error: "This PC's key is not valid" };
     if (!parsed) return invalid;
+    const restoring = { ok: false as const, code: "SHOP_RESTORING" as const, error: SHOP_RESTORING_MESSAGE };
     let row;
     try {
       row = runWithTenant(parsed.tenantId, () => this.devices.findByKeyId(parsed.keyId));
-    } catch {
-      return invalid;
+    } catch (err) {
+      return isShopRestoringError(err) ? restoring : invalid;
     }
     if (!row) return invalid;
     const a = Buffer.from(sha256(parsed.secret), "hex");
@@ -225,8 +254,8 @@ export class OfflineDeviceService {
     let status: ReturnType<typeof this.shopStatus>;
     try {
       status = this.shopStatus(parsed.tenantId);
-    } catch {
-      return invalid;
+    } catch (err) {
+      return isShopRestoringError(err) ? restoring : invalid;
     }
     if (status !== "active") {
       return { ok: false, code: "SHOP_INACTIVE", error: "This shop is not active — contact LiraTek support" };
@@ -337,8 +366,22 @@ export class OfflineDeviceService {
         heldItems,
         renumberUnsent: this.reviews.findPendingRenumber(deviceId) !== null,
         trial: this.trialFor(getCurrentTenantId()),
+        restore: this.restoreFor(getCurrentTenantId()),
       },
     };
+  }
+
+  /** LIRA-377 — never throws: an unknown restore state answers null (the
+   *  PC then refreshes its copy on the normal timer). */
+  private restoreFor(tenantId: number): PcRestoreNotice | null {
+    try {
+      const r = this.latestRestore(tenantId);
+      if (!r) return null;
+      return { id: r.id, restoredTo: r.restored_to, restoredAt: r.finished_at, byName: r.requested_by_name };
+    } catch (error) {
+      offlineLogger.warn({ error, tenantId }, "restore lookup failed at check-in");
+      return null;
+    }
   }
 
   /** Never throws: an unknown trial state lets the PC work (fail open). */

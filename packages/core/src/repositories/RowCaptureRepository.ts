@@ -62,6 +62,18 @@ export class RowCaptureRepository {
     return new Map(rows.map((r) => [r.id, { name: r.name, stock: r.stock_quantity }]));
   }
 
+  /** LIRA-377: does this shop row exist? Only manifest tables (the name is
+   *  checked against the fixed list — it cannot be a bound parameter). */
+  rowExists(table: string, id: number): boolean {
+    if (!MANIFEST_KEY_TABLES.includes(table) || !SAFE_NAME.test(table)) {
+      throw new RangeError(`rowExists: "${table}" is not a business table`);
+    }
+    return (
+      this.db.prepare(`SELECT 1 FROM ${table} WHERE tenant_id = ? AND id = ? LIMIT 1`).get(getCurrentTenantId(), id) !==
+      undefined
+    );
+  }
+
   /** Highest id per table (copy high-water marks, R15). */
   highWaterMarks(): SequenceSnapshot {
     return this.snapshotSequences();

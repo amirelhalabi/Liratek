@@ -26,6 +26,8 @@ export const OFFLINE_CHANNELS = [
   "offline:send-now",
   "offline:open-web-app",
   "offline:install-update",
+  // LIRA-377: clears the "Shop restored" banner (pre-login, like status)
+  "offline:dismiss-restore-notice",
 ] as const;
 
 /** "Work offline" appears after this long without the server (O-new-22). */
@@ -80,6 +82,8 @@ export function offlineStatus(rt: OfflineRuntime | null): Envelope {
       pendingCount: rt.pendingCount(),
       lastError: p?.lastError ?? null,
       heldItems: p?.heldItems ?? [],
+      // LIRA-377: shown as a banner until offline:dismiss-restore-notice
+      restoreNotice: p?.restoreNotice ?? null,
     },
   };
 }
@@ -205,6 +209,24 @@ export function registerOfflineHandlers(): void {
     } catch (error) {
       logger.error({ error }, "offline:status failed");
       return { success: false, error: "Status unavailable" };
+    }
+  });
+
+  // LIRA-377: no sign-in needed — the banner shows on the standby screen,
+  // which has no signed-in user (same as offline:status). Clears only the
+  // notice; the stored restore id stays, so the banner never comes back
+  // for the same restore.
+  ipcMain.handle("offline:dismiss-restore-notice", async () => {
+    const rt = getOfflineRuntime();
+    if (!rt) return NOT_WIRED;
+    try {
+      if (!rt.store.read())
+        return { success: false, error: "This PC is not paired" };
+      rt.store.update({ restoreNotice: null });
+      return { success: true };
+    } catch (error) {
+      logger.error({ error }, "offline:dismiss-restore-notice failed");
+      return { success: false, error: "Could not dismiss the notice" };
     }
   });
 

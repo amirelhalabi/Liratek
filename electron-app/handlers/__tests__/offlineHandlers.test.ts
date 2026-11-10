@@ -201,7 +201,51 @@ describe("offline:status", () => {
         pendingCount: 0,
         lastError: null,
         heldItems: [{ eventId: "e1", label: "Debt repayment", amount: 20 }],
+        restoreNotice: null,
       },
+    });
+  });
+
+  it("LIRA-377: returns the restore notice until offline:dismiss-restore-notice clears it (no sign-in needed)", async () => {
+    store.savePairing(
+      {
+        tenantId: 7,
+        shopSlug: "cornertech",
+        shopName: "Corner Tech",
+        serverUrl: "https://api.test",
+        deviceNo: 3,
+        serverSchemaVersion: 210,
+      },
+      KEY,
+    );
+    const notice = {
+      restoreId: 13,
+      restoredTo: "2026-11-10T12:00:00.000Z",
+      restoredAt: "2026-11-10T12:20:09.000Z",
+      byName: "owner",
+    };
+    store.update({ lastRestoreId: 13, restoreNotice: notice });
+    setOfflineRuntime(runtime());
+    expect(OFFLINE_CHANNELS).toContain("offline:dismiss-restore-notice");
+    expect((await call("offline:status")).data).toMatchObject({
+      restoreNotice: notice,
+    });
+    expect(await call("offline:dismiss-restore-notice")).toEqual({
+      success: true,
+    });
+    expect((await call("offline:status")).data).toMatchObject({
+      restoreNotice: null,
+    });
+    // the id stays, so the same restore never shows the banner again
+    expect(store.read()?.lastRestoreId).toBe(13);
+  });
+
+  it("LIRA-377: dismiss without a runtime or pairing is refused, never throws", async () => {
+    expect((await call("offline:dismiss-restore-notice")).success).toBe(false);
+    setOfflineRuntime(runtime());
+    expect(await call("offline:dismiss-restore-notice")).toEqual({
+      success: false,
+      error: "This PC is not paired",
     });
   });
 

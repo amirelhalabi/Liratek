@@ -131,6 +131,9 @@ export const OFFLINE_ID_TABLES: readonly string[] = [
   // LIRA-370 v229 — appended (positions are baked into offline ids). A
   // settlement (or its void) writes / reverses these rows.
   "omt_owed_shares",
+  // LIRA-377 v231 — appended (positions are baked into offline ids). A
+  // PLATFORM table (shop restores); listed in MAP_EXCLUDED_TABLES too.
+  "shop_restores",
 ];
 
 /** The offline feature's own bookkeeping tables — never written by a

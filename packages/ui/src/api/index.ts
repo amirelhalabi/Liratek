@@ -44,5 +44,13 @@ export type {
   AccountDaySettlement,
   CommissionsReport,
   CommissionProviderRow,
+  RestoreErrorCode,
+  RestoreResult,
+  RestoreBeforeCopy,
+  RestorePoints,
+  RestoreMoney,
+  RestorePreview,
+  PreparedRestore,
+  ConfirmedRestore,
 } from "./types";
 export { ApiProvider, useApi } from "./ApiProvider";

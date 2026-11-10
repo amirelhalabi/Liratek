@@ -126,6 +126,19 @@ export interface OfflineStatusView {
   lastError?: string | null;
   /** this PC's offline items the server holds for review (spec edge case) */
   heldItems?: Array<{ eventId: string; label: string; amount: number | null }>;
+  /** LIRA-377: the shop was restored since this PC last looked — shown as a
+   *  banner until dismissed; null/absent: nothing to show. */
+  restoreNotice?: OfflineRestoreNotice | null;
+}
+
+/** LIRA-377: "Shop restored to <restoredTo> by <byName>" (desktop banner). */
+export interface OfflineRestoreNotice {
+  restoreId: number;
+  /** UTC ISO instant the shop now reflects; the renderer shows it in local time. */
+  restoredTo: string | null;
+  /** UTC ISO instant the restore finished. */
+  restoredAt: string | null;
+  byName: string | null;
 }
 
 /** GET /api/offline/events/status?fromSeq=n */
@@ -157,6 +170,25 @@ export const reviewDismissSchema = z.object({
   note: z.string().max(500).optional(),
 });
 export type ReviewDismissInput = z.input<typeof reviewDismissSchema>;
+
+/**
+ * POST /api/offline/review/:id/apply — LIRA-377: a `restore_removed` item
+ * whose removed references are all clients is applied with ANOTHER client
+ * (`replacementClientId`) or as walk-in (`walkIn: true`). Every other item
+ * is applied with an empty body, as before. Strict: an unknown key is
+ * refused, never silently dropped (rule 23).
+ */
+export const reviewApplySchema = z
+  .object({
+    replacementClientId: z.number().int().positive().optional(),
+    walkIn: z.literal(true).optional(),
+  })
+  .strict()
+  .refine((d) => !(d.replacementClientId !== undefined && d.walkIn === true), {
+    message: "Pick a client or walk-in, not both",
+    path: ["walkIn"],
+  });
+export type ReviewApplyInput = z.input<typeof reviewApplySchema>;
 
 export const offlineHistoryQuerySchema = z.object({
   deviceId: z.coerce.number().int().positive().optional(),

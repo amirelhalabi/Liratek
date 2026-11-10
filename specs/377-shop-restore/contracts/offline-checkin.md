@@ -26,7 +26,7 @@ A PC that starts after days switched off does its check-in before sending its ou
 For each id position of the event (mapped offline ids AND plain server ids):
 
 - row exists → continue as today;
-- row missing AND a `shop_restores` `done` row for this shop has `finished_at` > the event's recorded time → hold, kind `restore_removed`, details `{ restoreId, restoredTo, removed:[{table,id,label}] }`;
+- row missing AND the shop's latest `done` `shop_restores` row has `finished_at` > the `built_at` of the copy the event was recorded on (`offline_snapshots` by `copy_id`; the event's recorded time when the copy is unknown) → hold, kind `restore_removed`, details `{ restoreId, restoredTo, removed:[{table,id,label,path}], payload }`. (Changed 2026-11-10 from "the event's recorded time": a PC offline through the restore keeps selling on its pre-restore copy — spec US4 Case B, a sale at 15:30 after a 15:20 restore — and a copy is always built before its events, so this only widens the hold.)
 - row missing otherwise → today's behaviour (unchanged).
 
 Because the restore raised every `sqlite_sequence` to its pre-restore value, a missing id can never have been given to another row in between.

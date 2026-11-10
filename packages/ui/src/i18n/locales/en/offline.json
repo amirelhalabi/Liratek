@@ -86,6 +86,27 @@
       "apply": "Book this item now, through the same rules as the web app?",
       "dismiss": "Drop this item? Nothing will be booked.",
       "book_anyway": "Book this transfer/recharge as a second, separate one?"
+    },
+    "removed": {
+      "title": "Removed by the shop restore:",
+      "record": "{{label}} ({{table}} #{{id}})",
+      "fromRestoreTo": "From the restore to {{when}}",
+      "fromFile": "From the restore from a backup file",
+      "recorded": "What the PC recorded (to re-enter it by hand)",
+      "pickClient": "Another client",
+      "pickClientPlaceholder": "Search a client by name or phone",
+      "bookWithClient": "Book with this client",
+      "bookWalkIn": "Book as walk-in",
+      "confirmClient": "Book this item now with {{name}} instead of the removed client?",
+      "confirmWalkIn": "Book this item now as a walk-in, with no client?"
     }
+  },
+  "restore": {
+    "restoredTo": "Shop restored to {{when}} by {{by}}.",
+    "restoredToNoName": "Shop restored to {{when}}.",
+    "fromFile": "Shop restored from a backup file by {{by}}.",
+    "fromFileNoName": "Shop restored from a backup file.",
+    "dismiss": "OK",
+    "dismissLabel": "Dismiss the restore notice"
   }
 }

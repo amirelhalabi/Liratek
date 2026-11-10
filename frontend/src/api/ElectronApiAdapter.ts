@@ -35,6 +35,7 @@ import type {
   DesktopUnpairInput,
   // LIRA-306 — offline work review (web-only, E1; rule 21).
   OfflineHistoryQuery,
+  ReviewApplyInput,
   ReviewDismissInput,
   ReviewListQuery,
   ProductListFilters,
@@ -153,6 +154,12 @@ import * as api from "./backendApi";
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
 import type { ShopBackupPayload } from "@liratek/core";
+// LIRA-377 web shop restore payloads (rule 21).
+import type {
+  PrepareRestorePayload,
+  ConfirmRestorePayload,
+  CancelRestorePayload,
+} from "@liratek/core";
 // LIRA-306 T093 — maintenance metadata edit payload (rule 21).
 import type { MaintenanceUpdateMetadataInput } from "@liratek/core";
 // Session basket checkout payload, derived from the core schema (rule 21).
@@ -578,12 +585,14 @@ export class ElectronApiAdapter implements ApiAdapter {
   sendOfflineNow = () => api.sendOfflineNow();
   openWebApp = () => api.openWebApp();
   installOfflineUpdate = () => api.installOfflineUpdate();
+  dismissOfflineRestoreNotice = () => api.dismissOfflineRestoreNotice();
   // LIRA-306 — offline work review + paired PCs (web-only, E1).
   getOfflineReviewItems = (query?: ReviewListQuery) =>
     api.getOfflineReviewItems(query);
   getOfflineHistory = (query?: OfflineHistoryQuery) =>
     api.getOfflineHistory(query);
-  applyOfflineReviewItem = (id: number) => api.applyOfflineReviewItem(id);
+  applyOfflineReviewItem = (id: number, data?: ReviewApplyInput) =>
+    api.applyOfflineReviewItem(id, data);
   dismissOfflineReviewItem = (id: number, data?: ReviewDismissInput) =>
     api.dismissOfflineReviewItem(id, data);
   markOfflineReviewItemReviewed = (id: number) =>
@@ -597,6 +606,15 @@ export class ElectronApiAdapter implements ApiAdapter {
   // Web "Download backup" (Settings › Backup) — web-only.
   downloadShopBackup = (query: ShopBackupPayload) =>
     api.downloadShopBackup(query);
+  // LIRA-377 web shop restore (Settings › Backup › Restore) — web-only.
+  getRestorePoints = () => api.getRestorePoints();
+  prepareRestore = (payload: PrepareRestorePayload) =>
+    api.prepareRestore(payload);
+  uploadRestoreFile = (file: Blob, clientTzOffsetMin: number) =>
+    api.uploadRestoreFile(file, clientTzOffsetMin);
+  confirmRestore = (payload: ConfirmRestorePayload) =>
+    api.confirmRestore(payload);
+  cancelRestore = (payload: CancelRestorePayload) => api.cancelRestore(payload);
   createCheckpoint = (data: CreateCheckpointPayload) =>
     api.createCheckpoint(data);
   getCheckpointTimeline = (filters?: CheckpointFilters) =>

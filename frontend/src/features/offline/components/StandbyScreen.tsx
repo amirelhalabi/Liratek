@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { useApi } from "@liratek/ui";
 import type { OfflineStatusView } from "@liratek/core";
+import { RestoreNoticeBanner } from "./RestoreNoticeBanner";
 
 export interface StandbyScreenProps {
   status: OfflineStatusView;
@@ -95,6 +96,15 @@ export function StandbyScreen({ status, onChanged }: StandbyScreenProps) {
               : (status.notReadyReason ?? t("standby.notReady"))}
           </dd>
         </dl>
+
+        {status.restoreNotice ? (
+          <div className="overflow-hidden rounded-lg">
+            <RestoreNoticeBanner
+              notice={status.restoreNotice}
+              onChanged={onChanged}
+            />
+          </div>
+        ) : null}
 
         {status.lastError ? (
           <p

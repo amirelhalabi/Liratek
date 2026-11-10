@@ -12,6 +12,11 @@ export * from "./db/tenantDatabasePool.js";
 // frontend needs it today, and keeping it out of browser.ts avoids growing
 // that bundle's surface for no reason.
 export * from "./db/tenantDatabaseIds.js";
+// LIRA-377 shop restore records (platform-only table `shop_restores`).
+// Server-only: exported from this entry point alone, never browser.ts.
+export * from "./repositories/ShopRestoresRepository.js";
+// LIRA-377 shop restore file ports (pure types; implemented in backend/).
+export type * from "./services/restorePorts.js";
 // Phase D split tool (§ 12.3, offline CLI use only) — uses `fs`/`path`,
 // Node-only. Never add to browser.ts.
 export * from "./db/tenantSplit.js";
@@ -291,6 +296,8 @@ export {
   SNAPSHOT_KEPT_COLUMNS,
   SNAPSHOT_SECRET_SETTING_PATTERN,
   SNAPSHOT_KEPT_SETTING_KEYS,
+  isSnapshotSecretSettingKey,
+  verifyOnlyOwnShop,
   type TenantSnapshot,
   type BuildTenantSnapshotOptions,
 } from "./db/tenantSnapshot.js";
@@ -312,6 +319,58 @@ export {
   resetShopBackupRepository,
   type ShopBackupRepositoryOptions,
 } from "./repositories/ShopBackupRepository.js";
+// LIRA-377 shop restore: candidate preparation + preview — server-only (rule 29).
+export {
+  ShopRestoreRepository,
+  getShopRestoreRepository,
+  resetShopRestoreRepository,
+  RESTORE_CARRIED_OFFLINE_TABLES,
+  type ShopRestoreRepositoryOptions,
+  type PrepareCandidateInput,
+  type PrepareCandidateResult,
+  type RestorePreviewInput,
+  type RestorePreviewData,
+  type RestoreLastSale,
+  type RestoreLostSummary,
+  type RestoreLostSales,
+  type RestoreLostSettlements,
+  type RestoreCurrencyTotal,
+} from "./repositories/ShopRestoreRepository.js";
+// LIRA-377 shop restore: file checks + the restore service — server-only (rule 29).
+export {
+  ShopRestoreFileRepository,
+  getShopRestoreFileRepository,
+  resetShopRestoreFileRepository,
+  type ShopRestoreFileRepositoryOptions,
+  type ShopFileFacts,
+  type ShopFileTenantRow,
+  type SchemaObject,
+} from "./repositories/ShopRestoreFileRepository.js";
+export {
+  ShopRestoreService,
+  getShopRestoreService,
+  resetShopRestoreService,
+  RestoreSourceError,
+  SHOP_RESTORED_TEMPLATE,
+  RESTORE_WINDOW_MS,
+  RESTORE_CONFIRM_WINDOW_MS,
+  RESTORE_REFUSAL_MESSAGES,
+  formatRestoreMoment,
+  type RestoreRefusalCode,
+  type RestoreRefusal,
+  type RestoreOutcome,
+  type ShopRestoreDirs,
+  type ShopRestorePorts,
+  type ShopRestoreServiceDeps,
+  type RestoreActor,
+  type RestorePreview,
+  type PreparedRestore,
+  type RestorePoints,
+  type RestoreBeforeCopy,
+  type ConfirmedRestore,
+  type PrepareInput,
+  type SweepResult,
+} from "./services/ShopRestoreService.js";
 export {
   ShopBackupService,
   getShopBackupService,

@@ -48,6 +48,24 @@ export interface TenantDatabasePoolOptions {
   clock?: () => number;
 }
 
+/**
+ * Thrown by `get()` for a shop that is paused while its file is swapped (shop
+ * restore, LIRA-377). Deliberately NOT a `TenantContextError`: that error
+ * routes a request to the PLATFORM file (`tenantDbResolver.ts`), and a
+ * restoring shop's request must never land there. Callers treat it as
+ * "please retry in a few seconds".
+ */
+export class ShopRestoringError extends Error {
+  readonly tenantId: number;
+  constructor(tenantId: number) {
+    super(
+      `TenantDatabasePool: shop ${tenantId} is being restored — please retry in a few seconds`,
+    );
+    this.name = "ShopRestoringError";
+    this.tenantId = tenantId;
+  }
+}
+
 interface PoolEntry {
   db: Database.Database;
   lastUsedAt: number;
@@ -74,6 +92,8 @@ export class TenantDatabasePool {
    * tenant's requests until restart" (§ 11.1).
    */
   private readonly poisoned = new Map<number, Error>();
+  /** Shops paused by `block()` — `get()` throws `ShopRestoringError` for them. */
+  private readonly blocked = new Set<number>();
 
   constructor(options: TenantDatabasePoolOptions) {
     this.dir = options.dir;
@@ -96,6 +116,10 @@ export class TenantDatabasePool {
    * whose migration already failed once this process.
    */
   get(tenantId: number): Database.Database {
+    if (this.blocked.has(tenantId)) {
+      throw new ShopRestoringError(tenantId);
+    }
+
     const cached = this.entries.get(tenantId);
     if (cached) {
       cached.lastUsedAt = this.clock();
@@ -258,12 +282,37 @@ export class TenantDatabasePool {
     return true;
   }
 
+  /**
+   * Pauses one shop so its file can be swapped (shop restore, LIRA-377):
+   * evicts its connection (checkpoint + close) and makes every later `get()`
+   * throw `ShopRestoringError` until `unblock()`. Other shops are untouched.
+   *
+   * Refuses (throws, via `evict`) when the shop is mid-transaction, and in
+   * that case leaves it NOT blocked and still open — the caller retries later.
+   */
+  block(tenantId: number): void {
+    this.evict(tenantId);
+    this.blocked.add(tenantId);
+    dbLogger.info({ tenantId }, "TenantDatabasePool: shop blocked");
+  }
+
+  /** Ends a `block()`; the next `get()` reopens the (possibly new) file. */
+  unblock(tenantId: number): void {
+    if (this.blocked.delete(tenantId)) {
+      dbLogger.info({ tenantId }, "TenantDatabasePool: shop unblocked");
+    }
+  }
+
+  isBlocked(tenantId: number): boolean {
+    return this.blocked.has(tenantId);
+  }
+
   /** Test-only: how many connections are currently cached open. */
   openCount(): number {
     return this.entries.size;
   }
 
-  /** Test-only: clears a poisoned tenant so its next `get()` retries migration. */
+  /** Clears a poisoned tenant so its next `get()` retries migration (tests, and shop restore after a successful file swap). */
   resetPoisoned(tenantId: number): void {
     this.poisoned.delete(tenantId);
   }

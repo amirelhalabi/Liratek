@@ -91,3 +91,5 @@ export * from "./userPreferences.js";
 export * from "./tablePaging.js";
 // Web "Download backup" (Settings › Backup): the browser's local file stamp.
 export * from "./backup.js";
+// LIRA-377 web shop restore: prepare / confirm / cancel / file-upload query.
+export * from "./restore.js";

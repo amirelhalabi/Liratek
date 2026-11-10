@@ -60,12 +60,19 @@ import type {
   OfflineReviewPreview,
   PairedDeviceView,
   ReviewActionResult,
+  ReviewApplyInput,
   ReviewDismissInput,
   ReviewItemView,
   ReviewListQuery,
 } from "@liratek/core";
 // Web "Download backup" (Settings › Backup; rule 21).
 import type { ShopBackupPayload } from "@liratek/core";
+// LIRA-377 web shop restore payloads, derived from the core schemas (rule 21).
+import type {
+  PrepareRestorePayload,
+  ConfirmRestorePayload,
+  CancelRestorePayload,
+} from "@liratek/core";
 // LIRA-306 T093 — maintenance metadata edit payload (rule 21).
 import type { MaintenanceUpdateMetadataInput } from "@liratek/core";
 // LIRA-297 item 3 — product create/update and item-cost write payloads,
@@ -321,6 +328,96 @@ export type {
 };
 
 /** One expense as the Expenses page lists it (`ExpenseRepository.getColumns`). */
+// ---------------------------------------------------------------------------
+// LIRA-377 web shop restore (Settings › Backup › Restore) — response shapes
+// of `specs/377-shop-restore/contracts/rest.md`. Payloads are the core
+// schemas' input types (rule 21); these are the answers.
+// ---------------------------------------------------------------------------
+export type RestoreErrorCode =
+  | "RESTORE_RUNNING"
+  | "OUT_OF_WINDOW"
+  | "BEFORE_SHOP_EXISTED"
+  | "NO_BACKUP_AT_TIME"
+  | "PREPARE_FAILED"
+  | "NOT_A_SHOP_FILE"
+  | "FILE_DAMAGED"
+  | "OTHER_SHOP"
+  | "MIXED_SHOPS"
+  | "NEWER_VERSION"
+  | "UNEXPECTED_SCHEMA_OBJECT"
+  | "NAME_MISMATCH"
+  | "EXPIRED"
+  | "NOT_YOURS"
+  | "RESTORE_FAILED"
+  | "FILE_TOO_LARGE";
+
+/** A refusal: `code` when the server sends one (else `error` may itself be
+ * the code); `shopName` only with `OTHER_SHOP`. */
+export type RestoreResult<T> =
+  | { success: true; data: T; error?: undefined; code?: undefined; shopName?: undefined }
+  | { success: false; data?: undefined; error?: string; code?: string; shopName?: string };
+
+export type RestoreBeforeCopy = {
+  restoreId: number;
+  /** UTC ISO instant. */
+  takenAt: string;
+  byName: string;
+};
+
+export type RestorePoints = {
+  /** UTC ISO instants bounding the time picker. */
+  earliest: string;
+  latest: string;
+  beforeCopies: RestoreBeforeCopy[];
+  lastRestore: {
+    restoreId: number;
+    restoredTo: string;
+    finishedAt: string;
+    byName: string;
+  } | null;
+  /** The platform shop name the confirmation must match exactly (FR-009). */
+  shopName?: string;
+};
+
+export type RestoreMoney = { currency: string; amount: number };
+
+export type RestorePreview = {
+  restoredTo: string;
+  lastSaleInCopy: {
+    at: string;
+    amount: number;
+    currency: string;
+    client: string | null;
+  } | null;
+  lost: {
+    sales: { count: number; totalUsd: number };
+    payments: number;
+    expenses: number;
+    dayClosings: number;
+    checkpoints: number;
+    settlements: { suppliers: number; partners: number; loto: number };
+    /** Gross IN legs per currency — never netted with moneyOut. */
+    moneyIn: RestoreMoney[];
+    /** Gross OUT legs per currency, positive. */
+    moneyOut: RestoreMoney[];
+  };
+  youAreMissing: boolean;
+};
+
+export type PreparedRestore = {
+  restoreId: number;
+  expiresAt: string;
+  preview: RestorePreview;
+  /** Present when the server echoes the name to type (FR-009). */
+  shopName?: string;
+};
+
+export type ConfirmedRestore = {
+  restoreId: number;
+  restoredTo: string;
+  beforeCopy: { takenAt: string };
+};
+
 export type ExpenseListRow = {
   id: number;
   description: string;
@@ -2020,6 +2117,8 @@ export type ApiAdapter = {
   }>;
   openWebApp: () => Promise<OfflineControlEnvelope>;
   installOfflineUpdate: () => Promise<OfflineControlEnvelope>;
+  /** LIRA-377 — clears the "Shop restored to …" banner on this PC. */
+  dismissOfflineRestoreNotice: () => Promise<OfflineControlEnvelope>;
 
   // ---------------------------------------------------------------------------
   // LIRA-306 offline work review + paired PCs (web-only, E1). The desktop
@@ -2038,7 +2137,10 @@ export type ApiAdapter = {
     data?: { events: OfflineHistoryView[] };
     error?: string;
   }>;
-  applyOfflineReviewItem: (id: number) => Promise<ReviewActionResult>;
+  applyOfflineReviewItem: (
+    id: number,
+    payload?: ReviewApplyInput,
+  ) => Promise<ReviewActionResult>;
   dismissOfflineReviewItem: (
     id: number,
     payload?: ReviewDismissInput,
@@ -2074,6 +2176,24 @@ export type ApiAdapter = {
     data?: { blob: Blob; fileName: string };
     error?: string;
   }>;
+
+  // LIRA-377 web shop restore (Settings › Backup › Restore) — web-only; the
+  // desktop branch answers { success:false, error:"Available on the web app" }.
+  // `clientTzOffsetMin` = -new Date().getTimezoneOffset() (rule 27).
+  getRestorePoints: () => Promise<RestoreResult<RestorePoints>>;
+  prepareRestore: (
+    payload: PrepareRestorePayload,
+  ) => Promise<RestoreResult<PreparedRestore>>;
+  uploadRestoreFile: (
+    file: Blob,
+    clientTzOffsetMin: number,
+  ) => Promise<RestoreResult<PreparedRestore>>;
+  confirmRestore: (
+    payload: ConfirmRestorePayload,
+  ) => Promise<RestoreResult<ConfirmedRestore>>;
+  cancelRestore: (
+    payload: CancelRestorePayload,
+  ) => Promise<RestoreResult<{ cancelled?: boolean }>>;
 
   // ---------------------------------------------------------------------------
   // Suppliers

@@ -46,6 +46,10 @@ import {
   type ReviewListQuery,
 } from "../validators/offline.js";
 import { offlineLogger } from "../utils/logger.js";
+import { getClientRepository } from "../repositories/ClientRepository.js";
+import { applyClientChoice, type ClientReplacement } from "../offline/restoreRefs.js";
+import { reviewApplySchema, type ReviewApplyInput } from "../validators/offline.js";
+import type { RemovedReference } from "../offline/views.js";
 import { runWithTenant } from "../db/tenantContext.js";
 import { checkpointExpectedFigures } from "../offline/bindings/checkpoints.js";
 import type { OfflineReviewPreview } from "../offline/views.js";
@@ -63,6 +67,25 @@ export interface OfflineReviewServiceDeps {
   reviews?: OfflineReviewRepository;
   devices?: OfflineDeviceRepository;
   users?: UserRepository;
+  /** LIRA-377: a client of the shop for Apply with a replacement. Default: ClientRepository. */
+  findClient?: (id: number) => ClientReplacement | null;
+}
+
+function defaultFindClient(id: number): ClientReplacement | null {
+  const c = getClientRepository().findById(id);
+  return c ? { id: c.id, name: c.full_name, phone: c.phone_number ?? null } : null;
+}
+
+/** LIRA-377: the removed references of a `restore_removed` item's details. */
+function removedRefs(details: Record<string, unknown>): RemovedReference[] {
+  return Array.isArray(details.removed) ? (details.removed as RemovedReference[]) : [];
+}
+
+/** Apply with a replacement is offered only when every removed reference is
+ *  a client (research R7, v1). */
+function onlyClientsRemoved(details: Record<string, unknown>): boolean {
+  const refs = removedRefs(details);
+  return refs.length > 0 && refs.every((r) => r.table === "clients" && typeof r.path === "string");
 }
 
 const NOTE_KINDS_REVIEWABLE = (kind: OfflineReviewKind): boolean => !OFFLINE_HOLDING_KINDS.includes(kind);
@@ -84,6 +107,7 @@ export class OfflineReviewService {
   private readonly reviews: OfflineReviewRepository;
   private readonly devices: OfflineDeviceRepository;
   private readonly users: UserRepository;
+  private readonly findClient: (id: number) => ClientReplacement | null;
 
   constructor(deps: OfflineReviewServiceDeps = {}) {
     this.engine = deps.engine ?? new ReplayEngine();
@@ -91,6 +115,7 @@ export class OfflineReviewService {
     this.reviews = deps.reviews ?? getOfflineReviewRepository();
     this.devices = deps.devices ?? getOfflineDeviceRepository();
     this.users = deps.users ?? getUserRepository();
+    this.findClient = deps.findClient ?? defaultFindClient;
   }
 
   // ── reads ────────────────────────────────────────────────────────────────
@@ -205,7 +230,16 @@ export class OfflineReviewService {
 
   // ── actions ──────────────────────────────────────────────────────────────
 
-  async apply(itemId: number, adminUserId: number): Promise<ReviewActionResult> {
+  /**
+   * `choice` (LIRA-377): for a `restore_removed` item whose removed
+   * references are all clients, the replacement — another client or walk-in;
+   * the stored payload is re-run with those references replaced (the event's
+   * own `payload_json` is never changed). Refused for every other item.
+   */
+  async apply(itemId: number, adminUserId: number, choice: ReviewApplyInput = {}): Promise<ReviewActionResult> {
+    const c = reviewApplySchema.safeParse(choice);
+    if (!c.success) return { success: false, code: "VALIDATION_ERROR", error: c.error.issues[0]?.message ?? "Invalid choice" };
+    const hasChoice = c.data.walkIn === true || c.data.replacementClientId !== undefined;
     const ctx = this.load(itemId);
     if ("error" in ctx) return ctx.error;
     const { item, event } = ctx;
@@ -213,8 +247,37 @@ export class OfflineReviewService {
     if (!event || !OFFLINE_HOLDING_KINDS.includes(item.kind)) {
       return { success: false, code: "NOT_APPLICABLE", error: "Only held or refused items can be applied" };
     }
-    if (parse<Record<string, unknown>>(item.details_json, {}).noApply === true) {
+    const details = parse<Record<string, unknown>>(item.details_json, {});
+    if (details.noApply === true) {
       return { success: false, code: "NOT_APPLICABLE", error: "Recorded by a different app version — re-enter it instead" };
+    }
+    let payloadOverride: Record<string, unknown> | undefined;
+    if (item.kind === "restore_removed") {
+      if (!onlyClientsRemoved(details)) {
+        return {
+          success: false,
+          code: "NOT_APPLICABLE",
+          error: "This points at a record the restore removed that is not a client — dismiss it and re-enter it by hand",
+        };
+      }
+      if (!hasChoice) {
+        return { success: false, code: "CHOICE_REQUIRED", error: "Pick another client or book it as walk-in" };
+      }
+      let replacement: ClientReplacement | null = null;
+      if (c.data.replacementClientId !== undefined) {
+        replacement = this.findClient(c.data.replacementClientId);
+        if (!replacement) return { success: false, code: "NOT_FOUND", error: "That client was not found" };
+      }
+      const stored = parse<Record<string, unknown>>(event.payload_json, {});
+      const out = applyClientChoice(event.channel, stored, removedRefs(details).map((r) => r.path), replacement);
+      if (!out.ok) {
+        return out.reason === "client_required"
+          ? { success: false, code: "CLIENT_REQUIRED", error: "This needs a client — pick one" }
+          : { success: false, code: "NOT_APPLICABLE", error: "This item cannot be re-booked with another client — dismiss it and re-enter it" };
+      }
+      payloadOverride = out.payload;
+    } else if (hasChoice) {
+      return { success: false, code: "NOT_APPLICABLE", error: "A replacement client is only for items that point at a removed client" };
     }
     if (this.engine.dependencyState(event).blocking.length > 0) {
       return { success: false, code: "PARENT_OPEN", error: PARENT_OPEN };
@@ -223,8 +286,15 @@ export class OfflineReviewService {
     const outcome = await this.engine.process(event, {
       mode: "apply",
       bypass,
+      payloadOverride,
       onBooked: () => this.closeOpenItems(event, "applied", adminUserId),
     });
+    if (payloadOverride && outcome.status === "applied") {
+      offlineLogger.info(
+        { itemId, by: adminUserId, walkIn: c.data.walkIn === true, replacementClientId: c.data.replacementClientId },
+        "restore_removed item applied with a replacement",
+      );
+    }
     return this.afterBooking(item, event, outcome, adminUserId);
   }
 
@@ -298,6 +368,7 @@ export class OfflineReviewService {
     if (details.code === "SEQ_CONFLICT") return [];
     if (item.kind === "certain_duplicate") return ["reviewed", "book_anyway"];
     if (item.kind === "pc_data_mismatch") return ["reviewed"];
+    if (item.kind === "restore_removed") return onlyClientsRemoved(details) ? ["apply", "dismiss"] : ["dismiss"];
     if (OFFLINE_HOLDING_KINDS.includes(item.kind)) return details.noApply === true ? ["dismiss"] : ["apply", "dismiss"];
     return ["reviewed"];
   }

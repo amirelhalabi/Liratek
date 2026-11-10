@@ -8485,7 +8485,7 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 
 **What users will notice:** the Profits page on the web app opens much faster, and other staff no longer see errors while someone has it open.
 
-## LIRA-377: Restore a shop on the web (to an earlier time, or from a backup file) — SPEC 2026-11-10
+## LIRA-377: Restore a shop on the web (to an earlier time, or from a backup file) — BUILT 2026-11-10 (not deployed)
 
 **Asked by:** owner, 2026-11-10, after "Download backup" shipped (`829d64d6`): extend backup to backup and restore.
 
@@ -8493,7 +8493,9 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 
 **Spec:** `specs/377-shop-restore/spec.md`. Restore-to-a-time window: 7 days (owner, 2026-11-10). Desktop restore is out of scope (separate gap: the desktop makes local backups but has no restore button).
 
-**What users will notice:** (when built) web admins can roll their shop back to an earlier time, or restore it from a downloaded backup file, from Settings › Backup.
+**Built (2026-11-10):** migration v231 (`shop_restores`, platform-only; review kind `restore_removed`), shop pause in the pool, candidate preparation, preview (owner chose separate Money in / Money out lines), swap by online backup into the live file (Linux-proven on Fly), routes `/api/restore/*`, Litestream source, sweep, owner email, audit, till-PC hold + `SHOP_RESTORING` + PC banner + Apply with another client / walk-in. Tasks: `specs/377-shop-restore/tasks.md`. Not done: web e2e (the web e2e server runs the shared file, restore needs one file per shop), What's new card + screenshot and the production check on the Test shop (T056) — both after deploy.
+
+**What users will notice:** web admins can restore the shop in Settings › Backup to a moment in the last 7 days or from a downloaded backup file, after a preview of what will be lost; a copy from just before is kept to undo it; paired till PCs show "Shop restored" and reload the shop.
 
 ## LIRA-378: OMT Settle Account — nothing ticked = OMT pays no commission — BUILT 2026-11-10 (not committed)
 
@@ -8506,3 +8508,22 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 **Tests (rule 17):** proven failing first — core `supplierSettleAccount.noneTicked` (2 of 5 failed: `Array must contain at least 1 element(s)`), core `lira370OwedShares` "SMS includes no commission" (both cases failed at parse), frontend `AccountSettleSheet.lira378NoCommission` (4/4 failed: box opened at 772.30, payload had no covered key, no group checkbox). The "SMS implies commission with nothing ticked → refused" case was first written as "extra profit" and corrected after the server refused it (`commission_without_closed_model1`) — the rule now has its own message on both sides. Rewritten on the new premise (rule 24): `AccountSettleSheet.lira370Sms` (ticks All types first), `lira372` SMS case, `suppliers.payloadLanguage` two SMS cases (group test id had to be language-independent — the Arabic run caught `-group-All types`). Neighbours green: 11 core suites / 128 tests; 6 frontend suites / 40 tests + payloadLanguage. `yarn typecheck`, `yarn lint` (0 errors), `check:i18n` pass. Web e2e (fresh DB, headless): `lira-web-035` 4/4, `053`, `065`, `081`, `091` 2/2 green after the specs were taught the new default (`helpers/omtSmsSettle.ts`: `tickAllSmsTypes`; `smsAtGross` ticks All types first so a gross SMS leaves nothing owed, as before); `081` caught a real bug — "See transactions" marked every transfer waiting once the default became `[]` (`isSettleRowWaiting(q, coveredTypes)` → `rowScopeTypes`; unit guard added, seen failing first); `093` reads the live owed shares into its expected figure (rule 15). `091` saves the What's new screenshot `whats-new/1.35.0/omt-sms-no-commission.png` (1400×900); Highlights card added; `build-release-notes --check` passes. Desktop unverified (shared IPC channel; no desktop e2e on this Mac). Not committed.
 
 **What users will notice:** on Suppliers → OMT → Settle Account, the commission-types box opens on "No commission": the SMS box opens at the full amount owed and OMT keeps owing every transfer's commission. Tick the types the SMS includes, or All types in one tick, to book it. If the SMS you type is less than the amount owed with nothing ticked, Settle stays off until you tick the types.
+
+## LIRA-379: Weekly cleanup of backups left by deleted shops — TODO (after LIRA-377)
+
+**Asked by:** owner, 2026-11-10: worried R2 storage bloats over time; wants a scheduled job that removes unnecessary backup files.
+
+**Finding (2026-11-10):** live shops cannot bloat R2. Litestream deletes their history older than 8 days by itself (`backend/litestream.yml`, retention 192h), so each live shop's folder stops growing after 8 days. What grows without limit: a deleted shop's file moves to `/data/tenants/archive/<id>-<stamp>.db` (`perTenantStorageProvisioner.deleteTenant`). Litestream then stops watching it, and its R2 folder `tenants/<id>.db/` stays frozen forever, as does the archive file on the Fly volume. Self-serve sign-up makes this one folder per deleted trial. The frozen `web/liratek/` prefix is the same kind (49 MB, kept until after 2026-11-18, separate owner decision).
+
+**Owner decisions (2026-11-10):** keep a deleted shop's backups for 30 days, then delete them; build after LIRA-377.
+
+**Plan:** one weekly job.
+1. Never touch `platform/` or the folder of a shop whose file still exists in `/data/tenants/` (Litestream owns it; deleting its files by hand breaks restores).
+2. Delete `tenants/<id>.db/` in R2 and `/data/tenants/archive/<id>-*.db` when the platform `tenants` row shows the shop deleted more than 30 days ago. The deletion date comes from the platform database, never from file times.
+3. Any other prefix (e.g. `web/liratek/`): report only, never delete automatically.
+4. Weekly size report per prefix in the logs and on the ops dashboard; warn above 5 GB in total.
+5. Never use R2 lifecycle rules on live prefixes: they do not know which files a restore still needs.
+
+Needs: a dry-run mode that lists what it would delete; a guard test that a live shop's folder is never selected (rule 17, failing first).
+
+**What users will notice:** nothing (storage housekeeping).

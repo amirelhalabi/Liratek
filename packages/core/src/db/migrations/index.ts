@@ -15346,7 +15346,170 @@ DROP TABLE IF EXISTS omt_owed_shares;`);
       db.exec(`DROP INDEX IF EXISTS idx_partner_ledger_reference`);
     },
   },
+  {
+    version: 231,
+    name: "shop_restores",
+    description:
+      "LIRA-377: web shop restore. Adds shop_restores, the durable record of " +
+      "every restore (time / file / undo) and its state. PLATFORM-level like " +
+      "signin_directory: it names its shop with target_tenant_id (NOT " +
+      "tenant_id) because the shop file is the thing a restore replaces. " +
+      "Created in every file like the other platform tables; the split keeps " +
+      "its rows only in the platform file (PLATFORM_ONLY_TABLES). A partial " +
+      "unique index allows at most one open (prepared/running) restore per " +
+      "shop. Also rebuilds offline_review_items so kind accepts " +
+      "'restore_removed' (an offline event that points at a row the restore " +
+      "removed). Seeds nothing.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS shop_restores (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          target_tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          kind TEXT NOT NULL CHECK (kind IN ('time', 'file', 'undo')),
+          status TEXT NOT NULL CHECK (status IN ('prepared', 'running', 'done', 'failed', 'expired')),
+          restored_to TEXT,
+          client_tz_offset_min INTEGER,
+          requested_by_user_id INTEGER,
+          requested_by_name TEXT,
+          candidate_path TEXT,
+          before_copy_path TEXT,
+          preview_json TEXT,
+          id_floor_json TEXT,
+          error TEXT,
+          prepared_at TEXT,
+          started_at TEXT,
+          finished_at TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_shop_restores_target
+          ON shop_restores(target_tenant_id, id DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_shop_restores_one_open
+          ON shop_restores(target_tenant_id) WHERE status IN ('prepared', 'running');
+      `);
+      setOfflineReviewKinds(db, OFFLINE_REVIEW_KINDS_V231);
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP TABLE IF EXISTS shop_restores;`);
+      if (tableExists(db, "offline_review_items")) {
+        db.prepare(`DELETE FROM offline_review_items WHERE kind = ?`).run(
+          "restore_removed",
+        );
+      }
+      setOfflineReviewKinds(db, OFFLINE_REVIEW_KINDS_V210);
+    },
+  },
 ];
+
+/** v210 — offline_review_items.kind's original 14 values (frozen). */
+const OFFLINE_REVIEW_KINDS_V210 = [
+  "possible_duplicate",
+  "certain_duplicate",
+  "held_checkpoint",
+  "waiting",
+  "refused",
+  "stock_count_off",
+  "ticks_dropped",
+  "customer_linked",
+  "clock_corrected",
+  "closed_day_changed",
+  "came_out_differently",
+  "user_switched_off",
+  "pc_data_mismatch",
+  "rate_changed",
+] as const;
+
+/** v231 — v210's kinds plus 'restore_removed' (LIRA-377, frozen). */
+const OFFLINE_REVIEW_KINDS_V231 = [
+  ...OFFLINE_REVIEW_KINDS_V210,
+  "restore_removed",
+] as const;
+
+/**
+ * v231 — rebuild offline_review_items with a new `kind` CHECK list. Same
+ * approach as setPartnerLedgerSettlementMethods (v219): works from the
+ * table's CURRENT `CREATE TABLE` text, so its FKs (tenants, offline_events,
+ * offline_devices) and any later columns survive, copies every row, and
+ * re-creates every index/trigger. FK enforcement is already OFF here (the
+ * runner and rollbackTo set it outside the transaction). A no-op when the
+ * table is missing or the CHECK already lists exactly these kinds.
+ */
+function setOfflineReviewKinds(
+  db: Database.Database,
+  kinds: readonly string[],
+): void {
+  const table = db
+    .prepare(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'offline_review_items'`,
+    )
+    .get() as { sql: string } | undefined;
+  if (!table) return;
+  const checkRe =
+    /\bkind\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*kind\s+IN\s*\([^)]*\)\s*\)/i;
+  if (!checkRe.test(table.sql)) {
+    throw new Error(
+      "v231: offline_review_items.kind CHECK not found — refusing to rebuild",
+    );
+  }
+  const newCheck = `kind TEXT NOT NULL CHECK (kind IN (${kinds
+    .map((k) => `'${k}'`)
+    .join(", ")}))`;
+  const rebuilt = table.sql.replace(checkRe, newCheck);
+  if (rebuilt === table.sql) return;
+  const createNew = rebuilt.replace(
+    /^CREATE TABLE\s+(IF NOT EXISTS\s+)?["`]?offline_review_items["`]?/i,
+    "CREATE TABLE offline_review_items_new",
+  );
+  if (createNew === rebuilt) {
+    throw new Error(
+      "v231: could not rename offline_review_items in its CREATE TABLE text",
+    );
+  }
+  const dependents = db
+    .prepare(
+      `SELECT sql FROM sqlite_master
+        WHERE type IN ('index', 'trigger') AND tbl_name = 'offline_review_items'
+          AND sql IS NOT NULL`,
+    )
+    .all() as Array<{ sql: string }>;
+  const cols = (
+    db.prepare(`PRAGMA table_info(offline_review_items)`).all() as Array<{
+      name: string;
+    }>
+  )
+    .map((c) => `"${c.name}"`)
+    .join(", ");
+  // Keep the AUTOINCREMENT high-water mark: the copy only carries MAX(id),
+  // so an id deleted from the top would otherwise be issued again.
+  const seq = tableExists(db, "sqlite_sequence")
+    ? (db
+        .prepare(`SELECT seq FROM sqlite_sequence WHERE name = ?`)
+        .get("offline_review_items") as { seq: number } | undefined)
+    : undefined;
+  db.exec(createNew);
+  db.exec(
+    `INSERT INTO offline_review_items_new (${cols}) SELECT ${cols} FROM offline_review_items`,
+  );
+  db.exec(`DROP TABLE offline_review_items`);
+  db.exec(`ALTER TABLE offline_review_items_new RENAME TO offline_review_items`);
+  for (const d of dependents) db.exec(d.sql);
+  if (seq) {
+    const cur = db
+      .prepare(`SELECT seq FROM sqlite_sequence WHERE name = ?`)
+      .get("offline_review_items") as { seq: number } | undefined;
+    if (!cur) {
+      db.prepare(
+        `INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)`,
+      ).run("offline_review_items", seq.seq);
+    } else if (cur.seq < seq.seq) {
+      db.prepare(`UPDATE sqlite_sequence SET seq = ? WHERE name = ?`).run(
+        seq.seq,
+        "offline_review_items",
+      );
+    }
+  }
+}
 
 /** v227 — the custom_services columns LIRA-360 adds (fixed names, no input). */
 const INSURANCE_V227_COLUMNS = [

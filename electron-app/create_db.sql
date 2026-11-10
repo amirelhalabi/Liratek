@@ -361,6 +361,37 @@ CREATE TABLE IF NOT EXISTS signin_directory (
 CREATE INDEX IF NOT EXISTS idx_signin_directory_target
     ON signin_directory(target_tenant_id, target_user_id);
 
+-- Shop restores (LIRA-377, v231). PLATFORM-level like signin_directory: names
+-- its shop with target_tenant_id (NOT tenant_id) because the shop file is the
+-- thing a restore replaces. id is also the restore epoch the PCs compare.
+-- requested_by_user_id has no FK (shop users live in the shop's own file);
+-- requested_by_name is a snapshot as at restore time. At most one open
+-- (prepared/running) restore per shop.
+CREATE TABLE IF NOT EXISTS shop_restores (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('time', 'file', 'undo')),
+    status TEXT NOT NULL CHECK (status IN ('prepared', 'running', 'done', 'failed', 'expired')),
+    restored_to TEXT,
+    client_tz_offset_min INTEGER,
+    requested_by_user_id INTEGER,
+    requested_by_name TEXT,
+    candidate_path TEXT,
+    before_copy_path TEXT,
+    preview_json TEXT,
+    id_floor_json TEXT,
+    error TEXT,
+    prepared_at TEXT,
+    started_at TEXT,
+    finished_at TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_shop_restores_target
+    ON shop_restores(target_tenant_id, id DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_shop_restores_one_open
+    ON shop_restores(target_tenant_id) WHERE status IN ('prepared', 'running');
+
 -- Sessions (for unified session management across Electron and Web)
 -- NOTE: token is random-unique already; tenant_id is just added (denormalized
 -- from user) — not part of any constraint.
@@ -2856,7 +2887,7 @@ CREATE TABLE IF NOT EXISTS offline_review_items (
     tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     event_row_id INTEGER REFERENCES offline_events(id),
     device_id INTEGER NOT NULL REFERENCES offline_devices(id),
-    kind TEXT NOT NULL CHECK (kind IN ('possible_duplicate', 'certain_duplicate', 'held_checkpoint', 'waiting', 'refused', 'stock_count_off', 'ticks_dropped', 'customer_linked', 'clock_corrected', 'closed_day_changed', 'came_out_differently', 'user_switched_off', 'pc_data_mismatch', 'rate_changed')),
+    kind TEXT NOT NULL CHECK (kind IN ('possible_duplicate', 'certain_duplicate', 'held_checkpoint', 'waiting', 'refused', 'stock_count_off', 'ticks_dropped', 'customer_linked', 'clock_corrected', 'closed_day_changed', 'came_out_differently', 'user_switched_off', 'pc_data_mismatch', 'rate_changed', 'restore_removed')),
     state TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'applied', 'dismissed', 'reviewed')),
     details_json TEXT NOT NULL,
     resolved_by INTEGER,
@@ -3338,4 +3369,7 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (228, 'kpi_snapshots'),
     -- v229 (LIRA-370) adds omt_owed_shares, declared above.
     (229, 'omt_owed_shares'),
-    (230, 'partner_ledger_reference_index');
+    (230, 'partner_ledger_reference_index'),
+    -- v231 (LIRA-377) adds shop_restores + its two indexes (declared above) and
+    -- 'restore_removed' to offline_review_items.kind.
+    (231, 'shop_restores');

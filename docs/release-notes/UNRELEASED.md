@@ -414,6 +414,9 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 - Reset Data: if the list of what will be removed can't load, you now see why, with a Retry button. If it takes long, a Retry button appears too. Before, "Reset All Data" just stayed greyed out.
 - Shop Config: if the shop settings can't load, you now see why, with a Retry button, instead of an empty form. If they take long, a Retry button appears too.
 - Web app: admins have a new **Backup** tab in Settings with a **Download backup** button. It saves all your shop's data to your computer as one file, named with your shop and today's date and time. The file holds only your shop. Sign-in sessions and one-time links are left out.
+- Web app: in **Settings → Backup**, admins can now **restore** the shop, either to a moment in the last 7 days or from a backup file downloaded earlier. Before anything changes you see what will be lost (sales, money in, money out, expenses, checkpoints, settlements) and type the shop's name to confirm. A copy of the shop from just before the restore is kept, so you can undo it. Everyone signs in again afterwards, and the shop owner gets an email. Integration keys, Google sign-in links and paired till PCs stay as they were. Restore to a time can go back 7 days from 17 November; until then it goes back only to 10 November.
+- Web app: after a restore, an offline sale from a till PC that points at a client the restore removed waits in **Offline work** instead of being booked. Pick another client or book it as a walk-in. If it points at a removed product or other record, you see what was removed so you can enter it again by hand.
+- Desktop app: after an admin restores the shop, each paired till PC shows "Shop restored to <time> by <name>" until you press OK, and loads the restored shop.
 
 ## 🧾 Expenses
 

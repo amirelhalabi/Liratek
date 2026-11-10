@@ -72,6 +72,15 @@ export const EMAIL_PREVIEW_SAMPLES: Readonly<Record<string, TemplateVars>> = {
     newEmailMasked: "n***@gmail.com",
     supportEmail: "support@liratek.shop",
   },
+  // LIRA-377: after a web shop restore (no link).
+  "shop-restored": {
+    shopName: `Cell City <script>alert("hi")</script> & Sons`,
+    restoredToText: "2026-11-10 15:00",
+    restoredAtText: "2026-11-10 15:20",
+    byName: "boss",
+    kindText: "an earlier time",
+    supportEmail: "support@liratek.shop",
+  },
   // LIRA-287: www sign-in code. The code is the secret, so the sample
   // carries the marker every preview secret carries.
   "signin-code": {

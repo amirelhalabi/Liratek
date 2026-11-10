@@ -33,14 +33,18 @@ import {
   getOfflineReviewService,
   manifestSchema,
   offlineHistoryQuerySchema,
+  reviewApplySchema,
   reviewDismissSchema,
   reviewIdParamSchema,
   reviewListQuerySchema,
   type ManifestInput,
   type OfflineHistoryQuery,
+  type ReviewApplyInput,
   type ReviewDismissInput,
   type ReviewListQuery,
   getOfflineSnapshotService,
+  isShopRestoringError,
+  SHOP_RESTORING_MESSAGE,
   pairDeviceSchema,
   snapshotQuerySchema,
   type OfflineSnapshotService,
@@ -58,6 +62,13 @@ import { scheduleOfflineRound } from "../offline/processorTimer.js";
 import { logger } from "../server.js";
 
 const router = express.Router();
+
+/** LIRA-377: a device route that hit the shop mid-restore answers
+ *  SHOP_RESTORING (the PC retries next tick, never re-pairs). */
+function deviceFailure(error: unknown, fallback: string): { success: false; code?: string; error: string } {
+  if (isShopRestoringError(error)) return { success: false, code: "SHOP_RESTORING", error: SHOP_RESTORING_MESSAGE };
+  return { success: false, error: fallback };
+}
 
 // Lazy so backend jest can inject a service whose copy builder uses the real
 // better-sqlite3 constructor (jest maps the module to a mock) — same shape as
@@ -94,7 +105,7 @@ router.post("/checkin", authenticateDevice, validateRequest(checkinSchema), (req
     res.json(result);
   } catch (error) {
     logger.error({ error }, "offline checkin failed");
-    res.json({ success: false, error: "Check-in failed" });
+    res.json(deviceFailure(error, "Check-in failed"));
   }
 });
 
@@ -107,7 +118,7 @@ router.post("/events", authenticateDevice, validateRequest(uploadEventsSchema), 
     res.json(result);
   } catch (error) {
     logger.error({ error }, "offline upload failed");
-    res.json({ success: false, error: "Upload failed" });
+    res.json(deviceFailure(error, "Upload failed"));
   }
 });
 
@@ -118,7 +129,7 @@ router.get("/events/status", authenticateDevice, validateQuery(eventsStatusQuery
     res.json(getOfflineEventService().statusSince(req.device!.deviceId, fromSeq));
   } catch (error) {
     logger.error({ error }, "offline status failed");
-    res.json({ success: false, error: "Status failed" });
+    res.json(deviceFailure(error, "Status failed"));
   }
 });
 
@@ -146,7 +157,7 @@ router.get("/snapshot", authenticateDevice, validateQuery(snapshotQuerySchema), 
     res.status(200).end(s.gzip);
   } catch (error) {
     logger.error({ error }, "offline snapshot failed");
-    res.json({ success: false, error: "Copy failed" });
+    res.json(deviceFailure(error, "Copy failed"));
   }
 });
 
@@ -156,7 +167,7 @@ router.post("/manifest", authenticateDevice, validateRequest(manifestSchema), (r
     res.json(getOfflineEventService().compareManifest(req.device!.deviceId, req.body as ManifestInput));
   } catch (error) {
     logger.error({ error }, "offline manifest failed");
-    res.json({ success: false, error: "Cross-check failed" });
+    res.json(deviceFailure(error, "Cross-check failed"));
   }
 });
 
@@ -230,7 +241,7 @@ function reviewRoute(action: ReviewAction) {
       const by = actor(req);
       const result =
         action === "apply"
-          ? await svc.apply(id, by)
+          ? await svc.apply(id, by, (req.body as ReviewApplyInput | undefined) ?? {})
           : action === "dismiss"
             ? await svc.dismiss(id, by, (req.body as ReviewDismissInput | undefined)?.note)
             : action === "reviewed"
@@ -244,7 +255,8 @@ function reviewRoute(action: ReviewAction) {
   };
 }
 
-router.post("/review/:id/apply", ...admin, validateParams(reviewIdParamSchema), reviewRoute("apply"));
+// LIRA-377: optional body { replacementClientId } | { walkIn: true } for a restore_removed item.
+router.post("/review/:id/apply", ...admin, validateParams(reviewIdParamSchema), validateRequest(reviewApplySchema), reviewRoute("apply"));
 router.post("/review/:id/dismiss", ...admin, validateParams(reviewIdParamSchema), validateRequest(reviewDismissSchema), reviewRoute("dismiss"));
 router.post("/review/:id/reviewed", ...admin, validateParams(reviewIdParamSchema), reviewRoute("reviewed"));
 router.post("/review/:id/book-anyway", ...admin, validateParams(reviewIdParamSchema), reviewRoute("book-anyway"));

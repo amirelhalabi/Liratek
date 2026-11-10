@@ -7,6 +7,7 @@ import {
   clearImpersonationSession,
   storeNewLoginToken,
   requestFile,
+  requestRawBody,
 } from "./httpClient";
 import { decodeJwtPayload } from "@/shared/utils/jwt";
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
@@ -78,6 +79,7 @@ import type {
   OfflineReviewPreview,
   PairedDeviceView,
   ReviewActionResult,
+  ReviewApplyInput,
   ReviewDismissInput,
   ReviewItemView,
   ReviewListQuery,
@@ -311,6 +313,18 @@ import type {
 
 import type { AccountPicture, GoogleLinkView } from "@liratek/core";
 import type { ShopBackupPayload } from "@liratek/core";
+// LIRA-377 web shop restore payloads (rule 21).
+import type {
+  PrepareRestorePayload,
+  ConfirmRestorePayload,
+  CancelRestorePayload,
+} from "@liratek/core";
+import type {
+  RestoreResult,
+  RestorePoints,
+  PreparedRestore,
+  ConfirmedRestore,
+} from "@liratek/ui";
 import type {
   SalesDateRangeInput,
   UpdateCategoryPayload,
@@ -3591,6 +3605,14 @@ export async function installOfflineUpdate(): Promise<OfflineEnvelope> {
   );
 }
 
+/** LIRA-377 — clears the "Shop restored to …" banner on this PC. */
+export async function dismissOfflineRestoreNotice(): Promise<OfflineEnvelope> {
+  return ipcOrHttp(
+    async () => getElectronApi().offline.dismissRestoreNotice(),
+    async () => ({ success: false, error: DESKTOP_ONLY }),
+  );
+}
+
 // ── LIRA-306 offline work review + paired PCs (web-only, constitution E1) ──
 // Review acts on the server's shop data, which a PC never holds, so the
 // desktop branch is a clear refusal — still routed through ipcOrHttp so no
@@ -3649,14 +3671,18 @@ export async function getOfflineHistory(
   );
 }
 
+// LIRA-377: a `restore_removed` item names its replacement client or the
+// walk-in choice in the body; an empty body is the ordinary Apply.
 export async function applyOfflineReviewItem(
   id: number,
+  payload: ReviewApplyInput = {},
 ): Promise<ReviewActionResult> {
   return ipcOrHttp<ReviewActionResult>(
     async () => ({ success: false, error: WEB_ONLY }),
     async () =>
       requestJson<ReviewActionResult>(`/api/offline/review/${id}/apply`, {
         method: "POST",
+        body: payload,
       }),
   );
 }
@@ -3793,6 +3819,78 @@ export async function downloadShopBackup(
         },
       };
     },
+  );
+}
+
+// ── Web shop restore (Settings › Backup › Restore, LIRA-377) — web-only ───
+// Same desktop refusal as downloadShopBackup, still through ipcOrHttp (rule
+// 19/22). Payload types come from the core schemas (rule 21);
+// `clientTzOffsetMin` is the browser's own offset (rule 27).
+export async function getRestorePoints(): Promise<RestoreResult<RestorePoints>> {
+  return ipcOrHttp<RestoreResult<RestorePoints>>(
+    async () => ({ success: false, error: WEB_ONLY }),
+    async () => requestJson(`/api/restore/points`),
+  );
+}
+
+export async function prepareRestore(
+  payload: PrepareRestorePayload,
+): Promise<RestoreResult<PreparedRestore>> {
+  return ipcOrHttp<RestoreResult<PreparedRestore>>(
+    async () => ({ success: false, error: WEB_ONLY }),
+    async () =>
+      requestJson(`/api/restore/prepare`, { method: "POST", body: payload }),
+  );
+}
+
+/** gzip a file in the browser (whole body buffered: streaming a request
+ * body needs `duplex`, which not every browser supports). */
+async function gzipBlob(file: Blob): Promise<Blob> {
+  const stream = file.stream().pipeThrough(new CompressionStream("gzip"));
+  return new Response(stream).blob();
+}
+
+/** POST /api/restore/file — the raw file, gzipped when the browser can.
+ * `compress` is injectable for tests only. */
+export async function uploadRestoreFile(
+  file: Blob,
+  clientTzOffsetMin: number,
+  compress: (file: Blob) => Promise<Blob> = gzipBlob,
+): Promise<RestoreResult<PreparedRestore>> {
+  return ipcOrHttp<RestoreResult<PreparedRestore>>(
+    async () => ({ success: false, error: WEB_ONLY }),
+    async () => {
+      const canGzip = typeof globalThis.CompressionStream === "function";
+      const body = canGzip ? await compress(file) : file;
+      return requestRawBody<RestoreResult<PreparedRestore>>(
+        `/api/restore/file?clientTzOffsetMin=${encodeURIComponent(String(clientTzOffsetMin))}`,
+        body,
+        {
+          contentType: "application/octet-stream",
+          ...(canGzip ? { contentEncoding: "gzip" } : {}),
+        },
+      );
+    },
+  );
+}
+
+export async function confirmRestore(
+  payload: ConfirmRestorePayload,
+): Promise<RestoreResult<ConfirmedRestore>> {
+  return ipcOrHttp<RestoreResult<ConfirmedRestore>>(
+    async () => ({ success: false, error: WEB_ONLY }),
+    async () =>
+      requestJson(`/api/restore/confirm`, { method: "POST", body: payload }),
+  );
+}
+
+export async function cancelRestore(
+  payload: CancelRestorePayload,
+): Promise<RestoreResult<{ cancelled?: boolean }>> {
+  return ipcOrHttp<RestoreResult<{ cancelled?: boolean }>>(
+    async () => ({ success: false, error: WEB_ONLY }),
+    async () =>
+      requestJson(`/api/restore/cancel`, { method: "POST", body: payload }),
   );
 }
 

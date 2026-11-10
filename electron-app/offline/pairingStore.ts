@@ -60,6 +60,32 @@ export interface PairingFile {
    * recorder then allows work (fail open).
    */
   trial?: PcTrialState | null;
+  /**
+   * LIRA-377: id of the shop's latest finished restore this PC has handled
+   * (check-in `restore.id`). Absent in pairing files written before LIRA-377.
+   */
+  lastRestoreId?: number | null;
+  /** LIRA-377: the banner "Shop restored to … by …", kept until dismissed. */
+  restoreNotice?: PcRestoreNoticeState | null;
+  /**
+   * LIRA-377: a restore discarded the copies and the fresh download has not
+   * succeeded yet — check-in retries it on every tick until it does.
+   */
+  restoreRefreshPending?: boolean;
+}
+
+/**
+ * LIRA-377: same shape as core's `OfflineRestoreNotice` (the status view's
+ * `restoreNotice`). Declared here so this file does not depend on a rebuilt
+ * core dist.
+ */
+export interface PcRestoreNoticeState {
+  restoreId: number;
+  /** UTC ISO instant the shop now reflects */
+  restoredTo: string | null;
+  /** UTC ISO instant the restore finished */
+  restoredAt: string | null;
+  byName: string | null;
 }
 
 /** LIRA-332: what check-in says about the shop's free trial. */

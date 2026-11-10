@@ -26,6 +26,7 @@ import {
   listMirrors,
   pruneMirrors,
   readCopyInfo,
+  workingCopyPath,
   type DatabaseCtor,
 } from "./offlineFiles.js";
 import type { Sender } from "./sender.js";
@@ -95,6 +96,16 @@ interface CheckinData {
   renumberUnsent?: boolean;
   /** LIRA-332: absent from an older server. */
   trial?: PcTrialState | null;
+  /** LIRA-377: the shop's latest finished restore; absent from an older server. */
+  restore?: CheckinRestore | null;
+}
+
+/** LIRA-377: check-in `data.restore` (core `PcRestoreNotice`). */
+interface CheckinRestore {
+  id: number;
+  restoredTo: string | null;
+  restoredAt: string | null;
+  byName: string | null;
 }
 
 export class SyncClient {
@@ -258,6 +269,14 @@ export class SyncClient {
     if (data.renumberUnsent && this.d.sender)
       await this.d.sender.renumberUnsent(data.maxSeq);
 
+    // LIRA-377: a restore this PC has not seen (or a refresh it still owes
+    // for one) downloads a fresh copy now, whatever the state or timer.
+    this.noteRestore(data.restore ?? null);
+    if (this.d.store.read()?.restoreRefreshPending) {
+      await this.refreshCopy();
+      return;
+    }
+
     const st = this.d.getState();
     if (
       (st === "standby" || st === "blocked") &&
@@ -265,6 +284,63 @@ export class SyncClient {
     ) {
       await this.refreshCopy();
     }
+  }
+
+  /**
+   * LIRA-377 (contracts/offline-checkin.md): when the shop's latest restore
+   * differs from the one this PC last handled, the mirror copies are
+   * discarded (never the open file; the working copy `offline-work.db` is
+   * not a mirror and is never touched — "resume instead"), a refresh is
+   * owed, the id is stored and the banner notice set. The first check-in
+   * after upgrading (no id stored) only stores the id when the restore is
+   * not newer than this PC's copy. Sequence and counter fields are never
+   * written here.
+   */
+  private noteRestore(restore: CheckinRestore | null): void {
+    if (!restore) return;
+    const p = this.d.store.read();
+    if (!p || p.lastRestoreId === restore.id) return;
+    if (
+      (p.lastRestoreId === undefined || p.lastRestoreId === null) &&
+      !this.restoreIsNewerThanCopy(restore)
+    ) {
+      this.d.store.update({ lastRestoreId: restore.id });
+      return;
+    }
+    pruneMirrors(this.d.offlineDir, this.d.openFile(), 0);
+    this.d.store.update({
+      lastRestoreId: restore.id,
+      restoreRefreshPending: true,
+      restoreNotice: {
+        restoreId: restore.id,
+        restoredTo: restore.restoredTo,
+        restoredAt: restore.restoredAt,
+        byName: restore.byName,
+      },
+    });
+    logger.info(
+      { restoreId: restore.id, state: this.d.getState() },
+      "offline: the shop was restored — copies discarded, refreshing",
+    );
+  }
+
+  /**
+   * Is the restore newer than the newest copy on this PC (mirrors and the
+   * working copy, by the server's build time)? No copy at all → false
+   * (nothing stale to replace; the normal refresh downloads one). An
+   * unknown `restoredAt` → true (the safe direction: refresh).
+   */
+  private restoreIsNewerThanCopy(restore: CheckinRestore): boolean {
+    const builtTimes = [
+      ...listMirrors(this.d.offlineDir, this.d.DatabaseCtor),
+      readCopyInfo(workingCopyPath(this.d.offlineDir), this.d.DatabaseCtor),
+    ]
+      .map((c) => (c ? Date.parse(c.builtAt) : NaN))
+      .filter((t) => Number.isFinite(t));
+    if (builtTimes.length === 0) return false;
+    const at = restore.restoredAt ? Date.parse(restore.restoredAt) : NaN;
+    if (!Number.isFinite(at)) return true;
+    return at > Math.max(...builtTimes);
   }
 
   private copyIsOld(): boolean {
@@ -334,6 +410,7 @@ export class SyncClient {
         copyId,
         lastSnapshotAt: new Date(this.d.now()).toISOString(),
         lastError: null,
+        restoreRefreshPending: false,
       });
       pruneMirrors(this.d.offlineDir, this.d.openFile());
       logger.info(
