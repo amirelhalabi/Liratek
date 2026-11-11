@@ -594,7 +594,10 @@ describe("FinancialService (SQL-level)", () => {
 
       service.getHistory();
 
-      const selectStmt = tracker.findStmt("SELECT");
+      // LIRA-384: getHistory first probes sqlite_master for the
+      // settlement_commission_allocations table, so match the history
+      // SELECT by its FROM clause, not the first SELECT prepared.
+      const selectStmt = tracker.findStmt("FROM financial_services");
       expect(selectStmt).toBeDefined();
       expect(selectStmt!._sql).toContain("phone_number");
       expect(selectStmt!._sql).toContain("omt_service_type");

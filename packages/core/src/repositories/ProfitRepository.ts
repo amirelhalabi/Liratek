@@ -1573,7 +1573,11 @@ export function activeExpense(alias = "expenses"): string {
  * expense in range is.
  */
 export function expenseInPeriod(alias = "expenses"): string {
-  return `${activeExpense(alias)} AND ${dateRange(`${alias}.expense_date`)} AND ${alias}.tenant_id = ?`;
+  // The tenant predicate is NOT part of this fragment: `check-tenant-scoping`
+  // cannot resolve a function-call interpolation, so every caller writes
+  // `AND <alias>.tenant_id = ?` literally right after this fragment (the bind
+  // order stays from, to, tenant).
+  return `${activeExpense(alias)} AND ${dateRange(`${alias}.expense_date`)}`;
 }
 
 /**
@@ -5779,7 +5783,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COALESCE(SUM(amount_lbp), 0) AS total_lbp,
           COUNT(*) AS count
         FROM expenses
-        WHERE ${expenseInPeriod()}`,
+        WHERE ${expenseInPeriod()}
+          AND tenant_id = ?`,
       )
       .get(fromDt, toDt, getCurrentTenantId()) as ExpenseTotalsRow;
   }
@@ -5803,6 +5808,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COUNT(*) AS count
         FROM expenses e
         WHERE ${expenseInPeriod("e")}
+          AND e.tenant_id = ?
         GROUP BY module_key`,
       )
       .all(fromDt, toDt, getCurrentTenantId()) as ExpenseTotalsByModuleRow[];
@@ -5839,6 +5845,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           ) AS linked_summary
         FROM expenses e
         WHERE ${expenseInPeriod("e")}
+          AND e.tenant_id = ?
           AND (${expenseModuleKey("e")}) IS ?
         ORDER BY e.expense_date DESC, e.id DESC`,
       )
