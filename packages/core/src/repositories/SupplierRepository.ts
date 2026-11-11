@@ -51,6 +51,7 @@ import { buildCounterpartyMetadata } from "../validators/counterparty.js";
 import { isWithinShortfallMax, SHORTFALL_MAX } from "../validators/exchange.js";
 import { allocateFifo } from "../utils/fifoCoverage.js";
 import { allocateProportional } from "../utils/largestRemainder.js";
+import { commissionPool } from "../utils/commissionPool.js";
 import {
   allocateAccountSettlement,
   type AccountSettleAllocResult,
@@ -392,7 +393,8 @@ const ID_BATCH = 500;
 
 function chunk<T>(items: readonly T[], size: number): T[][] {
   const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  for (let i = 0; i < items.length; i += size)
+    out.push(items.slice(i, i + size));
   return out;
 }
 
@@ -1371,6 +1373,34 @@ interface AmountFirstCurrencyMeta {
   owed_shares_created?: number;
 }
 
+/** The account sheet's refusal of a commission no transfer can carry. */
+function accountCommissionWithoutTransferError(
+  label: string,
+  commission: number,
+): DatabaseError {
+  return new DatabaseError(
+    "Commission can only be entered when this payment fully pays at " +
+      "least one transfer that carries commission. (Account settlement: " +
+      `${label} commission ${commission} with no commission-model-1 row closing)`,
+  );
+}
+
+/** Bill commission is settled from the supplier's own batch, never here. */
+function assertAccountCommissionNotBillsOnly(
+  commissionRows: ReadonlyArray<{ service_type: string | null }>,
+): void {
+  if (
+    commissionRows.length > 0 &&
+    commissionRows.every((r) => r.service_type === "BILL")
+  ) {
+    throw new DatabaseError(
+      "Bill commission can't be settled from the account sheet — settle " +
+        "that supplier's bills directly. (Account settlement: closed " +
+        "commission rows are all BILL)",
+    );
+  }
+}
+
 interface AmountFirstSectionPlan {
   currency: "USD" | "LBP";
   alloc: AccountSettleAllocResult;
@@ -1425,8 +1455,12 @@ function sumPair(
   pick: (p: AmountFirstSectionPlan) => number,
 ): { usd: number; lbp: number } {
   return {
-    usd: plans.filter((p) => p.currency === "USD").reduce((s, p) => s + pick(p), 0),
-    lbp: plans.filter((p) => p.currency === "LBP").reduce((s, p) => s + pick(p), 0),
+    usd: plans
+      .filter((p) => p.currency === "USD")
+      .reduce((s, p) => s + pick(p), 0),
+    lbp: plans
+      .filter((p) => p.currency === "LBP")
+      .reduce((s, p) => s + pick(p), 0),
   };
 }
 
@@ -1665,19 +1699,31 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     const ids = (kind: AccountUnsettledRow["kind"]) =>
       rows.filter((r) => r.kind === kind && !r.is_closed).map((r) => r.id);
     const coverage = {
-      FINANCIAL_SERVICE: this.getRowCoverage("FINANCIAL_SERVICE", ids("FINANCIAL_SERVICE")),
+      FINANCIAL_SERVICE: this.getRowCoverage(
+        "FINANCIAL_SERVICE",
+        ids("FINANCIAL_SERVICE"),
+      ),
       LEDGER: this.getRowCoverage("LEDGER", ids("LEDGER")),
     };
     return rows.map(({ is_closed, ...r }) => {
       const covered = is_closed
-        ? { covered_usd: Math.abs(r.amount_usd), covered_lbp: Math.abs(r.amount_lbp) }
+        ? {
+            covered_usd: Math.abs(r.amount_usd),
+            covered_lbp: Math.abs(r.amount_lbp),
+          }
         : (coverage[r.kind].get(r.id) ?? { covered_usd: 0, covered_lbp: 0 });
       return {
         ...r,
         covered_usd: covered.covered_usd,
         covered_lbp: covered.covered_lbp,
-        remaining_usd: remainingAfterCoverage(r.amount_usd, covered.covered_usd),
-        remaining_lbp: remainingAfterCoverage(r.amount_lbp, covered.covered_lbp),
+        remaining_usd: remainingAfterCoverage(
+          r.amount_usd,
+          covered.covered_usd,
+        ),
+        remaining_lbp: remainingAfterCoverage(
+          r.amount_lbp,
+          covered.covered_lbp,
+        ),
       };
     });
   }
@@ -3444,7 +3490,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         covered_lbp: number;
       }>;
       for (const r of rows) {
-        out.set(r.row_id, { covered_usd: r.covered_usd, covered_lbp: r.covered_lbp });
+        out.set(r.row_id, {
+          covered_usd: r.covered_usd,
+          covered_lbp: r.covered_lbp,
+        });
       }
     }
     return out;
@@ -3637,7 +3686,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
   /** LIRA-343 — `financial_services.id` → its unified `transactions.id`
    *  (the first one written for it: the original, never its refund). */
-  private _fsTransactionIds(ids: readonly number[], tenantId: number): Map<number, number> {
+  private _fsTransactionIds(
+    ids: readonly number[],
+    tenantId: number,
+  ): Map<number, number> {
     const out = new Map<number, number>();
     if (!ids.length || !this._hasTransactionsTable()) return out;
     for (const part of chunk([...new Set(ids)], ID_BATCH)) {
@@ -3670,7 +3722,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    */
   getAccountOwedShares(accountSupplierId: number): AccountOwedShare[] {
     const has = this.db
-      .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'omt_owed_shares'`)
+      .prepare(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'omt_owed_shares'`,
+      )
       .get();
     if (!has || !this._suppliersHasAccountLinkColumn()) return [];
     const tenantId = getCurrentTenantId();
@@ -3714,7 +3768,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     };
     const has = (t: string) =>
       this.db
-        .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`)
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`,
+        )
         .get(t) !== undefined;
     for (let i = 0; i < fsIds.length; i += 500) {
       const chunk = fsIds.slice(i, i + 500);
@@ -3729,7 +3785,11 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
               WHERE tenant_id = ? AND financial_service_id IN (${marks})
               GROUP BY financial_service_id`,
           )
-          .all(tenantId, ...chunk) as Array<{ id: number; usd: number; lbp: number }>;
+          .all(tenantId, ...chunk) as Array<{
+          id: number;
+          usd: number;
+          lbp: number;
+        }>;
         for (const r of rows) add(r.id, r.usd, r.lbp);
       }
       if (has("omt_owed_shares")) {
@@ -3743,7 +3803,11 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
                 AND financial_service_id IN (${marks})
               GROUP BY financial_service_id`,
           )
-          .all(tenantId, ...chunk) as Array<{ id: number; usd: number; lbp: number }>;
+          .all(tenantId, ...chunk) as Array<{
+          id: number;
+          usd: number;
+          lbp: number;
+        }>;
         for (const r of rows) add(r.id, r.usd, r.lbp);
       }
     }
@@ -3934,7 +3998,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     const relief = this._reliefOrigins(withCoverage, tenantId);
     return withCoverage.map((r) => {
       const found =
-        r.kind === "LEDGER" && r.row_scope === "ACCOUNT" && r.transaction_id !== null
+        r.kind === "LEDGER" &&
+        r.row_scope === "ACCOUNT" &&
+        r.transaction_id !== null
           ? relief.get(r.transaction_id)
           : undefined;
       return {
@@ -3955,7 +4021,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     rows: readonly AccountUnsettledRow[],
     tenantId: number,
   ): Map<number, { origin: "UNDO" | "VOID"; reversedId: number }> {
-    const out = new Map<number, { origin: "UNDO" | "VOID"; reversedId: number }>();
+    const out = new Map<
+      number,
+      { origin: "UNDO" | "VOID"; reversedId: number }
+    >();
     if (!this._hasTransactionsTable()) return out;
     const ids = rows
       .filter(
@@ -3967,9 +4036,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       .map((r) => r.transaction_id as number);
     if (!ids.length) return out;
     // Schema-drift guard (hand-built fixtures without the column).
-    const cols = this.db
-      .prepare(`PRAGMA table_info(transactions)`)
-      .all() as { name: string }[];
+    const cols = this.db.prepare(`PRAGMA table_info(transactions)`).all() as {
+      name: string;
+    }[];
     if (!cols.some((c) => c.name === "reverses_id")) return out;
     for (const part of chunk([...new Set(ids)], ID_BATCH)) {
       const found = this.db
@@ -5392,20 +5461,31 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     // `usdShareById`/`lbpShareById` default to 0 via `?? 0` below for any
     // row absent from its own currency's map (rows of the OTHER currency),
     // so no behavior changes for a single-currency batch.
-    const usdRows = rows.filter(
-      (r) => grossByRow.get(r.id)!.currency === "USD",
-    );
-    const lbpRows = rows.filter(
-      (r) => grossByRow.get(r.id)!.currency === "LBP",
-    );
-    const usdWeights = usdRows.map((r) => ({
-      id: r.id,
-      weight: Math.abs(grossByRow.get(r.id)!.gross),
-    }));
-    const lbpWeights = lbpRows.map((r) => ({
-      id: r.id,
-      weight: Math.abs(grossByRow.get(r.id)!.gross),
-    }));
+    //
+    // LIRA-384 (owner 2026-11-11) — a commission entered in a currency the
+    // batch has NO rows in is spread over EVERY row of the batch, equally
+    // (gross figures in another currency are not comparable weights). That
+    // shape is a real, intended flow — Katsh bills are booked in USD while
+    // Katsh pays its 20,000 LBP/bill commission in LBP (LIRA-112 RATE
+    // default) — and before this, `allocateProportional([])` returned no
+    // shares, so every allocation row read 0 while `supplier_settlements`,
+    // the profit stamp and the supplier credit carried the full figure:
+    // the commission vanished from every report that reads allocations.
+    // Invariant now: Σ allocations = the entered commission, per currency,
+    // for every batch (SupplierRepository.lira384CommissionCurrency.test).
+    // The pool rule is shared with the account sheet (`commissionPool`).
+    const weightsFor = (currency: "USD" | "LBP") => {
+      const pool = commissionPool(
+        rows.filter((r) => grossByRow.get(r.id)!.currency === currency),
+        rows,
+      );
+      return pool.rows.map((r) => ({
+        id: r.id,
+        weight: pool.spread ? 0 : Math.abs(grossByRow.get(r.id)!.gross),
+      }));
+    };
+    const usdWeights = weightsFor("USD");
+    const lbpWeights = weightsFor("LBP");
     const usdShareById = new Map(
       allocateProportional(usdWeights, data.commission_usd, 0.01).map((s) => [
         s.id,
@@ -7129,7 +7209,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    * `_writeAccountNettingPairs`. A waive in two opposite-direction
    * sections is refused (one DISCOUNT row has one direction).
    */
-  private _settleAccountAmountFirst(data: SettleAccountRequest): { id: number } {
+  private _settleAccountAmountFirst(data: SettleAccountRequest): {
+    id: number;
+  } {
     if (!this._suppliersHasAccountLinkColumn()) {
       throw new DatabaseError(
         "Account settlement requires the account schema (migration v176)",
@@ -7249,7 +7331,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           const ticked = owedShares.filter(
             (sh) =>
               data.covered_omt_service_types === undefined ||
-              data.covered_omt_service_types.includes(sh.omt_service_type as OmtCoveredType),
+              data.covered_omt_service_types.includes(
+                sh.omt_service_type as OmtCoveredType,
+              ),
           );
           if (ticked.length === 0) {
             throw new DatabaseError(
@@ -7282,7 +7366,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       // ── 3. Allocate each currency section ─────────────────────────────
       const byKey = new Map(scoped.map((r) => [`${r.kind}:${r.id}`, r]));
       const rate =
-        data.exchange_rate && data.exchange_rate > 0 ? data.exchange_rate : 89000;
+        data.exchange_rate && data.exchange_rate > 0
+          ? data.exchange_rate
+          : 89000;
       // LIRA-359 (owner decision 2026-10-29) — a box of any calendar
       // supplier but the OMT account may be paid in the other currency,
       // converted at the box rate. OMT keeps exact amounts per currency.
@@ -7338,6 +7424,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           ),
         );
       }
+      this._spreadCrossCurrencyCommission(plans, byKey);
 
       // A settlement can't be dated before the latest day it pays for: the
       // money did not exist yet. The day is the shop's day of the custom
@@ -7345,9 +7432,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       // rules 14 / 27), compared with the DAY rows this settlement covers.
       if (customAt) {
         const settleDay = (
-          this.db
-            .prepare(`SELECT ${localDayExpr("?")} AS d`)
-            .get(customAt) as { d: string }
+          this.db.prepare(`SELECT ${localDayExpr("?")} AS d`).get(customAt) as {
+            d: string;
+          }
         ).d;
         let latestCovered = "";
         for (const p of plans) {
@@ -7478,7 +7565,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           : rowMembers.size > 0
             ? Math.min(...rowMembers)
             : accountId);
-      const anchorRowIdx = memberRows.findIndex((r) => r.member === anchorMember);
+      const anchorRowIdx = memberRows.findIndex(
+        (r) => r.member === anchorMember,
+      );
       const anchorRow =
         anchorRowIdx >= 0
           ? memberRows.splice(anchorRowIdx, 1)[0]
@@ -7488,7 +7577,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         ...new Set([
           anchorMember,
           ...memberRows.map((r) => r.member),
-          ...plans.flatMap((p) => p.alloc.takes.map((t) => t.member_supplier_id)),
+          ...plans.flatMap((p) =>
+            p.alloc.takes.map((t) => t.member_supplier_id),
+          ),
         ]),
       ];
       const note =
@@ -7540,10 +7631,12 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       for (const p of plans) perCurrency[p.currency] = p.meta;
       // LIRA-370 — the commission the server worked out from the SMS (the
       // client may not have sent one) is what the summary shows.
-      const summarySections: NonNullable<SettleAccountRequest["per_currency"]> = {};
+      const summarySections: NonNullable<SettleAccountRequest["per_currency"]> =
+        {};
       for (const p of plans) {
         const sec = data.per_currency?.[p.currency];
-        if (sec) summarySections[p.currency] = { ...sec, commission: p.commission };
+        if (sec)
+          summarySections[p.currency] = { ...sec, commission: p.commission };
       }
       const summary = `Account Settlement: ${parent.name} — ${formatSettleAccountSections(
         covers ? summarySections : data.per_currency,
@@ -7628,7 +7721,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       const stampOwn = this.db.prepare(
         `UPDATE supplier_ledger SET transaction_id = ?, settlement_id = ? WHERE id = ? AND tenant_id = ?`,
       );
-      if (stampOwn.run(txnId, anchorLedgerId, anchorLedgerId, tenantId).changes !== 1) {
+      if (
+        stampOwn.run(txnId, anchorLedgerId, anchorLedgerId, tenantId)
+          .changes !== 1
+      ) {
         throw new DatabaseError(
           `Account settlement aborted: failed to stamp the anchor supplier_ledger row ${anchorLedgerId}`,
         );
@@ -7685,7 +7781,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           .filter((k) => {
             const left = remainingAfter.get(k)!;
             return (
-              left.usd <= AMOUNT_FIRST_EPS.USD && left.lbp <= AMOUNT_FIRST_EPS.LBP
+              left.usd <= AMOUNT_FIRST_EPS.USD &&
+              left.lbp <= AMOUNT_FIRST_EPS.LBP
             );
           }),
       );
@@ -7794,7 +7891,12 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
                 ...a,
                 currency: p.currency,
                 row: byKey.get(`FINANCIAL_SERVICE:${a.id}`)!,
-                gross: Math.abs(rowRemaining(byKey.get(`FINANCIAL_SERVICE:${a.id}`)!, p.currency)),
+                gross: Math.abs(
+                  rowRemaining(
+                    byKey.get(`FINANCIAL_SERVICE:${a.id}`)!,
+                    p.currency,
+                  ),
+                ),
               })),
             ),
             // LIRA-370 — owed shares this SMS collects: profit now, on the
@@ -7891,7 +7993,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         );
         for (const p of plans) {
           for (const sh of p.sharesToClear ?? []) {
-            if (clear.run(txnId, anchorLedgerId, sh.id, tenantId).changes !== 1) {
+            if (
+              clear.run(txnId, anchorLedgerId, sh.id, tenantId).changes !== 1
+            ) {
               throw new DatabaseError(
                 `${settleStaleMessage(parent.name)} (Account settlement: owed share #${sh.id} is no longer owed)`,
               );
@@ -7962,7 +8066,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       picked = [];
       for (const sel of data.selections) {
         const key = `${sel.kind}:${sel.id}`;
-        if (seen.has(key)) throw new DatabaseError(`Duplicate selection: ${key}`);
+        if (seen.has(key))
+          throw new DatabaseError(`Duplicate selection: ${key}`);
         seen.add(key);
         const row = byKey.get(key);
         if (!row) {
@@ -7974,17 +8079,18 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         }
         picked.push(row);
       }
-      if (!commissionCovers) this._assertRowsCoveredByStatement(
-        picked
-          .filter((r) => r.kind === "FINANCIAL_SERVICE")
-          .map((r) => ({
-            id: r.id,
-            provider: r.source_provider,
-            omt_service_type: r.omt_service_type,
-            commission_model: r.commission_model,
-          })),
-        data.covered_omt_service_types,
-      );
+      if (!commissionCovers)
+        this._assertRowsCoveredByStatement(
+          picked
+            .filter((r) => r.kind === "FINANCIAL_SERVICE")
+            .map((r) => ({
+              id: r.id,
+              provider: r.source_provider,
+              omt_service_type: r.omt_service_type,
+              commission_model: r.commission_model,
+            })),
+          data.covered_omt_service_types,
+        );
     } else {
       picked = commissionCovers
         ? [...queue]
@@ -8016,6 +8122,54 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    * opposite directions (and a change leg crossing into the other
    * currency) share one accumulator without mixing conventions.
    */
+  /**
+   * LIRA-384 (owner 2026-11-11) — the account sheet follows the batch
+   * Settle's rule (`commissionPool`, rule 14): a section whose commission
+   * has no transfer of its own currency to sit on spreads it equally over
+   * the transfers the OTHER section closes (`commission_pool_ids`), so
+   * `settlement_commission_allocations` still sums to the entered figure
+   * and Profits counts it. Refused only when no transfer closes in either
+   * currency. Replaces the section's empty `commission_alloc` in place; the
+   * allocation rows keep the commission's own currency.
+   */
+  private _spreadCrossCurrencyCommission(
+    plans: AmountFirstSectionPlan[],
+    byKey: Map<string, AccountUnsettledRow>,
+  ): void {
+    plans.forEach((p, k) => {
+      if (!(p.commission > 0 && p.alloc.commission_without_closed_model1)) {
+        return;
+      }
+      const pool = commissionPool(
+        [],
+        plans
+          .filter((o) => o !== p)
+          .flatMap((o) => o.alloc.commission_pool_ids),
+      );
+      if (pool.rows.length === 0) {
+        throw accountCommissionWithoutTransferError(p.currency, p.commission);
+      }
+      const commission_alloc = allocateProportional(
+        pool.rows.map((id) => ({ id, weight: 0 })),
+        p.commission,
+        p.currency === "USD" ? 0.01 : 1,
+      ).map((sh) => ({ id: Number(sh.id), amount: sh.amount }));
+      const rows = commission_alloc.map(
+        (a) => byKey.get(`FINANCIAL_SERVICE:${a.id}`)!,
+      );
+      assertAccountCommissionNotBillsOnly(rows);
+      plans[k] = {
+        ...p,
+        alloc: {
+          ...p.alloc,
+          commission_alloc,
+          commission_without_closed_model1: false,
+        },
+        commissionMembers: [...new Set(rows.map((r) => r.supplier_id))],
+      };
+    });
+  }
+
   private _planAmountFirstSection(
     section: SettleAccountCurrencySectionData & { currency: "USD" | "LBP" },
     scope: { rows: AccountUnsettledRow[]; accountRows: AccountUnsettledRow[] },
@@ -8056,7 +8210,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       remaining: rowRemaining(r, currency),
       commission_model1:
         r.kind === "FINANCIAL_SERVICE" && r.commission_model === 1,
-      cashout_commission: currency === "USD" ? r.commission_usd : r.commission_lbp,
+      cashout_commission:
+        currency === "USD" ? r.commission_usd : r.commission_lbp,
       // LIRA-370 — the profit split's weight: the outstanding commission
       // when the SMS includes the row's type, else 0.
       ...(covers ? smsCommissionWeight(r, currency, coveredTypes) : {}),
@@ -8091,7 +8246,11 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       .filter((r) => r.remaining < 0)
       .reduce(
         (s, r) =>
-          s + Math.max(0, -r.remaining - (nettedAway.get(`${r.kind}:${r.id}`) ?? 0)),
+          s +
+          Math.max(
+            0,
+            -r.remaining - (nettedAway.get(`${r.kind}:${r.id}`) ?? 0),
+          ),
         0,
       );
     // LIRA-370 — OMT's SMS nets the WHOLE credit (owner 2026-11-03), so the
@@ -8122,7 +8281,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         currency === "USD"
           ? { amount_usd: waive, amount_lbp: 0 }
           : { amount_usd: 0, amount_lbp: waive },
-        currency === "USD" ? { usd: owedNet, lbp: 0 } : { usd: 0, lbp: owedNet },
+        currency === "USD"
+          ? { usd: owedNet, lbp: 0 }
+          : { usd: 0, lbp: owedNet },
         "Account settlement",
       );
     }
@@ -8213,13 +8374,18 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       eps,
       ...(covers ? { commission_covers: true } : {}),
       ...(smsMode ? { whole_credit: true } : {}),
-      ...(commissionSplit !== undefined ? { commission_split: commissionSplit } : {}),
+      ...(commissionSplit !== undefined
+        ? { commission_split: commissionSplit }
+        : {}),
     });
     // LIRA-343 — the user sets the credit; more than may be used is refused
     // (shop pays: at most min(owed, credit); OMT pays: at most the credit).
     if (alloc.credit_used_too_high) {
       const pool = creditPool;
-      const cap = roundMoney(owedNet > eps ? Math.min(owedNet, pool) : pool, currency);
+      const cap = roundMoney(
+        owedNet > eps ? Math.min(owedNet, pool) : pool,
+        currency,
+      );
       throw new DatabaseError(
         `You can use at most ${fmt(cap)} of ${name} credit in ${label}. ` +
           `(Account settlement: ${label} credit_used ${creditUsed} is more than ${cap})`,
@@ -8230,11 +8396,16 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     // transfer of a type this SMS did not include, and, when OMT asked for
     // more than we owe, the expected commission of the ticked types too
     // (owner 2026-11-03: it is not dropped).
-    const sharesToCreate: NonNullable<AmountFirstSectionPlan["sharesToCreate"]> = [];
+    const sharesToCreate: NonNullable<
+      AmountFirstSectionPlan["sharesToCreate"]
+    > = [];
     if (sms) {
-      const allocated = new Map(alloc.commission_alloc.map((a) => [a.id, a.amount]));
+      const allocated = new Map(
+        alloc.commission_alloc.map((a) => [a.id, a.amount]),
+      );
       for (const r of rows) {
-        if (r.kind !== "FINANCIAL_SERVICE" || r.commission_model !== 1) continue;
+        if (r.kind !== "FINANCIAL_SERVICE" || r.commission_model !== 1)
+          continue;
         if (r.source_provider !== "OMT") continue;
         const outstanding = outstandingEstimate(r, currency);
         if (outstanding <= eps) continue;
@@ -8262,13 +8433,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     // so it still needs at least one (FR-012 — a settlement_commission_
     // allocations row per closed transfer is what the commission reports
     // read; profit with no transfer to attach it to would desync them).
-    if (commission > 0 && alloc.commission_without_closed_model1) {
-      throw new DatabaseError(
-        "Commission can only be entered when this payment fully pays at " +
-          "least one transfer that carries commission. (Account settlement: " +
-          `${label} commission ${commission} with no commission-model-1 row closing)`,
-      );
-    }
+    // LIRA-384: refused (or spread over the other currency's transfers)
+    // after every section is planned — `_spreadCrossCurrencyCommission`.
     if (waive > 0) {
       if (Math.abs(alloc.extra) > eps) {
         throw new DatabaseError(
@@ -8302,16 +8468,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     const commissionMembers = [
       ...new Set(commissionRows.map((r) => r.supplier_id)),
     ];
-    if (
-      commissionRows.length > 0 &&
-      commissionRows.every((r) => r.service_type === "BILL")
-    ) {
-      throw new DatabaseError(
-        "Bill commission can't be settled from the account sheet — settle " +
-          "that supplier's bills directly. (Account settlement: closed " +
-          "commission rows are all BILL)",
-      );
-    }
+    assertAccountCommissionNotBillsOnly(commissionRows);
     const waiveMembers = [
       ...new Set(
         alloc.takes

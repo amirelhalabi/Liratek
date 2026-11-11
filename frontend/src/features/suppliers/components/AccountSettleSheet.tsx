@@ -34,6 +34,7 @@ import {
   type AccountSettleAllocResult,
   type DaySelectionsResult,
   type OmtCoveredType,
+  commissionPool,
 } from "@liratek/core";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
@@ -686,7 +687,9 @@ export function AccountSettleSheet({
           r.commission_model === 1 &&
           r.source_provider === "OMT" &&
           coveredTypes !== undefined &&
-          !coveredTypes.includes((r.omt_service_type ?? "UNSPECIFIED") as OmtCoveredType),
+          !coveredTypes.includes(
+            (r.omt_service_type ?? "UNSPECIFIED") as OmtCoveredType,
+          ),
       );
       const derived = deriveSmsCommission({ ...fig, sms: value, currency: c });
       out[c] = {
@@ -703,7 +706,14 @@ export function AccountSettleSheet({
       };
     }
     return out;
-  }, [settlesFromSms, selectedRows, accountRows, coveredTypes, owedShares, smsValue]);
+  }, [
+    settlesFromSms,
+    selectedRows,
+    accountRows,
+    coveredTypes,
+    owedShares,
+    smsValue,
+  ]);
   /** LIRA-370 — the owed shares this SMS collects (whole, oldest first);
    *  the rest of the commission is the transfers' profit. */
   const smsSplit = (c: SettleCurrency): number => {
@@ -871,20 +881,42 @@ export function AccountSettleSheet({
           alloc = candidate;
         }
       }
-      // Owner 2026-10-15: the commission never changes what the money
-      // covers (nor the box totals, nor the extra) — it is credited to the
-      // account after the payment. It still needs a commission-carrying
-      // transfer this payment closes, to be recognised as profit (FR-012).
-      let commissionProblem: string | null = null;
+      out[c] = {
+        ...s,
+        included: alloc !== null,
+        alloc,
+        commissionProblem: null,
+      };
+    }
+    // Owner 2026-10-15: the commission never changes what the money
+    // covers (nor the box totals, nor the extra) — it is credited to the
+    // account after the payment. It still needs a commission-carrying
+    // transfer this payment closes, to be recognised as profit (FR-012).
+    // LIRA-384: when none closes in its own currency, the transfers the
+    // other currency closes carry it (`commissionPool`, the server's rule),
+    // so the warning shows only when none closes in either.
+    for (const c of SETTLE_CURRENCIES) {
+      const sec = out[c];
       if (
-        !sms &&
-        alloc &&
-        s.commission > 0 &&
-        alloc.commission_without_closed_model1
+        sms ||
+        !sec.alloc ||
+        sec.commission <= 0 ||
+        !sec.alloc.commission_without_closed_model1
       ) {
-        commissionProblem = t("accountSettle.commissionProblem");
+        continue;
       }
-      out[c] = { ...s, included: alloc !== null, alloc, commissionProblem };
+      const pool = commissionPool(
+        [],
+        SETTLE_CURRENCIES.filter((o) => o !== c).flatMap(
+          (o) => out[o].alloc?.commission_pool_ids ?? [],
+        ),
+      );
+      if (pool.rows.length === 0) {
+        out[c] = {
+          ...sec,
+          commissionProblem: t("accountSettle.commissionProblem"),
+        };
+      }
     }
     return out;
   })();
@@ -1526,7 +1558,9 @@ export function AccountSettleSheet({
                 data-testid="supplier-account-settle-sms-includes"
               >
                 {t("accountSettle.sms.includes", {
-                  types: coveredTypes.map((ct) => coveredTypeLabel(ct)).join(", "),
+                  types: coveredTypes
+                    .map((ct) => coveredTypeLabel(ct))
+                    .join(", "),
                 })}
               </p>
             ))}
@@ -1540,7 +1574,13 @@ export function AccountSettleSheet({
                 if (mine.length === 0) return null;
                 const byType = new Map<string, number>();
                 for (const sh of mine) {
-                  byType.set(sh.omt_service_type, roundMoney((byType.get(sh.omt_service_type) ?? 0) + sh.amount, c));
+                  byType.set(
+                    sh.omt_service_type,
+                    roundMoney(
+                      (byType.get(sh.omt_service_type) ?? 0) + sh.amount,
+                      c,
+                    ),
+                  );
                 }
                 return (
                   <p key={c}>
@@ -1551,7 +1591,10 @@ export function AccountSettleSheet({
                         c,
                       ),
                       types: [...byType.entries()]
-                        .map(([ty, v]) => `${coveredTypeLabel(ty)} ${formatMoney(v, c)}`)
+                        .map(
+                          ([ty, v]) =>
+                            `${coveredTypeLabel(ty)} ${formatMoney(v, c)}`,
+                        )
                         .join(" · "),
                     })}
                   </p>
@@ -2427,44 +2470,44 @@ function CurrencySection({
       )}
 
       {showCommission && !sms && (
-      <div
-        className={sections.length > 1 ? "grid grid-cols-2 gap-2" : undefined}
-      >
-        {sections.map((s) => {
-          const lc = s.currency.toLowerCase();
-          return (
-            <div key={s.currency}>
-              <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
-                {t("accountSettle.commission", { currency: s.currency })}
-              </label>
-              <input
-                type="text"
-                inputMode={s.currency === "USD" ? "decimal" : "numeric"}
-                data-testid={`supplier-account-settle-commission-${lc}`}
-                value={commissionInput[s.currency]}
-                onChange={(e) => {
-                  const raw = e.target.value.replace(/,/g, "");
-                  const ok =
-                    s.currency === "USD"
-                      ? /^\d*\.?\d*$/.test(raw)
-                      : /^\d*$/.test(raw);
-                  if (raw === "" || ok) onCommissionChange(s.currency, raw);
-                }}
-                placeholder={s.currency === "USD" ? "0.00" : "0"}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
-              />
-              {s.commissionProblem && (
-                <p
-                  className="text-amber-400 text-xs mt-1"
-                  data-testid={`supplier-account-settle-commission-warning-${lc}`}
-                >
-                  {s.commissionProblem}
-                </p>
-              )}
-            </div>
-          );
-        })}
-      </div>
+        <div
+          className={sections.length > 1 ? "grid grid-cols-2 gap-2" : undefined}
+        >
+          {sections.map((s) => {
+            const lc = s.currency.toLowerCase();
+            return (
+              <div key={s.currency}>
+                <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
+                  {t("accountSettle.commission", { currency: s.currency })}
+                </label>
+                <input
+                  type="text"
+                  inputMode={s.currency === "USD" ? "decimal" : "numeric"}
+                  data-testid={`supplier-account-settle-commission-${lc}`}
+                  value={commissionInput[s.currency]}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/,/g, "");
+                    const ok =
+                      s.currency === "USD"
+                        ? /^\d*\.?\d*$/.test(raw)
+                        : /^\d*$/.test(raw);
+                    if (raw === "" || ok) onCommissionChange(s.currency, raw);
+                  }}
+                  placeholder={s.currency === "USD" ? "0.00" : "0"}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                />
+                {s.commissionProblem && (
+                  <p
+                    className="text-amber-400 text-xs mt-1"
+                    data-testid={`supplier-account-settle-commission-warning-${lc}`}
+                  >
+                    {s.commissionProblem}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
 
       {paymentInput}

@@ -488,6 +488,8 @@ describe("LIRA-343 regression — no account credits = LIRA-322 output", () => {
       remaining_after: 337,
       commission_alloc: [{ id: 1, amount: 0.7 }],
       commission_without_closed_model1: false,
+      // LIRA-384 — additive: the transfers a commission here would sit on.
+      commission_pool_ids: [1],
       cashout_commission_recognised: 1.25,
       direction_from_rows: "PAY",
       account_credit_applied: 0,

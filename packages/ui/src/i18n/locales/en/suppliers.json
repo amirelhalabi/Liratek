@@ -367,7 +367,9 @@
     "date": "Date",
     "commission": "Commission",
     "status": "Status",
-    "omtFee": "OMT Fee"
+    "omtFee": "OMT Fee",
+    "commissionEst": "est.",
+    "commissionEstimateTitle": "Estimate — the commission is booked when the supplier settles"
   },
   "tabs": {
     "purchases": "Purchases",

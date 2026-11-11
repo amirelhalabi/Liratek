@@ -379,7 +379,9 @@
     "date": "التاريخ",
     "commission": "العمولة",
     "status": "الحالة",
-    "omtFee": "رسم OMT"
+    "omtFee": "رسم OMT",
+    "commissionEst": "تقديري",
+    "commissionEstimateTitle": "تقدير — تُسجَّل العمولة عند تسوية المورّد"
   },
   "tabs": {
     "purchases": "المشتريات",

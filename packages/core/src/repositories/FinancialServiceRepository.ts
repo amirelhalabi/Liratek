@@ -315,12 +315,14 @@ export interface FinancialServiceEntity {
    *  (iPick/Katsh/Whish App/Crypto) never received it. */
   is_refunded: number;
   refunded_at: string | null;
-  /** Display-only LEFT JOIN enrichment (getAllByProvider) — this row's
-   *  per-currency share of the commission entered at settlement time
-   *  (`settlement_commission_allocations`), for a settled BILL row whose own
-   *  `commission` column is 0 by design. Undefined when the join isn't
-   *  applied (pre-v150 fixture), null when joined but no allocation exists
-   *  (row not settled, or settled before the allocations table existed). */
+  /** Display-only LEFT JOIN enrichment (getAllByProvider, and getHistory
+   *  since LIRA-384 — `_settledCommissionJoin`) — this row's per-currency
+   *  share of the commission entered at settlement time
+   *  (`settlement_commission_allocations`): the figure Profits counts for a
+   *  settled row, which replaces the booking-time estimate on OMT/Whish
+   *  History. NULL when there is no allocation for the row's current
+   *  settlement (row not settled, or settled before the allocations table
+   *  existed) or on a pre-v150 schema. */
   settled_commission_usd?: number | null;
   /** @see settled_commission_usd */
   settled_commission_lbp?: number | null;
@@ -6354,21 +6356,79 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     provider?: string,
     limit: number | null = 50,
   ): FinancialServiceEntity[] {
-    let query = `SELECT ${this.getColumns()} FROM financial_services WHERE tenant_id = ?`;
-    const params: (string | number)[] = [getCurrentTenantId()];
+    const tenantId = getCurrentTenantId();
+    let inner = `SELECT ${this.getColumns()} FROM financial_services WHERE tenant_id = ?`;
+    const params: (string | number)[] = [tenantId];
 
     if (provider) {
-      query += " AND provider = ?";
+      inner += " AND provider = ?";
       params.push(provider);
     }
 
-    query += " ORDER BY created_at DESC";
+    inner += " ORDER BY created_at DESC";
     if (limit !== null) {
-      query += " LIMIT ?";
+      inner += " LIMIT ?";
       params.push(limit);
     }
 
-    return this.db.prepare(query).all(...params) as FinancialServiceEntity[];
+    // LIRA-384 — each settled row's share of its settlement commission (the
+    // figure Profits counts), so History can show it instead of the
+    // booking-time estimate once the row is settled. Same join as the
+    // Suppliers Transactions tab (`getAllByProvider`, rule 14).
+    const settled = this._settledCommissionJoin("t");
+    return this.db
+      .prepare(
+        `SELECT t.*, ${settled.select}
+         FROM (${inner}) t${settled.join}
+         ORDER BY t.created_at DESC`,
+      )
+      .all(...params, ...settled.params) as FinancialServiceEntity[];
+  }
+
+  /**
+   * LIRA-384 — the ONE read of a row's settled commission share
+   * (`settlement_commission_allocations`), shared by `getHistory` (OMT/Whish
+   * History) and `getAllByProvider` (Suppliers Transactions tab). `alias`
+   * is a derived table exposing `id` and `settlement_id`. The join matches
+   * BOTH the row's id AND its CURRENT `settlement_id`, so a
+   * voided-then-resettled row can't surface a stale allocation from the
+   * settlement it was detached from. Read-only: changes no stored value.
+   * A schema without the table (pre-v150 fixtures) projects NULLs, so the
+   * result shape is stable. `params` bind AFTER the derived table's own.
+   */
+  private _settledCommissionJoin(alias: string): {
+    select: string;
+    join: string;
+    params: number[];
+  } {
+    if (!this._hasSettlementAllocationsTable()) {
+      return {
+        select:
+          "NULL AS settled_commission_usd, NULL AS settled_commission_lbp",
+        join: "",
+        params: [],
+      };
+    }
+    // Summed per (row, settlement): nothing makes that pair unique (the
+    // amount-first writer can book a row's commission share AND an owed
+    // share it collects, LIRA-370), and a plain join would then list the
+    // transfer twice — doubling History's rows and Amount totals.
+    return {
+      select:
+        "sca.commission_usd AS settled_commission_usd, sca.commission_lbp AS settled_commission_lbp",
+      join: `
+           LEFT JOIN (
+             SELECT financial_service_id, settlement_ledger_id,
+                    SUM(commission_usd) AS commission_usd,
+                    SUM(commission_lbp) AS commission_lbp
+               FROM settlement_commission_allocations
+              WHERE tenant_id = ?
+              GROUP BY financial_service_id, settlement_ledger_id
+           ) sca
+             ON sca.financial_service_id = ${alias}.id
+            AND sca.settlement_ledger_id = ${alias}.settlement_id`,
+      params: [getCurrentTenantId()],
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -6671,33 +6731,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     // row can't surface a stale allocation from the settlement it was
     // detached from. Deliberately read-only: joining this in changes no
     // stored value, no balance, no `commission`/`is_settled` column.
-    const hasAllocations = this._hasSettlementAllocationsTable();
-    if (hasAllocations) {
-      return this.db
-        .prepare(
-          `SELECT t.*, sca.commission_usd AS settled_commission_usd, sca.commission_lbp AS settled_commission_lbp
-           FROM (${union}) t
-           LEFT JOIN settlement_commission_allocations sca
-             ON sca.financial_service_id = t.id
-            AND sca.settlement_ledger_id = t.settlement_id
-            AND sca.tenant_id = ?${rangeWhere}
-           ORDER BY t.created_at DESC
-           LIMIT ?`,
-        )
-        .all(
-          provider,
-          tenantId,
-          provider,
-          tenantId,
-          tenantId,
-          ...day.params,
-          limit,
-        ) as FinancialServiceEntity[];
-    }
+    // (The join itself is `_settledCommissionJoin`, shared with getHistory.)
+    const settled = this._settledCommissionJoin("t");
     return this.db
       .prepare(
-        `SELECT t.*, NULL AS settled_commission_usd, NULL AS settled_commission_lbp
-         FROM (${union}) t${rangeWhere}
+        `SELECT t.*, ${settled.select}
+         FROM (${union}) t${settled.join}${rangeWhere}
          ORDER BY t.created_at DESC
          LIMIT ?`,
       )
@@ -6706,6 +6745,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         tenantId,
         provider,
         tenantId,
+        ...settled.params,
         ...day.params,
         limit,
       ) as FinancialServiceEntity[];

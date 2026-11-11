@@ -62,6 +62,10 @@
  */
 import { allocateFifo } from "./fifoCoverage.js";
 import { allocateProportional } from "./largestRemainder.js";
+// LIRA-384 — the shared commission-pool rule (batch Settle, this sheet's
+// server path and its preview); re-exported here so both core entry points
+// carry it through their existing `export *` of this module.
+export { commissionPool } from "./commissionPool.js";
 
 export type AccountSettleRowKind = "FINANCIAL_SERVICE" | "LEDGER";
 export type AccountSettleCurrency = "USD" | "LBP";
@@ -178,8 +182,16 @@ export interface AccountSettleAllocResult {
   remaining_after: number;
   /** Over CLOSED commission-model-1 rows. */
   commission_alloc: Array<{ id: number; amount: number }>;
-  /** A commission was entered but no commission-model-1 row closes — the repository refuses this. */
+  /** A commission was entered but no commission-model-1 row of THIS
+   *  currency closes. LIRA-384: the caller then spreads it over the other
+   *  currency's `commission_pool_ids` (`commissionPool`) and refuses only
+   *  when that is empty too. */
   commission_without_closed_model1: boolean;
+  /** LIRA-384 — the transfers (ids) that would carry a commission in this
+   *  currency, whether or not one was entered: closed commission-model-1
+   *  rows (in-scope model-1 rows on the OMT account). The other currency's
+   *  section uses them when it has none of its own. */
+  commission_pool_ids: number[];
   cashout_commission_recognised: number;
   /** Sign of the in-scope total owed. */
   direction_from_rows: "PAY" | "COLLECT" | "NONE";
@@ -507,6 +519,25 @@ export function allocateAccountSettlement(
   const closedSet = new Set(indices.filter((i) => isZero(rem[i])));
 
   // ── 4. Commission over closed model-1 rows ────────────────────────────
+  // LIRA-384 — the rows a commission in this currency would sit on (the
+  // same sets the two branches below split over), exposed for the other
+  // currency's section to spread onto when it has none (`commissionPool`).
+  const commission_pool_ids = covers
+    ? indices
+        .filter(
+          (i) =>
+            i < nRows &&
+            all[i].commission_model1 &&
+            orig[i] !== 0 &&
+            all[i].commission_ticked !== false,
+        )
+        .map((i) => all[i].id)
+    : all
+        .map((r, i) => ({ r, i }))
+        .filter(
+          ({ r, i }) => closedSet.has(i) && r.commission_model1 && orig[i] > 0,
+        )
+        .map(({ r }) => r.id);
   let commission_alloc: Array<{ id: number; amount: number }> = [];
   let commission_without_closed_model1 = false;
   const splitMinor =
@@ -526,7 +557,10 @@ export function allocateAccountSettlement(
         all[i].commission_ticked !== false,
     );
     const est = new Map(
-      model1.map((i) => [i, Math.abs(toMinor(all[i].commission_estimate ?? 0))]),
+      model1.map((i) => [
+        i,
+        Math.abs(toMinor(all[i].commission_estimate ?? 0)),
+      ]),
     );
     const ticked = model1.filter((i) => (est.get(i) ?? 0) > 0);
     const sumEst = ticked.reduce((s, i) => s + (est.get(i) ?? 0), 0);
@@ -534,7 +568,11 @@ export function allocateAccountSettlement(
       commission_without_closed_model1 = true;
     } else {
       const amounts = new Map<number, number>();
-      const spread = (pool: number[], weight: (i: number) => number, total: number) => {
+      const spread = (
+        pool: number[],
+        weight: (i: number) => number,
+        total: number,
+      ) => {
         if (total <= 0) return;
         for (const sh of allocateProportional(
           pool.map((i) => ({ id: i, weight: weight(i) })),
@@ -606,6 +644,7 @@ export function allocateAccountSettlement(
     remaining_after: fromMinor(scopeIdx.reduce((s, i) => s + rem[i], 0)),
     commission_alloc,
     commission_without_closed_model1,
+    commission_pool_ids,
     cashout_commission_recognised: fromMinor(cashoutMinor),
     direction_from_rows,
     account_credit_applied: fromMinor(accountCreditAppliedMinor),

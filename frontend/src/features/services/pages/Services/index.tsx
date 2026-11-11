@@ -67,6 +67,11 @@ import {
   SHORTFALL_MAX,
   type OmtServiceType,
 } from "@liratek/core";
+import {
+  historyCommission,
+  historyCommissionSortValue,
+  type HistoryCommission,
+} from "@/shared/utils/historyCommission";
 
 type Provider = "OMT" | "WHISH";
 type ServiceType = "SEND" | "RECEIVE";
@@ -166,6 +171,31 @@ function formatCommission(amount: number, currency: string): string {
   return formatAmount(amount, currency);
 }
 
+/**
+ * LIRA-384 — the History "Profit" cell text. A settled share is shown in the
+ * row's own currency, plus the other currency only when the settlement put a
+ * share there (e.g. a USD commission over LBP transfers).
+ */
+function formatHistoryCommission(
+  c: HistoryCommission,
+  currency: string,
+): string {
+  if (c.kind !== "settled") return formatCommission(c.amount, currency);
+  const other = currency === "LBP" ? "USD" : "LBP";
+  const own = currency === "LBP" ? c.lbp : c.usd;
+  const otherAmount = currency === "LBP" ? c.usd : c.lbp;
+  if (otherAmount === 0) return formatCommission(own, currency);
+  if (own === 0) return formatCommission(otherAmount, other);
+  return `${formatCommission(own, currency)} + ${formatCommission(otherAmount, other)}`;
+}
+
+/** History table sort values: the Profit column sorts by what it shows. */
+function historySortValue(tx: Transaction, key: string): string | number {
+  if (key === "commission") return historyCommissionSortValue(tx);
+  const v = (tx as unknown as Record<string, unknown>)[key];
+  return typeof v === "number" || typeof v === "string" ? v : "";
+}
+
 interface CurrencyStats {
   currency: string;
   commission: number;
@@ -215,6 +245,12 @@ interface Transaction {
   whish_fee?: number | null;
   is_settled: number;
   settled_at?: string | null;
+  /** LIRA-384 — this row's share of its settlement commission
+   *  (`settlement_commission_allocations`, joined by getHistory); NULL while
+   *  unsettled. What the Profits page counts for a settled row. */
+  settled_commission_usd?: number | null;
+  /** @see settled_commission_usd */
+  settled_commission_lbp?: number | null;
   client_name?: string;
   reference_number?: string;
   phone_number?: string;
@@ -3189,6 +3225,7 @@ export default function Services() {
                   },
                 ]}
                 data={historyShown}
+                getSortValue={historySortValue}
                 exportExcel
                 exportPdf
                 exportFilename="services-history"
@@ -3215,8 +3252,10 @@ export default function Services() {
                   // LIRA-185 lead 1: an AT_SETTLEMENT commission is only a
                   // guess until the supplier settles (booked as 0 until
                   // then) — say so instead of presenting it as profit.
+                  // LIRA-384: once settled, the row's settled share instead.
+                  const commissionCell = historyCommission(tx);
                   const isCommissionEstimate =
-                    tx.commission_model === 1 && !tx.is_settled;
+                    commissionCell.kind === "estimate";
                   return (
                     <tr
                       key={tx.id}
@@ -3284,7 +3323,7 @@ export default function Services() {
                               : undefined
                         }
                       >
-                        {formatCommission(tx.commission, tx.currency)}
+                        {formatHistoryCommission(commissionCell, tx.currency)}
                         {isCommissionEstimate && (
                           <span className="ms-1 text-xs font-medium text-amber-400">
                             {t("history.est")}

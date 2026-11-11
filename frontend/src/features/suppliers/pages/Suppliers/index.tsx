@@ -70,6 +70,7 @@ import {
   type OmtCoveredType,
   type SettlesByDayInput,
 } from "@liratek/core";
+import { historyCommission } from "@/shared/utils/historyCommission";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import {
   CashDrawerChoice,
@@ -165,6 +166,9 @@ type SupplierTxn = {
   omt_service_type: string | null;
   settlement_id: number | null;
   is_settled: number;
+  /** 0 = commission booked at creation, 1 = entered at settlement (the
+   *  row's `commission` is only an estimate until then). LIRA-384. */
+  commission_model?: number | null;
   /**
    * Computed by the repository (SUPPLIER_OWED_EXPR — the ONE owed-per-row
    * definition, `FinancialServiceRepository.ts`): 0 for wallet-provider
@@ -3351,35 +3355,54 @@ export default function SuppliersPage() {
                               {txn.omt_fee ? `$${txn.omt_fee.toFixed(2)}` : "—"}
                             </div>
                           )}
-                          <div className="col-span-2 text-end font-mono text-emerald-400">
-                            {txn.commission > 0 ? (
-                              txn.currency === "LBP" ? (
-                                `${formatNumber(Math.round(txn.commission))} LBP`
-                              ) : (
-                                `$${txn.commission.toFixed(4)}`
-                              )
-                            ) : (txn.settled_commission_usd ?? 0) > 0 ||
-                              (txn.settled_commission_lbp ?? 0) > 0 ? (
-                              // BILL_COMMISSION_SETTLEMENT_PLAN.md follow-up
-                              // — a settled BILL row's OWN `commission` is 0
-                              // by design (entered AT settlement, not
-                              // creation); this is the allocated share from
-                              // settlement_commission_allocations, joined in
-                              // by getAllByProvider for display only.
-                              [
-                                (txn.settled_commission_lbp ?? 0) > 0
-                                  ? `${formatNumber(Math.round(txn.settled_commission_lbp!))} LBP`
-                                  : null,
-                                (txn.settled_commission_usd ?? 0) > 0
-                                  ? `$${txn.settled_commission_usd!.toFixed(2)}`
-                                  : null,
-                              ]
-                                .filter(Boolean)
-                                .join(" + ")
-                            ) : (
-                              <span className="text-slate-600">—</span>
-                            )}
-                          </div>
+                          {(() => {
+                            // LIRA-384 — one derivation with OMT/Whish
+                            // History: a settled row shows its share of the
+                            // settlement commission (settlement_commission_
+                            // allocations, joined by getAllByProvider — what
+                            // Profits counts), the booking estimate only
+                            // while unsettled.
+                            const c = historyCommission(txn);
+                            const text =
+                              c.kind === "settled"
+                                ? [
+                                    c.lbp > 0
+                                      ? `${formatNumber(Math.round(c.lbp))} LBP`
+                                      : null,
+                                    c.usd > 0 ? `$${c.usd.toFixed(2)}` : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" + ")
+                                : c.amount > 0
+                                  ? txn.currency === "LBP"
+                                    ? `${formatNumber(Math.round(c.amount))} LBP`
+                                    : `$${c.amount.toFixed(4)}`
+                                  : "";
+                            return (
+                              <div
+                                data-testid="supplier-txn-commission"
+                                className="col-span-2 text-end font-mono text-emerald-400"
+                                title={
+                                  c.kind === "estimate" && text
+                                    ? t("table.commissionEstimateTitle")
+                                    : undefined
+                                }
+                              >
+                                {text ? (
+                                  <>
+                                    {text}
+                                    {c.kind === "estimate" && (
+                                      <span className="ms-1 text-[10px] font-medium text-amber-400">
+                                        {t("table.commissionEst")}
+                                      </span>
+                                    )}
+                                  </>
+                                ) : (
+                                  <span className="text-slate-600">—</span>
+                                )}
+                              </div>
+                            );
+                          })()}
                           <div className="col-span-2 text-end">
                             {isVoidedTxn(txn) ? (
                               // G40 — same grey "voided" treatment the
