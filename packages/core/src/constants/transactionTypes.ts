@@ -822,6 +822,15 @@ export const SESSION_ITEM_REFUND_CREDIT_TYPE = "Session Item Refund";
 export const SESSION_ITEM_REFUND_LINK_TYPE = "session_item_refund";
 
 /**
+ * LIRA-319 — the `customer_session_transactions.transaction_type` of a
+ * basket's EXTRA_CHARGE member (the ONE extra for the whole basket, written
+ * by `SessionCheckoutService.checkout`). Read by the profit hold
+ * (`ProfitRepository.extraChargeRecognized`): an item refund's negated extra
+ * share follows this member's own share of the 'Session Debt' row.
+ */
+export const SESSION_EXTRA_CHARGE_LINK_TYPE = "extra_charge";
+
+/**
  * LIRA-258 / G17 — the debt_ledger type of a session basket's pooled
  * CUSTOMER_ACCOUNT (+ GIFT_CARD) charge (`SessionPaymentRepository
  * .insertBasketDebt`, `transaction_id` NULL, `session_id` set). One string,

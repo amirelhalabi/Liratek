@@ -45,9 +45,20 @@ import {
   dateRange,
 } from "./reportingTimeFragments.js";
 import { saleItemRefundOriginalIdSql } from "./saleRefundOriginalFragment.js";
+// LIRA-319 — the extra-charge value fragment and the per-sale net extra
+// live in a LEAF module (same reason as reportingTimeFragments: DebtRepository
+// reads the per-sale extra for "what a sale owes" and must not import this
+// file). Re-exported below so every existing importer of `extraChargeProfit`
+// from THIS file (CustomerSessionRepository.ts) keeps working unchanged.
+import {
+  extraChargeProfit,
+  saleNetExtraUsdEquiv,
+} from "./saleExtraFragment.js";
+export { extraChargeProfit };
 import {
   TRANSACTION_TYPES,
   SESSION_ITEM_REFUND_LINK_TYPE,
+  SESSION_EXTRA_CHARGE_LINK_TYPE,
   SERVICE_DEBT_COVERAGE_TYPES,
   SESSION_DEBT_TYPE,
 } from "../constants/transactionTypes.js";
@@ -876,20 +887,16 @@ export function saleTotalPaidUsdEquiv(alias: string): string {
  * outer row's own `tenant_id`).
  */
 function saleExtraUsdEquiv(alias: string): string {
-  const supported = salesExtraSupported();
-  if (!supported) return "0";
-  // The unary `+` on every correlated `tenant_id` term in this file is
-  // REQUIRED (same trick as constants/partnerObligation.ts:233): without it
-  // SQLite answers the sub-query through `idx_transactions_tenant_id` — one
-  // tenant = the shop's whole transactions table — instead of
-  // `idx_transactions_source` / the rowid. Measured on Cornertech
-  // (2026-11-10): `/api/profits/summary` ~19 s for ONE day, freezing the API.
-  // Guarded by ProfitRepository.correlatedTenantIndex.guard.test.ts.
-  return `COALESCE((SELECT SUM(${extraChargeProfit("sxt", "usd", true)}
-                              + ${extraChargeProfit("sxt", "lbp", true)} / COALESCE(NULLIF(${alias}.exchange_rate_snapshot, 0), 1))
-                     FROM transactions sxt
-                     WHERE sxt.source_table = 'sales' AND sxt.source_id = ${alias}.id
-                       AND +sxt.tenant_id = ${alias}.tenant_id), 0)`;
+  // The sub-query lives in the leaf `saleExtraFragment.ts` so
+  // `DebtRepository._loadAllocationItems` can read the SAME "what the sale
+  // owes" extra (rule 14) without importing this file. Its unary `+` on the
+  // correlated `tenant_id` is REQUIRED: without it SQLite answers the
+  // sub-query through `idx_transactions_tenant_id` — one tenant = the shop's
+  // whole transactions table — instead of `idx_transactions_source` / the
+  // rowid. Measured on Cornertech (2026-11-10): `/api/profits/summary` ~19 s
+  // for ONE day, freezing the API. Guarded by
+  // ProfitRepository.correlatedTenantIndex.guard.test.ts.
+  return saleNetExtraUsdEquiv(alias, salesExtraSupported());
 }
 
 const salesExtraSupport = new WeakMap<object, boolean>();
@@ -2140,30 +2147,75 @@ export function reattributedSettlementCommission(
  * own, read from `transactions.extra_usd` / `extra_lbp`, per currency, never
  * converted. REFUND / REFUND_UNDO rows carry the negated share, so a sum nets
  * a refund to 0; a VOIDED original is dropped by the `status` check like
- * every other profit row. Immediate recognition: no debt-pending or partner
- * gate (the brief's "rows with status = 'ACTIVE'").
+ * every other profit row.
+ *
+ * Owner decision 2026-11-11 (Cornertech: a phone sold on account showed its
+ * $190 basket extra under Extra charges before a dollar was collected) —
+ * an extra charged to the client's account is HELD until the client pays,
+ * like every module's own profit. {@link extraChargeRecognized} is that
+ * gate; {@link extraChargeRow} and {@link extraChargeCountEligible} apply
+ * it, so every reader (totals, drill-down, By Date, By Cashier, By Client)
+ * holds and releases together. LIRA-319 had recognised the extra at once
+ * ("rows with status = 'ACTIVE'", research R2) — that was a build-time
+ * reading, never an owner decision.
  *
  * Every Profits view that reports a total (Overview, By Module "Extra
  * charges", its drill-down, By Date, By Cashier, By Client) and the session
  * profit sums call these fragments and nothing else. `supported` is
  * {@link hasExtraChargeColumns} — a hand-rolled jest schema without the v212
- * columns reads 0. No bind params.
+ * columns reads 0. No bind params. The value fragment itself
+ * ({@link extraChargeProfit}) is defined in `saleExtraFragment.ts` and
+ * re-exported here.
+ *
+ * A row that carries an extra (either currency) and counts as profit today
+ * (recognised — {@link extraChargeRecognized}). `0` (false) without the
+ * columns. No bind params.
  */
-export function extraChargeProfit(
-  alias: string,
-  currency: "usd" | "lbp",
-  supported: boolean,
-): string {
-  if (!supported) return "0";
-  return `(CASE WHEN ${alias}.status = 'ACTIVE' THEN COALESCE(${alias}.extra_${currency}, 0) ELSE 0 END)`;
-}
-
-/** LIRA-319 — a row that carries an extra (either currency) and counts as
- *  profit; see {@link extraChargeProfit}. `0` (false) without the columns.
- *  No bind params. */
 export function extraChargeRow(alias: string, supported: boolean): string {
   if (!supported) return "0";
-  return `(${alias}.status = 'ACTIVE' AND (COALESCE(${alias}.extra_usd, 0) != 0 OR COALESCE(${alias}.extra_lbp, 0) != 0))`;
+  return `(${alias}.status = 'ACTIVE' AND (COALESCE(${alias}.extra_usd, 0) != 0 OR COALESCE(${alias}.extra_lbp, 0) != 0) AND ${extraChargeRecognized(alias)})`;
+}
+
+/**
+ * Owner decision 2026-11-11 — "an extra on the account counts when the
+ * customer pays". The ONE rule for whether a row's extra (or a reversal
+ * row's negated share) is recognised today, by who holds the debt for it:
+ *
+ *  - a row inside a session basket (the basket's EXTRA_CHARGE row, or a
+ *    session item refund's REFUND row handing a share back): the basket's
+ *    `extra_charge` member's own share of the 'Session Debt' row —
+ *    {@link notDebtPending} on that member, so the share a refund gives
+ *    back follows the extra it came from and the two never show apart
+ *    (a held basket reads 0, never a negative share);
+ *  - a sale's own row or its standalone REFUND / REFUND_UNDO: the sale is
+ *    paid ({@link saleFullyPaid}, the Sales line's own gate — a sale on
+ *    account books 'Sale Debt', which `notDebtPending` does not read); both
+ *    rows read the same `sales` row, so a refund nets to 0 either way;
+ *  - every other row (a module row and its reversal rows): the row's own
+ *    '<Module> Debt' — {@link notDebtPending} verbatim; a refund marks the
+ *    debt row refunded, which releases the original against the refund's
+ *    negated share.
+ *
+ * No bind params. The unary `+` on every correlated `tenant_id` is REQUIRED
+ * (see {@link saleExtraUsdEquiv}).
+ */
+export function extraChargeRecognized(alias: string): string {
+  const sessionOf = `(SELECT xs.session_id FROM customer_session_transactions xs
+         WHERE xs.unified_transaction_id = ${alias}.id AND +xs.tenant_id = ${alias}.tenant_id LIMIT 1)`;
+  const extraMember = `(SELECT xe.unified_transaction_id FROM customer_session_transactions xe
+         WHERE xe.session_id = ${sessionOf}
+           AND +xe.tenant_id = ${alias}.tenant_id
+           AND xe.transaction_type = '${SESSION_EXTRA_CHARGE_LINK_TYPE}' LIMIT 1)`;
+  return `(CASE
+      WHEN ${sessionOf} IS NOT NULL
+        THEN ${notDebtPending(`COALESCE(${extraMember}, ${alias}.id)`)}
+      WHEN ${alias}.source_table = 'sales'
+        THEN NOT EXISTS (SELECT 1 FROM sales sxp
+                          WHERE sxp.id = ${alias}.source_id
+                            AND +sxp.tenant_id = ${alias}.tenant_id
+                            AND ${saleNotFullyPaid("sxp")})
+      ELSE ${notDebtPending(`${alias}.id`)}
+    END)`;
 }
 
 /** LIRA-319 — an extra-charge EVENT for `count`: a live row with a positive
@@ -2173,7 +2225,7 @@ export function extraChargeCountEligible(
   supported: boolean,
 ): string {
   if (!supported) return "0";
-  return `(${alias}.status = 'ACTIVE' AND (COALESCE(${alias}.extra_usd, 0) > 0 OR COALESCE(${alias}.extra_lbp, 0) > 0))`;
+  return `(${alias}.status = 'ACTIVE' AND (COALESCE(${alias}.extra_usd, 0) > 0 OR COALESCE(${alias}.extra_lbp, 0) > 0) AND ${extraChargeRecognized(alias)})`;
 }
 
 /**
@@ -4887,7 +4939,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * LIRA-319 (T025) — the "Extra charges" line: Σ `extra_usd` / `extra_lbp`
    * over every row that counts ({@link extraChargeRow}: ACTIVE, any type —
    * a module row, a session basket's EXTRA_CHARGE row, and the REFUND /
-   * REFUND_UNDO rows that give a share back), dated by
+   * REFUND_UNDO rows that give a share back — and recognised, i.e. not
+   * waiting on the client's account: {@link extraChargeRecognized}), dated by
    * {@link extraChargeDay}. Per currency, never converted. `count` = the
    * charges themselves ({@link extraChargeCountEligible}).
    */

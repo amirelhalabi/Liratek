@@ -251,6 +251,18 @@ const GATE_FRAGMENTS = [
   // own doc comment). Same "profit real only when money is real" rule,
   // applied to the net figure — a genuine gate, not a loophole.
   "saleNetRevenueNotFullyPaid",
+  // Owner decision 2026-11-11 — an extra charged to the client's account is
+  // held until the client pays, like every module's own profit.
+  // `extraChargeRecognized` is the gate (notDebtPending on the row — or on
+  // the basket's extra member — and saleNotFullyPaid on a sale's row);
+  // `extraChargeRow` / `extraChargeCountEligible` are the row predicates
+  // every Extra charges reader (totals, drill-down, By Date, By Cashier,
+  // By Client) puts in its WHERE, and they embed that gate — so a unit that
+  // calls them IS applying the rule. Listed for the same reason as
+  // `allocationNotDebtPending`: a wrapper that calls a gate VERBATIM.
+  "extraChargeRecognized",
+  "extraChargeRow",
+  "extraChargeCountEligible",
 ] as const;
 
 const GATE_CALL_REGEX = new RegExp(`\\b(?:${GATE_FRAGMENTS.join("|")})\\(`);
@@ -575,20 +587,6 @@ const EXCLUDED_UNITS: Record<string, string> = {
     'as columns, same "expose the gate" shape as getRechargeDetail.\' ' +
     "Exact, explicit confirmation of this whole family's rationale from " +
     "the source itself.",
-  "ProfitRepository:getExtraChargeTotals:(query)":
-    "LIRA-319 (research R2/R3, lead brief: rows with status = 'ACTIVE') — " +
-    "the Extra charges line sums transactions.extra_usd/lbp through the ONE " +
-    "extraChargeProfit fragment. Immediate recognition by design: the extra " +
-    "is takings added on top at the counter, outside every module's own " +
-    "profit stamp; a VOIDED row leaves via status and a REFUND row carries " +
-    "the negated share. A debt/partner gate for it is an open owner question " +
-    "reported with LIRA-319, not an oversight.",
-  "ProfitRepository:getExtraChargeDetail:(query)":
-    "Row-level twin of getExtraChargeTotals (same fragments, same WHERE) — " +
-    "same reason, verbatim (rule 14).",
-  "ProfitRepository:getByDate:daily_extra":
-    "Per-day twin of getExtraChargeTotals (same fragments, same WHERE) — " +
-    "same reason, verbatim (rule 14).",
   "ProfitRepository:getWarrantyDetail:(query)":
     "LIRA-296 — the Warranty cost drill-down, same 'expose the gate' " +
     "Detail-family shape as getTopupBuybackDetail: it mirrors " +

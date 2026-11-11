@@ -436,6 +436,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 📒 Accounts
 
+- A sale with an extra charge put on the account now settles in full: from now on, paying what the customer owes marks the sale paid including the extra, and the sale's profit and its extra then appear on the Profits page. Before, the extra stayed "still owing" on the sale forever and its profit never showed, even after the customer had paid everything.
 - Cash-in and cash-out on a customer account, and manual account entries, can be refunded from Transactions. Both the drawer and the customer's balance go back. A cash-in whose credit was already spent is refused, showing how much is left.
 - Accounts: Settle Debt now opens with nothing ticked. Tick the item the customer is paying for and the amount fills in; you can still change it: less pays part of that item, more pays the next items. With nothing ticked, the oldest debts are paid first. Amounts stay in the item's own currency ($ or LBP), so paying a lira item no longer touches a dollar sale.
 - Accounts: on a client's purchases list, a charge that was partly paid shows "paid $12.00 · left $8.00", and a fully paid charge shows "Paid".
@@ -483,6 +484,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 📊 Profits page
 
+- An extra charge put on a customer's account no longer counts as profit until the customer pays it. It stays out of Overview, By Module › Extra charges, By Date, By Cashier and By Client while the account is open, and appears once the balance is settled — a basket's extra is released together with that basket. This also applies to extras already on account today: they come back as soon as they are paid.
 - Profits › By Module now shows each module's expenses next to its profit (USD and LBP), with an "Other expenses" row for everything not tied to one module (shop costs, bills, line usage, drawer shortages). The TOTAL row adds them up and the net line below is unchanged. Click any expense figure to see the expenses behind it.
 - Dashboard: profit is no longer shown there, for any user. The "Net profit — last 30 days" tile and the trend chart's Profit view are gone; the chart shows product and telecom sales. Profit stays on the Profits page.
 - New "Wrong-number credits recovered" line: credits sent back for cards recharged onto the wrong number, which lower the loss from those cards.

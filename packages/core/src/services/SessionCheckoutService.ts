@@ -58,7 +58,10 @@ import {
   DISCOUNT_AND_WAIVE_MESSAGE,
   EXTRA_ABOVE_TOTAL_MESSAGE,
 } from "../validators/common.js";
-import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import {
+  TRANSACTION_TYPES,
+  SESSION_EXTRA_CHARGE_LINK_TYPE,
+} from "../constants/transactionTypes.js";
 import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
 import { toSqliteUtc } from "../utils/requestNow.js";
 import {
@@ -572,8 +575,7 @@ export function checkBasketDiscountCap(input: {
     over = discount.usd > profit.usd + EPS || discount.lbp > profit.lbp + EPS;
   } else {
     over =
-      discount.usd + discount.lbp / rate >
-      profit.usd + profit.lbp / rate + EPS;
+      discount.usd + discount.lbp / rate > profit.usd + profit.lbp / rate + EPS;
   }
   if (over) {
     throw new Error(
@@ -1162,7 +1164,7 @@ export class SessionCheckoutService {
           });
           repo.linkTransaction(
             sessionId,
-            "extra_charge",
+            SESSION_EXTRA_CHARGE_LINK_TYPE,
             extraTxnId,
             extra.usd,
             extra.lbp,
@@ -1191,9 +1193,8 @@ export class SessionCheckoutService {
         if (hasDiscount) {
           checkBasketDiscountCap({
             discount,
-            profit: getSessionPaymentRepository().getSessionBasketProfit(
-              sessionId,
-            ),
+            profit:
+              getSessionPaymentRepository().getSessionBasketProfit(sessionId),
             exchangeRate,
           });
           const discountTxnId = getTransactionRepository().createTransaction({

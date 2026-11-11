@@ -43,6 +43,7 @@ import {
   type DebtMonthRows,
 } from "../utils/debtSettleDays.js";
 import { localDayExpr } from "./reportingTimeFragments.js";
+import { saleNetExtraUsdEquiv } from "./saleExtraFragment.js";
 import { coverBasketMember } from "./basketMemberCoverage.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import {
@@ -1277,26 +1278,26 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
               },
             }
           : allocation.routing.length > 0
-          ? {
-              routed: {
-                provider: baseSystem,
-                drawer: pcdDrawer,
-                by_transfer: allocation.routing.map((r) => ({
-                  ref: { kind: r.kind, id: r.id },
-                  debt_currency: r.debtCurrency,
-                  value: r.value,
-                })),
-                legs: routedLegs,
-              },
-            }
-          : {
-              routed: {
-                provider: baseSystem,
-                drawer: pcdDrawer,
-                by_transfer: [],
-                legs: [],
-              },
-            }),
+            ? {
+                routed: {
+                  provider: baseSystem,
+                  drawer: pcdDrawer,
+                  by_transfer: allocation.routing.map((r) => ({
+                    ref: { kind: r.kind, id: r.id },
+                    debt_currency: r.debtCurrency,
+                    value: r.value,
+                  })),
+                  legs: routedLegs,
+                },
+              }
+            : {
+                routed: {
+                  provider: baseSystem,
+                  drawer: pcdDrawer,
+                  by_transfer: [],
+                  legs: [],
+                },
+              }),
         ...(data.targets && data.targets.length > 0
           ? { targets: data.targets }
           : {}),
@@ -1579,7 +1580,18 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     const win = (col: string): string =>
       range ? `AND ${col} >= ? AND ${col} < ?` : "";
     const winArgs: string[] = range ? [range.fromUtc, range.toUtc] : [];
-    const saleOpenSql = `(s.paid_usd + COALESCE(s.paid_lbp, 0) / COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1)) < s.final_amount_usd - 0.05`;
+    // LIRA-319 (fix 2026-11-11) — what the sale owes is `final_amount_usd`
+    // PLUS its extra (the customer owes and pays both; the 'Sale Debt' row
+    // is booked for both), net of any refunded share, from the ONE
+    // `saleNetExtraUsdEquiv` fragment the profit gate reads too (rule 14).
+    // Stopping at `final_amount_usd` left a $6 + $1 sale "open" for $6: a
+    // $7 repayment paid the sale $6, dropped the $1 on the balance line, and
+    // `sales.paid_usd` never covered the extra — the sale's margin and its
+    // extra stayed held on the Profits page forever.
+    const hasExtra = this._hasColumn("transactions", "extra_usd");
+    const saleOwedSql = `(s.final_amount_usd + ${saleNetExtraUsdEquiv("s", hasExtra)})`;
+    const salePaidSql = `(s.paid_usd + COALESCE(s.paid_lbp, 0) / COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1))`;
+    const saleOpenSql = `${salePaidSql} < ${saleOwedSql} - 0.05`;
     // Range mode: a closed sale is a debt item only if it went on the
     // account — otherwise every cash purchase would paint a settled day.
     const saleOnAccountSql = this._hasTable("customer_session_transactions")
@@ -1598,8 +1610,8 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     const sales = this.db
       .prepare(
         `SELECT DISTINCT s.id, s.created_at, ${localDayExpr("s.created_at")} AS shop_day,
-                s.final_amount_usd AS owed_usd,
-                s.final_amount_usd - (s.paid_usd + COALESCE(s.paid_lbp, 0) / COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1)) AS open_usd,
+                ${saleOwedSql} AS owed_usd,
+                ${saleOwedSql} - ${salePaidSql} AS open_usd,
                 COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1) AS rate,
                 ${SALE_OWED_IN_LBP_SQL} AS owed_in_lbp
          FROM sales s
