@@ -61,6 +61,7 @@
     "afterExtra": "بعد الإضافة",
     "discount": "حسم",
     "extra": "إضافة",
+    "less": "أقل",
     "discountCurrency": "عملة الحسم",
     "extraCurrency": "عملة الإضافة",
     "cappedToMax": "محدود بالحد الأقصى ({{amount}})",

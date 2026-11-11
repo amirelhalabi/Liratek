@@ -39,6 +39,8 @@
     "discount": "− Discount",
     "extra": "+ Extra",
     "extraLabel": "Extra",
+    "less": "− Less",
+    "lessOrExtra": "Less or extra",
     "reasonAria": "{{label}} reason",
     "reasonPlaceholder": "Reason (optional)",
     "autoExtraHint": "Rounded up — clear it to give change",

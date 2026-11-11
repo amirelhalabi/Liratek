@@ -51,6 +51,12 @@ export interface DiscountLineProps {
    *  take an extra (payouts, settles, partner sales, session-basket items)
    *  leave it off. */
   allowExtra?: boolean | undefined;
+  /** LIRA-382 — the switch's labels on a payout ("− Less" / "+ Extra" and
+   *  the group's accessible name). Default: "− Discount" / "+ Extra". */
+  switchLabels?: { discount: string; extra: string; group: string } | undefined;
+  /** LIRA-382 — label beside the switch on the extra side. Default
+   *  "Extra". */
+  extraLabel?: string | undefined;
 }
 
 /** Shared styling for a DiscountLine input (`over` = typed above the cap). */
@@ -70,11 +76,15 @@ export function DiscountLine({
   mode,
   onModeChange,
   allowExtra = false,
+  switchLabels,
+  extraLabel,
 }: DiscountLineProps) {
   const { t } = useTranslation("ui");
   const showSwitch = allowExtra && mode !== undefined && !!onModeChange;
   const isExtra = showSwitch && mode === "extra";
-  const shownLabel = isExtra ? t("discountLine.extraLabel") : label;
+  const shownLabel = isExtra
+    ? (extraLabel ?? t("discountLine.extraLabel"))
+    : label;
   const switchButton = (m: DiscountLineMode, text: string) => (
     <button
       type="button"
@@ -101,11 +111,17 @@ export function DiscountLine({
           <span className="flex items-center gap-1.5">
             <span
               role="group"
-              aria-label={t("discountLine.modeGroup")}
+              aria-label={switchLabels?.group ?? t("discountLine.modeGroup")}
               className="inline-flex rounded-md border border-slate-600/60 overflow-hidden"
             >
-              {switchButton("discount", t("discountLine.discount"))}
-              {switchButton("extra", t("discountLine.extra"))}
+              {switchButton(
+                "discount",
+                switchLabels?.discount ?? t("discountLine.discount"),
+              )}
+              {switchButton(
+                "extra",
+                switchLabels?.extra ?? t("discountLine.extra"),
+              )}
             </span>
             <span
               className={`text-xs font-medium ${

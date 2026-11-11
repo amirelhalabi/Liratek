@@ -61,6 +61,7 @@
     "afterExtra": "After Extra",
     "discount": "Discount",
     "extra": "Extra",
+    "less": "Less",
     "discountCurrency": "Discount currency",
     "extraCurrency": "Extra currency",
     "cappedToMax": "Capped to max ({{amount}})",

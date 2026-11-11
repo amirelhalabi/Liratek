@@ -23,6 +23,7 @@ import {
   TENDER_RATE_BAND_PCT,
   tenderRateDeviationPct,
   isWithinShortfallMax,
+  SHORTFALL_MAX,
 } from "@liratek/core";
 
 /**
@@ -892,6 +893,20 @@ export default function MultiPaymentInput({
   // LIRA-334 — the cashier switched the line or typed in it: no autofill
   // until the payment lines change again.
   const roundUpDismissedRef = useRef<boolean>(false);
+  // LIRA-382 — the payout "− Less | + Extra" line. Its OWN state, never the
+  // built-in discount's (`discountRaw`/`lineMode`): on a payout that field is
+  // the LIRA-269 fee discount, a different thing. The line only moves what
+  // the payout's lines fill to (`payoutLineBump`, signed, in the total's
+  // currency); the kept change / round-up sent to the page are still read
+  // from the lines (`payoutKeptRounded` / `payoutRoundUpRounded`).
+  const [payoutLineMode, setPayoutLineMode] = useState<"extra" | "less">(
+    "extra",
+  );
+  /** Raw text while the cashier types in the field; null = show the value
+   *  read back from the lines. */
+  const [payoutLineText, setPayoutLineText] = useState<string | null>(null);
+  const [payoutLineBump, setPayoutLineBump] = useState(0);
+  const [payoutLineCapped, setPayoutLineCapped] = useState(false);
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>(
     seededLinesRef.current ?? [
       {
@@ -1196,6 +1211,62 @@ export default function MultiPaymentInput({
       });
   })();
 
+  // LIRA-382 — the payout "− Less | + Extra" line: on a payout that books
+  // the LIRA-334 round-up (the caller wires `onRoundUpChange`), not when the
+  // excess is the other side's debt, not per currency, not when the page
+  // owns its line, and only for a USD/LBP total (the cap's currencies).
+  const payoutLineVisible =
+    isPayout &&
+    !!onRoundUpChange &&
+    !payoutExcessToAccount &&
+    !perCurrencyTotals &&
+    !discountRow &&
+    (totalAmountCurrency === "USD" || totalAmountCurrency === "LBP");
+  /** "− Less" only where change can be kept (the caller books it). */
+  const payoutLessAllowed = payoutLineVisible && !!onKeptChange;
+  const payoutLineCap =
+    totalAmountCurrency === "LBP" ? SHORTFALL_MAX.LBP : SHORTFALL_MAX.USD;
+  /** What the payout's lines fill to: what is owed, moved by the line
+   *  (`bump`, signed, in the total's currency). Never feeds
+   *  `effectiveTotals`, so kept change and round-up still measure the lines
+   *  against what is owed — the line cannot become a second figure. */
+  const fillTotalsWithBump = (bump: number): Money[] => {
+    if (!payoutLineVisible || bump === 0) return effectiveTotals;
+    const hasBucket = effectiveTotals.some(
+      (t) => t.currency === totalAmountCurrency,
+    );
+    const bumped = hasBucket
+      ? effectiveTotals.map((t) =>
+          t.currency === totalAmountCurrency
+            ? { ...t, amount: t.amount + bump }
+            : t,
+        )
+      : [...effectiveTotals, { amount: bump, currency: totalAmountCurrency }];
+    return bumped.map((t) =>
+      t.currency === totalAmountCurrency
+        ? {
+            ...t,
+            amount: Math.max(
+              0,
+              roundForCurrency({ amount: t.amount, currency: t.currency })
+                .amount,
+            ),
+          }
+        : t,
+    );
+  };
+  const payoutBump = payoutLineVisible ? payoutLineBump : 0;
+  // A hidden line forgets what was typed in it (e.g. a cash payout switched
+  // to a wallet and back): coming back, it starts empty instead of
+  // re-applying an extra nobody typed on this screen. Boolean dep (rule 25).
+  useEffect(() => {
+    if (payoutLineVisible) return;
+    setPayoutLineBump(0);
+    setPayoutLineText(null);
+    setPayoutLineCapped(false);
+    setPayoutLineMode("extra");
+  }, [payoutLineVisible]);
+
   // Scalar bridges: totals expressed in totalAmountCurrency — they feed the
   // single-number UI surfaces (summary rows, return-field seeding, waive
   // threshold). Pre-discount and post-discount variants.
@@ -1218,6 +1289,9 @@ export default function MultiPaymentInput({
     excludeLineId?: string,
     /** The lines to count instead of the current ones (LIRA-308 answer 3). */
     linesOverride?: PaymentLine[],
+    /** LIRA-382 — the payout line's move to use instead of the current one
+     *  (the cashier just typed it; state has not updated yet). */
+    payoutBumpOverride?: number,
   ): number => {
     // LIRA-322 — perCurrencyTotals: only this currency's own remaining; the
     // other currencies are never converted into it.
@@ -1247,7 +1321,7 @@ export default function MultiPaymentInput({
           fillTotals ??
           (!discountMovesPayment && totalBeforeDiscount
             ? totalBeforeDiscount
-            : effectiveTotals),
+            : fillTotalsWithBump(payoutBumpOverride ?? payoutBump)),
         payments: otherPayments,
         rates: internalRates,
         side,
@@ -1357,6 +1431,7 @@ export default function MultiPaymentInput({
     clampedDiscount,
     clampedExtra,
     addedTarget,
+    payoutBump,
   ]);
 
   // LIRA-308 decision 9 — non-cash change follows a single-currency tender.
@@ -2081,6 +2156,72 @@ export default function MultiPaymentInput({
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [payoutRoundUpKey]);
+
+  // --- Payout "− Less | + Extra" line (LIRA-382) ---
+  // What the line shows when the cashier is not typing in it: read back
+  // from the lines — the SAME figures reported above, never a second
+  // computation. Typing in the line moves what the lines fill to.
+  const payoutLineDerived: { mode: "extra" | "less"; value: number } | null =
+    !payoutLineVisible
+      ? null
+      : payoutRoundUpActive
+        ? { mode: "extra", value: payoutRoundUpRounded }
+        : payoutLessAllowed && payoutKeepActive
+          ? { mode: "less", value: payoutKeptRounded }
+          : null;
+  const payoutLineShownMode: "extra" | "less" =
+    payoutLineText !== null
+      ? payoutLineMode
+      : (payoutLineDerived?.mode ?? payoutLineMode);
+  const payoutLineShownText =
+    payoutLineText ??
+    (payoutLineDerived
+      ? totalAmountCurrency === "LBP"
+        ? String(payoutLineDerived.value)
+        : payoutLineDerived.value.toFixed(2)
+      : "");
+
+  /** Move the payout's lines to owed + `bump` (signed, total's currency):
+   *  one line is set to it even after a hand edit; split lines keep their
+   *  shape and the LAST one absorbs the difference (never below zero). */
+  const applyPayoutBump = (bump: number) => {
+    setPayoutLineBump(bump);
+    if (paymentLines.length === 0) return;
+    const lastIdx = paymentLines.length - 1;
+    const last = paymentLines[lastIdx];
+    const amount = Math.max(
+      0,
+      prefillAmountFor(last.currencyCode, last.id, undefined, bump),
+    );
+    if (!isSplitMode && paymentLines.length === 1) {
+      // The line follows the total again (the auto-sync effect keeps it).
+      singleAmountTouchedRef.current = false;
+    }
+    if (amount === last.amount) return;
+    const updated = paymentLines.map((l, i) =>
+      i === lastIdx ? { ...l, amount } : l,
+    );
+    setPaymentLines(updated);
+    onChange(updated);
+  };
+
+  const handlePayoutLineInput = (raw: string) => {
+    const typed = parseNum(raw);
+    const capped = typed > payoutLineCap + 1e-9;
+    const value = capped ? payoutLineCap : Math.max(0, typed);
+    setPayoutLineCapped(capped);
+    setPayoutLineText(capped ? String(payoutLineCap) : raw);
+    applyPayoutBump(payoutLineMode === "extra" ? value : -value);
+  };
+
+  /** The switch: the other side's amount is cleared and the lines go back
+   *  to what is owed (a payout has extra OR less, never both). */
+  const handlePayoutLineModeChange = (m: "discount" | "extra") => {
+    setPayoutLineMode(m === "extra" ? "extra" : "less");
+    setPayoutLineText(null);
+    setPayoutLineCapped(false);
+    applyPayoutBump(0);
+  };
 
   // --- Customer adds change (LIRA-336, research R7) ---
   // Keyed like the round-up: `payer` is in the key and this effect reports
@@ -3703,6 +3844,79 @@ export default function MultiPaymentInput({
             </span>
             <span className="font-mono text-amber-200 font-medium">
               {fmtTarget(toDisplayCurrency(effectiveTotalInTarget))}
+            </span>
+          </div>
+        )}
+
+        {/* LIRA-382 — the payout "− Less | + Extra" line, then what the
+            shop now pays. */}
+        {payoutLineVisible && (
+          <DiscountLine
+            testId="payout-extra-less"
+            label={t("summary.less")}
+            extraLabel={t("summary.extra")}
+            {...(payoutLessAllowed
+              ? {
+                  allowExtra: true,
+                  mode:
+                    payoutLineShownMode === "extra"
+                      ? ("extra" as const)
+                      : ("discount" as const),
+                  onModeChange: handlePayoutLineModeChange,
+                  switchLabels: {
+                    discount: tUi("discountLine.less"),
+                    extra: tUi("discountLine.extra"),
+                    group: tUi("discountLine.lessOrExtra"),
+                  },
+                }
+              : {})}
+            capNote={
+              payoutLineCapped
+                ? t("summary.cappedToMax", {
+                    amount: fmtTarget(toDisplayCurrency(payoutLineCap)),
+                  })
+                : undefined
+            }
+          >
+            <span className="text-[11px] text-emerald-400/60">
+              {totalAmountCurrency}
+            </span>
+            <input
+              type="text"
+              inputMode="decimal"
+              data-testid="payout-extra-less-input"
+              aria-label={
+                payoutLessAllowed && payoutLineShownMode === "less"
+                  ? t("summary.less")
+                  : t("summary.extra")
+              }
+              value={payoutLineShownText}
+              onFocus={() => {
+                setPayoutLineMode(payoutLineShownMode);
+                setPayoutLineText(payoutLineShownText);
+              }}
+              onBlur={() => setPayoutLineText(null)}
+              onChange={(e) => {
+                const raw = e.target.value.replace(/,/g, "");
+                if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
+                  handlePayoutLineInput(raw);
+                }
+              }}
+              className={`${discountFieldClass(payoutLineCapped)} ps-2`}
+              placeholder="0"
+            />
+          </DiscountLine>
+        )}
+        {payoutLineVisible && payoutLineDerived && (
+          <div
+            data-testid="payout-you-pay"
+            className="flex justify-between text-xs pt-1 border-t border-emerald-700/20"
+          >
+            <span className="text-emerald-300 font-medium">
+              {t("header.youPay")}
+            </span>
+            <span className="font-mono text-emerald-200 font-medium">
+              {fmtTarget(toDisplayCurrency(totalPaid))}
             </span>
           </div>
         )}

@@ -39,6 +39,8 @@
     "discount": "− حسم",
     "extra": "+ إضافة",
     "extraLabel": "إضافة",
+    "less": "− أقل",
+    "lessOrExtra": "أقل أو إضافة",
     "reasonAria": "سبب {{label}}",
     "reasonPlaceholder": "السبب (اختياري)",
     "autoExtraHint": "تقريب للأعلى — امسحه لإرجاع الفكّة",
