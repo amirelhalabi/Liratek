@@ -232,12 +232,10 @@ describe("Profits — By Cashier tab (Lane LCC)", () => {
     // recognized_transaction_count is 1, the identical Avg Profit/Txn
     // figure too) — find the specific occurrence colored by profitClass.
     const occurrences = within(row).getAllByText("-20 USD");
-    expect(
-      occurrences.some((el) => el.className.includes("red")),
-    ).toBe(true);
-    expect(
-      occurrences.some((el) => el.className.includes("emerald")),
-    ).toBe(false);
+    expect(occurrences.some((el) => el.className.includes("red"))).toBe(true);
+    expect(occurrences.some((el) => el.className.includes("emerald"))).toBe(
+      false,
+    );
   });
 
   it("LCC-X10 (regression): a positive profit_usd still renders emerald", async () => {
@@ -275,9 +273,7 @@ describe("Profits — By Client tab (Lane LCC)", () => {
 
     await renderPage();
     fireEvent.click(screen.getByRole("button", { name: /by client/i }));
-    await waitFor(() =>
-      expect(mockGetProfitByClient).toHaveBeenCalledTimes(1),
-    );
+    await waitFor(() => expect(mockGetProfitByClient).toHaveBeenCalledTimes(1));
 
     expect(
       await screen.findByText(/Failed to load profit by client/i),
@@ -293,9 +289,7 @@ describe("Profits — By Client tab (Lane LCC)", () => {
 
     await renderPage();
     fireEvent.click(screen.getByRole("button", { name: /by client/i }));
-    await waitFor(() =>
-      expect(mockGetProfitByClient).toHaveBeenCalledTimes(1),
-    );
+    await waitFor(() => expect(mockGetProfitByClient).toHaveBeenCalledTimes(1));
 
     expect(
       await screen.findByText("No data for this period"),
@@ -329,31 +323,10 @@ describe("Profits — By Client tab (Lane LCC)", () => {
     expect(screen.getByText("5000000 LBP")).toBeInTheDocument();
   });
 
-  it("PA-4.19: shows a notice when the top-30 cap is reached", async () => {
-    const rows = Array.from({ length: 30 }, (_, i) => ({
-      client_id: i + 1,
-      client_name: `Client ${i + 1}`,
-      client_phone: null,
-      revenue_usd: 10,
-      revenue_lbp: 0,
-      profit_usd: 1,
-      profit_lbp: 0,
-      transaction_count: 1,
-      recognized_transaction_count: 1,
-      pending_profit_usd: 0,
-      pending_profit_lbp: 0,
-    }));
-    mockGetProfitByClient.mockResolvedValueOnce(rows);
-
-    await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /by client/i }));
-    await screen.findByText("Client 1");
-
-    expect(
-      screen.getByText(/top 30 clients by profit/i),
-    ).toBeInTheDocument();
-  });
-
+  // PA-4.19 "shows a notice when the top-30 cap is reached" was removed on
+  // 2026-11-11 as a strict duplicate: Profits.byUserByClientRound2.test.tsx
+  // "clarifies the cap/ranking is by USD profit" renders the same 30 rows and
+  // asserts the same notice (plus the USD-ranking line).
   it("PA-4.19: no top-30 notice when under the cap", async () => {
     mockGetProfitByClient.mockResolvedValueOnce([
       {

@@ -1,443 +1,565 @@
-/** @jest-environment jsdom */
-import { render, screen, fireEvent, within } from "@testing-library/react";
-import { DataTable, type DataTableColumn } from "@liratek/ui";
-// @testing-library/jest-dom matchers are loaded globally (jest.setup.ts) — no import needed.
-
 /**
- * DataTable is a generic, TanStack-backed table. The original e2e specs
- * (S27–S34) drove it through real feature pages (Expenses / Custom Services /
- * Inventory / Loto). Those tests really exercised the component's own
- * behaviour: rendering rows, sorting, pagination, select-all, shift-select,
- * empty state and export buttons. We reproduce that ground here against the
- * component directly with synthetic data.
+ * DataTable — 2 per-ticket test files merged into one suite
+ * (2026-11-11, owner decision: one module boot instead of 2).
+ *
+ * Each former file is one describe block below, named after it; its own
+ * header comment (including its rule-17 failing-first history) is kept at the
+ * top of its block, and its test bodies are unchanged. Every former file
+ * declared exactly the same jest.mock set and shared mock setup, which is
+ * kept once at the top. Each block starts with resetBetweenFiles(), which
+ * puts the shared mocks back to how a fresh file would see them, so no block
+ * depends on state left by the block above it.
  */
 
-// ── Mock the export utils so we don't pull in xlsx/jspdf and can assert calls.
+import { render, screen, fireEvent, within } from "@testing-library/react";
+import { Fragment } from "react";
+import { DataTable, type DataTableColumn } from "@liratek/ui";
+
+// The REAL DataTable's ExportBar (packages/ui/src/components/ui/ExportBar.tsx)
+// imports from packages/ui/src/utils/tableExport — mock that exact module.
 const exportToExcel = jest.fn();
+
 const exportToPdf = jest.fn();
-// The @liratek/ui ExportBar imports packages/ui/src/utils/tableExport — mock
-// THAT module (same form as DataTable.exportFragmentRows.test.tsx), not the
-// frontend's shared/utils copy, or the real export runs against jsdom.
+
 jest.mock("../../../../../packages/ui/src/utils/tableExport", () => ({
   exportToExcel: (...args: unknown[]) => exportToExcel(...args),
   exportToPdf: (...args: unknown[]) => exportToPdf(...args),
 }));
 
-interface Row {
-  id: number;
-  name: string;
-  amount: number;
+function resetBetweenFiles() {
+  jest.clearAllMocks();
+  (exportToExcel as unknown as jest.Mock).mockReset();
+  (exportToPdf as unknown as jest.Mock).mockReset();
+  localStorage.clear();
+  sessionStorage.clear();
+  jest.useRealTimers();
 }
 
-function makeRows(count: number): Row[] {
-  return Array.from({ length: count }, (_, i) => ({
-    id: i + 1,
-    name: `Item ${i + 1}`,
-    amount: (i + 1) * 10,
-  }));
-}
+describe("DataTable.exportFragmentRows (LIRA-067)", () => {
+  beforeAll(resetBetweenFiles);
 
-const NAME_COL: DataTableColumn = { header: "Name", sortKey: "name" };
-const AMOUNT_COL: DataTableColumn = { header: "Amount", sortKey: "amount" };
+  /**
+   * DataTable export — Fragment-wrapped rows (LIRA-067).
+   *
+   * Imports the REAL component from @liratek/ui (packages/ui/src/components/ui/
+   * DataTable.tsx), the only copy — every consumer, including
+   * TransactionsViewer, imports from @liratek/ui.
+   *
+   * A `renderRow`/`exportRow` can return a Fragment of multiple <tr>s (e.g. a
+   * transaction row plus an indented payment-leg detail row). Before this fix,
+   * getExportData's extractCells only read the FIRST <tr> in a Fragment,
+   * silently dropping every extra row from Excel/PDF export.
+   */
 
-function renderRow(item: Row) {
-  return (
-    <tr key={item.id} data-testid={`row-${item.id}`}>
-      <td>{item.name}</td>
-      <td>{item.amount}</td>
-    </tr>
-  );
-}
+  interface Row {
+    id: number;
+    name: string;
+    detail: string | null;
+  }
 
-/** Visible data rows = every <tbody> <tr> that carries our row-<id> testid. */
-function dataRows(): HTMLElement[] {
-  const table = screen.getByTestId("data-table");
-  return within(table)
-    .getAllByRole("row")
-    .filter((r) => r.getAttribute("data-testid")?.startsWith("row-"));
-}
+  const NAME_COL: DataTableColumn = { header: "Name" };
+  const DETAIL_COL: DataTableColumn = { header: "Detail" };
+
+  const rows: Row[] = [
+    { id: 1, name: "Plain Row", detail: null },
+    { id: 2, name: "Split Payment Row", detail: "In — Cash: $30" },
+  ];
+
+  function renderRow(item: Row) {
+    const mainTr = (
+      <tr key={item.id}>
+        <td>{item.name}</td>
+        <td></td>
+      </tr>
+    );
+    if (!item.detail) return mainTr;
+    return (
+      <Fragment key={item.id}>
+        {mainTr}
+        <tr key={`${item.id}-detail`}>
+          <td></td>
+          <td>{item.detail}</td>
+        </tr>
+      </Fragment>
+    );
+  }
+
+  describe("DataTable export — Fragment multi-<tr> rows", () => {
+    beforeEach(() => {
+      exportToExcel.mockClear();
+      exportToPdf.mockClear();
+    });
+
+    it("exports every <tr> in a Fragment-wrapped row, not just the first", () => {
+      render(
+        <DataTable<Row>
+          columns={[NAME_COL, DETAIL_COL]}
+          data={rows}
+          renderRow={renderRow}
+          exportExcel
+          exportFilename="txns"
+        />,
+      );
+
+      fireEvent.click(screen.getByTitle("Export to Excel"));
+      expect(exportToExcel).toHaveBeenCalledTimes(1);
+
+      const [tableData] = exportToExcel.mock.calls[0] as [
+        { headers: string[]; rows: string[][] },
+        string,
+      ];
+
+      // Plain row (1 <tr>) + split-payment row's own <tr> + its detail <tr> = 3.
+      expect(tableData.rows).toHaveLength(3);
+      expect(tableData.rows).toContainEqual(["Plain Row", ""]);
+      expect(tableData.rows).toContainEqual(["Split Payment Row", ""]);
+      // The detail row is indented one column in: blank Name cell, text under Detail.
+      expect(tableData.rows).toContainEqual(["", "In — Cash: $30"]);
+    });
+  });
+});
 
 describe("DataTable", () => {
-  beforeEach(() => {
-    exportToExcel.mockClear();
-    exportToPdf.mockClear();
-  });
+  beforeAll(resetBetweenFiles);
 
-  // ── S27: render list → rows + columns appear ────────────────────────
-  it("renders column headers and one row per data item", () => {
-    render(
-      <DataTable<Row>
-        columns={[NAME_COL, AMOUNT_COL]}
-        data={makeRows(3)}
-        renderRow={renderRow}
-      />,
+  // Setup notes from this file (its mocks are the shared ones above):
+  // @testing-library/jest-dom matchers are loaded globally (jest.setup.ts) — no import needed.
+  /**
+   * DataTable is a generic, TanStack-backed table. The original e2e specs
+   * (S27–S34) drove it through real feature pages (Expenses / Custom Services /
+   * Inventory / Loto). Those tests really exercised the component's own
+   * behaviour: rendering rows, sorting, pagination, select-all, shift-select,
+   * empty state and export buttons. We reproduce that ground here against the
+   * component directly with synthetic data.
+   */
+  // ── Mock the export utils so we don't pull in xlsx/jspdf and can assert calls.
+  // The @liratek/ui ExportBar imports packages/ui/src/utils/tableExport — mock
+  // THAT module (same form as DataTable.exportFragmentRows.test.tsx), not the
+  // frontend's shared/utils copy, or the real export runs against jsdom.
+
+  interface Row {
+    id: number;
+    name: string;
+    amount: number;
+  }
+
+  function makeRows(count: number): Row[] {
+    return Array.from({ length: count }, (_, i) => ({
+      id: i + 1,
+      name: `Item ${i + 1}`,
+      amount: (i + 1) * 10,
+    }));
+  }
+
+  const NAME_COL: DataTableColumn = { header: "Name", sortKey: "name" };
+  const AMOUNT_COL: DataTableColumn = { header: "Amount", sortKey: "amount" };
+
+  function renderRow(item: Row) {
+    return (
+      <tr key={item.id} data-testid={`row-${item.id}`}>
+        <td>{item.name}</td>
+        <td>{item.amount}</td>
+      </tr>
     );
+  }
 
-    expect(screen.getByTestId("data-table")).toBeInTheDocument();
-    expect(screen.getByText("Name")).toBeInTheDocument();
-    expect(screen.getByText("Amount")).toBeInTheDocument();
-    expect(dataRows()).toHaveLength(3);
-    expect(screen.getByText("Item 1")).toBeInTheDocument();
-    expect(screen.getByText("Item 3")).toBeInTheDocument();
-  });
+  /** Visible data rows = every <tbody> <tr> that carries our row-<id> testid. */
+  function dataRows(): HTMLElement[] {
+    const table = screen.getByTestId("data-table");
+    return within(table)
+      .getAllByRole("row")
+      .filter((r) => r.getAttribute("data-testid")?.startsWith("row-"));
+  }
 
-  it("supports plain string column definitions", () => {
-    render(
-      <DataTable<Row>
-        columns={["Name", "Amount"]}
-        data={makeRows(1)}
-        renderRow={renderRow}
-      />,
-    );
+  describe("DataTable", () => {
+    beforeEach(() => {
+      exportToExcel.mockClear();
+      exportToPdf.mockClear();
+    });
 
-    expect(screen.getByText("Name")).toBeInTheDocument();
-    expect(screen.getByText("Amount")).toBeInTheDocument();
-    expect(dataRows()).toHaveLength(1);
-  });
+    // ── S27: render list → rows + columns appear ────────────────────────
+    it("renders column headers and one row per data item", () => {
+      render(
+        <DataTable<Row>
+          columns={[NAME_COL, AMOUNT_COL]}
+          data={makeRows(3)}
+          renderRow={renderRow}
+        />,
+      );
 
-  // ── S33: empty state ────────────────────────────────────────────────
-  it("renders the default empty message when there is no data", () => {
-    render(
-      <DataTable<Row>
-        columns={[NAME_COL, AMOUNT_COL]}
-        data={[]}
-        renderRow={renderRow}
-        emptyMessage="No expenses found"
-      />,
-    );
+      expect(screen.getByTestId("data-table")).toBeInTheDocument();
+      expect(screen.getByText("Name")).toBeInTheDocument();
+      expect(screen.getByText("Amount")).toBeInTheDocument();
+      expect(dataRows()).toHaveLength(3);
+      expect(screen.getByText("Item 1")).toBeInTheDocument();
+      expect(screen.getByText("Item 3")).toBeInTheDocument();
+    });
 
-    expect(dataRows()).toHaveLength(0);
-    expect(screen.getByText("No expenses found")).toBeInTheDocument();
-  });
+    it("supports plain string column definitions", () => {
+      render(
+        <DataTable<Row>
+          columns={["Name", "Amount"]}
+          data={makeRows(1)}
+          renderRow={renderRow}
+        />,
+      );
 
-  it("renders custom empty content over the default message", () => {
-    render(
-      <DataTable<Row>
-        columns={[NAME_COL]}
-        data={[]}
-        renderRow={renderRow}
-        emptyMessage="No data"
-        emptyContent={<span data-testid="custom-empty">Nothing here yet</span>}
-      />,
-    );
+      expect(screen.getByText("Name")).toBeInTheDocument();
+      expect(screen.getByText("Amount")).toBeInTheDocument();
+      expect(dataRows()).toHaveLength(1);
+    });
 
-    expect(screen.getByTestId("custom-empty")).toBeInTheDocument();
-    expect(screen.queryByText("No data")).not.toBeInTheDocument();
-  });
+    // ── S33: empty state ────────────────────────────────────────────────
+    it("renders the default empty message when there is no data", () => {
+      render(
+        <DataTable<Row>
+          columns={[NAME_COL, AMOUNT_COL]}
+          data={[]}
+          renderRow={renderRow}
+          emptyMessage="No expenses found"
+        />,
+      );
 
-  it("renders a loading placeholder instead of rows when loading", () => {
-    render(
-      <DataTable<Row>
-        columns={[NAME_COL]}
-        data={makeRows(3)}
-        renderRow={renderRow}
-        loading
-      />,
-    );
+      expect(dataRows()).toHaveLength(0);
+      expect(screen.getByText("No expenses found")).toBeInTheDocument();
+    });
 
-    expect(dataRows()).toHaveLength(0);
-    expect(screen.getByText("Loading…")).toBeInTheDocument();
-  });
+    it("renders custom empty content over the default message", () => {
+      render(
+        <DataTable<Row>
+          columns={[NAME_COL]}
+          data={[]}
+          renderRow={renderRow}
+          emptyMessage="No data"
+          emptyContent={
+            <span data-testid="custom-empty">Nothing here yet</span>
+          }
+        />,
+      );
 
-  // ── S28: sort ascending / descending ────────────────────────────────
-  it("sorts rows when a sortable header is clicked", () => {
-    // Provide unsorted data; default order is insertion order.
-    const data: Row[] = [
-      { id: 1, name: "Charlie", amount: 30 },
-      { id: 2, name: "Alpha", amount: 10 },
-      { id: 3, name: "Bravo", amount: 20 },
-    ];
+      expect(screen.getByTestId("custom-empty")).toBeInTheDocument();
+      expect(screen.queryByText("No data")).not.toBeInTheDocument();
+    });
 
-    render(
-      <DataTable<Row>
-        columns={[NAME_COL, AMOUNT_COL]}
-        data={data}
-        renderRow={renderRow}
-      />,
-    );
+    it("renders a loading placeholder instead of rows when loading", () => {
+      render(
+        <DataTable<Row>
+          columns={[NAME_COL]}
+          data={makeRows(3)}
+          renderRow={renderRow}
+          loading
+        />,
+      );
 
-    const firstNameUnsorted = within(dataRows()[0]).getByText(
-      /Charlie|Alpha|Bravo/,
-    );
-    expect(firstNameUnsorted).toHaveTextContent("Charlie");
+      expect(dataRows()).toHaveLength(0);
+      expect(screen.getByText("Loading…")).toBeInTheDocument();
+    });
 
-    // Click "Name" header → ascending.
-    fireEvent.click(screen.getByText("Name"));
-    expect(within(dataRows()[0]).getByText("Alpha")).toBeInTheDocument();
+    // ── S28: sort ascending / descending ────────────────────────────────
+    it("sorts rows when a sortable header is clicked", () => {
+      // Provide unsorted data; default order is insertion order.
+      const data: Row[] = [
+        { id: 1, name: "Charlie", amount: 30 },
+        { id: 2, name: "Alpha", amount: 10 },
+        { id: 3, name: "Bravo", amount: 20 },
+      ];
 
-    // Click again → descending.
-    fireEvent.click(screen.getByText("Name"));
-    expect(within(dataRows()[0]).getByText("Charlie")).toBeInTheDocument();
-  });
+      render(
+        <DataTable<Row>
+          columns={[NAME_COL, AMOUNT_COL]}
+          data={data}
+          renderRow={renderRow}
+        />,
+      );
 
-  it("applies the initial sort from defaultSortKey/defaultSortDirection", () => {
-    const data: Row[] = [
-      { id: 1, name: "Charlie", amount: 30 },
-      { id: 2, name: "Alpha", amount: 10 },
-      { id: 3, name: "Bravo", amount: 20 },
-    ];
+      const firstNameUnsorted = within(dataRows()[0]).getByText(
+        /Charlie|Alpha|Bravo/,
+      );
+      expect(firstNameUnsorted).toHaveTextContent("Charlie");
 
-    render(
-      <DataTable<Row>
-        columns={[NAME_COL, AMOUNT_COL]}
-        data={data}
-        renderRow={renderRow}
-        defaultSortKey="amount"
-        defaultSortDirection="desc"
-      />,
-    );
+      // Click "Name" header → ascending.
+      fireEvent.click(screen.getByText("Name"));
+      expect(within(dataRows()[0]).getByText("Alpha")).toBeInTheDocument();
 
-    // Highest amount (30 → Charlie) first when sorted desc.
-    expect(within(dataRows()[0]).getByText("Charlie")).toBeInTheDocument();
-  });
+      // Click again → descending.
+      fireEvent.click(screen.getByText("Name"));
+      expect(within(dataRows()[0]).getByText("Charlie")).toBeInTheDocument();
+    });
 
-  // ── S29: pagination ─────────────────────────────────────────────────
-  it("paginates: shows pageSize rows and navigates next/prev", () => {
-    render(
-      <DataTable<Row>
-        columns={[NAME_COL, AMOUNT_COL]}
-        data={makeRows(25)}
-        renderRow={renderRow}
-        paginate
-        pageSize={20}
-        pageLabel="services"
-      />,
-    );
+    it("applies the initial sort from defaultSortKey/defaultSortDirection", () => {
+      const data: Row[] = [
+        { id: 1, name: "Charlie", amount: 30 },
+        { id: 2, name: "Alpha", amount: 10 },
+        { id: 3, name: "Bravo", amount: 20 },
+      ];
 
-    // First page: exactly 20 rows.
-    expect(dataRows()).toHaveLength(20);
-    expect(screen.getByText("Item 1")).toBeInTheDocument();
-    expect(screen.queryByText("Item 21")).not.toBeInTheDocument();
+      render(
+        <DataTable<Row>
+          columns={[NAME_COL, AMOUNT_COL]}
+          data={data}
+          renderRow={renderRow}
+          defaultSortKey="amount"
+          defaultSortDirection="desc"
+        />,
+      );
 
-    const next = screen.getByTestId("pagination-next");
-    const prev = screen.getByTestId("pagination-prev");
+      // Highest amount (30 → Charlie) first when sorted desc.
+      expect(within(dataRows()[0]).getByText("Charlie")).toBeInTheDocument();
+    });
 
-    // On the first page, prev is disabled and next is enabled.
-    expect(prev).toBeDisabled();
-    expect(next).toBeEnabled();
+    // ── S29: pagination ─────────────────────────────────────────────────
+    it("paginates: shows pageSize rows and navigates next/prev", () => {
+      render(
+        <DataTable<Row>
+          columns={[NAME_COL, AMOUNT_COL]}
+          data={makeRows(25)}
+          renderRow={renderRow}
+          paginate
+          pageSize={20}
+          pageLabel="services"
+        />,
+      );
 
-    // Go to page 2 → remaining 5 rows.
-    fireEvent.click(next);
-    expect(dataRows()).toHaveLength(5);
-    expect(screen.getByText("Item 21")).toBeInTheDocument();
-    expect(screen.queryByText("Item 1")).not.toBeInTheDocument();
+      // First page: exactly 20 rows.
+      expect(dataRows()).toHaveLength(20);
+      expect(screen.getByText("Item 1")).toBeInTheDocument();
+      expect(screen.queryByText("Item 21")).not.toBeInTheDocument();
 
-    // Now next is disabled (last page) and prev is enabled.
-    expect(next).toBeDisabled();
-    expect(prev).toBeEnabled();
+      const next = screen.getByTestId("pagination-next");
+      const prev = screen.getByTestId("pagination-prev");
 
-    // Go back to page 1.
-    fireEvent.click(prev);
-    expect(dataRows()).toHaveLength(20);
-    expect(screen.getByText("Item 1")).toBeInTheDocument();
-  });
+      // On the first page, prev is disabled and next is enabled.
+      expect(prev).toBeDisabled();
+      expect(next).toBeEnabled();
 
-  it("does not render pagination controls when data fits in one page", () => {
-    render(
-      <DataTable<Row>
-        columns={[NAME_COL]}
-        data={makeRows(5)}
-        renderRow={renderRow}
-        paginate
-        pageSize={20}
-      />,
-    );
+      // Go to page 2 → remaining 5 rows.
+      fireEvent.click(next);
+      expect(dataRows()).toHaveLength(5);
+      expect(screen.getByText("Item 21")).toBeInTheDocument();
+      expect(screen.queryByText("Item 1")).not.toBeInTheDocument();
 
-    expect(screen.queryByTestId("pagination-next")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("pagination-prev")).not.toBeInTheDocument();
-  });
+      // Now next is disabled (last page) and prev is enabled.
+      expect(next).toBeDisabled();
+      expect(prev).toBeEnabled();
 
-  // ── Select-all checkbox ─────────────────────────────────────────────
-  it("renders the select-all checkbox and reports onChange", () => {
-    const onChange = jest.fn();
-    render(
-      <DataTable<Row>
-        columns={[NAME_COL, AMOUNT_COL]}
-        data={makeRows(3)}
-        renderRow={renderRow}
-        selectAll={{ checked: false, indeterminate: false, onChange }}
-      />,
-    );
+      // Go back to page 1.
+      fireEvent.click(prev);
+      expect(dataRows()).toHaveLength(20);
+      expect(screen.getByText("Item 1")).toBeInTheDocument();
+    });
 
-    const checkbox = screen.getByTestId(
-      "select-all-checkbox",
-    ) as HTMLInputElement;
-    expect(checkbox).toBeInTheDocument();
-    expect(checkbox.checked).toBe(false);
+    it("does not render pagination controls when data fits in one page", () => {
+      render(
+        <DataTable<Row>
+          columns={[NAME_COL]}
+          data={makeRows(5)}
+          renderRow={renderRow}
+          paginate
+          pageSize={20}
+        />,
+      );
 
-    fireEvent.click(checkbox);
-    expect(onChange).toHaveBeenCalledTimes(1);
-    expect(onChange).toHaveBeenCalledWith(true);
-  });
+      expect(screen.queryByTestId("pagination-next")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("pagination-prev")).not.toBeInTheDocument();
+    });
 
-  it("reflects checked and indeterminate select-all state", () => {
-    const onChange = jest.fn();
-    const { rerender } = render(
-      <DataTable<Row>
-        columns={[NAME_COL]}
-        data={makeRows(3)}
-        renderRow={renderRow}
-        selectAll={{ checked: true, indeterminate: false, onChange }}
-      />,
-    );
+    // ── Select-all checkbox ─────────────────────────────────────────────
+    it("renders the select-all checkbox and reports onChange", () => {
+      const onChange = jest.fn();
+      render(
+        <DataTable<Row>
+          columns={[NAME_COL, AMOUNT_COL]}
+          data={makeRows(3)}
+          renderRow={renderRow}
+          selectAll={{ checked: false, indeterminate: false, onChange }}
+        />,
+      );
 
-    let checkbox = screen.getByTestId(
-      "select-all-checkbox",
-    ) as HTMLInputElement;
-    expect(checkbox.checked).toBe(true);
-    expect(checkbox.indeterminate).toBe(false);
+      const checkbox = screen.getByTestId(
+        "select-all-checkbox",
+      ) as HTMLInputElement;
+      expect(checkbox).toBeInTheDocument();
+      expect(checkbox.checked).toBe(false);
 
-    // Deselecting reports false.
-    fireEvent.click(checkbox);
-    expect(onChange).toHaveBeenLastCalledWith(false);
+      fireEvent.click(checkbox);
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(onChange).toHaveBeenCalledWith(true);
+    });
 
-    rerender(
-      <DataTable<Row>
-        columns={[NAME_COL]}
-        data={makeRows(3)}
-        renderRow={renderRow}
-        selectAll={{ checked: false, indeterminate: true, onChange }}
-      />,
-    );
+    it("reflects checked and indeterminate select-all state", () => {
+      const onChange = jest.fn();
+      const { rerender } = render(
+        <DataTable<Row>
+          columns={[NAME_COL]}
+          data={makeRows(3)}
+          renderRow={renderRow}
+          selectAll={{ checked: true, indeterminate: false, onChange }}
+        />,
+      );
 
-    checkbox = screen.getByTestId("select-all-checkbox") as HTMLInputElement;
-    expect(checkbox.indeterminate).toBe(true);
-  });
+      let checkbox = screen.getByTestId(
+        "select-all-checkbox",
+      ) as HTMLInputElement;
+      expect(checkbox.checked).toBe(true);
+      expect(checkbox.indeterminate).toBe(false);
 
-  // ── S30: shift+click multi-select ───────────────────────────────────
-  it("emits a contiguous range on shift+click after a plain click anchor", () => {
-    const onShiftSelect = jest.fn();
-    const onAnchorReset = jest.fn();
+      // Deselecting reports false.
+      fireEvent.click(checkbox);
+      expect(onChange).toHaveBeenLastCalledWith(false);
 
-    render(
-      <DataTable<Row>
-        columns={[NAME_COL, AMOUNT_COL]}
-        data={makeRows(4)}
-        renderRow={renderRow}
-        onShiftSelect={onShiftSelect}
-        onAnchorReset={onAnchorReset}
-      />,
-    );
+      rerender(
+        <DataTable<Row>
+          columns={[NAME_COL]}
+          data={makeRows(3)}
+          renderRow={renderRow}
+          selectAll={{ checked: false, indeterminate: true, onChange }}
+        />,
+      );
 
-    const rows = dataRows();
+      checkbox = screen.getByTestId("select-all-checkbox") as HTMLInputElement;
+      expect(checkbox.indeterminate).toBe(true);
+    });
 
-    // Plain click on row index 1 sets the anchor (no range yet).
-    fireEvent.click(rows[1]);
-    expect(onAnchorReset).toHaveBeenCalledTimes(1);
-    expect(onShiftSelect).not.toHaveBeenCalled();
+    // ── S30: shift+click multi-select ───────────────────────────────────
+    it("emits a contiguous range on shift+click after a plain click anchor", () => {
+      const onShiftSelect = jest.fn();
+      const onAnchorReset = jest.fn();
 
-    // Shift+click on row index 3 → range [1, 3].
-    fireEvent.click(rows[3], { shiftKey: true });
-    expect(onShiftSelect).toHaveBeenCalledTimes(1);
-    expect(onShiftSelect).toHaveBeenCalledWith(1, 3);
-  });
+      render(
+        <DataTable<Row>
+          columns={[NAME_COL, AMOUNT_COL]}
+          data={makeRows(4)}
+          renderRow={renderRow}
+          onShiftSelect={onShiftSelect}
+          onAnchorReset={onAnchorReset}
+        />,
+      );
 
-  it("normalizes the shift+click range when clicking upward", () => {
-    const onShiftSelect = jest.fn();
+      const rows = dataRows();
 
-    render(
-      <DataTable<Row>
-        columns={[NAME_COL]}
-        data={makeRows(4)}
-        renderRow={renderRow}
-        onShiftSelect={onShiftSelect}
-      />,
-    );
+      // Plain click on row index 1 sets the anchor (no range yet).
+      fireEvent.click(rows[1]);
+      expect(onAnchorReset).toHaveBeenCalledTimes(1);
+      expect(onShiftSelect).not.toHaveBeenCalled();
 
-    const rows = dataRows();
-    fireEvent.click(rows[2]); // anchor at 2
-    fireEvent.click(rows[0], { shiftKey: true }); // up to 0 → [0, 2]
+      // Shift+click on row index 3 → range [1, 3].
+      fireEvent.click(rows[3], { shiftKey: true });
+      expect(onShiftSelect).toHaveBeenCalledTimes(1);
+      expect(onShiftSelect).toHaveBeenCalledWith(1, 3);
+    });
 
-    expect(onShiftSelect).toHaveBeenCalledWith(0, 2);
-  });
+    it("normalizes the shift+click range when clicking upward", () => {
+      const onShiftSelect = jest.fn();
 
-  // ── onVisibleRowsChange callback ────────────────────────────────────
-  it("notifies onVisibleRowsChange with items in display order", () => {
-    const onVisibleRowsChange = jest.fn<void, [Row[]]>();
-    const data: Row[] = [
-      { id: 1, name: "Charlie", amount: 30 },
-      { id: 2, name: "Alpha", amount: 10 },
-    ];
+      render(
+        <DataTable<Row>
+          columns={[NAME_COL]}
+          data={makeRows(4)}
+          renderRow={renderRow}
+          onShiftSelect={onShiftSelect}
+        />,
+      );
 
-    render(
-      <DataTable<Row>
-        columns={[NAME_COL]}
-        data={data}
-        renderRow={renderRow}
-        onVisibleRowsChange={onVisibleRowsChange}
-        defaultSortKey="name"
-        defaultSortDirection="asc"
-      />,
-    );
+      const rows = dataRows();
+      fireEvent.click(rows[2]); // anchor at 2
+      fireEvent.click(rows[0], { shiftKey: true }); // up to 0 → [0, 2]
 
-    expect(onVisibleRowsChange).toHaveBeenCalled();
-    const lastArg = onVisibleRowsChange.mock.calls.at(-1)?.[0] ?? [];
-    expect(lastArg.map((r) => r.name)).toEqual(["Alpha", "Charlie"]);
-  });
+      expect(onShiftSelect).toHaveBeenCalledWith(0, 2);
+    });
 
-  // ── S31 / S32: export buttons ───────────────────────────────────────
-  it("shows export buttons and triggers Excel/PDF export on click", () => {
-    render(
-      <DataTable<Row>
-        columns={[NAME_COL, AMOUNT_COL]}
-        data={makeRows(2)}
-        renderRow={renderRow}
-        exportExcel
-        exportPdf
-        exportFilename="expenses"
-      />,
-    );
+    // ── onVisibleRowsChange callback ────────────────────────────────────
+    it("notifies onVisibleRowsChange with items in display order", () => {
+      const onVisibleRowsChange = jest.fn<void, [Row[]]>();
+      const data: Row[] = [
+        { id: 1, name: "Charlie", amount: 30 },
+        { id: 2, name: "Alpha", amount: 10 },
+      ];
 
-    const excelBtn = screen.getByTestId("export-excel-btn");
-    const pdfBtn = screen.getByTestId("export-pdf-btn");
+      render(
+        <DataTable<Row>
+          columns={[NAME_COL]}
+          data={data}
+          renderRow={renderRow}
+          onVisibleRowsChange={onVisibleRowsChange}
+          defaultSortKey="name"
+          defaultSortDirection="asc"
+        />,
+      );
 
-    // The production ExportBar suffixes the filename with the local day as
-    // DD-MM-YYYY (e.g. "expenses-08-10-2026").
-    const datedFilename = expect.stringMatching(/^expenses-\d{2}-\d{2}-\d{4}$/);
+      expect(onVisibleRowsChange).toHaveBeenCalled();
+      const lastArg = onVisibleRowsChange.mock.calls.at(-1)?.[0] ?? [];
+      expect(lastArg.map((r) => r.name)).toEqual(["Alpha", "Charlie"]);
+    });
 
-    fireEvent.click(excelBtn);
-    expect(exportToExcel).toHaveBeenCalledTimes(1);
-    expect(exportToExcel).toHaveBeenCalledWith(
-      expect.anything(),
-      datedFilename,
-    );
+    // ── S31 / S32: export buttons ───────────────────────────────────────
+    it("shows export buttons and triggers Excel/PDF export on click", () => {
+      render(
+        <DataTable<Row>
+          columns={[NAME_COL, AMOUNT_COL]}
+          data={makeRows(2)}
+          renderRow={renderRow}
+          exportExcel
+          exportPdf
+          exportFilename="expenses"
+        />,
+      );
 
-    fireEvent.click(pdfBtn);
-    expect(exportToPdf).toHaveBeenCalledTimes(1);
-    expect(exportToPdf).toHaveBeenCalledWith(expect.anything(), datedFilename);
-  });
+      const excelBtn = screen.getByTestId("export-excel-btn");
+      const pdfBtn = screen.getByTestId("export-pdf-btn");
 
-  it("hides the export bar when there are no rows to export", () => {
-    render(
-      <DataTable<Row>
-        columns={[NAME_COL]}
-        data={[]}
-        renderRow={renderRow}
-        exportExcel
-        exportPdf
-      />,
-    );
+      // The production ExportBar suffixes the filename with the local day as
+      // DD-MM-YYYY (e.g. "expenses-08-10-2026").
+      const datedFilename = expect.stringMatching(
+        /^expenses-\d{2}-\d{2}-\d{4}$/,
+      );
 
-    expect(screen.queryByTestId("export-excel-btn")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("export-pdf-btn")).not.toBeInTheDocument();
-  });
+      fireEvent.click(excelBtn);
+      expect(exportToExcel).toHaveBeenCalledTimes(1);
+      expect(exportToExcel).toHaveBeenCalledWith(
+        expect.anything(),
+        datedFilename,
+      );
 
-  it("renders headerActions and footerContent", () => {
-    render(
-      <DataTable<Row>
-        columns={[NAME_COL]}
-        data={makeRows(2)}
-        renderRow={renderRow}
-        headerActions={<button data-testid="batch-action">Batch</button>}
-        footerContent={
-          <tr data-testid="totals-row">
-            <td>Total</td>
-          </tr>
-        }
-      />,
-    );
+      fireEvent.click(pdfBtn);
+      expect(exportToPdf).toHaveBeenCalledTimes(1);
+      expect(exportToPdf).toHaveBeenCalledWith(
+        expect.anything(),
+        datedFilename,
+      );
+    });
 
-    expect(screen.getByTestId("batch-action")).toBeInTheDocument();
-    expect(screen.getByTestId("totals-row")).toBeInTheDocument();
+    it("hides the export bar when there are no rows to export", () => {
+      render(
+        <DataTable<Row>
+          columns={[NAME_COL]}
+          data={[]}
+          renderRow={renderRow}
+          exportExcel
+          exportPdf
+        />,
+      );
+
+      expect(screen.queryByTestId("export-excel-btn")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("export-pdf-btn")).not.toBeInTheDocument();
+    });
+
+    it("renders headerActions and footerContent", () => {
+      render(
+        <DataTable<Row>
+          columns={[NAME_COL]}
+          data={makeRows(2)}
+          renderRow={renderRow}
+          headerActions={<button data-testid="batch-action">Batch</button>}
+          footerContent={
+            <tr data-testid="totals-row">
+              <td>Total</td>
+            </tr>
+          }
+        />,
+      );
+
+      expect(screen.getByTestId("batch-action")).toBeInTheDocument();
+      expect(screen.getByTestId("totals-row")).toBeInTheDocument();
+    });
   });
 });

@@ -1,0 +1,426 @@
+/**
+ * UsersManager — 2 per-ticket test files merged into one suite
+ * (2026-11-11, owner decision: one module boot instead of 2).
+ *
+ * Each former file is one describe block below, named after it; its own
+ * header comment (including its rule-17 failing-first history) is kept at the
+ * top of its block, and its test bodies are unchanged. Every former file
+ * declared exactly the same jest.mock set and shared mock setup, which is
+ * kept once at the top. Each block starts with resetBetweenFiles(), which
+ * puts the shared mocks back to how a fresh file would see them, so no block
+ * depends on state left by the block above it.
+ */
+
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import { appEvents } from "@liratek/ui";
+import UsersManager from "../UsersManager";
+import { signinMethodLabel } from "@liratek/core";
+
+const getUsers = jest.fn();
+
+const mockApi = {
+  getUsers,
+  createUser: jest.fn(),
+  setUserActive: jest.fn(),
+  setUserRole: jest.fn(),
+  setUserPassword: jest.fn(),
+};
+
+jest.mock("@liratek/ui", () => ({
+  ...jest.requireActual("@liratek/ui"),
+  useApi: () => mockApi,
+}));
+
+let desktop = false;
+
+const listUserEmails = jest.fn();
+
+const listUserInvitations = jest.fn();
+
+const adminRemoveUserGoogle = jest.fn();
+
+jest.mock("@/api/backendApi", () => ({
+  isElectron: () => desktop,
+  listUserEmails: (...a: unknown[]) => listUserEmails(...a),
+  listUserInvitations: (...a: unknown[]) => listUserInvitations(...a),
+  adminRemoveUserGoogle: (...a: unknown[]) => adminRemoveUserGoogle(...a),
+  setUserEmail: jest.fn(),
+  sendUserEmailVerification: jest.fn(),
+  createUserInvitation: jest.fn(),
+  revokeUserInvitation: jest.fn(),
+  resendUserInvitation: jest.fn(),
+  sendPasswordReset: jest.fn(),
+}));
+
+function resetBetweenFiles() {
+  jest.clearAllMocks();
+  (getUsers as unknown as jest.Mock).mockReset();
+  (mockApi.createUser as unknown as jest.Mock).mockReset();
+  (mockApi.setUserActive as unknown as jest.Mock).mockReset();
+  (mockApi.setUserRole as unknown as jest.Mock).mockReset();
+  (mockApi.setUserPassword as unknown as jest.Mock).mockReset();
+  desktop = false;
+  (listUserEmails as unknown as jest.Mock).mockReset();
+  (listUserInvitations as unknown as jest.Mock).mockReset();
+  (adminRemoveUserGoogle as unknown as jest.Mock).mockReset();
+  localStorage.clear();
+  sessionStorage.clear();
+  jest.useRealTimers();
+}
+
+describe("UsersManager.google (LIRA-288)", () => {
+  beforeAll(resetBetweenFiles);
+
+  /**
+   * Settings -> Users, web app: Google sign-in per member (LIRA-288).
+   *
+   *   - each user shows whether Google is connected, with the Google email,
+   *     or "—" when not;
+   *   - the admin can disconnect it, only after confirming; the list reloads
+   *     and a toast says so; a refusal shows the server's reason;
+   *   - cancelling the confirm changes nothing;
+   *   - on DESKTOP the column does not exist and nothing web-only is called.
+   *
+   * Mocks are stable references (rule 25).
+   */
+
+  const USERS = [
+    { id: 11, username: "google_gina", role: "staff", is_active: 1 },
+    { id: 12, username: "plain_pete", role: "staff", is_active: 1 },
+  ];
+  const EMAILS = [
+    {
+      id: 11,
+      email: "gina@shop.test",
+      emailVerifiedAt: "2026-10-02T00:00:00.000Z",
+      google: { email: "gina@gmail.com" },
+    },
+    { id: 12, email: null, emailVerifiedAt: null, google: null },
+  ];
+
+  let stopCapture: () => void = () => {};
+  function captureNotifications(): { message: string; type: string }[] {
+    const events: { message: string; type: string }[] = [];
+    stopCapture = appEvents.on("notification:show", (message, type) =>
+      events.push({ message, type }),
+    );
+    return events;
+  }
+
+  function rowFor(username: string): HTMLElement {
+    return screen.getByText(username).closest("tr") as HTMLElement;
+  }
+
+  beforeEach(() => {
+    desktop = false;
+    for (const fn of [
+      getUsers,
+      listUserEmails,
+      listUserInvitations,
+      adminRemoveUserGoogle,
+    ]) {
+      fn.mockReset();
+    }
+    getUsers.mockResolvedValue(USERS);
+    listUserEmails.mockResolvedValue(EMAILS);
+    listUserInvitations.mockResolvedValue({
+      emailConfigured: true,
+      invitations: [],
+    });
+  });
+
+  afterEach(() => stopCapture());
+
+  describe("UsersManager — Google (web)", () => {
+    it("shows the connected Google email, or — when not connected", async () => {
+      render(<UsersManager />);
+      expect(await screen.findByText("gina@gmail.com")).toBeInTheDocument();
+      expect(
+        screen.getByRole("columnheader", { name: "Google" }),
+      ).toBeInTheDocument();
+      expect(
+        within(rowFor("plain_pete")).getByTestId("user-google-12"),
+      ).toHaveTextContent("—");
+      expect(
+        within(rowFor("plain_pete")).queryByText("Disconnect Google"),
+      ).toBeNull();
+    });
+
+    it("disconnects only after confirming, then reloads and says so", async () => {
+      adminRemoveUserGoogle.mockResolvedValue({
+        success: true,
+        data: {
+          user: {
+            id: 11,
+            email: "gina@shop.test",
+            emailVerifiedAt: "2026-10-02T00:00:00.000Z",
+            google: null,
+          },
+        },
+      });
+      const notifications = captureNotifications();
+      render(<UsersManager />);
+      await screen.findByText("gina@gmail.com");
+
+      fireEvent.click(
+        within(rowFor("google_gina")).getByText("Disconnect Google"),
+      );
+      expect(adminRemoveUserGoogle).not.toHaveBeenCalled();
+      expect(screen.getByTestId("confirm-modal")).toHaveTextContent(
+        "google_gina",
+      );
+      fireEvent.click(screen.getByTestId("confirm-modal-confirm-btn"));
+
+      await waitFor(() =>
+        expect(adminRemoveUserGoogle).toHaveBeenCalledWith(11),
+      );
+      await waitFor(() => expect(listUserEmails).toHaveBeenCalledTimes(2));
+      expect(
+        notifications.some(
+          (n) => n.type === "success" && /google/i.test(n.message),
+        ),
+      ).toBe(true);
+    });
+
+    it("cancelling the confirm changes nothing", async () => {
+      render(<UsersManager />);
+      await screen.findByText("gina@gmail.com");
+      fireEvent.click(
+        within(rowFor("google_gina")).getByText("Disconnect Google"),
+      );
+      fireEvent.click(screen.getByTestId("confirm-modal-cancel-btn"));
+      expect(screen.queryByTestId("confirm-modal")).toBeNull();
+      expect(adminRemoveUserGoogle).not.toHaveBeenCalled();
+    });
+
+    it("a refusal shows the server's reason", async () => {
+      adminRemoveUserGoogle.mockResolvedValue({
+        success: false,
+        error: { code: "NOT_FOUND", message: "User not found" },
+      });
+      const notifications = captureNotifications();
+      render(<UsersManager />);
+      await screen.findByText("gina@gmail.com");
+      fireEvent.click(
+        within(rowFor("google_gina")).getByText("Disconnect Google"),
+      );
+      fireEvent.click(screen.getByTestId("confirm-modal-confirm-btn"));
+      await waitFor(() =>
+        expect(
+          notifications.some(
+            (n) => n.type === "error" && n.message === "User not found",
+          ),
+        ).toBe(true),
+      );
+    });
+
+    it("desktop: no Google column, nothing web-only is called", async () => {
+      desktop = true;
+      render(<UsersManager />);
+      expect(await screen.findByText("google_gina")).toBeInTheDocument();
+      expect(screen.queryByRole("columnheader", { name: "Google" })).toBeNull();
+      expect(listUserEmails).not.toHaveBeenCalled();
+      expect(adminRemoveUserGoogle).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe("UsersManager.signinMethods (LIRA-291)", () => {
+  beforeAll(resetBetweenFiles);
+
+  /**
+   * Settings -> Users, web app: sign-in methods (LIRA-291).
+   *
+   *   - a "Sign-in" column shows Password, Google or Password + Google, in the
+   *     core wording (`signinMethodLabel`);
+   *   - the Disconnect Google confirm warns when the member has no password:
+   *     "we'll email them a link", or — no confirmed email / email off —
+   *     "won't be able to sign in until a password is set";
+   *   - after confirming, a message reports whether the link was emailed.
+   *
+   * Mocks are stable references (rule 25).
+   */
+
+  const USERS_291 = [
+    { id: 11, username: "google_gina", role: "staff", is_active: 1 },
+    { id: 12, username: "plain_pete", role: "staff", is_active: 1 },
+    { id: 13, username: "both_bo", role: "staff", is_active: 1 },
+    { id: 14, username: "noemail_nia", role: "staff", is_active: 1 },
+  ];
+  const V = "2026-10-02T00:00:00.000Z";
+  const EMAILS = [
+    {
+      id: 11,
+      email: "gina@gmail.com",
+      emailVerifiedAt: V,
+      google: { email: "gina@gmail.com" },
+      hasPassword: false,
+    },
+    {
+      id: 12,
+      email: null,
+      emailVerifiedAt: null,
+      google: null,
+      hasPassword: true,
+    },
+    {
+      id: 13,
+      email: "bo@gmail.com",
+      emailVerifiedAt: V,
+      google: { email: "bo@gmail.com" },
+      hasPassword: true,
+    },
+    {
+      id: 14,
+      email: null,
+      emailVerifiedAt: null,
+      google: { email: "nia@gmail.com" },
+      hasPassword: false,
+    },
+  ];
+
+  let stopCapture: () => void = () => {};
+  function captureNotifications(): { message: string; type: string }[] {
+    const events: { message: string; type: string }[] = [];
+    stopCapture = appEvents.on("notification:show", (message, type) =>
+      events.push({ message, type }),
+    );
+    return events;
+  }
+
+  function rowFor(username: string): HTMLElement {
+    return screen.getByText(username).closest("tr") as HTMLElement;
+  }
+
+  beforeEach(() => {
+    desktop = false;
+    for (const fn of [
+      getUsers,
+      listUserEmails,
+      listUserInvitations,
+      adminRemoveUserGoogle,
+    ]) {
+      fn.mockReset();
+    }
+    getUsers.mockResolvedValue(USERS_291);
+    listUserEmails.mockResolvedValue(EMAILS);
+    listUserInvitations.mockResolvedValue({
+      emailConfigured: true,
+      invitations: [],
+    });
+  });
+
+  afterEach(() => stopCapture());
+
+  describe("UsersManager — sign-in methods (LIRA-291)", () => {
+    it("shows each user's sign-in methods in the core wording", async () => {
+      render(<UsersManager />);
+      expect(
+        await screen.findByRole("columnheader", { name: "Sign-in" }),
+      ).toBeInTheDocument();
+      await waitFor(() =>
+        expect(screen.getByTestId("user-signin-11")).toHaveTextContent(
+          signinMethodLabel({ hasPassword: false, google: true }),
+        ),
+      );
+      expect(screen.getByTestId("user-signin-12")).toHaveTextContent(
+        signinMethodLabel({ hasPassword: true, google: false }),
+      );
+      expect(screen.getByTestId("user-signin-13")).toHaveTextContent(
+        signinMethodLabel({ hasPassword: true, google: true }),
+      );
+    });
+
+    it("no password + confirmed email: the confirm says a link will be emailed; after it, the result is reported", async () => {
+      adminRemoveUserGoogle.mockResolvedValue({
+        success: true,
+        data: {
+          user: { ...EMAILS[0], google: null },
+          passwordLink: "sent",
+        },
+      });
+      const notifications = captureNotifications();
+      render(<UsersManager />);
+      await screen.findByText("google_gina");
+      await waitFor(() => expect(listUserEmails).toHaveBeenCalled());
+      fireEvent.click(
+        await within(rowFor("google_gina")).findByText("Disconnect Google"),
+      );
+      expect(screen.getByTestId("confirm-modal")).toHaveTextContent(
+        "google_gina has no password. We'll email them a link to set one.",
+      );
+      fireEvent.click(screen.getByTestId("confirm-modal-confirm-btn"));
+      await waitFor(() =>
+        expect(
+          notifications.some(
+            (n) =>
+              n.type === "success" &&
+              /link to set a password was emailed/i.test(n.message),
+          ),
+        ).toBe(true),
+      );
+    });
+
+    it("no password + no confirmed email: the confirm says they can't sign in until a password is set; a not-sent result is reported", async () => {
+      adminRemoveUserGoogle.mockResolvedValue({
+        success: true,
+        data: {
+          user: { ...EMAILS[3], google: null },
+          passwordLink: "not_sent",
+          passwordLinkCode: "USER_HAS_NO_EMAIL",
+        },
+      });
+      const notifications = captureNotifications();
+      render(<UsersManager />);
+      await screen.findByText("noemail_nia");
+      await waitFor(() => expect(listUserEmails).toHaveBeenCalled());
+      fireEvent.click(
+        await within(rowFor("noemail_nia")).findByText("Disconnect Google"),
+      );
+      expect(screen.getByTestId("confirm-modal")).toHaveTextContent(
+        "noemail_nia won't be able to sign in until a password is set. You can set one here with Set Password.",
+      );
+      fireEvent.click(screen.getByTestId("confirm-modal-confirm-btn"));
+      await waitFor(() =>
+        expect(
+          notifications.some(
+            (n) => n.type === "error" && /set password/i.test(n.message),
+          ),
+        ).toBe(true),
+      );
+    });
+
+    it("no password, email OFF on the server: the 'won't be able to sign in' warning even with a confirmed email", async () => {
+      listUserInvitations.mockResolvedValue({
+        emailConfigured: false,
+        invitations: [],
+      });
+      render(<UsersManager />);
+      await screen.findByText("google_gina");
+      await waitFor(() => expect(listUserInvitations).toHaveBeenCalled());
+      fireEvent.click(
+        await within(rowFor("google_gina")).findByText("Disconnect Google"),
+      );
+      expect(screen.getByTestId("confirm-modal")).toHaveTextContent(
+        "google_gina won't be able to sign in until a password is set.",
+      );
+    });
+
+    it("a user WITH a password: no extra warning", async () => {
+      render(<UsersManager />);
+      await screen.findByText("both_bo");
+      fireEvent.click(
+        await within(rowFor("both_bo")).findByText("Disconnect Google"),
+      );
+      const text = screen.getByTestId("confirm-modal").textContent ?? "";
+      expect(text).not.toMatch(/no password/);
+      expect(text).not.toMatch(/until a password is set/);
+    });
+  });
+});

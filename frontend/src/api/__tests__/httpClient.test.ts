@@ -1,3 +1,16 @@
+/**
+ * httpClient — 2 per-ticket test files merged into one suite
+ * (2026-11-11, owner decision: one module boot instead of 2).
+ *
+ * Each former file is one describe block below, named after it; its own
+ * header comment (including its rule-17 failing-first history) is kept at the
+ * top of its block, and its test bodies are unchanged. Every former file
+ * declared exactly the same jest.mock set and shared mock setup, which is
+ * kept once at the top. Each block starts with resetBetweenFiles(), which
+ * puts the shared mocks back to how a fresh file would see them, so no block
+ * depends on state left by the block above it.
+ */
+
 import {
   getToken,
   setToken,
@@ -11,81 +24,438 @@ import {
   getImpersonationUsername,
   setImpersonationUsername,
   clearImpersonationSession,
+  requestJson,
+  requestFile,
+  UNAUTHORIZED_EVENT,
+  SESSION_CHANGED_EVENT,
+  type ApiError,
 } from "../httpClient";
 
-describe("httpClient token precedence", () => {
-  beforeEach(() => {
-    localStorage.clear();
-    sessionStorage.clear();
+function resetBetweenFiles() {
+  jest.clearAllMocks();
+  localStorage.clear();
+  sessionStorage.clear();
+  jest.useRealTimers();
+}
+
+describe("httpClient", () => {
+  beforeAll(resetBetweenFiles);
+
+  describe("httpClient token precedence", () => {
+    beforeEach(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+
+    it("getToken() returns the localStorage JWT when there is no impersonation session", () => {
+      setToken("normal-login-token");
+      expect(getToken()).toBe("normal-login-token");
+    });
+
+    it("getToken() returns null when neither storage has a token", () => {
+      expect(getToken()).toBeNull();
+    });
+
+    it("getToken() prefers the impersonation sessionStorage token over the localStorage JWT", () => {
+      setToken("super-admins-own-token");
+      setImpersonationToken("impersonation-token");
+
+      expect(getToken()).toBe("impersonation-token");
+      // The super admin's own (localStorage) token must be untouched.
+      expect(localStorage.getItem("liratek.jwt")).toBe(
+        "super-admins-own-token",
+      );
+    });
+
+    it("clearToken() removes only the localStorage JWT, not an active impersonation token", () => {
+      setToken("normal-login-token");
+      setImpersonationToken("impersonation-token");
+
+      clearToken();
+
+      expect(localStorage.getItem("liratek.jwt")).toBeNull();
+      expect(getImpersonationToken()).toBe("impersonation-token");
+      // Precedence still holds: with the JWT cleared, getToken() now falls
+      // through to... the (still active) impersonation token.
+      expect(getToken()).toBe("impersonation-token");
+    });
+
+    it("clearImpersonationToken() removes only the impersonation token, restoring the localStorage JWT via getToken()", () => {
+      setToken("normal-login-token");
+      setImpersonationToken("impersonation-token");
+
+      clearImpersonationToken();
+
+      expect(getImpersonationToken()).toBeNull();
+      expect(getToken()).toBe("normal-login-token");
+    });
+
+    it("isImpersonationActive() reflects whether the impersonation token is set", () => {
+      expect(isImpersonationActive()).toBe(false);
+      setImpersonationToken("tok");
+      expect(isImpersonationActive()).toBe(true);
+      clearImpersonationToken();
+      expect(isImpersonationActive()).toBe(false);
+    });
+
+    it("clearImpersonationSession() clears the token, tenant name, and username together", () => {
+      setImpersonationToken("tok");
+      setImpersonationTenantName("Acme Retail");
+      setImpersonationUsername("acme-admin");
+
+      clearImpersonationSession();
+
+      expect(getImpersonationToken()).toBeNull();
+      expect(getImpersonationTenantName()).toBeNull();
+      expect(getImpersonationUsername()).toBeNull();
+    });
+
+    it("clearImpersonationSession() does not touch the localStorage JWT", () => {
+      setToken("super-admins-own-token");
+      setImpersonationToken("impersonation-token");
+
+      clearImpersonationSession();
+
+      expect(localStorage.getItem("liratek.jwt")).toBe(
+        "super-admins-own-token",
+      );
+    });
+  });
+});
+
+describe("httpClient.unauthorized", () => {
+  beforeAll(resetBetweenFiles);
+
+  /**
+   * A rejected session must END the session.
+   *
+   * The bug: after the server stopped accepting a token, the app kept its `user`
+   * state, rendered a full dashboard, and 401'd on every request forever. The
+   * login screen was never shown. Reproduced for real when the Reset Data feature
+   * wiped `sessions` — the token's row was gone and the UI carried on regardless.
+   *
+   * `requestJson` now discards the token and fires UNAUTHORIZED_EVENT so
+   * AuthContext can sign out locally. The three guards below are what stop that
+   * from misfiring, and each is a separate test because each has its own way of
+   * going wrong.
+   */
+
+  type Reply = { status: number; body?: unknown };
+
+  /**
+   * Answer one response per call, in order (the last one repeats). Also records
+   * the Authorization header of every call, so a test can prove WHICH token a
+   * request — or its retry — actually went out with.
+   */
+  function mockFetchSequence(...replies: Reply[]) {
+    const sent: Array<string | null> = [];
+    const fn = jest.fn(
+      async (_url: string, init?: { headers?: Record<string, string> }) => {
+        sent.push(init?.headers?.Authorization ?? null);
+        const r = replies[Math.min(sent.length - 1, replies.length - 1)];
+        return {
+          ok: r.status >= 200 && r.status < 300,
+          status: r.status,
+          headers: { get: () => null },
+          text: async () => JSON.stringify(r.body ?? {}),
+        };
+      },
+    );
+    (globalThis as unknown as { fetch: unknown }).fetch = fn;
+    return { fn, sent };
+  }
+
+  function mockFetch(status: number, body: unknown = {}) {
+    return mockFetchSequence({ status, body }).fn;
+  }
+
+  describe("requestJson — 401 handling", () => {
+    let fired: number;
+    let changed: number;
+    let onUnauthorized: () => void;
+    let onChanged: () => void;
+
+    beforeEach(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+      fired = 0;
+      changed = 0;
+      onUnauthorized = () => {
+        fired += 1;
+      };
+      onChanged = () => {
+        changed += 1;
+      };
+      window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+      window.addEventListener(SESSION_CHANGED_EVENT, onChanged);
+    });
+
+    afterEach(() => {
+      window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+      window.removeEventListener(SESSION_CHANGED_EVENT, onChanged);
+    });
+
+    it("discards the token and announces the end of the session", async () => {
+      setToken("dead-token");
+      mockFetch(401, { error: "Invalid or expired session" });
+
+      await expect(requestJson("/api/settings")).rejects.toMatchObject({
+        status: 401,
+      });
+
+      // Both halves matter: leaving the token would keep re-sending a credential
+      // the server has refused, and not announcing it would leave the UI
+      // believing it is signed in — which is exactly what happened.
+      expect(getToken()).toBeNull();
+      expect(fired).toBe(1);
+    });
+
+    it("does NOT fire for the login request — a 401 there is a wrong password", async () => {
+      mockFetch(401, {
+        error: {
+          code: "INVALID_CREDENTIALS",
+          message: "Invalid username or password",
+        },
+      });
+
+      await expect(
+        requestJson("/api/auth/login", { method: "POST", auth: false }),
+      ).rejects.toMatchObject({ status: 401 });
+
+      // Signing the user out of a session they never had would turn "wrong
+      // password" into an unexplained bounce to the login screen.
+      expect(fired).toBe(0);
+    });
+
+    it("does NOT fire when no credential was sent", async () => {
+      // No token stored: this 401 says nothing about OUR session, and reacting to
+      // it would loop — every anonymous request would re-announce a logout.
+      mockFetch(401, { error: "No token provided" });
+
+      await expect(requestJson("/api/settings")).rejects.toMatchObject({
+        status: 401,
+      });
+
+      expect(fired).toBe(0);
+    });
+
+    it("a LATE 401 from an old session must not kill a newer login", async () => {
+      // The regression this guards, seen live: a page holding a dead token fires
+      // a dozen dashboard requests, the user signs in while they are in flight,
+      // and then those 401s land. Without the identity check they wiped the
+      // brand-new token — log in, reach the dashboard, bounced straight back out
+      // with "Session expired".
+      setToken("stale-token");
+
+      let resolveFetch: (v: unknown) => void = () => {};
+      (globalThis as unknown as { fetch: unknown }).fetch = jest.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveFetch = resolve;
+          }),
+      );
+
+      const inFlight = requestJson("/api/settings").catch(() => "rejected");
+
+      // The user logs in again while that request is still open.
+      setToken("fresh-token");
+
+      // Only now does the old request come back 401.
+      resolveFetch({
+        ok: false,
+        status: 401,
+        headers: { get: () => null },
+        text: async () => JSON.stringify({ error: "Session expired" }),
+      });
+      await inFlight;
+
+      expect(getToken()).toBe("fresh-token");
+      expect(fired).toBe(0);
+    });
+
+    it("a dead IMPERSONATION token falls through to the login beneath it — silently", async () => {
+      // The owner's exact report: a "Connect as admin" URL replayed out of
+      // browser history planted a long-dead impersonation token. getToken()
+      // prefers it, so every request went out with the dead credential, 401'd,
+      // and the user was thrown to the login screen — while holding a login the
+      // server would have accepted the whole time.
+      //
+      // Now: clear the dead layer, retry THIS request with the real login, and
+      // tell AuthContext the identity may have changed. No logout, no bounce.
+      setToken("real-login");
+      setImpersonationToken("dead-impersonation");
+      expect(getToken()).toBe("dead-impersonation");
+
+      const { sent } = mockFetchSequence(
+        { status: 401, body: { error: "Invalid token" } },
+        { status: 200, body: { ok: true } },
+      );
+
+      await expect(requestJson("/api/settings")).resolves.toEqual({ ok: true });
+
+      // Exactly two attempts: the dead one, then the real one.
+      expect(sent).toEqual(["Bearer dead-impersonation", "Bearer real-login"]);
+      expect(getImpersonationToken()).toBeNull();
+      expect(getToken()).toBe("real-login");
+      // The session did NOT end — that would have bounced the user for nothing.
+      expect(fired).toBe(0);
+      // But whoever we are now may differ from whoever we were impersonating.
+      expect(changed).toBe(1);
+    });
+
+    it("a dead IMPERSONATION token with NO login beneath it ends the session", async () => {
+      // The super admin's own tab never signed in on this origin: sessionStorage
+      // is all there was. Nothing to fall back to, so this IS a logout.
+      setImpersonationToken("dead-impersonation");
+
+      const { sent } = mockFetchSequence({
+        status: 401,
+        body: { error: "Session expired" },
+      });
+
+      await expect(requestJson("/api/settings")).rejects.toMatchObject({
+        status: 401,
+      });
+
+      expect(sent).toEqual(["Bearer dead-impersonation"]); // no retry with nothing
+      expect(getImpersonationToken()).toBeNull();
+      expect(fired).toBe(1);
+      expect(changed).toBe(0);
+    });
+
+    it("retries at most ONCE — a login that is also dead is not retried forever", async () => {
+      setToken("also-dead-login");
+      setImpersonationToken("dead-impersonation");
+
+      const { sent } = mockFetchSequence({
+        status: 401,
+        body: { error: "Session expired" },
+      });
+
+      await expect(requestJson("/api/settings")).rejects.toMatchObject({
+        status: 401,
+      });
+
+      // Dead impersonation -> retry with login -> login dead too -> stop.
+      expect(sent).toEqual([
+        "Bearer dead-impersonation",
+        "Bearer also-dead-login",
+      ]);
+      expect(getImpersonationToken()).toBeNull();
+      expect(getToken()).toBeNull();
+      expect(changed).toBe(1);
+      expect(fired).toBe(1);
+    });
+
+    it("leaves other failures alone — a 403 or 500 is not a dead session", async () => {
+      setToken("good-token");
+      mockFetch(403, { error: "Forbidden" });
+
+      await expect(requestJson("/api/admin/tenants")).rejects.toMatchObject({
+        status: 403,
+      });
+
+      // A staff user hitting an admin-only route must not be logged out.
+      expect(getToken()).toBe("good-token");
+      expect(fired).toBe(0);
+    });
+
+    it("a 503 (could not check the session) leaves the session alone", async () => {
+      // Session-resilience plan Part 1: the backend now tells "session is
+      // genuinely invalid" (401) apart from "couldn't check — e.g. the DB
+      // threw" (503). The `!res.ok` branch above only acts when
+      // `res.status === 401`, so a 503 already falls through to a plain
+      // rejection today — but nothing pins that on purpose, and a future edit
+      // to the 401 condition could quietly start logging people out on a
+      // database blip. This test is that pin: token kept, no logout event,
+      // the caller still sees the failure.
+      setToken("good-token");
+      mockFetch(503, { error: "Could not verify session" });
+
+      let captured: ApiError | undefined;
+      try {
+        await requestJson("/api/settings");
+      } catch (e) {
+        captured = e as ApiError;
+      }
+
+      expect(captured?.status).toBe(503);
+      expect(captured?.message).toBe("Could not verify session");
+      expect(getToken()).toBe("good-token");
+      expect(fired).toBe(0);
+    });
+
+    it("a 500 behaves the same way — the 401-only guard is not narrowly special-cased to 503", async () => {
+      // Same assertions as the 503 test above, on a different non-401 status.
+      // If the fix ever became `if (res.status === 401 || res.status === 503)`
+      // instead of leaving every non-401 alone, this is the one that would
+      // still pass while quietly narrowing the guard — so it has to be checked
+      // on its own, not inferred from the 503 case.
+      setToken("good-token");
+      mockFetch(500, { error: "Internal server error" });
+
+      let captured: ApiError | undefined;
+      try {
+        await requestJson("/api/settings");
+      } catch (e) {
+        captured = e as ApiError;
+      }
+
+      expect(captured?.status).toBe(500);
+      expect(captured?.message).toBe("Internal server error");
+      expect(getToken()).toBe("good-token");
+      expect(fired).toBe(0);
+    });
+
+    it("still surfaces the server's reason to the caller", async () => {
+      setToken("dead-token");
+      mockFetch(401, { error: "Invalid or expired session" });
+
+      let captured: ApiError | undefined;
+      try {
+        await requestJson("/api/settings");
+      } catch (e) {
+        captured = e as ApiError;
+      }
+      // Logging out must not swallow the diagnosis.
+      expect(captured?.message).toBe("Invalid or expired session");
+    });
   });
 
-  it("getToken() returns the localStorage JWT when there is no impersonation session", () => {
-    setToken("normal-login-token");
-    expect(getToken()).toBe("normal-login-token");
-  });
+  describe("requestFile — 401 handling", () => {
+    afterEach(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
 
-  it("getToken() returns null when neither storage has a token", () => {
-    expect(getToken()).toBeNull();
-  });
-
-  it("getToken() prefers the impersonation sessionStorage token over the localStorage JWT", () => {
-    setToken("super-admins-own-token");
-    setImpersonationToken("impersonation-token");
-
-    expect(getToken()).toBe("impersonation-token");
-    // The super admin's own (localStorage) token must be untouched.
-    expect(localStorage.getItem("liratek.jwt")).toBe("super-admins-own-token");
-  });
-
-  it("clearToken() removes only the localStorage JWT, not an active impersonation token", () => {
-    setToken("normal-login-token");
-    setImpersonationToken("impersonation-token");
-
-    clearToken();
-
-    expect(localStorage.getItem("liratek.jwt")).toBeNull();
-    expect(getImpersonationToken()).toBe("impersonation-token");
-    // Precedence still holds: with the JWT cleared, getToken() now falls
-    // through to... the (still active) impersonation token.
-    expect(getToken()).toBe("impersonation-token");
-  });
-
-  it("clearImpersonationToken() removes only the impersonation token, restoring the localStorage JWT via getToken()", () => {
-    setToken("normal-login-token");
-    setImpersonationToken("impersonation-token");
-
-    clearImpersonationToken();
-
-    expect(getImpersonationToken()).toBeNull();
-    expect(getToken()).toBe("normal-login-token");
-  });
-
-  it("isImpersonationActive() reflects whether the impersonation token is set", () => {
-    expect(isImpersonationActive()).toBe(false);
-    setImpersonationToken("tok");
-    expect(isImpersonationActive()).toBe(true);
-    clearImpersonationToken();
-    expect(isImpersonationActive()).toBe(false);
-  });
-
-  it("clearImpersonationSession() clears the token, tenant name, and username together", () => {
-    setImpersonationToken("tok");
-    setImpersonationTenantName("Acme Retail");
-    setImpersonationUsername("acme-admin");
-
-    clearImpersonationSession();
-
-    expect(getImpersonationToken()).toBeNull();
-    expect(getImpersonationTenantName()).toBeNull();
-    expect(getImpersonationUsername()).toBeNull();
-  });
-
-  it("clearImpersonationSession() does not touch the localStorage JWT", () => {
-    setToken("super-admins-own-token");
-    setImpersonationToken("impersonation-token");
-
-    clearImpersonationSession();
-
-    expect(localStorage.getItem("liratek.jwt")).toBe("super-admins-own-token");
+    it("a rejected session on a file download ends the session like requestJson does", async () => {
+      let fired = 0;
+      const onUnauthorized = () => {
+        fired += 1;
+      };
+      window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+      setToken("dead-token");
+      (globalThis as unknown as { fetch: unknown }).fetch = jest.fn(
+        async () => ({
+          ok: false,
+          status: 401,
+          headers: {
+            get: (h: string) =>
+              h === "Content-Type" ? "application/json" : null,
+          },
+          json: async () => ({ error: "Invalid token" }),
+        }),
+      );
+      try {
+        const res = await requestFile(
+          "/api/backup/download?stamp=2026-11-10-1430",
+        );
+        expect(res.success).toBe(false);
+        expect(getToken()).toBeNull();
+        expect(fired).toBe(1);
+      } finally {
+        window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+      }
+    });
   });
 });

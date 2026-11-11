@@ -1,0 +1,437 @@
+/**
+ * OmtWhishAppTransferForm — 2 per-ticket test files merged into one suite
+ * (2026-11-11, owner decision: one module boot instead of 2).
+ *
+ * Each former file is one describe block below, named after it; its own
+ * header comment (including its rule-17 failing-first history) is kept at the
+ * top of its block, and its test bodies are unchanged. Every former file
+ * declared exactly the same jest.mock set and shared mock setup, which is
+ * kept once at the top. Each block starts with resetBetweenFiles(), which
+ * puts the shared mocks back to how a fresh file would see them, so no block
+ * depends on state left by the block above it.
+ */
+
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { OmtWhishAppTransferForm } from "../OmtWhishAppTransferForm";
+
+const mockAddOMTTransaction = jest
+  .fn()
+  .mockResolvedValue({ success: true, id: 1 });
+
+// PaymentSheet stub: exposes onPaymentChange/onConfirm so the test can inject
+// a single (non-split) leg and confirm — mirrors FinancialForm.legsCarrier's
+// stub pattern. Also exposes onExchangeRateChange — the operator-editable
+// header rate field the real MultiPaymentInput fires on mount and on every
+// edit — so tests can prove the EDITED rate (not just the static prop)
+// reaches the submit payload.
+jest.mock("../PaymentSheet", () => ({
+  PaymentSheet: (props: {
+    open: boolean;
+    onPaymentChange: (lines: unknown[]) => void;
+    onExchangeRateChange?: (rate: number) => void;
+    onConfirm: () => void;
+  }) =>
+    props.open ? (
+      <div data-testid="stub-payment-sheet">
+        <button
+          data-testid="stub-inject-single"
+          onClick={() =>
+            props.onPaymentChange([
+              {
+                id: "L1",
+                method: "CASH",
+                currencyCode: "LBP",
+                amount: 900000,
+              },
+            ])
+          }
+        />
+        <button
+          data-testid="stub-edit-rate"
+          onClick={() => props.onExchangeRateChange?.(88000)}
+        />
+        <button data-testid="stub-confirm" onClick={props.onConfirm} />
+      </div>
+    ) : null,
+}));
+
+jest.mock("@liratek/ui", () => ({
+  ...jest.requireActual("@liratek/ui"),
+  useApi: () => ({
+    addOMTTransaction: mockAddOMTTransaction,
+  }),
+  DecimalInput: ({
+    id,
+    value,
+    onChange,
+    placeholder,
+    className,
+  }: {
+    id?: string;
+    value: number;
+    onChange: (n: number) => void;
+    placeholder?: string;
+    className?: string;
+  }) => (
+    <input
+      id={id}
+      type="text"
+      inputMode="decimal"
+      value={value === 0 ? "" : String(value)}
+      placeholder={placeholder}
+      className={className}
+      onChange={(e) =>
+        onChange(parseFloat(e.target.value.replace(/,/g, "")) || 0)
+      }
+    />
+  ),
+}));
+
+jest.mock("@/features/sessions/context/SessionContext", () => ({
+  useSession: () => ({
+    activeSession: null,
+    linkTransaction: jest.fn(),
+    addToCart: jest.fn(),
+  }),
+}));
+
+jest.mock("@/hooks/useSellRate", () => ({
+  useSellRate: () => ({ sellRate: 89500, buyRate: 89000 }),
+}));
+
+jest.mock("@/hooks/usePaymentMethods", () => ({
+  usePaymentMethods: () => ({
+    methods: [{ code: "CASH", label: "Cash" }],
+    drawerAffectingMethods: [{ code: "CASH", label: "Cash" }],
+  }),
+}));
+
+jest.mock("../../utils/ensureClient", () => ({
+  ensureRechargeClient: jest.fn().mockResolvedValue({ ok: true, id: null }),
+}));
+
+jest.mock("@/shared/hooks/useSaveAsClient", () => ({
+  useSaveAsClient: () => ({
+    saveAsClient: false,
+    setSaveAsClient: jest.fn(),
+    showCheckbox: false,
+    trySaveAsClient: jest.fn().mockResolvedValue({ clientId: null }),
+    resetSaveAsClient: jest.fn(),
+  }),
+}));
+
+jest.mock("@/shared/components/SaveAsClientCheckbox", () => ({
+  SaveAsClientCheckbox: () => null,
+}));
+
+jest.mock("@/shared/components/TransactionTimeOverride", () => ({
+  TransactionTimeOverride: () => null,
+}));
+
+jest.mock("@/shared/components/ClientAutocompleteInput", () => ({
+  ClientAutocompleteInput: () => null,
+}));
+
+jest.mock("@/features/partners/components/PartnerSelector", () => ({
+  PartnerSelector: () => null,
+}));
+
+jest.mock("../HistoryModal", () => ({
+  HistoryModal: () => null,
+}));
+
+jest.mock("@/utils/logger", () => ({
+  __esModule: true,
+  default: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
+}));
+
+function resetBetweenFiles() {
+  jest.clearAllMocks();
+  localStorage.clear();
+  sessionStorage.clear();
+  jest.useRealTimers();
+}
+
+describe("OmtWhishAppTransferForm.legsGate", () => {
+  beforeAll(resetBetweenFiles);
+
+  /**
+   * OmtWhishAppTransferForm — payment legs must be forwarded whenever ANY
+   * payment line exists, never gated on split (S1, PAYMENT_LEGS_INTEGRITY_PLAN
+   * wave 6 — the owner-reported Whish App LBP-as-USD bug).
+   *
+   * Pre-fix, `useStructuredPayments` was `isSplitPayment || returnLegs.length >
+   * 0` — a SINGLE-line payment (no split, no change) fell through to
+   * `payments: undefined`, so only `paidByMethod` (a bare method name) reached
+   * the backend; the tender's own amount + currency were dropped, and the
+   * repository's fallback assumed tender currency == service currency.
+   *
+   * Proven failing-first (rule 17): reverting `useStructuredPayments` to
+   * `isSplitPayment || returnLegs.length > 0` makes this test's `payments`
+   * assertion fail (payload falls back to `payments: undefined`).
+   */
+
+  const formatAmount = (val: number, currency: string) =>
+    currency === "USD"
+      ? `$${val.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}`
+      : `${val.toLocaleString()} ${currency}`;
+
+  function renderForm() {
+    return render(
+      <OmtWhishAppTransferForm
+        activeProvider="WHISH_APP"
+        transactions={[]}
+        loadFinancialData={jest.fn()}
+        formatAmount={formatAmount}
+      />,
+    );
+  }
+
+  describe("OmtWhishAppTransferForm — payment legs never gated on split (S1)", () => {
+    beforeEach(() => {
+      mockAddOMTTransaction.mockClear();
+    });
+
+    it("forwards a SINGLE-line LBP cash payment as a real leg on a Whish App SEND", async () => {
+      renderForm();
+
+      fireEvent.change(
+        document.getElementById("transfer-amount") as HTMLInputElement,
+        { target: { value: "10" } },
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /Proceed to Pay/i }));
+      await screen.findByTestId("stub-payment-sheet");
+
+      // Inject ONE payment line (no split, no change) — the common case.
+      fireEvent.click(screen.getByTestId("stub-inject-single"));
+      fireEvent.click(screen.getByTestId("stub-confirm"));
+
+      await waitFor(() =>
+        expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1),
+      );
+
+      const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
+        string,
+        unknown
+      >;
+
+      // The bug: pre-fix, a single (non-split, no-change) payment fell through
+      // to `payments: undefined` — the LBP tender's own amount/currency never
+      // reached the backend, which then assumed tender == service currency.
+      expect(payload.payments).toEqual([
+        expect.objectContaining({
+          method: "CASH",
+          currencyCode: "LBP",
+          amount: 900000,
+        }),
+      ]);
+    });
+
+    // Payment-Legs Integrity plan (wave 9, lira-108 + lira-095): the
+    // repository's wallet-transfer SEND branch no longer GUESSES the
+    // customer-owed total as amount+fee (wrong whenever the fee is carved OUT
+    // of the entered amount instead of added on top) — it reconciles against
+    // `checkoutTotal`, this form's own `totalAmount` (what the PaymentSheet
+    // actually charges). `tender_exchange_rate` is the rate this form's own
+    // PaymentSheet/MultiPaymentInput converted tender at (SEND uses sellRate
+    // per this form's `exchangeRate = serviceType === "RECEIVE" ? buyRate :
+    // sellRate`), so the repository reconciles at the SAME rate the till used.
+    it("attaches checkoutTotal + tender_exchange_rate on a SEND with legs", async () => {
+      renderForm();
+
+      fireEvent.change(
+        document.getElementById("transfer-amount") as HTMLInputElement,
+        { target: { value: "10" } },
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /Proceed to Pay/i }));
+      await screen.findByTestId("stub-payment-sheet");
+
+      fireEvent.click(screen.getByTestId("stub-inject-single"));
+      fireEvent.click(screen.getByTestId("stub-confirm"));
+
+      await waitFor(() =>
+        expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1),
+      );
+
+      const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
+        string,
+        unknown
+      >;
+
+      // WHISH_APP SEND, currency defaults USD, no fee (autoFee only applies to
+      // RECEIVE) — totalAmount = parsedAmount + providerFee = 10 + 0 = 10.
+      expect(payload.checkoutTotal).toEqual({ usd: 10, lbp: 0 });
+      // sellRate from the mocked useSellRate above.
+      expect(payload.tender_exchange_rate).toBe(89500);
+    });
+
+    // False-reject fix (2026-07-2x): pre-fix, this form re-sent the static
+    // `exchangeRate` (`serviceType === "RECEIVE" ? buyRate : sellRate`)
+    // regardless of what the operator typed into the sheet's own header rate
+    // field. This test fails on that code (rule 17): the payload would read
+    // 89500 (the mocked sellRate), not the edited 88000.
+    it("sends the OPERATOR-EDITED sheet rate, not the static exchangeRate default, when the rate was edited", async () => {
+      renderForm();
+
+      fireEvent.change(
+        document.getElementById("transfer-amount") as HTMLInputElement,
+        { target: { value: "10" } },
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /Proceed to Pay/i }));
+      await screen.findByTestId("stub-payment-sheet");
+
+      fireEvent.click(screen.getByTestId("stub-edit-rate")); // sheet reports 88000
+      fireEvent.click(screen.getByTestId("stub-inject-single"));
+      fireEvent.click(screen.getByTestId("stub-confirm"));
+
+      await waitFor(() =>
+        expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1),
+      );
+
+      const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
+        string,
+        unknown
+      >;
+      expect(payload.tender_exchange_rate).toBe(88000);
+    });
+
+    // Split-payout wrong-currency fix (owner-reported 2026-07-30): the
+    // repository's app-wallet RECEIVE branch now reconciles payout legs (S2)
+    // — a cross-currency payout the till converted at its own rate would
+    // false-reject at the stamped rate unless the form forwards
+    // tender_exchange_rate on RECEIVE too. rule 17: proven failing-first
+    // 2026-07-30 — pre-fix the tender-rate spread was gated
+    // `serviceType === "SEND" && useStructuredPayments`, so a RECEIVE payload
+    // carried NO tender_exchange_rate (read `undefined`). `checkoutTotal`
+    // stays SEND-only: it is the customer-owed total, not a payout — the
+    // repository derives the RECEIVE payout itself.
+    it("attaches tender_exchange_rate (but NOT checkoutTotal) on a RECEIVE with legs", async () => {
+      renderForm();
+
+      fireEvent.click(screen.getByRole("button", { name: /Receive/i }));
+      fireEvent.change(
+        document.getElementById("transfer-amount") as HTMLInputElement,
+        { target: { value: "10" } },
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /Proceed to Pay/i }));
+      await screen.findByTestId("stub-payment-sheet");
+
+      fireEvent.click(screen.getByTestId("stub-edit-rate")); // sheet reports 88000
+      fireEvent.click(screen.getByTestId("stub-inject-single"));
+      fireEvent.click(screen.getByTestId("stub-confirm"));
+
+      await waitFor(() =>
+        expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1),
+      );
+
+      const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
+        string,
+        unknown
+      >;
+      expect(payload.serviceType).toBe("RECEIVE");
+      expect(payload.tender_exchange_rate).toBe(88000);
+      expect(payload.checkoutTotal).toBeUndefined();
+    });
+  });
+});
+
+describe("OmtWhishAppTransferForm.rateCarryover (LIRA-248)", () => {
+  beforeAll(resetBetweenFiles);
+
+  /**
+   * OmtWhishAppTransferForm — LIRA-248 guard.
+   *
+   * Bug: `effectiveRate` (captured from the PaymentSheet's `onExchangeRateChange`
+   * — see OmtWhishAppTransferForm.legsGate.test.tsx's "sends the
+   * OPERATOR-EDITED sheet rate" test, which proves an edit reaches the
+   * payload) is set once when the operator edits the sheet's header rate
+   * field, but was never reset afterwards. A SECOND, unrelated transaction —
+   * where the operator never touches the rate field at all — inherited the
+   * FIRST transaction's edited rate as `tender_exchange_rate`, instead of the
+   * current shop rate (`exchangeRate` = sellRate/buyRate from `useSellRate`).
+   *
+   * Fix under test (LIRA-248): the form resets its captured rate back to the
+   * shop rate after a completed transaction, and again when a new transaction
+   * starts (opening the payment sheet), so a stale edit can never leak into a
+   * later, unrelated transaction.
+   *
+   * Harness copied from OmtWhishAppTransferForm.legsGate.test.tsx — same
+   * PaymentSheet stub (exposes onPaymentChange/onExchangeRateChange/onConfirm)
+   * and the same set of collaborator mocks.
+   */
+
+  const formatAmount = (val: number, currency: string) =>
+    currency === "USD"
+      ? `$${val.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}`
+      : `${val.toLocaleString()} ${currency}`;
+
+  function renderForm() {
+    return render(
+      <OmtWhishAppTransferForm
+        activeProvider="WHISH_APP"
+        transactions={[]}
+        loadFinancialData={jest.fn()}
+        formatAmount={formatAmount}
+      />,
+    );
+  }
+
+  function setAmount(value: string) {
+    fireEvent.change(
+      document.getElementById("transfer-amount") as HTMLInputElement,
+      { target: { value } },
+    );
+  }
+
+  describe("OmtWhishAppTransferForm — exchange rate does not carry over (LIRA-248)", () => {
+    beforeEach(() => {
+      mockAddOMTTransaction.mockClear();
+    });
+
+    it("a SECOND transaction with no rate edit uses the shop rate, not the first transaction's edited rate", async () => {
+      renderForm();
+
+      // Transaction #1: operator edits the rate to 88000 and completes it.
+      setAmount("10");
+      fireEvent.click(screen.getByRole("button", { name: /Proceed to Pay/i }));
+      await screen.findByTestId("stub-payment-sheet");
+      fireEvent.click(screen.getByTestId("stub-edit-rate"));
+      fireEvent.click(screen.getByTestId("stub-inject-single"));
+      fireEvent.click(screen.getByTestId("stub-confirm"));
+      await waitFor(() =>
+        expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1),
+      );
+      expect(mockAddOMTTransaction.mock.calls[0][0].tender_exchange_rate).toBe(
+        88000,
+      );
+
+      // Transaction #2: a brand-new transfer. The operator never touches the
+      // rate field this time — the sheet's own onExchangeRateChange never
+      // fires from a manual edit for this transaction (the stub only fires it
+      // via the explicit "stub-edit-rate" button, which is NOT clicked here).
+      setAmount("20");
+      fireEvent.click(screen.getByRole("button", { name: /Proceed to Pay/i }));
+      await screen.findByTestId("stub-payment-sheet");
+      fireEvent.click(screen.getByTestId("stub-inject-single"));
+      fireEvent.click(screen.getByTestId("stub-confirm"));
+      await waitFor(() =>
+        expect(mockAddOMTTransaction).toHaveBeenCalledTimes(2),
+      );
+
+      const secondPayload = mockAddOMTTransaction.mock.calls[1][0];
+      // Must be the current shop rate (mocked sellRate = 89500), never the
+      // stale 88000 edit left over from transaction #1.
+      expect(secondPayload.tender_exchange_rate).toBe(89500);
+    });
+  });
+});

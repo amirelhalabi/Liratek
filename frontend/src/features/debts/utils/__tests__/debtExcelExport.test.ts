@@ -1,11 +1,19 @@
-import * as XLSX from "xlsx";
-import type { DebtLedgerEntity } from "@liratek/ui";
+/**
+ * debtExcelExport — 2 per-ticket test files merged into one suite
+ * (2026-11-11, owner decision: one module boot instead of 2).
+ *
+ * Each former file is one describe block below, named after it; its own
+ * header comment (including its rule-17 failing-first history) is kept at the
+ * top of its block, and its test bodies are unchanged. Every former file
+ * declared exactly the same jest.mock set and shared mock setup, which is
+ * kept once at the top. Each block starts with resetBetweenFiles(), which
+ * puts the shared mocks back to how a fresh file would see them, so no block
+ * depends on state left by the block above it.
+ */
+
+import { type DebtLedgerEntity, type DebtorSummary } from "@liratek/ui";
 import {
-  buildDebtExportWorkbook,
-  SPARE_ROWS,
-  writeDebtExportFile,
-} from "../debtExcelWorkbook";
-import {
+  loadAccountsForExport,
   exportedRowDate,
   isLiraTekAccountsExport,
   isPaymentLedgerType,
@@ -13,494 +21,590 @@ import {
   type DebtExportClient,
   type ImportedPageForShopCheck,
 } from "../debtExcelExport";
+import * as XLSX from "xlsx";
+import {
+  buildDebtExportWorkbook,
+  SPARE_ROWS,
+  writeDebtExportFile,
+} from "../debtExcelWorkbook";
 
-let nextId = 1;
-function entry(
-  over: Partial<DebtLedgerEntity> & {
-    transaction_type: string;
-    created_at: string;
-  },
-): DebtLedgerEntity {
-  return {
-    id: nextId++,
-    client_id: 1,
+function resetBetweenFiles() {
+  jest.clearAllMocks();
+  localStorage.clear();
+  sessionStorage.clear();
+  jest.useRealTimers();
+}
+
+describe("debtExcelExport.loadAccounts", () => {
+  beforeAll(resetBetweenFiles);
+
+  /**
+   * Guard — LIRA-330 follow-up (2026-10-17): the export used to ask for each
+   * client's history separately. A shop with ~400 accounts made ~400 web
+   * requests in a few seconds, past the API's per-user limit (200/minute), so
+   * the export failed part-way and the cashier's other screens were refused
+   * for a minute. It must read the whole shop's history in ONE request.
+   */
+
+  const CLIENTS = 25;
+
+  const debtors: DebtorSummary[] = Array.from({ length: CLIENTS }, (_, i) => ({
+    id: 100 + i,
+    full_name: `Client ${String(CLIENTS - i).padStart(2, "0")}`,
+    phone_number: `7012${String(i).padStart(4, "0")}`,
+    total_debt: 0,
+    total_debt_usd: 0,
+    total_debt_lbp: 0,
+  }));
+
+  const row = (client_id: number, n: number): DebtLedgerEntity => ({
+    id: client_id * 10 + n,
+    client_id,
     transaction_id: null,
-    amount_usd: 0,
+    transaction_type: "Manual Debt",
+    amount_usd: n,
     amount_lbp: 0,
-    note: null,
+    note: `row ${n}`,
+    created_at: "2026-10-01 10:00:00",
     created_by: null,
     session_id: null,
-    ...over,
-  };
-}
-
-/** Write then read back, so the test sees what Excel would open. */
-function roundTrip(clients: DebtExportClient[]): XLSX.WorkBook {
-  const buf = XLSX.write(buildDebtExportWorkbook(clients), {
-    bookType: "xlsx",
-    type: "array",
-  });
-  return XLSX.read(buf, { type: "array", cellDates: true });
-}
-
-function rowsOf(wb: XLSX.WorkBook, sheet: string): unknown[][] {
-  return XLSX.utils.sheet_to_json(wb.Sheets[sheet]!, {
-    header: 1,
-    defval: "",
-    raw: true,
-  });
-}
-
-const sara: DebtExportClient = {
-  name: "SARA/ZOHAIR BOU ISMAIL",
-  phone: "71475799",
-  history: [
-    // Out of order on purpose — the export sorts oldest first.
-    entry({
-      transaction_type: "Repayment",
-      created_at: "2025-11-25 10:00:00",
-      amount_lbp: -2_280_000,
-      note: "paid by hweli",
-    }),
-    entry({
-      transaction_type: "Recharge Debt",
-      created_at: "2025-11-15 09:00:00",
-      amount_lbp: 520_000,
-      note: "5$ MTC",
-    }),
-    entry({
-      transaction_type: "Manual Debt",
-      created_at: "2025-06-10 09:00:00",
-      amount_usd: 12,
-      amount_lbp: 500_000,
-      note: "CARTE + W2W",
-    }),
-    entry({
-      transaction_type: "Repayment",
-      created_at: "2025-10-27 10:00:00",
-      amount_usd: -12,
-      amount_lbp: -800_000,
-      note: "paid by sara",
-    }),
-  ],
-};
-
-describe("buildDebtExportWorkbook — the debt import template", () => {
-  it("starts with a List Name sheet: NAME | Phone, then live balances", () => {
-    const wb = roundTrip([sara]);
-    expect(wb.SheetNames[0]).toBe("List Name");
-    expect(rowsOf(wb, "List Name")).toEqual([
-      ["NAME", "Phone ", "Balance USD", "Balance LBP"],
-      ["SARA/ZOHAIR BOU ISMAIL", "71475799", 0, -2_060_000],
-    ]);
   });
 
-  it("lays a client page out as the import reads it", () => {
-    const wb = roundTrip([sara]);
-    // "/" is not allowed in a sheet name; the real name stays in B1.
-    expect(wb.SheetNames[1]).toBe("SARA ZOHAIR BOU ISMAIL");
-    const rows = rowsOf(wb, "SARA ZOHAIR BOU ISMAIL");
+  const allRows = debtors.flatMap((d) => [row(d.id, 1), row(d.id, 2)]);
 
-    expect(rows[0]!.slice(0, 4)).toEqual([
-      "CUSTOMER NAME :",
-      "SARA/ZOHAIR BOU ISMAIL",
-      "mobile # ",
-      "71475799",
-    ]);
-    expect(rows[1]).toEqual([
-      "DATE",
-      "USD",
-      "LBP",
-      "DESCRIPTION",
-      "",
-      "DATE",
-      "PAID IN USD",
-      "PAID IN LBP",
-      "DESCRIPTION",
-    ]);
+  const getDebtors = jest.fn(async () => debtors);
+  const getClientDebtHistory = jest.fn(async (clientId: number) =>
+    allRows.filter((r) => r.client_id === clientId),
+  );
+  const getAllDebtHistory = jest.fn(async () => allRows);
 
-    // Purchases left (oldest first), payments right as positive amounts.
-    expect(rows[2]!.slice(1, 4)).toEqual([
-      12,
-      500_000,
-      "Manual Debt — CARTE + W2W",
-    ]);
-    expect(rows[2]!.slice(6, 9)).toEqual([12, 800_000, "paid by sara"]);
-    expect(rows[3]!.slice(1, 4)).toEqual([
-      "",
-      520_000,
-      "Recharge Debt — 5$ MTC",
-    ]);
-    expect(rows[3]!.slice(6, 9)).toEqual(["", 2_280_000, "paid by hweli"]);
-    expect(rows[2]![0]).toBeInstanceOf(Date);
-  });
+  const api = {
+    getDebtors,
+    getClientDebtHistory,
+    getAllDebtHistory,
+  } as unknown as Parameters<typeof loadAccountsForExport>[0];
 
-  it("ends with totals and a balance equal to the ledger's own sum", () => {
-    const wb = roundTrip([sara]);
-    const rows = rowsOf(wb, "SARA ZOHAIR BOU ISMAIL");
-    const total = rows.find((r) => r[0] === "TOTAL ON ACCOUNT")!;
-    expect(total.slice(1, 3)).toEqual([12, 1_020_000]);
-    expect(total[5]).toBe("TOTAL PAID");
-    expect(total.slice(6, 8)).toEqual([12, 3_080_000]);
+  describe("loadAccountsForExport", () => {
+    beforeEach(() => jest.clearAllMocks());
 
-    const balUsd = rows.find((r) => r[3] === "Balance Remaining in USD")!;
-    const balLbp = rows.find((r) => r[3] === "Balance Remaining in LBP")!;
-    const ledgerUsd = sara.history.reduce((s, e) => s + e.amount_usd, 0);
-    const ledgerLbp = sara.history.reduce((s, e) => s + e.amount_lbp, 0);
-    expect(balUsd[4]).toBe(ledgerUsd); // 0
-    expect(balLbp[4]).toBe(ledgerLbp); // −2,060,000: the client is in credit
+    it("reads every client's history in one request, not one per client", async () => {
+      await loadAccountsForExport(api);
+      const historyRequests =
+        getClientDebtHistory.mock.calls.length +
+        getAllDebtHistory.mock.calls.length;
+      expect(historyRequests).toBe(1);
+    });
 
-    // Live formulas, so edits in Excel recalculate.
-    const ws = wb.Sheets["SARA ZOHAIR BOU ISMAIL"]!;
-    const totalRow = rows.indexOf(total) + 1;
-    // The range reaches over the spare rows (2 entries + SPARE_ROWS).
-    expect(ws[`B${totalRow}`]?.f).toBe(`SUM(B3:B${4 + SPARE_ROWS})`);
-  });
-
-  it("keeps sheet names unique, short, and clear of names the import skips", () => {
-    const long = "A".repeat(40);
-    const wb = roundTrip([
-      { name: "Ali", phone: "", history: [] },
-      { name: "ali", phone: "", history: [] },
-      { name: long, phone: "", history: [] },
-      { name: long, phone: "", history: [] },
-      { name: "Sheet1", phone: "", history: [] },
-      { name: "List Name", phone: "", history: [] },
-      { name: "NAME (old)", phone: "", history: [] },
-    ]);
-    const names = wb.SheetNames.slice(1);
-    expect(new Set(names.map((n) => n.toLowerCase())).size).toBe(names.length);
-    expect(names.every((n) => n.length <= 31)).toBe(true);
-    expect(names).not.toContain("Sheet1");
-    expect(names.filter((n) => n.toLowerCase() === "list name")).toEqual([]);
-    expect(names.some((n) => n.startsWith("NAME ("))).toBe(false);
-  });
-});
-
-describe("List Name links", () => {
-  it("links every name to its own page, even when the sheet name was cleaned", () => {
-    const long = "Abou/Ali Very Long Customer Name Number";
-    const wb = roundTrip([
-      { name: "Ali O'Neil", phone: "70111111", history: [] },
-      { name: `${long} One`, phone: "70222222", history: [] },
-      { name: `${long} Two`, phone: "70333333", history: [] },
-      { name: "List Name", phone: "70444444", history: [] },
-    ]);
-    const list = wb.Sheets["List Name"]!;
-    for (let row = 2; row <= 5; row++) {
-      const cell = list[`A${row}`]!;
-      const target = cell.l?.Target ?? "";
-      const m = /^#'(.+)'!A1$/.exec(target);
-      expect(m).not.toBeNull();
-      const sheet = m![1]!.replace(/''/g, "'");
-      expect(wb.SheetNames).toContain(sheet);
-      // The linked page is this client's page.
-      expect(wb.Sheets[sheet]!.B1?.v).toBe(cell.v);
-    }
-  });
-
-  it("every client page links back to the list from F1", () => {
-    const wb = roundTrip([
-      sara,
-      { name: "Ali", phone: "70111111", history: [] },
-    ]);
-    for (const name of wb.SheetNames.slice(1)) {
-      const f1 = wb.Sheets[name]!.F1;
-      expect(f1?.v).toBe("← Back to list");
-      expect(f1?.l?.Target).toBe("#'List Name'!A1");
-    }
-  });
-
-  it("keeps the list readable by the import: plain names in column A", () => {
-    const wb = roundTrip([sara]);
-    // The import reads columns A and B only.
-    expect(rowsOf(wb, "List Name")[1]!.slice(0, 2)).toEqual([
-      "SARA/ZOHAIR BOU ISMAIL",
-      "71475799",
-    ]);
-  });
-});
-
-describe("keeps working like the shop's own workbook", () => {
-  const SHEET = "SARA ZOHAIR BOU ISMAIL";
-
-  it("leaves SPARE_ROWS empty rows inside the totals, so a line typed later counts", () => {
-    const wb = roundTrip([sara]);
-    const ws = wb.Sheets[SHEET]!;
-    const rows = rowsOf(wb, SHEET);
-    const totalRow = rows.findIndex((r) => r[0] === "TOTAL ON ACCOUNT") + 1;
-    // 2 entry rows, then the spare rows, then the totals.
-    expect(totalRow).toBe(3 + 2 + SPARE_ROWS);
-    for (const col of ["B", "C", "G", "H"]) {
-      expect(ws[`${col}${totalRow}`]?.f).toBe(
-        `SUM(${col}3:${col}${totalRow - 1})`,
+    it("gives each client exactly their own rows, sorted by name", async () => {
+      const clients = await loadAccountsForExport(api);
+      expect(clients).toHaveLength(CLIENTS);
+      expect(clients.map((c) => c.name)).toEqual(
+        [...debtors.map((d) => d.full_name)].sort((a, b) => a.localeCompare(b)),
       );
-    }
-    // The spare rows are empty: nothing in them for the import to read.
-    for (let r = 5; r < totalRow; r++) {
-      expect(rows[r - 1]!.filter((v) => v !== "")).toEqual([]);
-    }
-  });
-
-  it("balances sit 7 and 9 rows under the totals, merged across E:F", () => {
-    const wb = roundTrip([sara]);
-    const ws = wb.Sheets[SHEET]!;
-    const rows = rowsOf(wb, SHEET);
-    const totalRow = rows.findIndex((r) => r[0] === "TOTAL ON ACCOUNT") + 1;
-    expect(rows[totalRow + 7 - 1]![3]).toBe("Balance Remaining in USD");
-    expect(rows[totalRow + 9 - 1]![3]).toBe("Balance Remaining in LBP");
-    expect(ws[`E${totalRow + 7}`]?.f).toBe(`B${totalRow}-G${totalRow}`);
-    expect(ws["!merges"]).toEqual(
-      expect.arrayContaining([
-        { s: { r: totalRow + 6, c: 4 }, e: { r: totalRow + 6, c: 5 } },
-        { s: { r: totalRow + 8, c: 4 }, e: { r: totalRow + 8, c: 5 } },
-      ]),
-    );
-  });
-
-  it("List Name balances are formulas pointing at each page's balance", () => {
-    const wb = roundTrip([sara]);
-    const list = wb.Sheets["List Name"]!;
-    const rows = rowsOf(wb, SHEET);
-    const totalRow = rows.findIndex((r) => r[0] === "TOTAL ON ACCOUNT") + 1;
-    expect(list.C2?.f).toBe(`'${SHEET}'!E${totalRow + 7}`);
-    expect(list.D2?.f).toBe(`'${SHEET}'!E${totalRow + 9}`);
-  });
-
-  it("carries the shop's look: Calibri 16, grey labels, yellow totals, $ / LBP formats, borders", () => {
-    const wb = buildDebtExportWorkbook([sara]);
-    const ws = wb.Sheets[SHEET]!;
-    const style = (a: string) =>
-      (ws[a] as { s?: Record<string, any> } | undefined)?.s ?? {};
-    expect(style("A2").fill?.fgColor?.rgb).toBe("BFBFBF");
-    expect(style("A2").font).toMatchObject({ name: "Calibri", sz: 16 });
-    expect(style("B3").numFmt).toContain('"$"');
-    expect(style("C3").numFmt).toContain("[$LBP]");
-    expect(style("A3").numFmt).toBe("m/d/yy");
-    expect(style("B5").border?.left?.style).toBe("thin"); // a spare row
-    const rows = rowsOf(roundTrip([sara]), SHEET);
-    const totalRow = rows.findIndex((r) => r[0] === "TOTAL ON ACCOUNT") + 1;
-    expect(style(`A${totalRow}`).fill?.fgColor?.rgb).toBe("FFFF00");
-  });
-
-  it("the written file keeps the styles (fills, borders, formats)", () => {
-    const bytes = new Uint8Array(
-      writeDebtExportFile(buildDebtExportWorkbook([sara])),
-    );
-    const styles = XLSX.CFB.find(
-      XLSX.CFB.read(bytes, { type: "array" }),
-      "/xl/styles.xml",
-    );
-    const xml = new TextDecoder().decode(styles!.content as Uint8Array);
-    expect(xml).toContain("FFFF00");
-    expect(xml).toContain("BFBFBF");
-    expect(xml).toContain('style="thin"');
-    expect(xml).toContain("[$LBP]");
+      for (const c of clients) {
+        const d = debtors.find((x) => x.full_name === c.name)!;
+        expect(c.phone).toBe(d.phone_number);
+        expect(c.history.map((r) => r.id)).toEqual(
+          allRows.filter((r) => r.client_id === d.id).map((r) => r.id),
+        );
+      }
+    });
   });
 });
 
-describe("isPaymentLedgerType", () => {
-  it("puts repayments and credit deposits on the paid side only", () => {
-    expect(isPaymentLedgerType("Repayment")).toBe(true);
-    expect(isPaymentLedgerType("CREDIT_DEPOSIT")).toBe(true);
-    expect(isPaymentLedgerType("CREDIT_USED")).toBe(false);
-    expect(isPaymentLedgerType("Sale Debt")).toBe(false);
-  });
-});
+describe("debtExcelExport", () => {
+  beforeAll(resetBetweenFiles);
 
-describe("re-importing an export", () => {
-  const SHEET = "Refund Client";
-  const refundClient: DebtExportClient = {
-    name: SHEET,
-    phone: "70111222",
+  let nextId = 1;
+  function entry(
+    over: Partial<DebtLedgerEntity> & {
+      transaction_type: string;
+      created_at: string;
+    },
+  ): DebtLedgerEntity {
+    return {
+      id: nextId++,
+      client_id: 1,
+      transaction_id: null,
+      amount_usd: 0,
+      amount_lbp: 0,
+      note: null,
+      created_by: null,
+      session_id: null,
+      ...over,
+    };
+  }
+
+  /** Write then read back, so the test sees what Excel would open. */
+  function roundTrip(clients: DebtExportClient[]): XLSX.WorkBook {
+    const buf = XLSX.write(buildDebtExportWorkbook(clients), {
+      bookType: "xlsx",
+      type: "array",
+    });
+    return XLSX.read(buf, { type: "array", cellDates: true });
+  }
+
+  function rowsOf(wb: XLSX.WorkBook, sheet: string): unknown[][] {
+    return XLSX.utils.sheet_to_json(wb.Sheets[sheet]!, {
+      header: 1,
+      defval: "",
+      raw: true,
+    });
+  }
+
+  const sara: DebtExportClient = {
+    name: "SARA/ZOHAIR BOU ISMAIL",
+    phone: "71475799",
     history: [
+      // Out of order on purpose — the export sorts oldest first.
       entry({
-        transaction_type: "Sale Debt",
-        created_at: "2025-11-01 08:00:00",
-        amount_usd: 70,
-        note: "Sale #12",
+        transaction_type: "Repayment",
+        created_at: "2025-11-25 10:00:00",
+        amount_lbp: -2_280_000,
+        note: "paid by hweli",
       }),
-      // A refund is a NEGATIVE purchase in the ledger.
       entry({
-        transaction_type: "Sale Debt",
-        created_at: "2025-11-02 08:00:00",
-        amount_usd: -20,
-        note: "Refund of Sale #12",
+        transaction_type: "Recharge Debt",
+        created_at: "2025-11-15 09:00:00",
+        amount_lbp: 520_000,
+        note: "5$ MTC",
       }),
-      // Mixed signs in one row: +$5 owed, 100,000 LBP back.
       entry({
         transaction_type: "Manual Debt",
-        created_at: "2025-11-03 08:00:00",
-        amount_usd: 5,
-        amount_lbp: -100_000,
-        note: "swap",
+        created_at: "2025-06-10 09:00:00",
+        amount_usd: 12,
+        amount_lbp: 500_000,
+        note: "CARTE + W2W",
       }),
       entry({
-        transaction_type: "Imported Debt",
-        created_at: "2025-10-01 08:00:00",
-        amount_lbp: 300_000,
-        note: "old sheet",
+        transaction_type: "Repayment",
+        created_at: "2025-10-27 10:00:00",
+        amount_usd: -12,
+        amount_lbp: -800_000,
+        note: "paid by sara",
       }),
     ],
   };
 
-  it("never writes a negative amount — refunds land on the paid side", () => {
-    const rows = rowsOf(roundTrip([refundClient]), SHEET);
-    const body = rows.slice(2, 6);
-    for (const r of body) {
-      for (const i of [1, 2, 6, 7]) {
-        if (typeof r[i] === "number") expect(r[i]).toBeGreaterThan(0);
+  describe("buildDebtExportWorkbook — the debt import template", () => {
+    it("starts with a List Name sheet: NAME | Phone, then live balances", () => {
+      const wb = roundTrip([sara]);
+      expect(wb.SheetNames[0]).toBe("List Name");
+      expect(rowsOf(wb, "List Name")).toEqual([
+        ["NAME", "Phone ", "Balance USD", "Balance LBP"],
+        ["SARA/ZOHAIR BOU ISMAIL", "71475799", 0, -2_060_000],
+      ]);
+    });
+
+    it("lays a client page out as the import reads it", () => {
+      const wb = roundTrip([sara]);
+      // "/" is not allowed in a sheet name; the real name stays in B1.
+      expect(wb.SheetNames[1]).toBe("SARA ZOHAIR BOU ISMAIL");
+      const rows = rowsOf(wb, "SARA ZOHAIR BOU ISMAIL");
+
+      expect(rows[0]!.slice(0, 4)).toEqual([
+        "CUSTOMER NAME :",
+        "SARA/ZOHAIR BOU ISMAIL",
+        "mobile # ",
+        "71475799",
+      ]);
+      expect(rows[1]).toEqual([
+        "DATE",
+        "USD",
+        "LBP",
+        "DESCRIPTION",
+        "",
+        "DATE",
+        "PAID IN USD",
+        "PAID IN LBP",
+        "DESCRIPTION",
+      ]);
+
+      // Purchases left (oldest first), payments right as positive amounts.
+      expect(rows[2]!.slice(1, 4)).toEqual([
+        12,
+        500_000,
+        "Manual Debt — CARTE + W2W",
+      ]);
+      expect(rows[2]!.slice(6, 9)).toEqual([12, 800_000, "paid by sara"]);
+      expect(rows[3]!.slice(1, 4)).toEqual([
+        "",
+        520_000,
+        "Recharge Debt — 5$ MTC",
+      ]);
+      expect(rows[3]!.slice(6, 9)).toEqual(["", 2_280_000, "paid by hweli"]);
+      expect(rows[2]![0]).toBeInstanceOf(Date);
+    });
+
+    it("ends with totals and a balance equal to the ledger's own sum", () => {
+      const wb = roundTrip([sara]);
+      const rows = rowsOf(wb, "SARA ZOHAIR BOU ISMAIL");
+      const total = rows.find((r) => r[0] === "TOTAL ON ACCOUNT")!;
+      expect(total.slice(1, 3)).toEqual([12, 1_020_000]);
+      expect(total[5]).toBe("TOTAL PAID");
+      expect(total.slice(6, 8)).toEqual([12, 3_080_000]);
+
+      const balUsd = rows.find((r) => r[3] === "Balance Remaining in USD")!;
+      const balLbp = rows.find((r) => r[3] === "Balance Remaining in LBP")!;
+      const ledgerUsd = sara.history.reduce((s, e) => s + e.amount_usd, 0);
+      const ledgerLbp = sara.history.reduce((s, e) => s + e.amount_lbp, 0);
+      expect(balUsd[4]).toBe(ledgerUsd); // 0
+      expect(balLbp[4]).toBe(ledgerLbp); // −2,060,000: the client is in credit
+
+      // Live formulas, so edits in Excel recalculate.
+      const ws = wb.Sheets["SARA ZOHAIR BOU ISMAIL"]!;
+      const totalRow = rows.indexOf(total) + 1;
+      // The range reaches over the spare rows (2 entries + SPARE_ROWS).
+      expect(ws[`B${totalRow}`]?.f).toBe(`SUM(B3:B${4 + SPARE_ROWS})`);
+    });
+
+    it("keeps sheet names unique, short, and clear of names the import skips", () => {
+      const long = "A".repeat(40);
+      const wb = roundTrip([
+        { name: "Ali", phone: "", history: [] },
+        { name: "ali", phone: "", history: [] },
+        { name: long, phone: "", history: [] },
+        { name: long, phone: "", history: [] },
+        { name: "Sheet1", phone: "", history: [] },
+        { name: "List Name", phone: "", history: [] },
+        { name: "NAME (old)", phone: "", history: [] },
+      ]);
+      const names = wb.SheetNames.slice(1);
+      expect(new Set(names.map((n) => n.toLowerCase())).size).toBe(
+        names.length,
+      );
+      expect(names.every((n) => n.length <= 31)).toBe(true);
+      expect(names).not.toContain("Sheet1");
+      expect(names.filter((n) => n.toLowerCase() === "list name")).toEqual([]);
+      expect(names.some((n) => n.startsWith("NAME ("))).toBe(false);
+    });
+  });
+
+  describe("List Name links", () => {
+    it("links every name to its own page, even when the sheet name was cleaned", () => {
+      const long = "Abou/Ali Very Long Customer Name Number";
+      const wb = roundTrip([
+        { name: "Ali O'Neil", phone: "70111111", history: [] },
+        { name: `${long} One`, phone: "70222222", history: [] },
+        { name: `${long} Two`, phone: "70333333", history: [] },
+        { name: "List Name", phone: "70444444", history: [] },
+      ]);
+      const list = wb.Sheets["List Name"]!;
+      for (let row = 2; row <= 5; row++) {
+        const cell = list[`A${row}`]!;
+        const target = cell.l?.Target ?? "";
+        const m = /^#'(.+)'!A1$/.exec(target);
+        expect(m).not.toBeNull();
+        const sheet = m![1]!.replace(/''/g, "'");
+        expect(wb.SheetNames).toContain(sheet);
+        // The linked page is this client's page.
+        expect(wb.Sheets[sheet]!.B1?.v).toBe(cell.v);
       }
-    }
-    const paid = body.filter((r) => r[8] !== "").map((r) => r.slice(6, 9));
-    expect(paid).toEqual([
-      [20, "", "Refund of Sale #12"],
-      ["", 100_000, "Manual Debt — swap"],
-    ]);
+    });
+
+    it("every client page links back to the list from F1", () => {
+      const wb = roundTrip([
+        sara,
+        { name: "Ali", phone: "70111111", history: [] },
+      ]);
+      for (const name of wb.SheetNames.slice(1)) {
+        const f1 = wb.Sheets[name]!.F1;
+        expect(f1?.v).toBe("← Back to list");
+        expect(f1?.l?.Target).toBe("#'List Name'!A1");
+      }
+    });
+
+    it("keeps the list readable by the import: plain names in column A", () => {
+      const wb = roundTrip([sara]);
+      // The import reads columns A and B only.
+      expect(rowsOf(wb, "List Name")[1]!.slice(0, 2)).toEqual([
+        "SARA/ZOHAIR BOU ISMAIL",
+        "71475799",
+      ]);
+    });
   });
 
-  it("keeps the balance equal to the ledger's own sum", () => {
-    const rows = rowsOf(roundTrip([refundClient]), SHEET);
-    const balUsd = rows.find((r) => r[3] === "Balance Remaining in USD")!;
-    const balLbp = rows.find((r) => r[3] === "Balance Remaining in LBP")!;
-    expect(balUsd[4]).toBe(70 - 20 + 5);
-    expect(balLbp[4]).toBe(300_000 - 100_000);
+  describe("keeps working like the shop's own workbook", () => {
+    const SHEET = "SARA ZOHAIR BOU ISMAIL";
+
+    it("leaves SPARE_ROWS empty rows inside the totals, so a line typed later counts", () => {
+      const wb = roundTrip([sara]);
+      const ws = wb.Sheets[SHEET]!;
+      const rows = rowsOf(wb, SHEET);
+      const totalRow = rows.findIndex((r) => r[0] === "TOTAL ON ACCOUNT") + 1;
+      // 2 entry rows, then the spare rows, then the totals.
+      expect(totalRow).toBe(3 + 2 + SPARE_ROWS);
+      for (const col of ["B", "C", "G", "H"]) {
+        expect(ws[`${col}${totalRow}`]?.f).toBe(
+          `SUM(${col}3:${col}${totalRow - 1})`,
+        );
+      }
+      // The spare rows are empty: nothing in them for the import to read.
+      for (let r = 5; r < totalRow; r++) {
+        expect(rows[r - 1]!.filter((v) => v !== "")).toEqual([]);
+      }
+    });
+
+    it("balances sit 7 and 9 rows under the totals, merged across E:F", () => {
+      const wb = roundTrip([sara]);
+      const ws = wb.Sheets[SHEET]!;
+      const rows = rowsOf(wb, SHEET);
+      const totalRow = rows.findIndex((r) => r[0] === "TOTAL ON ACCOUNT") + 1;
+      expect(rows[totalRow + 7 - 1]![3]).toBe("Balance Remaining in USD");
+      expect(rows[totalRow + 9 - 1]![3]).toBe("Balance Remaining in LBP");
+      expect(ws[`E${totalRow + 7}`]?.f).toBe(`B${totalRow}-G${totalRow}`);
+      expect(ws["!merges"]).toEqual(
+        expect.arrayContaining([
+          { s: { r: totalRow + 6, c: 4 }, e: { r: totalRow + 6, c: 5 } },
+          { s: { r: totalRow + 8, c: 4 }, e: { r: totalRow + 8, c: 5 } },
+        ]),
+      );
+    });
+
+    it("List Name balances are formulas pointing at each page's balance", () => {
+      const wb = roundTrip([sara]);
+      const list = wb.Sheets["List Name"]!;
+      const rows = rowsOf(wb, SHEET);
+      const totalRow = rows.findIndex((r) => r[0] === "TOTAL ON ACCOUNT") + 1;
+      expect(list.C2?.f).toBe(`'${SHEET}'!E${totalRow + 7}`);
+      expect(list.D2?.f).toBe(`'${SHEET}'!E${totalRow + 9}`);
+    });
+
+    it("carries the shop's look: Calibri 16, grey labels, yellow totals, $ / LBP formats, borders", () => {
+      const wb = buildDebtExportWorkbook([sara]);
+      const ws = wb.Sheets[SHEET]!;
+      const style = (a: string) =>
+        (ws[a] as { s?: Record<string, any> } | undefined)?.s ?? {};
+      expect(style("A2").fill?.fgColor?.rgb).toBe("BFBFBF");
+      expect(style("A2").font).toMatchObject({ name: "Calibri", sz: 16 });
+      expect(style("B3").numFmt).toContain('"$"');
+      expect(style("C3").numFmt).toContain("[$LBP]");
+      expect(style("A3").numFmt).toBe("m/d/yy");
+      expect(style("B5").border?.left?.style).toBe("thin"); // a spare row
+      const rows = rowsOf(roundTrip([sara]), SHEET);
+      const totalRow = rows.findIndex((r) => r[0] === "TOTAL ON ACCOUNT") + 1;
+      expect(style(`A${totalRow}`).fill?.fgColor?.rgb).toBe("FFFF00");
+    });
+
+    it("the written file keeps the styles (fills, borders, formats)", () => {
+      const bytes = new Uint8Array(
+        writeDebtExportFile(buildDebtExportWorkbook([sara])),
+      );
+      const styles = XLSX.CFB.find(
+        XLSX.CFB.read(bytes, { type: "array" }),
+        "/xl/styles.xml",
+      );
+      const xml = new TextDecoder().decode(styles!.content as Uint8Array);
+      expect(xml).toContain("FFFF00");
+      expect(xml).toContain("BFBFBF");
+      expect(xml).toContain('style="thin"');
+      expect(xml).toContain("[$LBP]");
+    });
   });
 
-  it("does not re-label imported rows", () => {
-    const rows = rowsOf(roundTrip([refundClient]), SHEET);
-    expect(rows[2]!.slice(2, 4)).toEqual([300_000, "old sheet"]);
+  describe("isPaymentLedgerType", () => {
+    it("puts repayments and credit deposits on the paid side only", () => {
+      expect(isPaymentLedgerType("Repayment")).toBe(true);
+      expect(isPaymentLedgerType("CREDIT_DEPOSIT")).toBe(true);
+      expect(isPaymentLedgerType("CREDIT_USED")).toBe(false);
+      expect(isPaymentLedgerType("Sale Debt")).toBe(false);
+    });
   });
 
-  it("marks the file as ours and gives back each row's exact time", () => {
-    const wb = roundTrip([refundClient]);
-    expect(isLiraTekAccountsExport(wb)).toBe(true);
-    const rows = rowsOf(wb, SHEET);
-    expect(exportedRowDate(rows[2]![0])).toBe("2025-10-01T08:00:00.000Z");
-    expect(exportedRowDate(rows[2]![5])).toBe("2025-11-02T08:00:00.000Z");
+  describe("re-importing an export", () => {
+    const SHEET = "Refund Client";
+    const refundClient: DebtExportClient = {
+      name: SHEET,
+      phone: "70111222",
+      history: [
+        entry({
+          transaction_type: "Sale Debt",
+          created_at: "2025-11-01 08:00:00",
+          amount_usd: 70,
+          note: "Sale #12",
+        }),
+        // A refund is a NEGATIVE purchase in the ledger.
+        entry({
+          transaction_type: "Sale Debt",
+          created_at: "2025-11-02 08:00:00",
+          amount_usd: -20,
+          note: "Refund of Sale #12",
+        }),
+        // Mixed signs in one row: +$5 owed, 100,000 LBP back.
+        entry({
+          transaction_type: "Manual Debt",
+          created_at: "2025-11-03 08:00:00",
+          amount_usd: 5,
+          amount_lbp: -100_000,
+          note: "swap",
+        }),
+        entry({
+          transaction_type: "Imported Debt",
+          created_at: "2025-10-01 08:00:00",
+          amount_lbp: 300_000,
+          note: "old sheet",
+        }),
+      ],
+    };
+
+    it("never writes a negative amount — refunds land on the paid side", () => {
+      const rows = rowsOf(roundTrip([refundClient]), SHEET);
+      const body = rows.slice(2, 6);
+      for (const r of body) {
+        for (const i of [1, 2, 6, 7]) {
+          if (typeof r[i] === "number") expect(r[i]).toBeGreaterThan(0);
+        }
+      }
+      const paid = body.filter((r) => r[8] !== "").map((r) => r.slice(6, 9));
+      expect(paid).toEqual([
+        [20, "", "Refund of Sale #12"],
+        ["", 100_000, "Manual Debt — swap"],
+      ]);
+    });
+
+    it("keeps the balance equal to the ledger's own sum", () => {
+      const rows = rowsOf(roundTrip([refundClient]), SHEET);
+      const balUsd = rows.find((r) => r[3] === "Balance Remaining in USD")!;
+      const balLbp = rows.find((r) => r[3] === "Balance Remaining in LBP")!;
+      expect(balUsd[4]).toBe(70 - 20 + 5);
+      expect(balLbp[4]).toBe(300_000 - 100_000);
+    });
+
+    it("does not re-label imported rows", () => {
+      const rows = rowsOf(roundTrip([refundClient]), SHEET);
+      expect(rows[2]!.slice(2, 4)).toEqual([300_000, "old sheet"]);
+    });
+
+    it("marks the file as ours and gives back each row's exact time", () => {
+      const wb = roundTrip([refundClient]);
+      expect(isLiraTekAccountsExport(wb)).toBe(true);
+      const rows = rowsOf(wb, SHEET);
+      expect(exportedRowDate(rows[2]![0])).toBe("2025-10-01T08:00:00.000Z");
+      expect(exportedRowDate(rows[2]![5])).toBe("2025-11-02T08:00:00.000Z");
+    });
+
+    it("does not treat a handwritten sheet as ours", () => {
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["x"]]), "A");
+      const back = XLSX.read(
+        XLSX.write(wb, { bookType: "xlsx", type: "array" }),
+        {
+          type: "array",
+        },
+      );
+      expect(isLiraTekAccountsExport(back)).toBe(false);
+      expect(exportedRowDate("15/11/2025")).toBeNull();
+      expect(exportedRowDate("")).toBeNull();
+    });
   });
 
-  it("does not treat a handwritten sheet as ours", () => {
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["x"]]), "A");
-    const back = XLSX.read(
-      XLSX.write(wb, { bookType: "xlsx", type: "array" }),
-      {
-        type: "array",
-      },
-    );
-    expect(isLiraTekAccountsExport(back)).toBe(false);
-    expect(exportedRowDate("15/11/2025")).toBeNull();
-    expect(exportedRowDate("")).toBeNull();
-  });
-});
+  describe("looksLikeSameShop", () => {
+    const page = (
+      phone: string,
+      usd: number,
+      lbp = 0,
+    ): ImportedPageForShopCheck => ({
+      phone,
+      entries: [
+        { amount_usd: usd + 10, amount_lbp: lbp, type: "debt" },
+        { amount_usd: 10, amount_lbp: 0, type: "payment" },
+      ],
+    });
+    const here = (phone: string, usd: number, lbp = 0) => ({
+      phone_number: phone,
+      total_debt_usd: usd,
+      total_debt_lbp: lbp,
+    });
+    const file = [
+      page("70111111", 50),
+      page("71/222222", 20, 500_000),
+      page("76333333", 5),
+    ];
 
-describe("looksLikeSameShop", () => {
-  const page = (
-    phone: string,
-    usd: number,
-    lbp = 0,
-  ): ImportedPageForShopCheck => ({
-    phone,
-    entries: [
-      { amount_usd: usd + 10, amount_lbp: lbp, type: "debt" },
-      { amount_usd: 10, amount_lbp: 0, type: "payment" },
-    ],
-  });
-  const here = (phone: string, usd: number, lbp = 0) => ({
-    phone_number: phone,
-    total_debt_usd: usd,
-    total_debt_lbp: lbp,
-  });
-  const file = [
-    page("70111111", 50),
-    page("71/222222", 20, 500_000),
-    page("76333333", 5),
-  ];
+    it("is false for a new shop", () => {
+      expect(looksLikeSameShop(file, [])).toBe(false);
+    });
 
-  it("is false for a new shop", () => {
-    expect(looksLikeSameShop(file, [])).toBe(false);
-  });
+    it("is true for the shop the file came from (phones compared as digits)", () => {
+      expect(
+        looksLikeSameShop(file, [
+          here("70 111 111", 50),
+          here("71222222", 20, 500_000),
+          here("76333333", 5),
+        ]),
+      ).toBe(true);
+    });
 
-  it("is true for the shop the file came from (phones compared as digits)", () => {
-    expect(
-      looksLikeSameShop(file, [
-        here("70 111 111", 50),
-        here("71222222", 20, 500_000),
-        here("76333333", 5),
-      ]),
-    ).toBe(true);
-  });
+    it("is still true after a few clients moved on since the export", () => {
+      expect(
+        looksLikeSameShop(file, [
+          here("70111111", 50),
+          here("71222222", 20, 500_000),
+          here("76333333", 0),
+        ]),
+      ).toBe(true);
+    });
 
-  it("is still true after a few clients moved on since the export", () => {
-    expect(
-      looksLikeSameShop(file, [
-        here("70111111", 50),
-        here("71222222", 20, 500_000),
-        here("76333333", 0),
-      ]),
-    ).toBe(true);
+    it("is false when only a minority of balances match", () => {
+      expect(
+        looksLikeSameShop(file, [here("70111111", 50), here("71222222", 3)]),
+      ).toBe(false);
+    });
+
+    it("ignores clients whose file balance is zero", () => {
+      expect(
+        looksLikeSameShop([page("70111111", 0)], [here("70111111", 0)]),
+      ).toBe(false);
+    });
   });
 
-  it("is false when only a minority of balances match", () => {
-    expect(
-      looksLikeSameShop(file, [here("70111111", 50), here("71222222", 3)]),
-    ).toBe(false);
-  });
+  describe("buildDebtExportWorkbook — a voided charge, its cancellation and the re-entry (2026-10-28)", () => {
+    const client: DebtExportClient = {
+      name: "SouheiL SALIM Kerbaj",
+      phone: "70000000",
+      history: [
+        entry({
+          transaction_type: "Service Debt",
+          transaction_id: 12708,
+          created_at: "2026-10-25 08:41:21",
+          amount_lbp: 5_630_000,
+          note: "OMT send",
+        }),
+        entry({
+          transaction_type: "Refund Reversal",
+          transaction_id: 12708,
+          created_at: "2026-10-27 23:06:07",
+          amount_lbp: -5_630_000,
+          note: "Debt cancelled by refund/void",
+        }),
+        entry({
+          transaction_type: "Service Debt",
+          transaction_id: 13435,
+          created_at: "2026-10-27 23:33:57",
+          amount_lbp: 5_630_000,
+          note: "OMT send",
+        }),
+      ],
+    };
 
-  it("ignores clients whose file balance is zero", () => {
-    expect(
-      looksLikeSameShop([page("70111111", 0)], [here("70111111", 0)]),
-    ).toBe(false);
-  });
-});
-
-describe("buildDebtExportWorkbook — a voided charge, its cancellation and the re-entry (2026-10-28)", () => {
-  const client: DebtExportClient = {
-    name: "SouheiL SALIM Kerbaj",
-    phone: "70000000",
-    history: [
-      entry({
-        transaction_type: "Service Debt",
-        transaction_id: 12708,
-        created_at: "2026-10-25 08:41:21",
-        amount_lbp: 5_630_000,
-        note: "OMT send",
-      }),
-      entry({
-        transaction_type: "Refund Reversal",
-        transaction_id: 12708,
-        created_at: "2026-10-27 23:06:07",
-        amount_lbp: -5_630_000,
-        note: "Debt cancelled by refund/void",
-      }),
-      entry({
-        transaction_type: "Service Debt",
-        transaction_id: 13435,
-        created_at: "2026-10-27 23:33:57",
-        amount_lbp: 5_630_000,
-        note: "OMT send",
-      }),
-    ],
-  };
-
-  it("marks the voided charge and names the cancellation; the balance stays the ledger's sum", () => {
-    const rows = rowsOf(roundTrip([client]), "SouheiL SALIM Kerbaj");
-    expect(rows[2]!.slice(2, 4)).toEqual([
-      5_630_000,
-      "Service Debt — OMT send (voided)",
-    ]);
-    expect(rows[3]!.slice(2, 4)).toEqual([
-      5_630_000,
-      "Service Debt — OMT send",
-    ]);
-    // The cancellation stays a positive paid-side figure: the import reads
-    // only amounts above zero (see "never writes a negative amount").
-    expect(rows[2]!.slice(7, 9)).toEqual([
-      5_630_000,
-      "Cancelled: Service Debt — OMT send",
-    ]);
-    const bal = rows.find((r) => r[3] === "Balance Remaining in LBP")!;
-    expect(bal[4]).toBe(5_630_000);
+    it("marks the voided charge and names the cancellation; the balance stays the ledger's sum", () => {
+      const rows = rowsOf(roundTrip([client]), "SouheiL SALIM Kerbaj");
+      expect(rows[2]!.slice(2, 4)).toEqual([
+        5_630_000,
+        "Service Debt — OMT send (voided)",
+      ]);
+      expect(rows[3]!.slice(2, 4)).toEqual([
+        5_630_000,
+        "Service Debt — OMT send",
+      ]);
+      // The cancellation stays a positive paid-side figure: the import reads
+      // only amounts above zero (see "never writes a negative amount").
+      expect(rows[2]!.slice(7, 9)).toEqual([
+        5_630_000,
+        "Cancelled: Service Debt — OMT send",
+      ]);
+      const bal = rows.find((r) => r[3] === "Balance Remaining in LBP")!;
+      expect(bal[4]).toBe(5_630_000);
+    });
   });
 });

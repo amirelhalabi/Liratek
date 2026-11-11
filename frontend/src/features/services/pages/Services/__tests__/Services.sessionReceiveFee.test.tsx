@@ -199,34 +199,11 @@ describe("Services page — session RECEIVE fee-on-top is REAL (BIDIRECTIONAL_PA
     mockAddOMTTransaction.mockClear();
   });
 
-  it("fee-on-top: ships the resolved $1 tier fee as-entered, and the cart amount is the FULL payout (-$100, fee collected separately)", async () => {
-    await renderPage();
-    switchToOmtReceive();
-
-    // $100 OMT INTRA USD → INTRA_FEE_TIERS resolves a non-zero $1 tier fee.
-    fireEvent.change(
-      document.getElementById("service-amount") as HTMLInputElement,
-      { target: { value: "100" } },
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: /Record Receive/i }));
-
-    await waitFor(() => expect(mockAddToCart).toHaveBeenCalledTimes(1));
-
-    const cartItem = mockAddToCart.mock.calls[0][0] as {
-      amount: number;
-      formData: Record<string, unknown>;
-    };
-
-    // The fee rides through exactly as resolved — no longer zeroed.
-    expect(cartItem.formData.omtFee).toBe(1);
-    expect(cartItem.formData.includingFees).toBe(false);
-    // Fee-on-top: the customer still receives the FULL requested $100 in
-    // cash; the $1 fee is collected separately via the pooled charge bucket
-    // (splitBasketCashSides), never subtracted from this payout.
-    expect(cartItem.amount).toBe(-100);
-  });
-
+  // "fee-on-top: ships the resolved $1 tier fee as-entered, and the cart
+  // amount is the FULL payout" was removed on 2026-11-11 as a strict
+  // duplicate: the D1 test below does the same render, input and submit and
+  // asserts everything it asserted (omtFee 1, includingFees false, -100),
+  // plus the absent toggle.
   it("D1: no Including-Fees toggle at all — the cart amount stays the FULL payout (-$100) regardless of the fee typed, even inside a session", async () => {
     // Actually run 2026-09-23: with the "Including Fees Checkbox" render gate
     // in Services/index.tsx temporarily reverted to `provider !== "WHISH"`
