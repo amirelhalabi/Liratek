@@ -32,7 +32,6 @@ import {
 } from "lucide-react";
 import {
   appEvents,
-  canChargeToCustomerAccount,
   PageHeader,
   useApi,
   DecimalInput,
@@ -65,6 +64,15 @@ import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
+import {
+  accountMethodOnPick,
+  clientPaymentProps,
+  hasResolvableClient,
+} from "@/shared/utils/clientPaymentProps";
+// TODO(LIRA-387 follow-up): promote ensureRechargeClient to shared/ (it is
+// used by Loto and Custom Services too); left in place while the recharge
+// feature is being edited by another change.
+import { ensureRechargeClient } from "@/features/recharge/utils/ensureClient";
 import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
 import type { Client } from "@liratek/ui";
 import { ForPartnerNotice } from "@/features/partners/components/ForPartnerToggle";
@@ -351,15 +359,14 @@ export default function CustomServices() {
     setClientId(client.id);
     if (client.phone_number) setPhoneNumber(client.phone_number);
     resetSaveAsClient();
-    const hasCustomerAccount = methods.some(
-      (m) => m.code === "CUSTOMER_ACCOUNT",
-    );
-    const chargeable = canChargeToCustomerAccount({
+    // LIRA-387: the shared "pick a client" rule.
+    const onPick = accountMethodOnPick({
+      methods,
       name: client.full_name,
       phone: client.phone_number,
     });
-    if (hasCustomerAccount && chargeable) {
-      setPaymentInitialMethod("CUSTOMER_ACCOUNT");
+    if (onPick) {
+      setPaymentInitialMethod(onPick);
       setPaymentInputKey((k) => k + 1);
     }
   };
@@ -479,13 +486,21 @@ export default function CustomServices() {
     // FOR takes no counter payment at all, so this guard never applies to
     // it. VIA is a normal walk-in payment (just with an extra partner-cost
     // ledger booking underneath) so it's treated exactly like "none" here.
-    if (!isForPartner && hasDebtLine && !clientId) {
+    // LIRA-387: a picked client OR a typed name + phone is enough — a new
+    // client is registered below, before the service is saved (as on POS,
+    // Loto and Mobile Recharge). Name alone (no phone) is still refused.
+    const chargeableClient = hasResolvableClient({
+      clientId,
+      name: clientName,
+      phone: phoneNumber,
+    });
+    if (!isForPartner && hasDebtLine && !chargeableClient) {
       alert(t("msg.selectClientForDebt"));
       return;
     }
     if (
       !isForPartner &&
-      !clientId &&
+      !chargeableClient &&
       returnLegs.some((l) => l.method === "CUSTOMER_ACCOUNT")
     ) {
       alert(t("msg.selectClientForChange"));
@@ -522,9 +537,33 @@ export default function CustomServices() {
 
     setIsSubmitting(true);
     try {
-      // Auto-create client if "Save as client" is checked and no existing client selected
+      // LIRA-387: an account line (a charge, or change left as credit)
+      // needs a saved client — register the typed name + phone now
+      // (CustomServiceRepository creates none). Inside a session basket the
+      // session owns the customer, so nothing is created there. Without an
+      // account line, "Save as client" alone decides.
       let finalClientId = clientId;
-      if (!isForPartner && !clientId && clientName.trim()) {
+      const accountLines =
+        isForPartner || isPayout
+          ? []
+          : [...paymentLines, ...returnLegs].filter(
+              (l) => l.method === "CUSTOMER_ACCOUNT",
+            );
+      if (accountLines.length > 0) {
+        const resolved = await ensureRechargeClient({
+          clientId,
+          inSession: !!activeSession && !freeJob,
+          name: clientName,
+          phone: phoneNumber,
+          paymentLines: accountLines,
+        });
+        if (!resolved.ok) {
+          alert(resolved.error);
+          return;
+        }
+        finalClientId = resolved.id;
+      } else if (!isForPartner && !clientId && clientName.trim()) {
+        // Auto-create client if "Save as client" is checked
         const result = await trySaveAsClient();
         if (result.clientId) finalClientId = result.clientId;
       }
@@ -1642,22 +1681,20 @@ export default function CustomServices() {
                           {...(activeSession
                             ? {}
                             : { onKeptChange: setKeptChange })}
-                          requiresClientForDebt={true}
-                          hasClient={!!clientId || !!clientName}
-                          // Auto-debt needs a RESOLVED client here: the submit
-                          // guard rejects debt legs without clientId (name-only
-                          // would auto-split and then dead-end at that alert).
-                          autoDebtRemainder={!!clientId}
-                          // Change not handed back → store credit (OUT
-                          // CUSTOMER_ACCOUNT leg). CustomServiceRepository
-                          // needs a saved client_id and creates none, and
-                          // "Save as client" may not run, so only a client
-                          // already picked qualifies.
-                          {...(clientId
-                            ? {
-                                unreturnedChangeTo: "CUSTOMER_ACCOUNT" as const,
-                              }
-                            : {})}
+                          // LIRA-387: the shared client rules — a picked
+                          // client or a typed name + phone (registered on
+                          // Submit) can be charged; a shortfall and change
+                          // not handed back go on the account (never the
+                          // change inside a session: the basket owns it).
+                          {...clientPaymentProps({
+                            clientId,
+                            name: clientName,
+                            phone: phoneNumber,
+                            flow: "sale",
+                            paymentLines,
+                            inSession: !!activeSession,
+                            changeToAccount: true,
+                          })}
                           paymentMethods={methods}
                           currencies={[
                             { code: "USD", symbol: "$" },

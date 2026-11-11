@@ -641,6 +641,14 @@ test("lira-web-057 basket checkout modal: a $20 basket paid $17 shows Waive; cli
   ).json();
   expect(started.success, JSON.stringify(started)).toBeTruthy();
   const sessionId = started.sessionId as number;
+  // LIRA-354: a device only uses a session it opened or picked itself, so a
+  // session started over REST must be remembered on this browser before the
+  // page loads — otherwise the header shows "New Customer" and Submit sells
+  // directly instead of adding to the basket.
+  await page.evaluate(
+    (id) => window.localStorage.setItem("liratek.session.current", String(id)),
+    sessionId,
+  );
   await refreshSessionsUi(page);
 
   try {

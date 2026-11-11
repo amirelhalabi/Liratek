@@ -4,24 +4,13 @@ import { formatNumber } from "@liratek/ui/i18n/format";
 import { CheckCircle, CreditCard, Info } from "lucide-react";
 import { PaymentNoteField, type PaymentLine } from "@liratek/ui";
 import { maxRechargeDiscount } from "@liratek/core";
-import {
-  PaymentSheet,
-  type PaymentSheetItem,
-  type PaymentSheetProps,
-} from "./PaymentSheet";
+import { PaymentSheet, type PaymentSheetItem } from "./PaymentSheet";
+import type { PaymentSheetClientProps } from "../utils/paymentSheetClient";
 
 /** The picked client's rules on the payment window, as the caller derives
- *  them (TelecomForm's `clientSheetProps` — shared with its Credit/Days
- *  sheet so both stay identical). */
-export type CardGridClientSheetProps = Pick<
-  PaymentSheetProps,
-  | "hasClient"
-  | "autoDebtRemainder"
-  | "requiresClientForDebt"
-  | "unreturnedChangeTo"
-  | "paymentInputKey"
-  | "initialPaymentMethod"
->;
+ *  them — always through `paymentSheetClientProps` (utils/paymentSheetClient),
+ *  the ONE builder shared with the Credit/Days and Binance windows. */
+export type CardGridClientSheetProps = PaymentSheetClientProps;
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import {
@@ -90,16 +79,14 @@ interface CardGridPayViewProps {
   /** LIRA-319 — the sheet's "+ Extra" (LBP), forwarded to the PaymentSheet.
    *  Wire only when the caller sends `extra_lbp` on its submit payload. */
   onExtraChange?: (extra: number) => void;
-  clientName: string;
-  onClientNameChange: (value: string) => void;
-  /** Replaces the plain "Client name (optional)" box with the caller's own
-   *  client picker (search + pick a registered client + new-client phone).
-   *  Pass it together with `clientSheetProps` so picking a client switches
-   *  the payment to the customer's account, as on the Credit/Days sheet. */
-  clientField?: ReactNode;
-  /** The picked client's rules (account, debt remainder, change to
-   *  account), forwarded to the PaymentSheet as-is. */
-  clientSheetProps?: CardGridClientSheetProps;
+  /** The caller's client picker (search + pick a registered client +
+   *  new-client phone). Required: a plain name box here could never charge
+   *  a client's account (LIRA-386). */
+  clientField: ReactNode;
+  /** The client rules, from `paymentSheetClientProps` — required with
+   *  `clientField`, so picking a client switches the payment to the
+   *  customer's account, as on the Credit/Days window. */
+  clientSheetProps: CardGridClientSheetProps;
   transactionTime: string | undefined;
   onTransactionTimeChange: (time: string | undefined) => void;
   /** LIRA-366: the optional Note box under the payment box. Shown only when
@@ -141,8 +128,6 @@ export function CardGridPayView({
   onExchangeRateChange,
   onDiscountChange,
   onExtraChange,
-  clientName,
-  onClientNameChange,
   clientField,
   clientSheetProps,
   transactionTime,
@@ -323,7 +308,12 @@ export function CardGridPayView({
         {...clientSheetProps}
         summary={[
           ...(selected && selected.valueUsd !== undefined
-            ? [{ label: t("cardGrid.valueLabel"), value: `$${selected.valueUsd}` }]
+            ? [
+                {
+                  label: t("cardGrid.valueLabel"),
+                  value: `$${selected.valueUsd}`,
+                },
+              ]
             : []),
           {
             label: t("cardGrid.price"),
@@ -332,15 +322,7 @@ export function CardGridPayView({
           },
         ]}
       >
-        {clientField ?? (
-          <input
-            type="text"
-            value={clientName}
-            onChange={(e) => onClientNameChange(e.target.value)}
-            placeholder={t("common.clientNameOptional")}
-            className={`w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none ${theme.inputFocus}`}
-          />
-        )}
+        {clientField}
         <TransactionTimeOverride
           value={transactionTime}
           onChange={onTransactionTimeChange}

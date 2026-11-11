@@ -18,6 +18,7 @@ import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
 import { ensureRechargeClient } from "../utils/ensureClient";
+import { paymentSheetClientProps } from "../utils/paymentSheetClient";
 import type { ServiceItem, ProviderKey } from "../hooks/useMobileServiceItems";
 import { NewServiceItemInlineForm } from "./NewServiceItemInlineForm";
 import {
@@ -1033,6 +1034,21 @@ export function FinancialForm({
     );
   };
 
+  // The payment window's client rules — the ONE builder every recharge
+  // window shares (rules 14/22). A shortfall goes on the account only for a
+  // client the backend can resolve (picked, or name + phone to create).
+  const sheetClient = paymentSheetClientProps({
+    clientId,
+    name: clientName,
+    phone: clientPhone,
+    payout: false,
+    paymentLines,
+    inSession: !!activeSession,
+    booksChange: true,
+    paymentInputKey,
+    initialPaymentMethod,
+  });
+
   return (
     <>
       <div className="flex flex-col gap-3">
@@ -1557,28 +1573,13 @@ export function FinancialForm({
           fetchClientVouchers={fetchClientVouchers}
           exchangeRate={exchangeRate}
           onExchangeRateChange={setEffectiveRate}
-          requiresClientForDebt={true}
-          hasClient={
-            !!clientId ||
-            !!activeSession?.customer_name ||
-            (!!clientName.trim() && !!clientPhone.trim())
-          }
-          // Charge flow (catalog items / bills sold to a walk-in): a
-          // shortfall becomes client debt — but only for a client the
-          // backend can actually resolve (id, or name+phone to create).
-          // Session-name-only is NOT enough for a debt row.
-          autoDebtRemainder={
-            !!clientId || (!!clientName.trim() && !!clientPhone.trim())
-          }
-          // Change not handed back → store credit (OUT CUSTOMER_ACCOUNT leg,
-          // forwarded in `payments`). Same client rule as auto-debt; never in a
-          // session, where the basket checkout owns the change.
-          {...(!activeSession &&
-          (!!clientId || (!!clientName.trim() && !!clientPhone.trim()))
-            ? { unreturnedChangeTo: "CUSTOMER_ACCOUNT" as const }
-            : {})}
-          paymentInputKey={paymentInputKey}
-          initialPaymentMethod={initialPaymentMethod}
+          {...sheetClient}
+          // Kept from before the shared builder: inside a customer session
+          // the session's customer counts as the client for an account line
+          // (the basket books it on that customer). Session-name-only is NOT
+          // enough for an automatic debt row, so `autoDebtRemainder` stays
+          // the builder's.
+          hasClient={sheetClient.hasClient || !!activeSession?.customer_name}
           onDiscountChange={setDiscount}
           // LIRA-319: "− Discount | + Extra" on a walk-in sale only (a
           // session or a partner order never opens this sheet; a RECEIVE is

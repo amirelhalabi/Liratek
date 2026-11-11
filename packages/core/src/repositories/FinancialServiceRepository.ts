@@ -1619,6 +1619,31 @@ END`;
 // below — before Phase 2 those were two independent copies of the same
 // `provider IN (OMT, WHISH) AND service_type IN (SEND, RECEIVE)` check;
 // widening the stamp without extracting this would have made it three.
+/**
+ * LIRA-387 — does this transaction put anything on (or credit anything to)
+ * the customer's account? Any CUSTOMER_ACCOUNT line counts: a payment or
+ * change leg, a RECEIVE payout line (or the single `cashoutMethod`), a
+ * customer-paid fee line, or a "Customer pays" line. Such a transaction
+ * needs a client, so the primary-client resolver creates one from the name +
+ * phone even when the page's "Save as client" box was left unticked —
+ * charging or crediting an account IS saving the customer. ONE predicate
+ * (rule 14) for every branch that books to an account.
+ */
+export function chargesCustomerAccount(
+  data: Pick<
+    CreateFinancialServiceData,
+    "payments" | "feePayments" | "customerPayments" | "cashoutMethod"
+  >,
+): boolean {
+  const isAccount = (l: { method: string }) => l.method === "CUSTOMER_ACCOUNT";
+  return (
+    data.cashoutMethod === "CUSTOMER_ACCOUNT" ||
+    (data.payments ?? []).some(isAccount) ||
+    (data.feePayments ?? []).some(isAccount) ||
+    (data.customerPayments ?? []).some(isAccount)
+  );
+}
+
 function isOmtWhishTransfer(provider: string, serviceType: string): boolean {
   return (
     (provider === "OMT" || provider === "WHISH") &&
@@ -1851,6 +1876,42 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
   }
 
   /**
+   * LIRA-387 — the ONE find-or-create of a client from a name + phone for
+   * this repository (rule 14): an existing client with that phone is linked;
+   * otherwise one is created when `create` is true. Returns undefined when
+   * nothing was found and nothing was created.
+   */
+  private findOrCreateClientByPhone(p: {
+    name: string;
+    phone: string;
+    create: boolean;
+    notes: string;
+    tenantId: number;
+  }): number | undefined {
+    const existing = this.db
+      .prepare(
+        `SELECT id FROM clients WHERE phone_number = ? AND tenant_id = ? LIMIT 1`,
+      )
+      .get(p.phone, p.tenantId) as { id: number } | undefined;
+    if (existing) return existing.id;
+    if (!p.create) return undefined;
+    const insertResult = this.db
+      .prepare(
+        `INSERT INTO clients (full_name, phone_number, notes, tenant_id, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(
+        p.name,
+        p.phone,
+        p.notes,
+        p.tenantId,
+        // LIRA-306 FR-021: the event time on an offline replay.
+        requestNow(),
+      );
+    return Number(insertResult.lastInsertRowid);
+  }
+
+  /**
    * Resolve (or create) the client to debt-charge for a Binance CUSTOMER_ACCOUNT
    * payment leg, and link the unified transaction row to that client.
    *
@@ -1869,29 +1930,16 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       if (!data.phoneNumber?.trim()) {
         throw new Error("Phone number is required when paying by debt");
       }
-      const existing = this.db
-        .prepare(
-          `SELECT id FROM clients WHERE phone_number = ? AND tenant_id = ? LIMIT 1`,
-        )
-        .get(data.phoneNumber, tenantId) as { id: number } | undefined;
-      if (existing) {
-        resolvedClientId = existing.id;
-      } else {
-        const insertResult = this.db
-          .prepare(
-            `INSERT INTO clients (full_name, phone_number, notes, tenant_id, created_at)
-             VALUES (?, ?, ?, ?, ?)`,
-          )
-          .run(
-            data.clientName,
-            data.phoneNumber,
-            "Auto-created from Binance debt",
-            tenantId,
-            // LIRA-306 FR-021: the event time on an offline replay.
-            requestNow(),
-          );
-        resolvedClientId = Number(insertResult.lastInsertRowid);
-      }
+      resolvedClientId = this.findOrCreateClientByPhone({
+        name: data.clientName,
+        phone: data.phoneNumber,
+        create: true,
+        notes: "Auto-created from Binance debt",
+        tenantId,
+      });
+    }
+    if (!resolvedClientId) {
+      throw new Error("Could not resolve client for debt");
     }
     this.db
       .prepare(
@@ -2975,33 +3023,20 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
       if (!resolvedPrimaryClientId && primaryName) {
         if (primaryPhone) {
-          // Try to find existing client by phone number
-          const existing = this.db
-            .prepare(
-              `SELECT id FROM clients WHERE phone_number = ? AND tenant_id = ? LIMIT 1`,
-            )
-            .get(primaryPhone, tenantId) as { id: number } | undefined;
-          if (existing) {
-            resolvedPrimaryClientId = existing.id;
-          } else if (data.saveAsClient !== false) {
-            // Auto-create client with phone — unless the page said not to
-            // ("Save as client" unchecked, shop-day 2026-10-16). Callers
-            // that never offer the choice send nothing and keep this.
-            const insertResult = this.db
-              .prepare(
-                `INSERT INTO clients (full_name, phone_number, notes, tenant_id, created_at)
-                        VALUES (?, ?, ?, ?, ?)`,
-              )
-              .run(
-                primaryName,
-                primaryPhone,
-                "Auto-created from OMT/WHISH service",
-                tenantId,
-                // LIRA-306 FR-021: the event time on an offline replay.
-                requestNow(),
-              );
-            resolvedPrimaryClientId = Number(insertResult.lastInsertRowid);
-          }
+          // Link an existing client by phone, else auto-create one — unless
+          // the page said not to ("Save as client" unchecked, shop-day
+          // 2026-10-16). Callers that never offer the choice send nothing
+          // and keep auto-creating. LIRA-387: an account line overrides the
+          // opt-out — it cannot be booked without a client (a RECEIVE to a
+          // new receiver's account used to fail here).
+          resolvedPrimaryClientId = this.findOrCreateClientByPhone({
+            name: primaryName,
+            phone: primaryPhone,
+            create:
+              data.saveAsClient !== false || chargesCustomerAccount(data),
+            notes: "Auto-created from OMT/WHISH service",
+            tenantId,
+          });
         } else {
           // No phone — try to find existing client by name
           const existing = this.db
@@ -5173,36 +5208,21 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               (p) => p.method === "CUSTOMER_ACCOUNT",
             );
             if (debtLegs.length > 0) {
-              // Resolve clientId — use existing or find/create from name+phone
-              let resolvedClientId = data.clientId;
+              // Resolve clientId — the primary client resolved above (the
+              // picked id, else found/created from the name + phone; an
+              // account line always creates it, LIRA-387). The legacy
+              // clientName/phoneNumber pair is the fallback for a caller
+              // that sends only those.
+              let resolvedClientId =
+                data.clientId ?? resolvedPrimaryClientId ?? undefined;
               if (!resolvedClientId && data.clientName && data.phoneNumber) {
-                // Try to find existing client by phone number
-                const existing = this.db
-                  .prepare(
-                    `SELECT id FROM clients WHERE phone_number = ? AND tenant_id = ? LIMIT 1`,
-                  )
-                  .get(data.phoneNumber, tenantId) as
-                  | { id: number }
-                  | undefined;
-                if (existing) {
-                  resolvedClientId = existing.id;
-                } else {
-                  // Auto-create client — use the DB directly to get lastInsertRowid
-                  const insertResult = this.db
-                    .prepare(
-                      `INSERT INTO clients (full_name, phone_number, notes, tenant_id, created_at)
-                       VALUES (?, ?, ?, ?, ?)`,
-                    )
-                    .run(
-                      data.clientName,
-                      data.phoneNumber,
-                      "Auto-created from service debt payment",
-                      tenantId,
-                      // LIRA-306 FR-021: the event time on an offline replay.
-                      requestNow(),
-                    );
-                  resolvedClientId = Number(insertResult.lastInsertRowid);
-                }
+                resolvedClientId = this.findOrCreateClientByPhone({
+                  name: data.clientName,
+                  phone: data.phoneNumber,
+                  create: true,
+                  notes: "Auto-created from service debt payment",
+                  tenantId,
+                });
               }
 
               if (!resolvedClientId) {

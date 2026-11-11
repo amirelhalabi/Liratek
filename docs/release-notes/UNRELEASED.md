@@ -268,6 +268,8 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 💸 OMT / Whish & suppliers
 
+- A Receive can now be paid straight into a new receiver's account, even without ticking "Save as client". The receiver is saved automatically.
+- Picking a client from the search on a Send now switches the payment to their account. The transfer is booked to that client even if you correct their phone number.
 - OMT/Whish History and the Transactions tab on the Suppliers page now show the commission a transfer actually earned once it is settled. The estimate, marked "est.", only shows while the transfer is waiting to be settled.
 - From now on, a settlement commission entered in the other currency (for example a dollar commission on lira transfers) is counted in Profits, both when you settle a batch and from the account's Settle sheet. The Settle sheet no longer blocks it when the transfers being paid are in the other currency.
 - OMT: when you settle the OMT account in cash on Settle Account, you can now choose whether the cash comes from the OMT Cash Drawer (the default) or General. On a Whish shop the same choice shows for Whish, also when Whish pays you a bills commission in cash.
@@ -376,6 +378,8 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 📱 MTC / Alfa
 
+- MTC and Alfa Credit, Days, Alfa Gift and credit buy-back: typing a new client's name and phone no longer shows "Client is required" once the payment is on Customer Account, and a short payment now goes on that client's account, as on POS.
+- Binance send: a short payment with a client now goes on the client's account.
 - Alfa Gift: the payment window of a direct gift sale now lets you search for a client or add a new one with their phone number, so the gift can go on their account; before, it had only a name box and "Customer Account" was always refused.
 - Mobile Recharge: a price changed in Settings → Mobile services now reaches recharge screens already open on other tills (web app), within moments, instead of only after they reload.
 - Checkpoint for MTC or Alfa alone: Save works again. It used to stop with "At least one drawer amount is required" and save nothing.
@@ -477,6 +481,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 🛠️ Custom Services
 
+- You can now charge a service to a new customer's account by typing their name and phone. The customer is saved for you when you submit.
 - Selling an insurance now asks for its type: Compulsory, Third party, Domestic worker, All risk or Life. The type shows in History.
 - Insurance sales now show as "Insurance" in the Type column of the Transactions page and as "Insurance" on the customer's account. From now on the summary and the account note also name the type, for example "Insurance (Compulsory): Car insurance".
 - New "Insurance renewals" card on the Dashboard: customers whose insurance ends within 7 days or has ended without renewal, with a daily reminder in the bell and a "Won't renew" button. Insurance sold before this update is matched by customer only.
@@ -527,6 +532,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 🎁 Vouchers
 
+- When you sell a voucher to a client you picked, the payment switches to their account. The false red "Client is required" message is gone, and any unpaid part goes on their account.
 - Vouchers: from now on, selling a gift card takes payment (cash, a wallet, or the customer's account) and puts the money in the drawer. Cancelling an unused gift card refunds the customer: the cash part back from the drawer and the account part taken off their account. Gift cards created before this update were not paid for, so cancelling them refunds nothing.
 - Vouchers: you can now give a discount on a gift card sale, up to $5 or 450,000 LBP. A $50 gift card sold for $48 is still worth $50 when used; the $2 shows on the Expenses page as "Discount given". Cancelling the gift card refunds what the customer paid ($48) and cancels the "Discount given".
 - Vouchers: from now on a gift card sale or cancel shows its code (and the discount, if any) in the transaction's details.

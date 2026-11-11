@@ -123,6 +123,15 @@ async function pickAliAndAmount(container: HTMLElement, amount: string) {
   await waitFor(() => expect(methodLabels(container)).toContain("OMT"));
 }
 
+/** LIRA-387: picking a client now switches the payment to Customer Account
+ *  (the shared pick rule); these cash-sale cases choose Cash explicitly. */
+function payByCash(container: HTMLElement) {
+  const select = container.querySelector(
+    'select[data-testid^="payment-method-"]',
+  ) as HTMLSelectElement;
+  fireEvent.change(select, { target: { value: "CASH" } });
+}
+
 function expectSchemaKeys(payload: object, shape: object) {
   for (const k of Object.keys(payload)) expect(Object.keys(shape)).toContain(k);
 }
@@ -148,6 +157,7 @@ describe("Create — the voucher is sold", () => {
   it("sends ONE payload with the payment legs and the tender rate", async () => {
     const { container } = render(<VouchersPage />);
     await pickAliAndAmount(container, "50");
+    payByCash(container);
     const submit = screen.getByTestId("voucher-create-submit");
     await waitFor(() => expect(submit).not.toBeDisabled());
     fireEvent.click(submit);
@@ -209,6 +219,7 @@ describe("LIRA-365 US3 — a discount on the voucher sale", () => {
   it("$50 voucher, $2 discount, $48 paid: discount_amount 2, legs $48", async () => {
     const { container } = render(<VouchersPage />);
     await pickAliAndAmount(container, "50");
+    payByCash(container);
     fireEvent.change(screen.getByLabelText("Discount"), {
       target: { value: "2" },
     });

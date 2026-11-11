@@ -44,6 +44,7 @@ import {
   type CardGridPayItem,
 } from "./CardGridPayView";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
+import { paymentSheetClientProps } from "../utils/paymentSheetClient";
 import { localDay } from "@/shared/utils/localDay";
 import { snapValidityDaysUp } from "../utils/validityDays";
 import {
@@ -611,39 +612,25 @@ export function TelecomForm({
   // The picked client's rules on a payment window — ONE derivation for the
   // Credit/Days sheet and the Alfa Gift sheet (rules 14/22), so the two can
   // never drift again. `payout` is true only for a credit buy-back.
-  const clientSheetProps = (payout: boolean): CardGridClientSheetProps => ({
-    hasClient: !!telecomClientId,
-    // Charge flow: shortfall → debt on the resolved client.
-    // Buy-back (D7): HARD off, regardless of client — an auto
-    // IN-direction debt leg would invert the sign of the
-    // unpaid remainder on this money-OUT flow (MultiPaymentInput's
-    // own warning; see FEATURE_GUIDE §7 / plan Phase 6).
-    autoDebtRemainder: payout ? false : !!telecomClientId,
-    // Buy-back: only require a client when the operator
-    // actually picked a CUSTOMER_ACCOUNT leg — otherwise a
-    // CASH/wallet-only cashout needs no client at all.
-    requiresClientForDebt: payout
-      ? paymentLines.some((l) => l.method === "CUSTOMER_ACCOUNT")
-      : true,
-    // Sale only (a buy-back is a payout): change not handed
-    // back → store credit (OUT CUSTOMER_ACCOUNT leg). Active
-    // only with a picked client (`hasClient`); never in
-    // a session, where the basket checkout owns the change.
-    ...(onReturnChange && !payout && !activeSession
-      ? { unreturnedChangeTo: "CUSTOMER_ACCOUNT" as const }
-      : {}),
-    paymentInputKey,
-    initialPaymentMethod,
-  });
+  const clientSheetProps = (payout: boolean): CardGridClientSheetProps =>
+    paymentSheetClientProps({
+      clientId: telecomClientId,
+      name: telecomClientName,
+      phone: telecomClientPhone,
+      payout,
+      paymentLines,
+      inSession: !!activeSession,
+      booksChange: !!onReturnChange,
+      paymentInputKey,
+      initialPaymentMethod,
+    });
 
   const clientPicker = (
     <div className="relative">
       <label
         htmlFor="telecom-debt-client"
         className={`block text-xs font-medium mb-2 uppercase tracking-wider flex items-center gap-1.5 ${
-          paymentLines.some(
-            (l) => l.method === "CUSTOMER_ACCOUNT",
-          )
+          paymentLines.some((l) => l.method === "CUSTOMER_ACCOUNT")
             ? "text-orange-400"
             : "text-slate-400"
         }`}
@@ -700,33 +687,28 @@ export function TelecomForm({
               className={`w-full bg-slate-900/80 border border-slate-600 rounded-xl ps-10 pe-4 py-3 text-white focus:outline-none ${brand.focusBorder} focus:ring-1 ${brand.ring} transition-all`}
               placeholder={t("telecom.searchClient")}
             />
-            {showClientSearch &&
-              clientSearchResults.length > 0 && (
-                <div className="absolute z-10 top-full mt-1 w-full bg-slate-800 border border-slate-600 rounded-xl shadow-2xl max-h-48 overflow-auto">
-                  {clientSearchResults.map((c: any) => (
-                    <button
-                      key={c.id}
-                      onClick={() => {
-                        selectClient(c);
-                        setInitialPaymentMethod(
-                          "CUSTOMER_ACCOUNT",
-                        );
-                        setPaymentInputKey((k) => k + 1);
-                      }}
-                      className="w-full text-start px-4 py-2.5 hover:bg-slate-700 text-sm text-white transition-colors first:rounded-t-xl last:rounded-b-xl flex items-center justify-between gap-2"
-                    >
-                      <span className="truncate">
-                        {c.full_name || c.name}
+            {showClientSearch && clientSearchResults.length > 0 && (
+              <div className="absolute z-10 top-full mt-1 w-full bg-slate-800 border border-slate-600 rounded-xl shadow-2xl max-h-48 overflow-auto">
+                {clientSearchResults.map((c: any) => (
+                  <button
+                    key={c.id}
+                    onClick={() => {
+                      selectClient(c);
+                      setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+                      setPaymentInputKey((k) => k + 1);
+                    }}
+                    className="w-full text-start px-4 py-2.5 hover:bg-slate-700 text-sm text-white transition-colors first:rounded-t-xl last:rounded-b-xl flex items-center justify-between gap-2"
+                  >
+                    <span className="truncate">{c.full_name || c.name}</span>
+                    {c.phone_number && (
+                      <span className="text-xs text-slate-400 font-mono shrink-0">
+                        {c.phone_number}
                       </span>
-                      {c.phone_number && (
-                        <span className="text-xs text-slate-400 font-mono shrink-0">
-                          {c.phone_number}
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div className="relative">
             <div className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-500">
@@ -923,8 +905,6 @@ export function TelecomForm({
           {...(onKeptChange ? { onKeptChange } : {})}
           onDiscountChange={handleDiscountChange}
           {...(onExtraChange ? { onExtraChange } : {})}
-          clientName={telecomClientName}
-          onClientNameChange={setTelecomClientName}
           clientField={clientPicker}
           clientSheetProps={clientSheetProps(false)}
           transactionTime={transactionTime}

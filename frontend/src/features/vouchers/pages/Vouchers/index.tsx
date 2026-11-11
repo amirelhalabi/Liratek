@@ -32,6 +32,10 @@ import { useTranslation } from "react-i18next";
 import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { useFormat } from "@/i18n/useFormat";
 import { SHORTFALL_MAX } from "@liratek/core";
+import {
+  accountMethodOnPick,
+  clientPaymentProps,
+} from "@/shared/utils/clientPaymentProps";
 
 type StatusFilter = "all" | "pending" | "redeemed" | "expired" | "cancelled";
 
@@ -105,6 +109,11 @@ export function VouchersPage() {
     undefined,
   );
   const [cancelTarget, setCancelTarget] = useState<Voucher | null>(null);
+  // LIRA-387: the payment box's method after a client is picked (Customer
+  // Account when the picked client can be charged — the shared pick rule).
+  const [paymentInitialMethod, setPaymentInitialMethod] = useState<
+    string | undefined
+  >(undefined);
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -155,6 +164,13 @@ export function VouchersPage() {
     setClientPhone(client.phone_number ?? "");
     setShowResults(false);
     setClientResults([]);
+    setPaymentInitialMethod(
+      accountMethodOnPick({
+        methods,
+        name: client.full_name,
+        phone: client.phone_number,
+      }),
+    );
   };
 
   const clearClient = () => {
@@ -162,6 +178,7 @@ export function VouchersPage() {
     setClientQuery("");
     setClientPhone("");
     setClientResults([]);
+    setPaymentInitialMethod(undefined);
   };
 
   const resetForm = () => {
@@ -528,6 +545,23 @@ export function VouchersPage() {
                   exchangeRate={buyRate}
                   onExchangeRateChange={setEffectiveRate}
                   label={t("form.paymentLabel")}
+                  // LIRA-387: the shared client rules — a picked client or
+                  // a typed name + phone can be charged, and a shortfall
+                  // goes on the account. Change can NOT go to the account
+                  // on a voucher sale (the server refuses it), so the
+                  // change box offers cash only.
+                  {...clientPaymentProps({
+                    clientId: selectedClient?.id ?? null,
+                    name: clientQuery,
+                    phone: clientPhone,
+                    flow: "sale",
+                    paymentLines,
+                    inSession: false,
+                    changeToAccount: false,
+                  })}
+                  {...(paymentInitialMethod
+                    ? { initialMethod: paymentInitialMethod }
+                    : {})}
                 />
               </div>
             )}

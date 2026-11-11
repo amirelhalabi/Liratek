@@ -32,6 +32,7 @@ import {
 } from "@/features/partners/components/ForPartnerToggle";
 import { useForPartnerOffInSession } from "@/features/partners/hooks/useForPartnerOffInSession";
 import { ensureRechargeClient } from "../utils/ensureClient";
+import { paymentSheetClientProps } from "../utils/paymentSheetClient";
 import { calculateOmtWhishAppFees } from "../utils/omtWhishAppFees";
 import {
   buildWalletTransferPayload,
@@ -767,6 +768,23 @@ function OmtWhishAppTransferFormInner({
     );
   }
 
+  // The payment window's client rules — the ONE builder every recharge
+  // window shares (rules 14/22). The client is the sender on a SEND and the
+  // receiver on a RECEIVE. RECEIVE is a payout (shop pays the customer): no
+  // automatic debt (it would invert the unpaid remainder's sign) and no
+  // change legs; a client is needed only for an account line.
+  const sheetClient = paymentSheetClientProps({
+    clientId,
+    name: activeClientName,
+    phone: activeClientPhone,
+    payout: serviceType === "RECEIVE",
+    paymentLines,
+    inSession: !!activeSession,
+    booksChange: serviceType !== "RECEIVE",
+    paymentInputKey,
+    initialPaymentMethod,
+  });
+
   return (
     <div className="flex flex-col gap-5 flex-1 min-h-0">
       {/* Header with SEND/RECEIVE/Exchange Tabs */}
@@ -1428,21 +1446,9 @@ function OmtWhishAppTransferFormInner({
           maxDiscount={shopProfit}
           onDiscountChange={setDiscount}
           {...(extraOffered ? { onExtraChange: setExtraCharge } : {})}
-          requiresClientForDebt={true}
-          hasClient={
-            !!clientId ||
-            (!!activeClientName.trim() && !!activeClientPhone.trim())
-          }
-          // SEND only: the customer pays the shop, so a shortfall is client
-          // debt. RECEIVE is a payout (shop pays the customer) — an auto IN
-          // debt leg there would invert the sign of the unpaid remainder.
-          autoDebtRemainder={
-            serviceType === "SEND" &&
-            (!!clientId ||
-              (!!activeClientName.trim() && !!activeClientPhone.trim()))
-          }
-          paymentInputKey={paymentInputKey}
-          initialPaymentMethod={initialPaymentMethod}
+          // Client rules (account, SEND shortfall → debt, SEND change →
+          // account) from the shared builder.
+          {...sheetClient}
           onPaymentChange={(lines) => {
             setPaymentLines(lines);
             if (lines.length === 1) {
@@ -1460,15 +1466,6 @@ function OmtWhishAppTransferFormInner({
           {...(serviceType === "RECEIVE"
             ? { payer: "payout" as const }
             : { onReturnChange: setReturnLegs })}
-          // SEND only (RECEIVE is a payout): change not handed back → store
-          // credit (OUT CUSTOMER_ACCOUNT leg). Same client rule as auto-debt;
-          // never in a session, where the basket checkout owns the change.
-          {...(serviceType === "SEND" &&
-          !activeSession &&
-          (!!clientId ||
-            (!!activeClientName.trim() && !!activeClientPhone.trim()))
-            ? { unreturnedChangeTo: "CUSTOMER_ACCOUNT" as const }
-            : {})}
           // A RECEIVE keeps change only where the server can book it: not
           // inside a session (the basket pays out) and not when credited to
           // the customer's account (credited in full).
@@ -1539,9 +1536,7 @@ function OmtWhishAppTransferFormInner({
                     (pm) => pm.code !== "GIFT_CARD",
                   ),
                   requiresClient: true,
-                  hasClient:
-                    !!clientId ||
-                    (!!activeClientName.trim() && !!activeClientPhone.trim()),
+                  hasClient: !!sheetClient.hasClient,
                 },
               }
             : {})}

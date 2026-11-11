@@ -810,6 +810,9 @@ test.describe.serial("lira-web-071 Shop Day", () => {
       S.hassan,
     );
     await page.getByPlaceholder("0.00").first().fill("10");
+    // LIRA-387: picking a client now switches the payment to their account;
+    // Hassan pays this voucher in cash.
+    await payMethod(page, 0).selectOption("CASH");
     await page.getByPlaceholder("e.g. Birthday gift").fill("Birthday gift");
     const v = waitPost(page, "/api/vouchers");
     await page.getByRole("button", { name: "Create Voucher" }).click();

@@ -334,6 +334,13 @@ test("vouchers: sold for money, cancelled with a refund, shown in Transactions",
     .first()
     .click();
   await page.getByTestId("voucher-amount").fill("25");
+  // LIRA-387: picking a client now switches the payment to their account
+  // (the shared pick rule, as on POS / Loto / Custom Services). This sale is
+  // paid in cash, so choose Cash.
+  await page
+    .locator('select[data-testid^="payment-method-"]')
+    .first()
+    .selectOption("CASH");
   const submit = page.getByTestId("voucher-create-submit");
   await expect(submit).toBeEnabled({ timeout: 10_000 });
   // The button fades slate→orange (transition-colors); shoot once it has.

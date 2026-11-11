@@ -144,3 +144,129 @@ describe("Services page — 'Save as client' unchecked creates no client", () =>
     expect(txnClientId(db, id)).not.toBeNull();
   });
 });
+
+/**
+ * LIRA-387 F2 (owner 2026-11-11) — a RECEIVE paid out to a NEW receiver's
+ * customer account failed with "Client is required for CUSTOMER_ACCOUNT
+ * cashout" unless "Save as client" was ticked: the opt-out skipped creating
+ * the client, and an account line cannot be booked without one. A SEND with
+ * an account line always created it. The account line wins over the opt-out:
+ * charging or crediting an account IS saving the customer.
+ *
+ * Rule 17: run against the unfixed repository first and seen failing.
+ */
+describe("LIRA-387 — an account line creates the client even when 'Save as client' is unticked", () => {
+  let db: Database.Database;
+  let repo: FinancialServiceRepository;
+
+  beforeEach(() => {
+    resetFinancialServiceRepository();
+    resetTransactionRepository();
+    resetSupplierRepository();
+    db = buildDb();
+    initFixedTenantContext(1);
+    for (const d of ["General", "OMT_System", "Whish_System"]) {
+      fundDrawer(db, d, "USD", 10000);
+      fundDrawer(db, d, "LBP", 500_000_000);
+    }
+    repo = new FinancialServiceRepository();
+  });
+
+  afterEach(() => {
+    resetTenantContext();
+    db.close();
+  });
+
+  function create(payload: Record<string, unknown>): number {
+    const parsed = createFinancialServiceSchema.parse(payload);
+    return repo.createTransaction({
+      ...(parsed as unknown as CreateFinancialServiceData),
+      userId: USER_ID,
+    }).id;
+  }
+
+  function accountBalanceUsd(clientId: number): number {
+    return (
+      db
+        .prepare(
+          `SELECT COALESCE(SUM(amount_usd), 0) AS s FROM debt_ledger WHERE client_id = ?`,
+        )
+        .get(clientId) as { s: number }
+    ).s;
+  }
+
+  const OMT_RECEIVE_TO_ACCOUNT = {
+    provider: "OMT",
+    serviceType: "RECEIVE",
+    amount: 100,
+    currency: "USD",
+    omtServiceType: "INTRA",
+    referenceNumber: "RCV-387",
+    clientName: "Nour Saleh",
+    phoneNumber: "71222333",
+    senderName: "",
+    senderPhone: "",
+    receiverName: "Nour Saleh",
+    receiverPhone: "71222333",
+    cashoutMethod: "CUSTOMER_ACCOUNT",
+    payments: [{ method: "CUSTOMER_ACCOUNT", currencyCode: "USD", amount: 100 }],
+    saveAsClient: false,
+  };
+
+  it("RECEIVE to a new receiver's account: the client is created and credited", () => {
+    const before = clientCount(db);
+    const id = create(OMT_RECEIVE_TO_ACCOUNT);
+    expect(clientCount(db)).toBe(before + 1);
+    const clientId = txnClientId(db, id);
+    expect(clientId).not.toBeNull();
+    // Credit = a negative debt balance of the payout.
+    expect(accountBalanceUsd(clientId as number)).toBeCloseTo(-100, 5);
+  });
+
+  it("RECEIVE to an account with the picked client's id: no new client", () => {
+    const existingId = Number(
+      db
+        .prepare(
+          `INSERT INTO clients (full_name, phone_number, tenant_id) VALUES (?, ?, 1)`,
+        )
+        .run("Nour Saleh", "71000000").lastInsertRowid,
+    );
+    const before = clientCount(db);
+    const id = create({ ...OMT_RECEIVE_TO_ACCOUNT, clientId: existingId });
+    expect(clientCount(db)).toBe(before);
+    expect(txnClientId(db, id)).toBe(existingId);
+  });
+
+  it("Whish RECEIVE with the fee on a new receiver's account: the client is created and charged", () => {
+    db.prepare(
+      `UPDATE system_settings SET value = 'WHISH' WHERE key_name = 'shop_base_system'`,
+    ).run();
+    const before = clientCount(db);
+    const id = create({
+      ...OMT_RECEIVE_TO_ACCOUNT,
+      provider: "WHISH",
+      omtServiceType: undefined,
+      whishFee: 5,
+      cashoutMethod: "CASH",
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 100 }],
+      feePayments: [
+        { method: "CUSTOMER_ACCOUNT", currencyCode: "USD", amount: 5 },
+      ],
+    });
+    expect(clientCount(db)).toBe(before + 1);
+    const clientId = txnClientId(db, id);
+    expect(clientId).not.toBeNull();
+    expect(accountBalanceUsd(clientId as number)).toBeCloseTo(5, 5);
+  });
+
+  it("unticked and no account line: still no client (the opt-out stands)", () => {
+    const before = clientCount(db);
+    const id = create({
+      ...OMT_RECEIVE_TO_ACCOUNT,
+      cashoutMethod: "CASH",
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 100 }],
+    });
+    expect(clientCount(db)).toBe(before);
+    expect(txnClientId(db, id)).toBeNull();
+  });
+});

@@ -231,6 +231,12 @@ test("LIRA-365: discount on an OMT send, an exchange and a voucher sale", async 
     .first()
     .click();
   await page.getByTestId("voucher-amount").fill("50");
+  // LIRA-387: picking a client now switches the payment to their account;
+  // this sale is paid in cash.
+  await page
+    .locator('select[data-testid^="payment-method-"]')
+    .first()
+    .selectOption("CASH");
   await page.getByLabel("Discount", { exact: true }).fill("2");
   const amount = page.locator('input[data-testid^="payment-amount-"]').first();
   await expect(amount).toHaveValue("48", { timeout: 10_000 });

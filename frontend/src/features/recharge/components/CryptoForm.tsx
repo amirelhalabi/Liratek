@@ -12,6 +12,7 @@ import {
   type LinesSectionState,
 } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
+import { paymentSheetClientProps } from "../utils/paymentSheetClient";
 import { PROVIDER_BRANDS } from "@/shared/brand/providerBrands";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import type {
@@ -172,6 +173,9 @@ export function CryptoForm({
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
   const [paymentInputKey, setPaymentInputKey] = useState(0);
   const [initialPaymentMethod, setInitialPaymentMethod] = useState("CASH");
+  // The window's own lines, mirrored for its client rules (a cash-out needs
+  // a client only for an account line); the page still owns the payload.
+  const [sheetPaymentLines, setSheetPaymentLines] = useState<PaymentLine[]>([]);
   const { activeSession } = useSession();
   const api = useApi();
 
@@ -230,6 +234,21 @@ export function CryptoForm({
   ]);
 
   if (!activeConfig) return null;
+
+  // The window's client rules — the same builder as the Credit/Days and
+  // Alfa Gift windows. Change to the account: SEND only (a cash-out is a
+  // payout, and its change legs are never wired below).
+  const sheetClient = paymentSheetClientProps({
+    clientId: cryptoClientId,
+    name: cryptoClientName,
+    phone: cryptoClientPhone,
+    payout: cryptoType === "RECEIVE",
+    paymentLines: sheetPaymentLines,
+    inSession: !!activeSession,
+    booksChange: !!onReturnChange,
+    paymentInputKey,
+    initialPaymentMethod,
+  });
 
   // Binance yellow with near-black labels, from the shared brand module.
   const brand = PROVIDER_BRANDS[activeConfig.brand ?? "BINANCE"];
@@ -923,30 +942,21 @@ export function CryptoForm({
                 },
               }
             : {})}
-          requiresClientForDebt={true}
-          hasClient={
-            !!cryptoClientId ||
-            (!!cryptoClientName.trim() && !!cryptoClientPhone.trim())
-          }
-          paymentInputKey={paymentInputKey}
-          initialPaymentMethod={initialPaymentMethod}
-          onPaymentChange={onPaymentLinesChange}
+          // The client rules, from the ONE builder every recharge window
+          // shares (rules 14/22). A cash-out is a payout: no automatic debt;
+          // a send puts a shortfall on the client's account, like the other
+          // sends and sales on this page.
+          {...sheetClient}
+          onPaymentChange={(lines) => {
+            setSheetPaymentLines(lines);
+            onPaymentLinesChange(lines);
+          }}
           // A cash-out (RECEIVE) is a payout (owner decisions 2026-10-07):
           // no change (OUT) legs ever; a small shortfall is kept as profit
           // instead (FinancialServiceRepository verifies it).
           {...(cryptoType === "RECEIVE" ? { payer: "payout" as const } : {})}
           {...(onReturnChange && cryptoType !== "RECEIVE"
             ? { onReturnChange }
-            : {})}
-          // SEND only (a cash-out is a payout): change not handed back →
-          // store credit (OUT CUSTOMER_ACCOUNT leg). Same client rule as
-          // `hasClient`; never in a session (the basket owns the change).
-          {...(onReturnChange &&
-          cryptoType !== "RECEIVE" &&
-          !activeSession &&
-          (!!cryptoClientId ||
-            (!!cryptoClientName.trim() && !!cryptoClientPhone.trim()))
-            ? { unreturnedChangeTo: "CUSTOMER_ACCOUNT" as const }
             : {})}
           {...(onKeptChange ? { onKeptChange } : {})}
           {...(onRoundUpChange && cryptoType === "RECEIVE"
@@ -979,9 +989,7 @@ export function CryptoForm({
                   ...(addedChangeOffered ? { allowAddedChange: true } : {}),
                   paymentMethods: customerSectionMethods,
                   requiresClient: true,
-                  hasClient:
-                    !!cryptoClientId ||
-                    (!!cryptoClientName.trim() && !!cryptoClientPhone.trim()),
+                  hasClient: !!sheetClient.hasClient,
                 },
               }
             : {})}

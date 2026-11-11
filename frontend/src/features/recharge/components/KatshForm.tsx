@@ -15,6 +15,7 @@ import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOver
 import { PriceChangeWarning } from "@/shared/components/PriceChangeWarning";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { ensureRechargeClient } from "../utils/ensureClient";
+import { paymentSheetClientProps } from "../utils/paymentSheetClient";
 import AlfaLogo from "@/assets/logos/alfa.svg?react";
 import MtcLogo from "@/assets/logos/mtc.svg?react";
 import { getCardImage } from "../utils/cardImages";
@@ -1144,7 +1145,6 @@ function KatshFormInner({
 
   const categories = getCategoriesForProvider(activeProvider);
 
-
   const filterItemsBySearch = (items: ServiceItem[]): ServiceItem[] => {
     if (!searchQuery.trim()) return items;
     const query = searchQuery.toLowerCase();
@@ -1871,6 +1871,22 @@ function KatshFormInner({
     setLocalSubmitting(false);
   };
 
+  // The payment window's client rules — the ONE builder every recharge
+  // window shares (rules 14/22): a picked client or a typed name + phone;
+  // a shortfall goes on the account; change not handed back can go there
+  // too (never in a session, where the basket checkout owns the change).
+  const sheetClient = paymentSheetClientProps({
+    clientId,
+    name: clientName,
+    phone: clientPhone,
+    payout: false,
+    paymentLines,
+    inSession: !!activeSession,
+    booksChange: true,
+    paymentInputKey,
+    initialPaymentMethod,
+  });
+
   return (
     <div className="flex flex-col gap-3">
       {/* Top Row: Search Bar + Proceed to Pay — sticky so it never scrolls away */}
@@ -2330,20 +2346,8 @@ function KatshFormInner({
         {...(!activeSession && !forPartner
           ? { onExtraChange: setExtraCharge }
           : {})}
-        hasClient={!!clientId || (!!clientName.trim() && !!clientPhone.trim())}
-        // Charge flow: shortfall → client debt (id, or name+phone to create).
-        autoDebtRemainder={
-          !!clientId || (!!clientName.trim() && !!clientPhone.trim())
-        }
-        // Change not handed back → store credit (OUT CUSTOMER_ACCOUNT leg,
-        // forwarded in `payments`). Same client rule as auto-debt; never in a
-        // session, where the basket checkout owns the change.
-        {...(!activeSession &&
-        (!!clientId || (!!clientName.trim() && !!clientPhone.trim()))
-          ? { unreturnedChangeTo: "CUSTOMER_ACCOUNT" as const }
-          : {})}
-        paymentInputKey={paymentInputKey}
-        initialPaymentMethod={initialPaymentMethod}
+        // Client rules (account, shortfall → debt, change → account).
+        {...sheetClient}
         onPaymentChange={(lines) => {
           setPaymentLines(lines);
           if (lines.length === 1) {

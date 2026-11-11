@@ -32,7 +32,6 @@ import {
   useApi,
   appEvents,
   DecimalInput,
-  canChargeToCustomerAccount,
 } from "@liratek/ui";
 import { DataTable, DateRangeFilter, PaymentNoteField } from "@liratek/ui";
 import {
@@ -43,6 +42,11 @@ import {
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { StatsCards } from "../../components/StatsCards";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
+import {
+  accountMethodOnPick,
+  clientPaymentProps,
+  hasResolvableClient,
+} from "@/shared/utils/clientPaymentProps";
 import { useSellRate } from "@/hooks/useSellRate";
 import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
 import { useShopBase } from "@/hooks/useShopBase";
@@ -315,6 +319,43 @@ export default function Services() {
   const [senderPhone, setSenderPhone] = useState("");
   const [receiverName, setReceiverName] = useState("");
   const [receiverPhone, setReceiverPhone] = useState("");
+  // LIRA-387 F3 (rule 11): the client PICKED from the search, per party. It
+  // counts only while the name still reads as picked — retyping the name
+  // means another person, while correcting the phone keeps the client (the
+  // server books to the id, never to a duplicate found by the new phone).
+  // Every form reset clears the name, and so the pick, with no extra code.
+  const [senderPick, setSenderPick] = useState<{
+    id: number;
+    name: string;
+  } | null>(null);
+  const [receiverPick, setReceiverPick] = useState<{
+    id: number;
+    name: string;
+  } | null>(null);
+  const senderClientId =
+    senderPick && senderPick.name === senderName ? senderPick.id : null;
+  const receiverClientId =
+    receiverPick && receiverPick.name === receiverName
+      ? receiverPick.id
+      : null;
+  // The payment box's method after a pick (a SEND switches to the picked
+  // client's account, as on POS / Loto / Custom Services).
+  const [paymentInitialMethod, setPaymentInitialMethod] = useState<
+    string | undefined
+  >(undefined);
+  const pickSender = (c: {
+    id: number;
+    full_name: string;
+    phone_number?: string | null;
+  }) => {
+    setSenderPick({ id: c.id, name: c.full_name });
+    const onPick = accountMethodOnPick({
+      methods: allPaymentMethods,
+      name: c.full_name,
+      phone: c.phone_number,
+    });
+    if (onPick) setPaymentInitialMethod(onPick);
+  };
   const [referenceNumber, setReferenceNumber] = useState("");
   const [omtServiceType, setOmtServiceType] = useState<OmtServiceType | null>(
     "INTRA", // Default to INTRA for OMT — most common service type
@@ -975,6 +1016,9 @@ export default function Services() {
 
         // Reset form
         setAmount("");
+        setSenderPick(null);
+        setReceiverPick(null);
+        setPaymentInitialMethod(undefined);
         setSenderName("");
         setSenderPhone("");
         setReceiverName("");
@@ -1093,6 +1137,9 @@ export default function Services() {
       // the server NOT to create a client from the name + phone (shop-day
       // 2026-10-16 — it used to create one anyway).
       const savedClient = await trySaveAsClient();
+      const primaryClientIdToSend =
+        (serviceType === "SEND" ? senderClientId : receiverClientId) ??
+        savedClient.clientId;
 
       const amtVal = parseFloat(amount) || 0;
 
@@ -1334,7 +1381,14 @@ export default function Services() {
         ...(serviceType === "SEND"
           ? { clientName: senderName, phoneNumber: senderPhone }
           : { clientName: receiverName, phoneNumber: receiverPhone }),
-        ...(savedClient.clientId ? { clientId: savedClient.clientId } : {}),
+        // LIRA-387 F3 (rule 11): the picked client's id, else the one
+        // "Save as client" just created. The server prefers it over a phone
+        // lookup.
+        ...(primaryClientIdToSend ? { clientId: primaryClientIdToSend } : {}),
+        ...(serviceType === "SEND" && senderClientId ? { senderClientId } : {}),
+        ...(serviceType !== "SEND" && receiverClientId
+          ? { receiverClientId }
+          : {}),
         saveAsClient,
         ...(referenceNumber ? { referenceNumber } : {}),
         // New sender/receiver fields
@@ -1615,6 +1669,9 @@ export default function Services() {
 
         // Reset form
         setAmount("");
+        setSenderPick(null);
+        setReceiverPick(null);
+        setPaymentInitialMethod(undefined);
         setSenderName("");
         setSenderPhone("");
         setReceiverName("");
@@ -1661,6 +1718,9 @@ export default function Services() {
   }, [
     amount,
     currency,
+    // LIRA-387 F3: the picked clients' ids ride the payload.
+    senderClientId,
+    receiverClientId,
     provider,
     serviceType,
     omtServiceType,
@@ -1823,6 +1883,7 @@ export default function Services() {
                         if (prov !== provider) setSelectedPartnerId(null);
                         setProvider(prov);
                         setServiceType(type);
+                        setPaymentInitialMethod(undefined);
                         setPaidByMethod(
                           PROVIDER_DEFAULT_METHOD[prov] || "CASH",
                         );
@@ -2533,6 +2594,7 @@ export default function Services() {
                         onChange={(v) => setSenderName(v)}
                         onClientSelect={(c) => {
                           setSenderPhone(c.phone_number || "");
+                          pickSender(c);
                         }}
                         className={INPUT_CLASS}
                         placeholder={
@@ -2559,6 +2621,7 @@ export default function Services() {
                         onChange={(v) => setSenderPhone(v)}
                         onClientSelect={(c) => {
                           setSenderName(c.full_name);
+                          pickSender(c);
                         }}
                         searchByPhone
                         className={INPUT_CLASS}
@@ -2590,6 +2653,7 @@ export default function Services() {
                         onChange={(v) => setReceiverName(v)}
                         onClientSelect={(c) => {
                           setReceiverPhone(c.phone_number || "");
+                          setReceiverPick({ id: c.id, name: c.full_name });
                         }}
                         className={INPUT_CLASS}
                         placeholder={
@@ -2616,6 +2680,7 @@ export default function Services() {
                         onChange={(v) => setReceiverPhone(v)}
                         onClientSelect={(c) => {
                           setReceiverName(c.full_name);
+                          setReceiverPick({ id: c.id, name: c.full_name });
                         }}
                         searchByPhone
                         className={INPUT_CLASS}
@@ -2775,22 +2840,40 @@ export default function Services() {
                         }
                       }
                     }}
-                    requiresClientForDebt={serviceType !== "RECEIVE"}
-                    hasClient={
-                      !!(serviceType === "SEND" ? senderName : receiverName) ||
-                      !!(serviceType === "SEND" ? senderPhone : receiverPhone)
-                    }
-                    // SEND only (RECEIVE is a cashout — CUSTOMER_ACCOUNT there
-                    // means crediting the customer, the opposite direction),
-                    // and only with the name+phone the debt validation below
-                    // demands — name-only would auto-split then hard-block.
-                    // (A For-Partner SEND never reaches this sheet at all —
-                    // LIRA-258 replaced it with a notice above.)
-                    autoDebtRemainder={
-                      serviceType === "SEND" &&
-                      !!senderName.trim() &&
-                      !!senderPhone.trim()
-                    }
+                    // LIRA-387: the shared client rules. SEND is a sale (a
+                    // shortfall goes on the sender's account; change not
+                    // handed back can too, outside a session). RECEIVE is a
+                    // payout: never an automatic debt, and a client is
+                    // needed once a payout line goes to the receiver's
+                    // account (the server registers a new one from the
+                    // name + phone). A For-Partner transaction never reaches
+                    // this sheet (LIRA-258).
+                    {...(serviceType === "SEND"
+                      ? clientPaymentProps({
+                          clientId: senderClientId,
+                          name: senderName,
+                          phone: senderPhone,
+                          flow: "sale",
+                          paymentLines,
+                          inSession: !!activeSession,
+                          changeToAccount: true,
+                        })
+                      : clientPaymentProps({
+                          clientId: receiverClientId,
+                          name: receiverName,
+                          phone: receiverPhone,
+                          flow: "payout",
+                          paymentLines,
+                          inSession: !!activeSession,
+                          changeToAccount: false,
+                        }))}
+                    // Only while the pick still holds (a retyped name drops
+                    // it, so a remount never re-seeds an account line).
+                    {...(serviceType === "SEND" &&
+                    senderClientId &&
+                    paymentInitialMethod
+                      ? { initialMethod: paymentInitialMethod }
+                      : {})}
                     showPmFee={multiPmFeeApplies}
                     pmFeeRate={PM_FEE_DEFAULT_RATE}
                     onPmFeesChange={setMultiPmFees}
@@ -2845,22 +2928,6 @@ export default function Services() {
                     {...(serviceType === "RECEIVE"
                       ? { payer: "payout" as const }
                       : { onReturnChange: setReturnLegs })}
-                    // SEND only: change not handed back → store credit (OUT
-                    // CUSTOMER_ACCOUNT leg). Gated on name+phone — the only
-                    // input FinancialServiceRepository can always resolve or
-                    // create a client from (name-only matches by exact name,
-                    // phone-only resolves nothing).
-                    // Never in a session: the transfer joins the basket, the
-                    // server drops its OUT legs and the basket checkout owns
-                    // the change.
-                    {...(serviceType === "SEND" &&
-                    !activeSession &&
-                    canChargeToCustomerAccount({
-                      name: senderName,
-                      phone: senderPhone,
-                    })
-                      ? { unreturnedChangeTo: "CUSTOMER_ACCOUNT" as const }
-                      : {})}
                     {...(keptChangeApplies
                       ? {
                           onKeptChange: (
@@ -2937,7 +3004,8 @@ export default function Services() {
                               (pm) => pm.code !== "GIFT_CARD",
                             ),
                             requiresClient: true,
-                            hasClient: canChargeToCustomerAccount({
+                            hasClient: hasResolvableClient({
+                              clientId: receiverClientId,
                               name: receiverName,
                               phone: receiverPhone,
                             }),
