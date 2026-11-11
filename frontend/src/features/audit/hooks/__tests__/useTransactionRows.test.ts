@@ -883,3 +883,60 @@ describe("useTransactionRows (LIRA-201)", () => {
     });
   });
 });
+
+describe("useTransactionRows — LIRA-389 drill-down keeps the item-refund set honest", () => {
+  beforeAll(resetBetweenFiles);
+
+  /**
+   * A Summary drill-down narrows the rows like a type filter does, so it can
+   * hide the one REFUND row that proves a session basket was touched by an
+   * item refund. `sessionsWithItemRefund` must then come from the dedicated
+   * unfiltered REFUND query (LIRA-232 finding 3), or "Void basket" would
+   * reappear on a basket the server refuses to void.
+   * Written before the hook change (rule 17).
+   */
+  const mockFetch = getRecentTransactions as jest.MockedFunction<
+    typeof getRecentTransactions
+  >;
+
+  const saleMember = {
+    id: 20,
+    type: "SALE",
+    status: "ACTIVE",
+    metadata_json: null,
+    created_at: "2026-11-10 10:00:00",
+    session_id: 7,
+  };
+  const itemRefund = {
+    id: 21,
+    type: "REFUND",
+    status: "ACTIVE",
+    metadata_json: JSON.stringify({ refundType: "sessionItem" }),
+    created_at: "2026-11-10 10:05:00",
+    session_id: 7,
+  };
+
+  it("a module drill-down still knows the basket had an item refund", async () => {
+    mockFetch.mockImplementation(async (_limit, filters) => {
+      const isRefundOnly = filters?.typeFilters?.some(
+        (t) => t.type === "REFUND",
+      );
+      return (isRefundOnly ? [itemRefund] : [itemRefund, saleMember]) as never;
+    });
+    const { result } = renderHook(() =>
+      useTransactionRows({
+        limit: "50",
+        selectedFilters: [],
+        search: "",
+        from: "",
+        to: "",
+        drill: { dimension: "type", key: "sales", label: "Sales" },
+      }),
+    );
+    await waitFor(() => expect(result.current.rows).toHaveLength(1));
+    expect(result.current.rows[0]!.id).toBe(20);
+    await waitFor(() =>
+      expect(result.current.sessionsWithItemRefund.has(7)).toBe(true),
+    );
+  });
+});

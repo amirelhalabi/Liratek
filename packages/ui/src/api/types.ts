@@ -21,6 +21,10 @@ import type {
 } from "@liratek/core";
 // LIRA-333 — open a WhatsApp link outside LiraTek (rule 21).
 import type { OpenExternalUrlInput } from "@liratek/core";
+import type {
+  TransactionSummaryInput,
+  TransactionSummaryResult,
+} from "@liratek/core";
 import type { ClientDebtDetails } from "@liratek/core";
 // LIRA-331 — a user's own UI language (schema-derived, rule 21).
 import type { MyPreferences, SetMyLanguageInput } from "@liratek/core";
@@ -3055,6 +3059,12 @@ export type ApiAdapter = {
     limit?: number,
     filters?: Record<string, unknown>,
   ) => Promise<any[]>;
+  /** LIRA-389 — the Summary view of Audit & Transactions (envelope). */
+  getTransactionSummary: (payload: TransactionSummaryInput) => Promise<{
+    success: boolean;
+    data?: TransactionSummaryResult;
+    error?: string;
+  }>;
   getTransactionById: (id: number) => Promise<any>;
   /** RCP-3 service-receipt reprint (rule 19 fix) — customer-facing payment
    *  legs for a transaction (TransactionService.getCustomerFacingLegs). */

@@ -508,6 +508,7 @@ export * from "./utils/walletTransfer.js";
 // LIRA-301 — transaction titles and summary wording, shared by web, desktop and phone (pure).
 export * from "./utils/transactionText.js";
 export * from "./utils/transactionVisibility.js";
+export * from "./utils/transactionListFilter.js";
 export * from "./utils/cashFlow.js";
 export * from "./utils/transactionRowDisplay.js";
 // LIRA-302 — catalog cart payload (web + phone) and the USD/LBP rate reader (pure).

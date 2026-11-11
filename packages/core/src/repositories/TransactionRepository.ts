@@ -16,6 +16,7 @@
  * - **Exchange rate**: Immutable snapshot captured at creation time.
  */
 
+import { PRODUCT_CATEGORY_KEY_SQL } from "./productCategoryFragment.js";
 import {
   reopenBasketMembers,
   uncoverBasketMember,
@@ -1210,6 +1211,14 @@ export interface TransactionFilters {
    * while the operator scrolls cannot repeat or skip a row.
    */
   before?: TransactionPageCursor;
+  /**
+   * LIRA-389 — the list's drill-down of a clicked Summary row: only SALE
+   * rows whose sale has a line of this product / of a product shown under
+   * this category (`PRODUCT_CATEGORY_KEY_SQL`; `null` = no category).
+   * Validated by `transactionSaleDrillFiltersSchema` on both transports.
+   */
+  sale_product_id?: number;
+  sale_category?: string | null;
 }
 
 /**
@@ -2165,6 +2174,32 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           params,
         ),
       );
+    }
+
+    // LIRA-389 — Summary drill-down (product / category of a sale line).
+    // Uncorrelated IN, evaluated once per query.
+    if (filters?.sale_product_id != null) {
+      conditions.push(
+        `(t.type = 'SALE' AND t.source_table = 'sales' AND t.source_id IN (
+           SELECT si.sale_id FROM sale_items si
+            WHERE si.tenant_id = ? AND si.product_id = ?))`,
+      );
+      params.push(tenantId, filters.sale_product_id);
+    }
+    if (filters?.sale_category !== undefined) {
+      conditions.push(
+        `(t.type = 'SALE' AND t.source_table = 'sales' AND t.source_id IN (
+           SELECT si.sale_id FROM sale_items si
+             LEFT JOIN products p ON p.id = si.product_id AND p.tenant_id = ?
+             LEFT JOIN product_categories pc ON pc.id = p.category_id AND pc.tenant_id = ?
+            WHERE si.tenant_id = ? AND ${
+              filters.sale_category === null
+                ? `${PRODUCT_CATEGORY_KEY_SQL} IS NULL`
+                : `${PRODUCT_CATEGORY_KEY_SQL} = ?`
+            }))`,
+      );
+      params.push(tenantId, tenantId, tenantId);
+      if (filters.sale_category !== null) params.push(filters.sale_category);
     }
 
     if (filters?.search) {

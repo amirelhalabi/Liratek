@@ -1,5 +1,10 @@
 import { ipcMain } from "electron";
-import { getTransactionService, getReportingService } from "@liratek/core";
+import {
+  getTransactionService,
+  getReportingService,
+  getTransactionSummaryService,
+  ipcLogger,
+} from "@liratek/core";
 import type { TransactionFilters } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
@@ -12,6 +17,8 @@ import {
   SessionItemRefundSchema,
   SessionItemRefundPreviewSchema,
   TransactionPageFiltersSchema,
+  TransactionSummarySchema,
+  TransactionSaleDrillFiltersSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -46,10 +53,43 @@ export function registerTransactionHandlers(): void {
         });
         if (!paging.ok) throw new Error(paging.error);
         filters = { ...filters, ...stripUndefined(paging.data) };
+        // LIRA-389 — the Summary drill-down keys, same treatment: validated
+        // with the core schema the REST route uses, merged back, refused
+        // when malformed (never dropped — that would widen the list).
+        // `sale_category: null` (no category) is a real value, kept.
+        const drill = validatePayload(TransactionSaleDrillFiltersSchema, {
+          sale_product_id: filters.sale_product_id,
+          sale_category: filters.sale_category,
+        });
+        if (!drill.ok) throw new Error(drill.error);
+        filters = { ...filters, ...stripUndefined(drill.data) };
       }
       return txnService.getRecent(limit, filters);
     },
   );
+
+  /**
+   * LIRA-389 — the Summary view of Audit & Transactions: the list's own rows
+   * grouped by type / service type / product / category. Every role that
+   * can open the page (no Profits password); never a profit figure.
+   */
+  ipcMain.handle("transactions:summary", (e, payload: unknown) => {
+    try {
+      const auth = requireRole(e.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+      const parsed = validatePayload(TransactionSummarySchema, payload);
+      if (!parsed.ok) return { success: false, error: parsed.error };
+      const data = getTransactionSummaryService().summarize(parsed.data);
+      return { success: true, data };
+    } catch (error) {
+      ipcLogger.error({ error }, "transactions:summary failed");
+      return {
+        success: false,
+        error:
+          error instanceof Error ? error.message : "Failed to load the summary",
+      };
+    }
+  });
 
   /** D1 — currency in/out by business date (Cash Report on /audit) */
   ipcMain.handle(

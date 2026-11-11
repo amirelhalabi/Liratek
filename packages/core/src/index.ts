@@ -106,6 +106,7 @@ export * from "./utils/walletTransfer.js";
 // LIRA-301 — transaction titles and summary wording, shared by web, desktop and phone (pure).
 export * from "./utils/transactionText.js";
 export * from "./utils/transactionVisibility.js";
+export * from "./utils/transactionListFilter.js";
 export * from "./utils/cashFlow.js";
 // LIRA-333 — the one WhatsApp phone rule (FR-014/015).
 export * from "./utils/whatsappPhone.js";

@@ -320,5 +320,56 @@
   },
   "legMethod": {
     "checkpointResolution": "Checkpoint resolution · {{drawer}}"
+  },
+  "summary": {
+    "viewLabel": "List or summary",
+    "view": {
+      "list": "List",
+      "summary": "Summary"
+    },
+    "groupBy": "Group by",
+    "groups": {
+      "type": "Type",
+      "service": "Service type",
+      "product": "Product",
+      "category": "Product category"
+    },
+    "includeRefunded": "Include refunded",
+    "columns": {
+      "count": "Count",
+      "units": "Units",
+      "volumeUsd": "Volume USD",
+      "volumeLbp": "Volume LBP"
+    },
+    "total": "TOTAL",
+    "deleted": "(deleted)",
+    "noCategory": "(no category)",
+    "empty": "Nothing to summarize for these filters.",
+    "error": "Could not load the summary. Try again.",
+    "truncated": "This range has more than 100,000 transactions; only the latest 100,000 are counted. Narrow the dates.",
+    "salesOnly": "Only sales have products, so only sales are counted here.",
+    "rowHint": "Show these transactions",
+    "drill": "Showing: {{label}}",
+    "clearDrill": "Show all",
+    "modules": {
+      "sales": "Sales",
+      "financial": "Money transfers & bills",
+      "telecom": "MTC / Alfa",
+      "exchange": "Exchange",
+      "loto": "Loto",
+      "repairs": "Repairs",
+      "services": "Services",
+      "expenses": "Expenses",
+      "vouchers": "Vouchers",
+      "holdMoney": "Hold money",
+      "debts": "Debts & accounts",
+      "suppliers": "Suppliers",
+      "partners": "Partners",
+      "drawers": "Drawers",
+      "basket": "Session basket",
+      "discounts": "Discounts",
+      "refunds": "Refunds",
+      "clients": "Clients"
+    }
   }
 }

@@ -36,6 +36,11 @@
 
 ## ✨ Highlights
 
+### See totals by product or service
+
+On Audit & Transactions, switch from **List** to **Summary** to see, for the dates and filters you picked, how many of each product you sold (count, units and amount) or how many OMT, Whish, MTC/Alfa and other transactions you did and their amounts. Group by type, service, product or category, include refunded items if you want, and click a line to see those transactions. Excel adds a sheet with the summary. Profit stays on the Profits page.
+![Audit & Transactions in Summary view grouped by Product: three products with count, units and USD volume, and a TOTAL row](whats-new/1.35.0/transactions-summary.png)
+
 ### Refund any transaction
 
 Every row on the Transactions page now has one **Refund** button; the separate "Void" is gone. A loto prize paid on the Loto page, an account cash-in or cash-out, held money, a voucher, a drawer top-up or cash-out, and partner, supplier and account entries can all be refunded from their row. Customer money opens the refund window with the original payment already chosen, so giving it back the same way is one click. Bookkeeping entries ask one confirm that names the opposite entry.
@@ -509,6 +514,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 🧾 Transactions
 
+- New Summary view on Audit & Transactions: totals per type, service, product or category for any dates, using each transaction's own amount, with refunds taken off; click a line to see those transactions; the Excel export gains a "Summary by …" sheet.
 - The "Void" button is gone: "Refund" does the same thing with the original payment preselected, and staff can refund, not only admins. "Can't refund here" now appears only on rows that really cannot be refunded (counts, reversal rows, basket lines, client audit entries, old MTC/Alfa top-ups), and every explanation points to something you can actually do.
 - Refund item now works on anything in a paid customer session, including loto tickets, loto prizes, transfers, cash-outs, exchanges and repairs, and a basket that paid out a prize no longer blocks refunding its other items. For a prize or cash-out, the customer pays the money back in cash, by wallet or on their account.
 - Audit & Transactions: both tabs now open on today's entries and show 50 at a time. Scroll down and the next 50 load on their own (there is also a "Load more" button). The day filter sits above the table, with Today, Yesterday, This week, This month and All. The Rows box is gone.

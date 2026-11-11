@@ -236,6 +236,9 @@ import type {
   CreateUserInput,
   TransactionTypeFilterInput,
   TransactionPageFiltersInput,
+  TransactionSaleDrillFiltersInput,
+  TransactionSummaryInput,
+  TransactionSummaryResult,
   AuditPageFiltersInput,
   SupplierAccountLinkInput,
   SupplierArchiveInput,
@@ -4735,7 +4738,9 @@ export async function getRecentActivity(limit: number = 100) {
 
 /** LIRA-348 — `day_from` / `day_to` (the operator's days) and the keyset
  *  cursor `before` come from the shared core schema (rule 21). */
-export interface TransactionFiltersParam extends TransactionPageFiltersInput {
+export interface TransactionFiltersParam
+  extends TransactionPageFiltersInput,
+    TransactionSaleDrillFiltersInput {
   type?: string;
   status?: string;
   user_id?: number;
@@ -4754,6 +4759,30 @@ export interface TransactionFiltersParam extends TransactionPageFiltersInput {
    *  from the shared core schema (rule 21), not hand-written, so this can
    *  never drift from what the REST route/repository actually accept. */
   typeFilters?: TransactionTypeFilterInput[];
+}
+
+/**
+ * LIRA-389 — the Summary view of Audit & Transactions: the list's own rows
+ * grouped by type / service type / product / category, computed on the
+ * server for both transports. Payload type from the core schema (rule 21);
+ * returns the `{ success, data?, error? }` envelope.
+ */
+export async function getTransactionSummary(
+  payload: TransactionSummaryInput,
+): Promise<{ success: boolean; data?: TransactionSummaryResult; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().transactions.summary(payload),
+    async () =>
+      requestJson<{
+        success: boolean;
+        data?: TransactionSummaryResult;
+        error?: string;
+      }>(
+        `/api/transactions/summary?${new URLSearchParams({
+          payload: JSON.stringify(payload),
+        })}`,
+      ),
+  );
 }
 
 export async function getRecentTransactions(
@@ -4785,6 +4814,12 @@ export async function getRecentTransactions(
         // LIRA-348 — the keyset cursor is an object; JSON-encode it like
         // `typeFilters` (the route parses and validates it back).
         params.set("before", JSON.stringify(v));
+        return;
+      }
+      if (k === "sale_category") {
+        // LIRA-389 — JSON, so `null` ("no category") survives the query
+        // string; the route parses it back through the core schema.
+        params.set("sale_category", JSON.stringify(v));
         return;
       }
       params.set(k, String(v));

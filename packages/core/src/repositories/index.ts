@@ -1104,3 +1104,14 @@ export * from "./OfflineSnapshotRepository.js";
 export * from "./OfflineOutboxRepository.js";
 export * from "./DuplicateFingerprintRepository.js";
 export * from "./RowCaptureRepository.js";
+
+// LIRA-389 — Audit & Transactions Summary view reads.
+export {
+  TransactionSummaryRepository,
+  getTransactionSummaryRepository,
+  resetTransactionSummaryRepository,
+} from "./TransactionSummaryRepository.js";
+export type {
+  SummarySaleLine,
+  SummaryReversalRow,
+} from "./TransactionSummaryRepository.js";

@@ -10,6 +10,7 @@ import type { LedgerFilters } from "@liratek/core";
 import type { ApiAdapter } from "@liratek/ui";
 // LIRA-333 — open a WhatsApp link outside LiraTek (rule 21).
 import type { OpenExternalUrlInput } from "@liratek/core";
+import type { TransactionSummaryInput } from "@liratek/core";
 // LIRA-335 — checkpoint differences (rule 21).
 import type {
   CheckpointFilters,
@@ -766,6 +767,9 @@ export class ElectronApiAdapter implements ApiAdapter {
     limit?: number,
     filters?: api.TransactionFiltersParam,
   ) => api.getRecentTransactions(limit, filters);
+  /** LIRA-389 — the Summary view (rule 21: payload from the core schema). */
+  getTransactionSummary = (payload: TransactionSummaryInput) =>
+    api.getTransactionSummary(payload);
   getTransactionById = (id: number) => api.getTransactionById(id);
   /** RCP-3 service-receipt reprint (rule 19 fix). */
   getCustomerFacingLegs = (transactionId: number) =>

@@ -83,6 +83,8 @@ import type {
   CreateFinancialServicePayload,
   // LIRA-369 — the exchange submit payload (rule 21).
   ExchangeSubmitPayload,
+  // LIRA-389 — Audit & Transactions Summary view request (rule 21).
+  TransactionSummaryInput,
 } from "@liratek/core" with {
   "resolution-mode": "import",
 };
@@ -1427,6 +1429,10 @@ contextBridge.exposeInMainWorld("api", {
     // See RecentTransaction / TransactionPaymentLeg in electron.d.ts.
     getRecent: (limit?: number, filters?: Record<string, unknown>) =>
       ipcRenderer.invoke("transactions:get-recent", limit, filters),
+    /** LIRA-389 — the Summary view: the list's rows grouped by type /
+     *  service type / product / category (`{ success, data }`). */
+    summary: (payload: TransactionSummaryInput) =>
+      ipcRenderer.invoke("transactions:summary", payload),
     getCashFlowByDate: (from: string, to: string) =>
       ipcRenderer.invoke("transactions:cash-flow-by-date", from, to),
     getById: (id: number) => ipcRenderer.invoke("transactions:get-by-id", id),

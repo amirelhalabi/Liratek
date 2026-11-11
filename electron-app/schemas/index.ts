@@ -1664,3 +1664,23 @@ export const AuditPageFiltersSchema =
     z.ZodTypeDef,
     AuditPageFiltersShape
   >;
+
+// LIRA-389 — Audit & Transactions Summary view (`transactions:summary`) and
+// the list's drill-down keys on `transactions:get-recent`; shared with the
+// REST routes (rule 14).
+import {
+  transactionSummarySchema as coreTransactionSummarySchema,
+  transactionSaleDrillFiltersSchema as coreTransactionSaleDrillFiltersSchema,
+  type TransactionSummaryRequest,
+  type TransactionSaleDrillFiltersInput,
+} from "@liratek/core";
+// `validatePayload` reads ONE type off the schema, so the cast names the
+// parsed request (defaults applied) — what the handler hands the service.
+export const TransactionSummarySchema =
+  coreTransactionSummarySchema as unknown as z.ZodSchema<TransactionSummaryRequest>;
+export const TransactionSaleDrillFiltersSchema =
+  coreTransactionSaleDrillFiltersSchema as unknown as z.ZodSchema<
+    TransactionSaleDrillFiltersInput,
+    z.ZodTypeDef,
+    TransactionSaleDrillFiltersInput
+  >;

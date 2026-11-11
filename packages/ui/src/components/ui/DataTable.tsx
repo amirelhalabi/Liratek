@@ -137,6 +137,13 @@ export interface DataTableProps<T> {
   emptyContent?: React.ReactNode;
   /** Extra rows rendered inside `<tbody>` after data rows (e.g. totals) */
   footerContent?: React.ReactNode;
+  /**
+   * LIRA-389 — when set, shown INSTEAD of the table (and its load-more row),
+   * while the header bar — day range, header actions, Excel / PDF export —
+   * stays. The export still covers `data` (every page, LIRA-348). Used by
+   * the Transactions page's Summary view.
+   */
+  bodyOverride?: React.ReactNode;
 
   // ── Sorting ─────────────────────────────────────────────────────────
   /**
@@ -275,6 +282,7 @@ function DataTableInner<T>({
   emptyMessage,
   emptyContent,
   footerContent,
+  bodyOverride,
   getSortValue,
   defaultSortKey,
   defaultSortDirection = "asc",
@@ -939,173 +947,197 @@ function DataTableInner<T>({
         countLabel={countLabel}
       />
 
-      <table
-        ref={tableRef}
-        data-testid="data-table"
-        className={className}
-        style={resizable ? { tableLayout: "fixed" } : undefined}
-      >
-        <thead className={theadClassName}>
-          {table.getHeaderGroups().map((hg) => (
-            <tr key={hg.id}>
-              {hg.headers.map((header, i) => {
-                const colDef = colDefs[i];
-                const isSortable = header.column.getCanSort();
-                const sorted = header.column.getIsSorted();
-                const widthStr =
-                  typeof colDef !== "string" ? colDef?.width : undefined;
-                // Render header label directly from colDef (supports ReactNode)
-                const isFirstCol = i === 0;
-                const headerLabel =
-                  typeof colDef === "string" ? colDef : (colDef?.header ?? "");
+      {bodyOverride !== undefined ? (
+        bodyOverride
+      ) : (
+        <>
+          <table
+            ref={tableRef}
+            data-testid="data-table"
+            className={className}
+            style={resizable ? { tableLayout: "fixed" } : undefined}
+          >
+            <thead className={theadClassName}>
+              {table.getHeaderGroups().map((hg) => (
+                <tr key={hg.id}>
+                  {hg.headers.map((header, i) => {
+                    const colDef = colDefs[i];
+                    const isSortable = header.column.getCanSort();
+                    const sorted = header.column.getIsSorted();
+                    const widthStr =
+                      typeof colDef !== "string" ? colDef?.width : undefined;
+                    // Render header label directly from colDef (supports ReactNode)
+                    const isFirstCol = i === 0;
+                    const headerLabel =
+                      typeof colDef === "string"
+                        ? colDef
+                        : (colDef?.header ?? "");
 
-                // Determine if this column should be excluded from exports
-                const headerStr =
-                  typeof headerLabel === "string"
-                    ? headerLabel.trim().toLowerCase()
-                    : "";
-                const isCheckboxCol = isFirstCol && !!selectAll;
-                const isActionCol =
-                  headerStr === "actions" ||
-                  headerStr === "action" ||
-                  headerStr === actionsHeader;
-                const exportIgnore = isCheckboxCol || isActionCol;
+                    // Determine if this column should be excluded from exports
+                    const headerStr =
+                      typeof headerLabel === "string"
+                        ? headerLabel.trim().toLowerCase()
+                        : "";
+                    const isCheckboxCol = isFirstCol && !!selectAll;
+                    const isActionCol =
+                      headerStr === "actions" ||
+                      headerStr === "action" ||
+                      headerStr === actionsHeader;
+                    const exportIgnore = isCheckboxCol || isActionCol;
 
-                return (
-                  <th
-                    key={header.id}
-                    className={`${thCls(colDef ?? "")} relative select-none overflow-hidden`}
-                    {...(exportIgnore ? { "data-export-ignore": "true" } : {})}
-                    style={
-                      resizable
-                        ? { width: header.getSize() }
-                        : widthStr
-                          ? { width: widthStr }
-                          : undefined
-                    }
-                  >
-                    {/* If selectAll is provided, replace first column header with checkbox */}
-                    {isFirstCol && selectAll ? (
-                      <input
-                        type="checkbox"
-                        checked={selectAll.checked}
-                        ref={(el) => {
-                          if (el) el.indeterminate = selectAll.indeterminate;
-                        }}
-                        onChange={(e) => selectAll.onChange(e.target.checked)}
-                        className="w-4 h-4 rounded border-slate-600 bg-slate-700 accent-violet-600 cursor-pointer"
-                        title={t("dataTable.selectAllPages")}
-                        data-testid="select-all-checkbox"
-                      />
-                    ) : (
-                      <span
-                        className={`inline-flex items-center gap-1 ${isSortable ? "cursor-pointer hover:text-slate-200" : ""}`}
-                        onClick={
-                          isSortable
-                            ? header.column.getToggleSortingHandler()
-                            : undefined
+                    return (
+                      <th
+                        key={header.id}
+                        className={`${thCls(colDef ?? "")} relative select-none overflow-hidden`}
+                        {...(exportIgnore
+                          ? { "data-export-ignore": "true" }
+                          : {})}
+                        style={
+                          resizable
+                            ? { width: header.getSize() }
+                            : widthStr
+                              ? { width: widthStr }
+                              : undefined
                         }
                       >
-                        {headerLabel}
-                        {isSortable && (
-                          <>
-                            {sorted === "asc" && (
-                              <span className="text-blue-400 text-[10px]">
-                                ▲
-                              </span>
+                        {/* If selectAll is provided, replace first column header with checkbox */}
+                        {isFirstCol && selectAll ? (
+                          <input
+                            type="checkbox"
+                            checked={selectAll.checked}
+                            ref={(el) => {
+                              if (el)
+                                el.indeterminate = selectAll.indeterminate;
+                            }}
+                            onChange={(e) =>
+                              selectAll.onChange(e.target.checked)
+                            }
+                            className="w-4 h-4 rounded border-slate-600 bg-slate-700 accent-violet-600 cursor-pointer"
+                            title={t("dataTable.selectAllPages")}
+                            data-testid="select-all-checkbox"
+                          />
+                        ) : (
+                          <span
+                            className={`inline-flex items-center gap-1 ${isSortable ? "cursor-pointer hover:text-slate-200" : ""}`}
+                            onClick={
+                              isSortable
+                                ? header.column.getToggleSortingHandler()
+                                : undefined
+                            }
+                          >
+                            {headerLabel}
+                            {isSortable && (
+                              <>
+                                {sorted === "asc" && (
+                                  <span className="text-blue-400 text-[10px]">
+                                    ▲
+                                  </span>
+                                )}
+                                {sorted === "desc" && (
+                                  <span className="text-blue-400 text-[10px]">
+                                    ▼
+                                  </span>
+                                )}
+                              </>
                             )}
-                            {sorted === "desc" && (
-                              <span className="text-blue-400 text-[10px]">
-                                ▼
-                              </span>
-                            )}
-                          </>
+                          </span>
                         )}
-                      </span>
-                    )}
 
-                    {/* Drag-to-resize handle */}
-                    {resizable && (
-                      <span
-                        onMouseDown={header.getResizeHandler()}
-                        onTouchStart={header.getResizeHandler()}
-                        onDoubleClick={() => header.column.resetSize()}
-                        className={`absolute end-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-500/50 ${
-                          header.column.getIsResizing() ? "bg-blue-500/50" : ""
-                        }`}
-                      />
-                    )}
-                  </th>
-                );
-              })}
-            </tr>
-          ))}
-        </thead>
+                        {/* Drag-to-resize handle */}
+                        {resizable && (
+                          <span
+                            onMouseDown={header.getResizeHandler()}
+                            onTouchStart={header.getResizeHandler()}
+                            onDoubleClick={() => header.column.resetSize()}
+                            className={`absolute end-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-500/50 ${
+                              header.column.getIsResizing()
+                                ? "bg-blue-500/50"
+                                : ""
+                            }`}
+                          />
+                        )}
+                      </th>
+                    );
+                  })}
+                </tr>
+              ))}
+            </thead>
 
-        <tbody className={tbodyClassName}>
-          {loading ? (
-            <tr data-testid="data-table-loading">
-              <td colSpan={colCount} className="p-4 text-center text-slate-500">
-                {t("dataTable.loading")}
-              </td>
-            </tr>
-          ) : visibleRows.length === 0 ? (
-            <tr data-testid="data-table-empty">
-              <td colSpan={colCount} className="p-4 text-center text-slate-500">
-                {emptyContent ?? emptyMessage ?? t("dataTable.empty")}
-              </td>
-            </tr>
-          ) : (
-            visibleRows.map((row, index) => {
-              const rendered = renderRow(row.original.__original as T, index);
-              if (!onShiftSelect || !React.isValidElement(rendered)) {
-                return rendered;
-              }
-              // Wrap the rendered <tr> with a click handler that captures
-              // shift-clicks without interfering with existing row onClick
-              const existing = (
-                rendered.props as { onClick?: React.MouseEventHandler }
-              ).onClick;
-              return React.cloneElement(
-                rendered as React.ReactElement<
-                  React.HTMLAttributes<HTMLTableRowElement>
-                >,
-                {
-                  onClick: (e: React.MouseEvent<HTMLTableRowElement>) => {
-                    handleRowClick(e, index);
-                    existing?.(e);
-                  },
-                  style: {
-                    ...(
-                      rendered.props as React.HTMLAttributes<HTMLTableRowElement>
-                    ).style,
-                  },
-                },
-              );
-            })
+            <tbody className={tbodyClassName}>
+              {loading ? (
+                <tr data-testid="data-table-loading">
+                  <td
+                    colSpan={colCount}
+                    className="p-4 text-center text-slate-500"
+                  >
+                    {t("dataTable.loading")}
+                  </td>
+                </tr>
+              ) : visibleRows.length === 0 ? (
+                <tr data-testid="data-table-empty">
+                  <td
+                    colSpan={colCount}
+                    className="p-4 text-center text-slate-500"
+                  >
+                    {emptyContent ?? emptyMessage ?? t("dataTable.empty")}
+                  </td>
+                </tr>
+              ) : (
+                visibleRows.map((row, index) => {
+                  const rendered = renderRow(
+                    row.original.__original as T,
+                    index,
+                  );
+                  if (!onShiftSelect || !React.isValidElement(rendered)) {
+                    return rendered;
+                  }
+                  // Wrap the rendered <tr> with a click handler that captures
+                  // shift-clicks without interfering with existing row onClick
+                  const existing = (
+                    rendered.props as { onClick?: React.MouseEventHandler }
+                  ).onClick;
+                  return React.cloneElement(
+                    rendered as React.ReactElement<
+                      React.HTMLAttributes<HTMLTableRowElement>
+                    >,
+                    {
+                      onClick: (e: React.MouseEvent<HTMLTableRowElement>) => {
+                        handleRowClick(e, index);
+                        existing?.(e);
+                      },
+                      style: {
+                        ...(
+                          rendered.props as React.HTMLAttributes<HTMLTableRowElement>
+                        ).style,
+                      },
+                    },
+                  );
+                })
+              )}
+              {footerContent}
+            </tbody>
+          </table>
+
+          {/* ── Load more (LIRA-348) ───────────────────────────────────── */}
+          {showLoadMore && (
+            <div
+              ref={sentinelRef}
+              data-testid="data-table-load-more-sentinel"
+              className="flex justify-center p-3"
+            >
+              <button
+                type="button"
+                onClick={requestMore}
+                disabled={loadMore?.isLoadingMore}
+                className="px-4 py-1.5 text-sm rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors disabled:opacity-50"
+              >
+                {loadMore?.isLoadingMore
+                  ? t("dataTable.loadingMore")
+                  : t("dataTable.loadMore")}
+              </button>
+            </div>
           )}
-          {footerContent}
-        </tbody>
-      </table>
-
-      {/* ── Load more (LIRA-348) ───────────────────────────────────── */}
-      {showLoadMore && (
-        <div
-          ref={sentinelRef}
-          data-testid="data-table-load-more-sentinel"
-          className="flex justify-center p-3"
-        >
-          <button
-            type="button"
-            onClick={requestMore}
-            disabled={loadMore?.isLoadingMore}
-            className="px-4 py-1.5 text-sm rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors disabled:opacity-50"
-          >
-            {loadMore?.isLoadingMore
-              ? t("dataTable.loadingMore")
-              : t("dataTable.loadMore")}
-          </button>
-        </div>
+        </>
       )}
 
       {/* ── Pagination footer ──────────────────────────────────────── */}

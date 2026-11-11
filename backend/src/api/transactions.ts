@@ -37,6 +37,11 @@ import {
   // (z.coerce, same pattern as `saleIdParamSchema`), used by
   // POST /session-basket/:sessionId/void|refund below.
   sessionBasketSessionIdParamSchema,
+  // LIRA-389 — Summary view request + the list's drill-down keys (shared
+  // with the IPC handler, rule 14).
+  getTransactionSummaryService,
+  transactionSummarySchema,
+  transactionSaleDrillFiltersSchema,
 } from "@liratek/core";
 import { validateParams } from "../middleware/validation.js";
 import { logger } from "../server.js";
@@ -159,6 +164,44 @@ router.get("/recent", requireAuth, async (req, res) => {
       }
     }
 
+    // LIRA-389 — the Summary drill-down keys. `sale_category` is JSON so a
+    // null ("no category") survives the query string. Validated with the
+    // same core schema as IPC; malformed → refused, never dropped (rule 23).
+    if (
+      req.query.sale_product_id !== undefined ||
+      req.query.sale_category !== undefined
+    ) {
+      let saleCategory: unknown;
+      if (req.query.sale_category !== undefined) {
+        try {
+          saleCategory = JSON.parse(String(req.query.sale_category));
+        } catch {
+          res.json({
+            success: false,
+            error: "sale_category must be valid JSON",
+          });
+          return;
+        }
+      }
+      const drill = transactionSaleDrillFiltersSchema.safeParse({
+        sale_product_id:
+          req.query.sale_product_id !== undefined
+            ? Number(req.query.sale_product_id)
+            : undefined,
+        sale_category: saleCategory,
+      });
+      if (!drill.success) {
+        res.json({
+          success: false,
+          error: drill.error.issues[0]?.message ?? "Invalid drill-down filter",
+        });
+        return;
+      }
+      for (const [k, v] of Object.entries(drill.data)) {
+        if (v !== undefined) filters[k] = v;
+      }
+    }
+
     const txnService = getTransactionService();
     const transactions = txnService.getRecent(
       limit,
@@ -170,6 +213,36 @@ router.get("/recent", requireAuth, async (req, res) => {
     res
       .status(500)
       .json({ success: false, error: "Failed to get transactions" });
+  }
+});
+
+// GET /api/transactions/summary?payload=<JSON> — LIRA-389: the Summary view
+// of Audit & Transactions (desktop twin: IPC `transactions:summary`). Same
+// access as /recent (every signed-in role, no Profits gate). The request is
+// JSON in one param, like /recent's `typeFilters`, and parsed with the core
+// schema the IPC handler uses. IPC-identical envelope, HTTP 200 on refusal.
+router.get("/summary", requireAuth, async (req, res) => {
+  try {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(String(req.query.payload ?? ""));
+    } catch {
+      res.json({ success: false, error: "payload must be valid JSON" });
+      return;
+    }
+    const parsed = transactionSummarySchema.safeParse(raw);
+    if (!parsed.success) {
+      res.json({
+        success: false,
+        error: parsed.error.issues[0]?.message ?? "Invalid summary request",
+      });
+      return;
+    }
+    const data = getTransactionSummaryService().summarize(parsed.data);
+    res.json({ success: true, data });
+  } catch (error) {
+    logger.error({ error }, "Transactions summary error");
+    res.json({ success: false, error: "Failed to load the summary" });
   }
 });
 

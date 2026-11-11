@@ -7,9 +7,12 @@
 
 import {
   isAutoRow,
+  isExpenseVisible,
+  isSupplierPaymentVisible,
+  isWarrantyCostVisible,
   NON_REFUNDABLE_TRANSACTION_TYPES,
   TRANSACTION_TYPES,
-  type PaidViaDrawer,
+  type TransactionListOption,
   type TransactionType,
 } from "@liratek/core";
 
@@ -56,43 +59,14 @@ export const ENTITY_TYPE_OPTIONS = [
   "custom_service",
 ];
 
-export type FilterOption = {
-  label: string;
-  /** Unified transaction type — omitted for client-side-only filters. */
-  type?: string;
-  provider?: string;
-  service_type?: string;
-  has_item_key?: boolean;
-  /** B6: keep only transactions with a physical-cash (CASH) payment leg. */
-  cash_only?: boolean;
-  /** Keep only the is_credit SUPPLIER_PAYMENT rows (see TransactionsViewer). */
-  supplier_credit_only?: boolean;
-  /**
-   * LIRA-323 — set on EVERY option of a wallet (OMT App / Whish App /
-   * Binance) to that wallet's drawer: the option ALSO shows rows of other
-   * types whose payment detail moved money through this drawer (a repair
-   * paid with OMT Wallet, a refund paid out by it). Rows of the wallet's own
-   * options are never added this way. Core's PAID_VIA_DRAWER_OWN_TUPLES is
-   * the definition of "own"; paidViaDrawerOptions.guard.test.ts keeps these
-   * tags and that list identical.
-   */
-  paid_via_drawer?: PaidViaDrawer;
-  /**
-   * Set on EVERY option of the Debts group: the option ALSO shows rows of
-   * other types linked to a customer account (a sale charged to the
-   * account, change kept as credit). Core's PAID_VIA_ACCOUNT_OWN_TUPLES is
-   * the definition of "own"; paidViaDrawerOptions.guard.test.ts keeps the
-   * tagged options and that list identical.
-   */
-  paid_via_account?: boolean;
-  /**
-   * Set on EVERY option of the Vouchers group (LIRA-339): the option ALSO
-   * shows rows of other types paid with a voucher. Core's
-   * PAID_VIA_VOUCHER_OWN_TUPLES is the definition of "own";
-   * paidViaDrawerOptions.guard.test.ts keeps both identical.
-   */
-  paid_via_voucher?: boolean;
-};
+/**
+ * One Type-filter option: its label (the filter key) plus the fields core's
+ * list rule reads (`TransactionListOption`, `utils/transactionListFilter.ts`
+ * — LIRA-389 moved that rule to core so the Summary view shares it). The
+ * option's tags (`paid_via_drawer`, `paid_via_account`, `paid_via_voucher`,
+ * `cash_only`, `supplier_credit_only`) are documented there.
+ */
+export type FilterOption = TransactionListOption & { label: string };
 
 // ---------------------------------------------------------------------------
 // D2 — SUPPLIER_PAYMENT default-view visibility
@@ -155,85 +129,11 @@ export function isSessionItemRefundRow(
 }
 
 /**
- * Whether a SUPPLIER_PAYMENT row should be visible under the given filter
- * state (D2). `activeOption` is the currently selected FILTER_GROUPS entry,
- * or undefined for "All types".
- *
- *   - No filter, or any filter NOT targeting SUPPLIER_PAYMENT: manual rows
- *     show, auto rows stay hidden (the default-view rule).
- *   - An explicit SUPPLIER_PAYMENT filter overrides the default hide:
- *     - "Supplier Credit" (`supplier_credit_only`) narrows to just the
- *       is_credit rows, auto or not — unchanged from the pre-D2 behaviour.
- *     - Any other SUPPLIER_PAYMENT filter (e.g. "Supplier Payment") reveals
- *       every row, including the auto ones.
+ * The default-view visibility helpers (D2 SUPPLIER_PAYMENT, EXPENSE,
+ * WARRANTY_COST — rule 26): defined once in core with the rest of the list
+ * rule (LIRA-389), re-exported so existing imports and tests keep working.
  */
-export function isSupplierPaymentVisible(
-  metaJson: string | null | undefined,
-  activeOption: Pick<FilterOption, "type" | "supplier_credit_only"> | undefined,
-): boolean {
-  if (activeOption?.type === "SUPPLIER_PAYMENT") {
-    if (activeOption.supplier_credit_only) {
-      return parseMetaSafe(metaJson).is_credit === true;
-    }
-    return true;
-  }
-  return !isAutoSupplierPayment(metaJson);
-}
-
-// ---------------------------------------------------------------------------
-// EXPENSE default-view visibility (SMS_Transfer_Fee auto-expense clutter)
-// ---------------------------------------------------------------------------
-//
-// Five auto-expense writers (recharge SMS transfer fee among them) book an
-// EXPENSE row via ExpenseRepository.createExpense whenever they pass a
-// `source_ref_table`; that repository now stamps metadata.is_auto = true on
-// those rows (core-side fix, already shipped — see ticket). Mirrors the D2
-// SUPPLIER_PAYMENT rule above: a manual expense (Expenses page entry) is a
-// first-class visible Transactions row by default, and only the
-// auto-generated siblings stay hidden until the operator explicitly filters
-// for EXPENSE (FILTER_GROUPS "Other" group, "Expense" option).
-//
-// Rule 17 (CLAUDE.md): prove this fails first — comment out the
-// `r.type === "EXPENSE"` branch in useTransactionRows.ts's filterVisible
-// (so it falls through to `return true` unconditionally) and confirm the
-// "auto EXPENSE row hidden under All types" test in
-// useTransactionRows.test.ts fails, then restore the branch.
-
-/**
- * Whether an EXPENSE row should be visible under the given filter state.
- * `activeOption` is the currently selected FILTER_GROUPS entry, or undefined
- * for "All types".
- *
- *   - The "Expense" filter (`type: "EXPENSE"`) always reveals the row,
- *     auto-generated or not.
- *   - Any other filter (including "All types"): manual rows show, auto rows
- *     (metadata.is_auto === true) stay hidden.
- *
- * A manual expense (no `is_auto` key, or unparsable/absent metadata) always
- * reads as visible — `isAutoRow` returning `false` on parse failure is
- * already the safe default, so no extra guard is added here.
- */
-export function isExpenseVisible(
-  metaJson: string | null | undefined,
-  activeOption: Pick<FilterOption, "type"> | undefined,
-): boolean {
-  if (activeOption?.type === "EXPENSE") return true;
-  return !isAutoRow(metaJson);
-}
-
-/**
- * LIRA-296 (rule 26) — a WARRANTY_COST row is a system-written sibling of an
- * operator's warranty claim (`metadata.is_auto = true`): hidden by default,
- * revealed by the "Warranty Cost" type filter. Same rule as EXPENSE above;
- * absent/unparsable metadata reads as visible.
- */
-export function isWarrantyCostVisible(
-  metaJson: string | null | undefined,
-  activeOption: Pick<FilterOption, "type"> | undefined,
-): boolean {
-  if (activeOption?.type === "WARRANTY_COST") return true;
-  return !isAutoRow(metaJson);
-}
+export { isSupplierPaymentVisible, isExpenseVisible, isWarrantyCostVisible };
 
 export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
   {
@@ -559,6 +459,19 @@ export const ACTIONABLE_TYPES: ReadonlySet<string> = new Set(
 export const ALL_FILTER_OPTIONS: FilterOption[] = FILTER_GROUPS.flatMap(
   (g) => g.options,
 );
+
+/**
+ * LIRA-389 — the selected Type-filter options, as core's list rule takes
+ * them (no label). ONE builder for the list's request and the Summary
+ * view's request (rule 22), so the two always describe the same selection.
+ */
+export function selectedListOptions(
+  selectedLabels: readonly string[],
+): TransactionListOption[] {
+  return ALL_FILTER_OPTIONS.filter((o) => selectedLabels.includes(o.label)).map(
+    ({ label: _label, ...option }) => option,
+  );
+}
 
 /** Service transactions that can (re)print a detailed receipt (RCP-3). POS
  *  sales reprint from Sale Detail; these are the service modules (T8). */

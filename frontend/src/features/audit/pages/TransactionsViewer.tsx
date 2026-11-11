@@ -1,6 +1,7 @@
 import {
   useState,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   Fragment,
@@ -53,12 +54,24 @@ import {
 import { deriveRow } from "../rowDerived";
 import { methodText } from "../transactionCellText";
 import { transactionsExportTemplate } from "../export/transactionsExportTemplate";
+import { TransactionSummaryView } from "../components/TransactionSummaryView";
+import {
+  buildSummaryRequest,
+  defaultSummaryGroup,
+  useTransactionSummary,
+} from "../hooks/useTransactionSummary";
+import { selectedListOptions } from "../auditConstants";
+import type {
+  TransactionSummaryGroupBy,
+  TransactionSummaryRow,
+} from "@liratek/core";
 import {
   computeSessionGroupHeaders,
   isSessionGroupHeader,
 } from "../sessionGroupHeaders";
 import {
   useTransactionRows,
+  type TransactionListDrill,
   type TransactionRow,
 } from "../hooks/useTransactionRows";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
@@ -243,6 +256,35 @@ export default function TransactionsViewer({
   to,
   onDayRangeChange,
 }: TransactionsViewerProps) {
+  // LIRA-389 — List | Summary. The Summary view groups the SAME rows the
+  // list shows (same selection, search and days); a clicked summary row
+  // opens the List filtered to it (`drill`, shown as a removable chip).
+  const [view, setView] = useState<"list" | "summary">("list");
+  const [groupChoice, setGroupChoice] =
+    useState<TransactionSummaryGroupBy | null>(null);
+  const [includeRefunded, setIncludeRefunded] = useState(false);
+  const [drill, setDrill] = useState<TransactionListDrill | undefined>();
+  const filterKey = selectedFilters.slice().sort().join("|");
+  // A new Type selection re-opens on its default grouping and drops a
+  // drill-down that belonged to the old one.
+  useEffect(() => {
+    setGroupChoice(null);
+    setDrill(undefined);
+  }, [filterKey]);
+  const groupBy =
+    groupChoice ?? defaultSummaryGroup(selectedListOptions(selectedFilters));
+  const summary = useTransactionSummary(
+    view === "summary",
+    buildSummaryRequest({
+      selectedFilters,
+      search,
+      from,
+      to,
+      groupBy,
+      includeRefunded,
+    }),
+  );
+
   const {
     filteredRows,
     loading,
@@ -259,8 +301,35 @@ export default function TransactionsViewer({
     search,
     from,
     to,
+    drill,
   });
   const { t } = useTranslation("audit");
+
+  const openDrill = useCallback(
+    (row: TransactionSummaryRow) => {
+      const label = row.label;
+      if (groupBy === "product" && row.product_id != null) {
+        setDrill({ dimension: "product", productId: row.product_id, label });
+      } else if (groupBy === "category") {
+        setDrill({
+          dimension: "category",
+          category: row.category ?? null,
+          label: row.category == null ? t("summary.noCategory") : label,
+        });
+      } else if (groupBy === "type" || groupBy === "service") {
+        setDrill({
+          dimension: groupBy,
+          key: row.key,
+          label:
+            groupBy === "type"
+              ? t(`summary.modules.${row.key}`, { defaultValue: label })
+              : label,
+        });
+      }
+      setView("list");
+    },
+    [groupBy, t],
+  );
   const columns = useMemo(() => transactionColumns(t), [t]);
   const shopInfo = useShopInfo();
   // LIRA-147 — gates the "Undo refund" button; the backend's own
@@ -333,8 +402,12 @@ export default function TransactionsViewer({
         shopName: shopInfo.name || undefined,
         exportedBy: user?.username ?? "",
         filters: { from, to, search, types: selectedFilters },
+        // LIRA-389 — while Summary is shown, its grouping becomes a sheet.
+        summary: view === "summary" ? summary.result : null,
       }),
     [
+      view,
+      summary.result,
       isAdmin,
       methodLabelByCode,
       shopInfo.name,
@@ -1055,6 +1128,92 @@ export default function TransactionsViewer({
     );
   }
 
+  const segment = (active: boolean) =>
+    `px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+      active ? "bg-slate-700 text-white" : "text-slate-400 hover:text-slate-200"
+    }`;
+  const summaryControls = (
+    <div className="flex flex-wrap items-center gap-2">
+      <div
+        role="group"
+        aria-label={t("summary.viewLabel")}
+        className="flex items-center gap-0.5 rounded-lg border border-slate-700 bg-slate-900 p-0.5"
+      >
+        <button
+          type="button"
+          data-testid="transactions-view-list"
+          aria-pressed={view === "list"}
+          className={segment(view === "list")}
+          onClick={() => setView("list")}
+        >
+          {t("summary.view.list")}
+        </button>
+        <button
+          type="button"
+          data-testid="transactions-view-summary"
+          aria-pressed={view === "summary"}
+          className={segment(view === "summary")}
+          onClick={() => {
+            setDrill(undefined);
+            setView("summary");
+          }}
+        >
+          {t("summary.view.summary")}
+        </button>
+      </div>
+      {view === "summary" && (
+        <>
+          <span className="text-xs text-slate-400">{t("summary.groupBy")}</span>
+          <div
+            role="group"
+            aria-label={t("summary.groupBy")}
+            className="flex items-center gap-0.5 rounded-lg border border-slate-700 bg-slate-900 p-0.5"
+          >
+            {(["type", "service", "product", "category"] as const).map((g) => (
+              <button
+                key={g}
+                type="button"
+                data-testid={`summary-group-${g}`}
+                aria-pressed={groupBy === g}
+                className={segment(groupBy === g)}
+                onClick={() => setGroupChoice(g)}
+              >
+                {t(`summary.groups.${g}`)}
+              </button>
+            ))}
+          </div>
+          <label className="flex items-center gap-1.5 text-xs text-slate-300">
+            <input
+              type="checkbox"
+              data-testid="summary-include-refunded"
+              checked={includeRefunded}
+              onChange={(e) => setIncludeRefunded(e.target.checked)}
+              className="accent-orange-500"
+            />
+            {t("summary.includeRefunded")}
+          </label>
+        </>
+      )}
+      {view === "list" && drill && (
+        <span
+          data-testid="transactions-drill-chip"
+          className="flex items-center gap-1 rounded-full border border-orange-500/40 bg-orange-500/10 px-2.5 py-0.5 text-xs text-orange-200"
+        >
+          {t("summary.drill", { label: drill.label })}
+          <button
+            type="button"
+            aria-label={t("summary.clearDrill")}
+            title={t("summary.clearDrill")}
+            className="ms-0.5 text-orange-300 hover:text-white"
+            onClick={() => setDrill(undefined)}
+          >
+            ×
+          </button>
+        </span>
+      )}
+    </div>
+  );
+
   return (
     <>
       <DataTable<TransactionRow>
@@ -1064,8 +1223,21 @@ export default function TransactionsViewer({
         emptyMessage={t("table.noTransactions")}
         defaultSortKey="created_at"
         defaultSortDirection="desc"
-        showRowCount
+        showRowCount={view === "list"}
         totalRowCount={filteredRows.length}
+        headerActions={summaryControls}
+        {...(view === "summary"
+          ? {
+              bodyOverride: (
+                <TransactionSummaryView
+                  result={summary.result}
+                  loading={summary.loading}
+                  error={summary.error}
+                  onRowClick={openDrill}
+                />
+              ),
+            }
+          : {})}
         // LIRA-348 — 50 at a time, the next 50 as the operator scrolls; the
         // day filter (Today by default) lives on the table itself.
         // An export first loads every remaining page, so its totals cover

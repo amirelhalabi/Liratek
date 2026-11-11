@@ -965,6 +965,20 @@ LIRA-305 decisions Y1–Y14). The old "Syria provider on the OMT/Whish page" pla
   `credits_before/after`. A new type must land in `NON_REFUNDABLE_TRANSACTION_TYPES` or get a
   `REFUND_OWNERS` entry; guards `lira388.refundAnyTransaction.test.ts`, `refundKinds.test.ts`,
   `ActionsCell.refundAny.test.tsx`, `lira-web-099`.
+- **Transactions Summary (LIRA-389, owner 2026-11-11).** The Summary view groups exactly the
+  rows the list shows: ONE filter rule in `utils/transactionListFilter.ts` (auto-row hide,
+  Supplier Credit, Cash-only, mixed selections), run by the list hook in the browser and on the
+  server by `TransactionSummaryService` over `getRecent` pages of 5,000 (one `getRecent` call
+  over ~40k rows blew SQLite's bound-value limit). Reversal rows (`reverses_id`, REFUND /
+  REFUND_UNDO / HOLD_MONEY_COLLECT_VOID, VOUCHER_CANCEL) are never rows; they net into their
+  original whatever their date. Refunded originals (VOIDED, `reversed_by_id`, every line
+  item-refunded) count only with "include refunded". Volume is the stored amount per currency,
+  never payment legs or a basket's pooled amount; CHECKPOINT is count-only. Product / Category
+  rows come from `sale_items` (`quantity − refunded_quantity` × `sold_price_usd`; LBP always
+  "—"); their TOTAL Count is distinct sales. TOTAL = list rows − reversal rows − refunded
+  originals (toggle off). **No profit, cost, margin or commission column, ever** (owner). A new
+  module type must be placed in `SUMMARY_MODULE_OF` (compile error otherwise). Guards:
+  `TransactionSummaryService.test.ts`, `TransactionsViewer.summary.test.tsx`, `lira-web-100`.
 - Refund reverses profit — a refunded transaction's profit nets to 0; per-item refunds
   pro-rate the sale's discount (lira-090).
 - **Reversal symmetry (CLAUDE.md rule 20)**: every ledger row a flow writes must have a

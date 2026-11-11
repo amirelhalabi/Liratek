@@ -387,6 +387,13 @@ export {
 } from "./ReportingService.js";
 export type { PeriodSummary, ClientHistory } from "./ReportingService.js";
 
+// LIRA-389 — Audit & Transactions Summary view
+export {
+  TransactionSummaryService,
+  getTransactionSummaryService,
+  resetTransactionSummaryService,
+} from "./TransactionSummaryService.js";
+
 // Profit Service
 export {
   ProfitService,

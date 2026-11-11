@@ -127,6 +127,11 @@ import type {
 } from "@liratek/core";
 // LIRA-339 — voucher sale / cancel payloads (rule 21).
 import type { VoucherCreatePayload, VoucherCancelPayload } from "@liratek/core";
+// LIRA-389 — Audit & Transactions Summary view (rule 21).
+import type {
+  TransactionSummaryInput,
+  TransactionSummaryResult,
+} from "@liratek/core";
 import type {
   PartnerDayDetailRow,
   PartnerSettleDaysPayload,
@@ -3206,6 +3211,12 @@ export interface ElectronAPI {
       limit?: number,
       filters?: Record<string, unknown>,
     ) => Promise<RecentTransaction[]>;
+    /** LIRA-389 — the Summary view (`transactions:summary`). */
+    summary: (payload: TransactionSummaryInput) => Promise<{
+      success: boolean;
+      data?: TransactionSummaryResult;
+      error?: string;
+    }>;
     getCashFlowByDate: (
       from: string,
       to: string,

@@ -23,6 +23,7 @@ import type { ProductListFilters } from "../validators/product.js";
 // risks a require cycle.
 import { localDayExpr } from "./reportingTimeFragments.js";
 import { LOW_STOCK_PREDICATE_SQL } from "./lowStockFragment.js";
+import { PRODUCT_DISPLAY_CATEGORY_SQL } from "./productCategoryFragment.js";
 
 // =============================================================================
 // Types
@@ -202,7 +203,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
    * not. Filtering and the filter-option list must both agree with the
    * column the user is looking at, so both build from this one expression.
    */
-  private static readonly DISPLAY_CATEGORY_EXPR = `COALESCE(pc.name, p.category)`;
+  private static readonly DISPLAY_CATEGORY_EXPR = PRODUCT_DISPLAY_CATEGORY_SQL;
 
   /**
    * The profit-percent value the UI DISPLAYS, as SQL. Used for both the

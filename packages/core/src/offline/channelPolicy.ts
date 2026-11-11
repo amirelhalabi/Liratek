@@ -554,6 +554,8 @@ const READ: readonly string[] = [
   "transactions:revenue-by-type",
   "transactions:revenue-by-user",
   "transactions:session-basket-item-refund-preview",
+  // LIRA-389: the Summary view of Audit & Transactions (a read).
+  "transactions:summary",
   "updater:get-status",
   "users:get-non-admins",
   // LIRA-355: every user, admins included (Settings → Users).

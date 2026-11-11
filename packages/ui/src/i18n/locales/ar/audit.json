@@ -320,5 +320,56 @@
   },
   "legMethod": {
     "checkpointResolution": "تسوية العدّ · {{drawer}}"
+  },
+  "summary": {
+    "viewLabel": "قائمة أو ملخص",
+    "view": {
+      "list": "قائمة",
+      "summary": "ملخص"
+    },
+    "groupBy": "تجميع حسب",
+    "groups": {
+      "type": "النوع",
+      "service": "نوع الخدمة",
+      "product": "المنتج",
+      "category": "فئة المنتج"
+    },
+    "includeRefunded": "تضمين المسترجع",
+    "columns": {
+      "count": "العدد",
+      "units": "الوحدات",
+      "volumeUsd": "الحجم بالدولار",
+      "volumeLbp": "الحجم بالليرة"
+    },
+    "total": "المجموع",
+    "deleted": "(محذوف)",
+    "noCategory": "(بدون فئة)",
+    "empty": "لا يوجد ما يُلخَّص لهذه الفلاتر.",
+    "error": "تعذّر تحميل الملخص. حاول مجددًا.",
+    "truncated": "تحتوي هذه الفترة على أكثر من 100,000 معاملة؛ تُحتسب أحدث 100,000 فقط. ضيّق التواريخ.",
+    "salesOnly": "المبيعات وحدها تحتوي على منتجات، لذا تُحتسب المبيعات فقط هنا.",
+    "rowHint": "عرض هذه المعاملات",
+    "drill": "المعروض: {{label}}",
+    "clearDrill": "عرض الكل",
+    "modules": {
+      "sales": "المبيعات",
+      "financial": "التحويلات والفواتير",
+      "telecom": "MTC / Alfa",
+      "exchange": "صرف العملات",
+      "loto": "لوتو",
+      "repairs": "التصليحات",
+      "services": "الخدمات",
+      "expenses": "المصاريف",
+      "vouchers": "القسائم",
+      "holdMoney": "الأمانات",
+      "debts": "الديون والحسابات",
+      "suppliers": "الموردون",
+      "partners": "الشركاء",
+      "drawers": "الصناديق",
+      "basket": "سلة الجلسة",
+      "discounts": "الخصومات",
+      "refunds": "المرتجعات",
+      "clients": "الزبائن"
+    }
   }
 }

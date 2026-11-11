@@ -33,6 +33,8 @@ import {
   extraCurrencyLegs,
   fallbackMethodLabel,
   type TransactionDetailsKind,
+  type TransactionSummaryGroupBy,
+  type TransactionSummaryResult,
 } from "@liratek/core";
 import {
   exportFacts,
@@ -78,6 +80,93 @@ export interface TransactionsExportOptions {
   exportedBy: string;
   /** The page's filters, for the report header. */
   filters: { from: string; to: string; search: string; types: string[] };
+  /**
+   * LIRA-389 — set while the Summary view is shown: the workbook then gains
+   * a "Summary by <grouping>" sheet after the existing "Summary" sheet.
+   */
+  summary?: TransactionSummaryResult | null | undefined;
+}
+
+/** LIRA-389 — the grouping's name in the sheet title and its first column. */
+const SUMMARY_GROUP_HEADERS: Record<TransactionSummaryGroupBy, string> = {
+  type: "Type", // i18n-exempt: export heading
+  service: "Service type", // i18n-exempt: export heading
+  product: "Product", // i18n-exempt: export heading
+  category: "Product category", // i18n-exempt: export heading
+};
+
+/** One line of the "Summary by …" sheet (a group, or the TOTAL). */
+interface SummarySheetLine {
+  label: string;
+  count: number;
+  units: number | null;
+  usd: number;
+  lbp: number;
+}
+
+/**
+ * LIRA-389 — the Summary view as a sheet: label, Count, Units (product /
+ * category only), Volume USD, Volume LBP, then the TOTAL line (its Count is
+ * the server's distinct count, never a column sum — a sale with two
+ * products is one sale). A zero volume is left empty ("—" on screen). No
+ * profit, cost, margin or commission column (owner decision).
+ */
+export function summarySheet(
+  summary: TransactionSummaryResult,
+): ExportSheetSpec {
+  const header = SUMMARY_GROUP_HEADERS[summary.group_by];
+  const withUnits =
+    summary.group_by === "product" || summary.group_by === "category";
+  const lines: SummarySheetLine[] = [
+    ...summary.rows.map((r) => ({
+      label:
+        summary.group_by === "product" && r.deleted
+          ? `${r.label} (deleted)` // i18n-exempt: export text
+          : r.label,
+      count: r.count,
+      units: r.units,
+      usd: r.volume_usd,
+      lbp: r.volume_lbp,
+    })),
+    {
+      label: "TOTAL", // i18n-exempt: export heading
+      count: summary.total.count,
+      units: summary.total.units,
+      usd: summary.total.volume_usd,
+      lbp: summary.total.volume_lbp,
+    },
+  ];
+  const columns: ExportColumn<SummarySheetLine>[] = [
+    { header, value: (l) => l.label, width: 34 },
+    { header: "Count", value: (l) => l.count, type: "integer" }, // i18n-exempt: export heading
+    ...(withUnits
+      ? [
+          {
+            header: "Units", // i18n-exempt: export heading
+            value: (l: SummarySheetLine) => l.units,
+            type: "integer" as const,
+          },
+        ]
+      : []),
+    {
+      header: "Volume USD", // i18n-exempt: export heading
+      value: (l) => (l.usd === 0 ? null : l.usd),
+      type: "money",
+      currency: "USD",
+      width: 14,
+    },
+    {
+      header: "Volume LBP", // i18n-exempt: export heading
+      value: (l) => (l.lbp === 0 ? null : l.lbp),
+      type: "money",
+      currency: "LBP",
+      width: 16,
+    },
+  ];
+  return {
+    name: `Summary by ${header}`, // i18n-exempt: export sheet name
+    blocks: [exportTable({ rows: lines, columns })],
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -813,7 +902,9 @@ export function transactionsExportTemplate(
       ],
     };
 
-    return [summary, transactions, payments, details];
+    return opts.summary
+      ? [summary, summarySheet(opts.summary), transactions, payments, details]
+      : [summary, transactions, payments, details];
   }
 
   function pdf({

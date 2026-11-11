@@ -46,6 +46,8 @@ export * from "./setup.js";
 export * from "./counterparty.js";
 export * from "./supplier.js";
 export * from "./transaction.js";
+// LIRA-389: Audit & Transactions Summary view + list drill-down keys.
+export * from "./transactionSummary.js";
 // LIRA-329: per-kind transaction details + payment snapshot (browser-safe).
 export * from "./transactionDetails.js";
 export * from "./carrierLine.js";

@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useCursorPages, type CursorPage } from "@liratek/ui";
 import {
   DEFAULT_HIDDEN_TRANSACTION_TYPES,
-  PAID_VIA_ACCOUNT_OWN_TUPLES,
-  PAID_VIA_DRAWER_OWN_TUPLES,
-  PAID_VIA_VOUCHER_OWN_TUPLES,
+  buildTransactionListFilters,
+  isTransactionListRowVisible,
+  summaryGroupKeyOf,
   localDayOfUtcTimestamp,
   type TransactionPageCursor,
 } from "@liratek/core";
@@ -12,16 +12,7 @@ import {
   getRecentTransactions,
   type TransactionFiltersParam,
 } from "@/api/backendApi";
-import {
-  ALL_FILTER_OPTIONS,
-  parseMetaSafe,
-  isExpenseVisible,
-  isWarrantyCostVisible,
-  isSupplierPaymentVisible,
-  isSessionItemRefundRow,
-  type FilterOption,
-} from "../auditConstants";
-import { isCashTransaction, extraCurrencyLegs } from "../cashFlow";
+import { isSessionItemRefundRow, selectedListOptions } from "../auditConstants";
 import logger from "@/utils/logger";
 import type { TransactionPaymentLeg } from "../cashFlow";
 
@@ -177,156 +168,12 @@ export type TransactionRow = {
 };
 
 /**
- * Whether ONE row's type/provider/service_type/item_key structurally
- * matches ONE FILTER_GROUPS option's tuple. Mirrors the SQL predicate
- * `TransactionRepository.getRecent`'s `buildTypeTupleConditions` builds — a
- * client-side twin is needed because a MIXED multi-selection (a typed option
- * alongside an untyped one, e.g. "Cash only (till)") disables the SQL-level
- * type restriction entirely (see `typeTuples` in `load` below, and the
- * comment on why), so the exact tuple has to be re-checked here per row
- * instead of trusted straight from the fetch.
+ * LIRA-389 — the list's per-row rule (rule-26 auto-row hide, Supplier Credit,
+ * Cash only, the multi-select's union) and the request it sends now live in
+ * core (`utils/transactionListFilter.ts`), shared with the Summary view so
+ * the two can never disagree. `FilterOption` is that option type plus its
+ * label, so a selected option is passed to core as it is.
  */
-function matchesTypeTuple(
-  row: TransactionRow,
-  option: Pick<
-    FilterOption,
-    "type" | "provider" | "service_type" | "has_item_key"
-  >,
-): boolean {
-  if (!option.type) return true;
-  if (option.type !== row.type) return false;
-  const meta = parseMetaSafe(row.metadata_json);
-  if (option.provider !== undefined && meta.provider !== option.provider) {
-    return false;
-  }
-  if (
-    option.service_type !== undefined &&
-    meta.service_type !== option.service_type
-  ) {
-    return false;
-  }
-  if (option.has_item_key === true && meta.item_key == null) return false;
-  if (option.has_item_key === false && meta.item_key != null) return false;
-  return true;
-}
-
-/**
- * LIRA-323 — client twin of `TransactionRepository.getRecent`'s
- * `buildPaidViaDrawerCondition`: the row (or its session basket) has a leg
- * in the option's wallet drawer, and the row is not one of that wallet's own
- * option rows (core's `PAID_VIA_DRAWER_OWN_TUPLES` — those show only through
- * their own tuple). `payments`/`session_payments` already hold only the
- * legs visible in payment detail (the server drops internal legs), so the
- * drawer is the only thing left to check. Both IN and OUT legs count.
- */
-function isPaidViaOptionDrawer(
-  row: TransactionRow,
-  option: FilterOption,
-): boolean {
-  const drawer = option.paid_via_drawer;
-  if (!drawer) return false;
-  if (
-    PAID_VIA_DRAWER_OWN_TUPLES[drawer].some((t) => matchesTypeTuple(row, t))
-  ) {
-    return false;
-  }
-  return [...(row.payments ?? []), ...(row.session_payments ?? [])].some(
-    (leg) => leg.drawer_name === drawer,
-  );
-}
-
-/**
- * Client twin of `TransactionRepository.getRecent`'s
- * `buildPaidViaAccountCondition`: a Debts option also shows rows linked to a
- * customer account, except the Debts group's own rows (core's
- * `PAID_VIA_ACCOUNT_OWN_TUPLES`). The link itself is the server's
- * `paid_via_account` flag — a CUSTOMER_ACCOUNT leg never appears in
- * `row.payments`, so the client cannot see it any other way.
- */
-function isPaidViaOptionAccount(
-  row: TransactionRow,
-  option: FilterOption,
-): boolean {
-  if (!option.paid_via_account || row.paid_via_account !== true) return false;
-  return !PAID_VIA_ACCOUNT_OWN_TUPLES.some((t) => matchesTypeTuple(row, t));
-}
-
-/**
- * Client twin of `getRecent`'s paid-via-voucher route (LIRA-339): a Vouchers
- * option also shows rows paid with a voucher, except the Vouchers group's own
- * rows (core's `PAID_VIA_VOUCHER_OWN_TUPLES`). The link is the server's
- * `paid_via_voucher` flag.
- */
-function isPaidViaOptionVoucher(
-  row: TransactionRow,
-  option: FilterOption,
-): boolean {
-  if (!option.paid_via_voucher || row.paid_via_voucher !== true) return false;
-  return !PAID_VIA_VOUCHER_OWN_TUPLES.some((t) => matchesTypeTuple(row, t));
-}
-
-/**
- * Whether ONE row should be visible under ONE selected filter option — every
- * rule for that single option ANDed together (its type tuple, the D2
- * SUPPLIER_PAYMENT/EXPENSE auto-row hide, the Cash Only leg check). The
- * multi-select's union is `effectiveOptions.some(opt =>
- * isRowVisibleForOption(row, opt))` in `load` below: "Whish App Send" +
- * "Katsh Bills" shows a row that matches EITHER option's full rule set, not
- * just a shared type.
- */
-function isRowVisibleForOption(
-  row: TransactionRow,
-  option: FilterOption,
-): boolean {
-  if (
-    !matchesTypeTuple(row, option) &&
-    !isPaidViaOptionDrawer(row, option) &&
-    !isPaidViaOptionAccount(row, option) &&
-    !isPaidViaOptionVoucher(row, option)
-  ) {
-    return false;
-  }
-  if (
-    row.type === "SUPPLIER_PAYMENT" &&
-    !isSupplierPaymentVisible(row.metadata_json, option)
-  ) {
-    return false;
-  }
-  if (row.type === "EXPENSE" && !isExpenseVisible(row.metadata_json, option)) {
-    return false;
-  }
-  if (
-    row.type === "WARRANTY_COST" &&
-    !isWarrantyCostVisible(row.metadata_json, option)
-  ) {
-    return false;
-  }
-  if (option.cash_only) {
-    // LIRA-201b: `row.payments` is now ALWAYS this row's own legs only — a
-    // session member with no own legs no longer inherits the basket's cash
-    // leg into it (see TransactionRepository._attachPaymentLegs). Whether
-    // the till was actually touched for that member's session is answered
-    // by the pooled `session_payments` instead, so it must be included here
-    // too — otherwise a cash-paid session basket would silently vanish from
-    // "Cash only (till)" for every member except whichever one the pooled
-    // leg happens to sit on (usually none, since the basket payment is
-    // posted with transaction_id NULL).
-    const legs = [
-      ...(row.payments ?? []),
-      ...(row.session_payments ?? []),
-      ...extraCurrencyLegs(row.type, row.metadata_json),
-    ];
-    if (!isCashTransaction(legs)) return false;
-  }
-  return true;
-}
-
-/** "All types" (nothing selected) is represented as one implicit option with
- *  no constraints at all — reproduces exactly the historical `activeOption
- *  === undefined` default-view behavior (D2 hides auto rows, nothing else
- *  narrowed) via the SAME isRowVisibleForOption used for a real selection. */
-const ALL_TYPES_OPTION: FilterOption = { label: "" };
-
 // Transaction types blanket-hidden from the table regardless of any per-row
 // metadata: client-activity log noise (CLIENT_CREATED), not useful in the
 // operator-facing list by default.
@@ -360,7 +207,20 @@ export interface UseTransactionRowsParams {
    *  server as `day_from` / `day_to` (LIRA-348, rule 27). "" = open end. */
   from: string;
   to: string;
+  /** LIRA-389 — a Summary row the operator clicked: the list shows only
+   *  that row's transactions (on top of the filters above). */
+  drill?: TransactionListDrill | undefined;
 }
+
+/**
+ * LIRA-389 — the drill-down of a clicked Summary row. Module and service-type
+ * rows are matched per row with core's `summaryGroupKeyOf` (the summary's own
+ * grouping); product and category rows reach SQL as `getRecent` filters.
+ */
+export type TransactionListDrill =
+  | { dimension: "type" | "service"; key: string; label: string }
+  | { dimension: "product"; productId: number; label: string }
+  | { dimension: "category"; category: string | null; label: string };
 
 export interface UseTransactionRowsResult {
   /** Visible rows for the active filters: every page loaded so far, each
@@ -418,6 +278,7 @@ export function useTransactionRows({
   search,
   from,
   to,
+  drill,
 }: UseTransactionRowsParams): UseTransactionRowsResult {
   // LIRA-232 round-3 review (finding 3) — populated ONLY while a filter is
   // active (see `hasActiveFilter` below); `null` otherwise, meaning "derive
@@ -434,6 +295,8 @@ export function useTransactionRows({
   // is the hazard). Order-independent, so reordering the same selection is a
   // no-op re-fetch.
   const filterKey = selectedFilters.slice().sort().join("|");
+  // Same reason for the drill-down: a content key, not the object.
+  const drillKey = drill ? JSON.stringify(drill) : "";
 
   /**
    * LIRA-348 — ONE page of visible rows, starting after `cursor` (the last
@@ -451,80 +314,41 @@ export function useTransactionRows({
     async (
       cursor: TransactionPageCursor | undefined,
     ): Promise<CursorPage<TransactionRow, TransactionPageCursor>> => {
-      const activeOptions = ALL_FILTER_OPTIONS.filter((o) =>
-        selectedFilters.includes(o.label),
-      );
-      const filters: TransactionFiltersParam = {};
-
-      // One (type, provider, service_type, has_item_key) tuple per selected
-      // option that HAS a type — the multi-select's OR-group, sent to the
-      // repository as `typeFilters` (TransactionRepository.getRecent OR's
-      // them together at the SQL level, so LIMIT still applies to
-      // already-filtered rows). An UNTYPED option (today, only "Cash only
-      // (till)") can match a row of ANY type, so mixing it into the same
-      // selection means the union can no longer be expressed as a SQL type
-      // restriction at all — leave the fetch unrestricted by type in that
-      // case (typeFilters omitted) and let filterVisible's per-row union
-      // below (isRowVisibleForOption) do the real narrowing, exactly like
-      // today's single "Cash only" selection already does.
-      const typeTuples: TypeFilterTuple[] = activeOptions
-        .filter((o) => o.type)
-        .map(
-          (o) =>
-            ({
-              // FilterOption.type is a plain `string` — FILTER_GROUPS'
-              // values are curated to real transaction-type strings (they
-              // already drive this same repository's singular `type`
-              // filter), but nothing ties that literal-for-literal to the
-              // core schema's narrower enum at this frontend layer, hence
-              // the cast.
-              type: o.type,
-              provider: o.provider,
-              service_type: o.service_type,
-              has_item_key: o.has_item_key,
-              // LIRA-323 — the wallet's drawer: the repository also returns
-              // rows paid through it (isPaidViaOptionDrawer is the twin).
-              paid_via_drawer: o.paid_via_drawer,
-              paid_via_account: o.paid_via_account,
-              paid_via_voucher: o.paid_via_voucher,
-            }) as TypeFilterTuple,
-        );
-      if (
-        activeOptions.length > 0 &&
-        typeTuples.length === activeOptions.length
-      ) {
-        filters.typeFilters = typeTuples;
-      }
-      if (search) filters.search = search;
-      // LIRA-348 — the operator's days, applied server-side (rule 27).
-      if (from) filters.day_from = from;
-      if (to) filters.day_to = to;
-
-      // Exclude the always-hidden types at the SQL level so LIMIT is applied
-      // to already-filtered rows — a burst of hidden-type rows (e.g. hundreds
-      // of CLIENT_CREATED from a bulk import) can no longer crowd genuinely
-      // visible rows out of the result window. CLIENT_CREATED is the only
-      // type that's safe to exclude here: its hide/show is never conditional
-      // on per-row metadata. SUPPLIER_PAYMENT (D2) is NOT excluded — whether
-      // a given row shows depends on metadata.is_auto, which the SQL filter
-      // can't see, so that decision is made entirely client-side below.
-      filters.excludeTypes = Array.from(HIDDEN_TRANSACTION_TYPES);
+      const activeOptions = selectedListOptions(selectedFilters);
+      // LIRA-389 — the request and the per-row rule come from core, the
+      // SAME two functions the Summary view runs on the server
+      // (`utils/transactionListFilter.ts`): the multi-select's OR-group as
+      // `typeFilters` (omitted when an untyped option such as "Cash only"
+      // is mixed in), search, the operator's days (LIRA-348, rule 27) and
+      // the always-hidden types excluded in SQL so LIMIT applies to
+      // already-filtered rows.
+      const filters = {
+        ...buildTransactionListFilters(activeOptions, {
+          search,
+          day_from: from,
+          day_to: to,
+        }),
+        // Product / category drill-down (LIRA-389): SQL-side.
+        ...(drill?.dimension === "product"
+          ? { sale_product_id: drill.productId }
+          : {}),
+        ...(drill?.dimension === "category"
+          ? { sale_category: drill.category }
+          : {}),
+      } as TransactionFiltersParam;
 
       const requested = Number(limit) || 50;
-      // "All types" (nothing selected) reproduces the exact default-view
-      // rule every per-option helper below already implements for a
-      // type-less, cash_only-less option.
-      const effectiveOptions: FilterOption[] =
-        activeOptions.length > 0 ? activeOptions : [ALL_TYPES_OPTION];
 
       const filterVisible = (fetched: TransactionRow[]) =>
-        fetched.filter((r) => {
-          if (HIDDEN_TRANSACTION_TYPES.has(r.type)) return false;
-          // The multi-select's union: visible if it matches ANY selected
-          // option's full rule set (rule 17 guard below proves this isn't
-          // accidentally an AND, or a match on the first option only).
-          return effectiveOptions.some((opt) => isRowVisibleForOption(r, opt));
-        });
+        fetched.filter(
+          (r) =>
+            isTransactionListRowVisible(r, activeOptions) &&
+            // Module / service-type drill-down (LIRA-389): the SAME key
+            // function the summary groups by.
+            (drill?.dimension !== "type" && drill?.dimension !== "service"
+              ? true
+              : summaryGroupKeyOf(r, drill.dimension) === drill.key),
+        );
 
       let fetchSize = requested * WIDEN_FACTOR;
       let fetched = 0;
@@ -559,12 +383,12 @@ export function useTransactionRows({
     // `filterKey` (not `selectedFilters`) is the intentional dependency —
     // see the comment on its declaration above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [limit, filterKey, search, from, to],
+    [limit, filterKey, search, from, to, drillKey],
   );
 
   const pages = useCursorPages(
     fetchPage,
-    `${limit}|${filterKey}|${search}|${from}|${to}`,
+    `${limit}|${filterKey}|${search}|${from}|${to}|${drillKey}`,
     logPageError,
   );
   const rows = pages.rows;
@@ -580,8 +404,12 @@ export function useTransactionRows({
   // as correct as a dedicated fetch and costs no extra round trip — the
   // widening-loop tests below rely on `getRecentTransactions` being called
   // exactly once per `load()` in that unfiltered case.
+  // LIRA-389: a Summary drill-down narrows the rows too.
   const hasActiveFilter =
-    selectedFilters.length > 0 || from !== "" || to !== "";
+    selectedFilters.length > 0 ||
+    from !== "" ||
+    to !== "" ||
+    drill !== undefined;
 
   // A dedicated, always-unfiltered-by-page-state REFUND-only fetch, run ONLY
   // while `hasActiveFilter` is true. Deliberately has NO dependency on
