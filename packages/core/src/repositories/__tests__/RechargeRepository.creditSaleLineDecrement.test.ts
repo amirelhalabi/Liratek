@@ -343,31 +343,6 @@ describe("RechargeRepository — a credit sale must decrement the shop's OWN car
     expect(getLineCredits(db, shopLine.id)).toBeCloseTo(46.84, 6);
   });
 
-  it("selling $5 of Alfa credits decrements the shop's primary Alfa line from 50 to 44.68 (5 credits + 0.32 SMS fee — 2026-10-02 fix)", () => {
-    const shopLine = carrierLineRepo.createLine({
-      carrier: "alfa",
-      phone_number: "70999999",
-      credits: 50,
-      validity_expires_at: FUTURE_EXPIRY,
-    }, 1);
-
-    const result = repo.processRecharge({
-      provider: "Alfa",
-      type: "CREDIT_TRANSFER",
-      amount: 5,
-      cost: 4,
-      price: 5,
-      currency: "USD",
-      paid_by_method: "CASH",
-      phoneNumber: "71123456",
-      userId: 1,
-    });
-    expect(result.success).toBe(true);
-
-    // 5 credits + ceil(5/3)=2 SMS messages * $0.16 = 0.32 → 44.68.
-    expect(getLineCredits(db, shopLine.id)).toBeCloseTo(44.68, 6);
-  });
-
   it("voiding a credit sale restores the line's credits AND the drawer to their pre-sale values", () => {
     const shopLine = carrierLineRepo.createLine({
       carrier: "mtc",

@@ -59,6 +59,10 @@ Litestream replicating, `X-Forwarded-Host` still surviving Vercel → Fly (losin
 it breaks every tenant login at once), and **exactly one machine**, because
 SQLite has a single writer and two machines on one volume is corruption.
 
+## Running unit tests on a change (`yarn test:changed`)
+
+`yarn test:changed` runs only the jest suites related to files changed since `origin/main` (`node scripts/run-tests.mjs --changed=<ref>` for another base), in every workspace, and rebuilds better-sqlite3 for Node like `yarn test`. It is not a full run: a core-only change selects no frontend or backend suites, and a central core file can still pull in most of core's suite. A workspace with no related changes reports "0 (no related changes)", never "passed". Before a push the full core suite (`--maxWorkers=2`) still runs.
+
 ## Running E2E tests (`node scripts/run-e2e.mjs electron`)
 
 **Required procedure — always run E2E this way:**

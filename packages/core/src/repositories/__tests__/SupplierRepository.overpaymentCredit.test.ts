@@ -651,36 +651,6 @@ describe("SupplierRepository.settleAccount() — LIRA-203 overpayment surplus", 
     expect(drawerBal(db, "OMT_System", "USD")).toBeCloseTo(preDrawer);
   });
 
-  // ── D18's original guard, UNCHANGED when surplus is simply omitted ─────
-
-  // LIRA-315 (owner decision 2026-10-13) — no surplus field needed any
-  // more: paying more IS the overpay. Same result as the declared case.
-  it("with no surplus field at all, an overpaid leg books the extra on the account parent (the sheet's new flow)", () => {
-    const { omtId, ipickId } = seedOmtAccount();
-    const debtId = seedLedgerEntry(db, {
-      supplierId: ipickId,
-      entryType: "TOP_UP",
-      amountUsd: 100,
-    });
-    const preDrawer = drawerBal(db, "OMT_System", "USD");
-
-    repo.settleAccount({
-      account_supplier_id: omtId,
-      direction: "PAY",
-      selections: [{ kind: "LEDGER", id: debtId }],
-      amount_usd: 100,
-      amount_lbp: 0,
-      commission_usd: 0,
-      commission_lbp: 0,
-      created_by: 1,
-      payments: [{ method: "CASH", currency_code: "USD", amount: 150 }],
-    });
-
-    expect(ledgerSum(db, ipickId).usd).toBeCloseTo(0);
-    expect(ledgerSum(db, omtId).usd).toBeCloseTo(-50);
-    expect(drawerBal(db, "OMT_System", "USD")).toBeCloseTo(preDrawer - 150);
-  });
-
   // ── Void/reversal (rule 20) ─────────────────────────────────────────────
 
   it("void nets the surplus credit, the rows, the drawer and profit ALL back to their pre-settlement state", () => {

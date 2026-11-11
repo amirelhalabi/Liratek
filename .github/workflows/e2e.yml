@@ -181,9 +181,38 @@ jobs:
       - name: Build core
         run: yarn workspace @liratek/core build
 
+      # Browsers are cached by the resolved Playwright version (a version bump
+      # changes the key). On a hit only the OS packages are installed; they
+      # live outside the cached directory.
+      - name: Resolve Playwright version
+        id: pw
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      # restore + save split (not actions/cache): its post-step save only runs
+      # when the job succeeds, and this suite has not gone green in CI yet.
+      - name: Restore Playwright browsers
+        id: pw-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}-chromium
+
       - name: Install Playwright browsers (Chromium)
+        if: steps.pw-cache.outputs.cache-hit != 'true'
         working-directory: frontend
         run: npx playwright install --with-deps chromium
+
+      - name: Save Playwright browsers
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}-chromium
+
+      - name: Install Playwright OS dependencies (browser cache hit)
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        working-directory: frontend
+        run: npx playwright install-deps chromium
 
       # No --min override here, deliberately. run-e2e.mjs ships its own
       # DEFAULT_MIN.web = 20, but that number's own comment says it's an

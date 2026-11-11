@@ -1,0 +1,12 @@
+{
+  // jest-only: transpile each file on its own, without type-checking, for
+  // speed (about a third off the suite). electron-app tests already ran with
+  // ts-jest diagnostics off (jest.config.cjs), so this skips no check that was
+  // running before; `yarn workspace @liratek/electron-app typecheck` (CI's
+  // TypeScript Check job) still type-checks the real tsconfig.json.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "isolatedModules": true,
+    "ignoreDeprecations": "6.0"
+  }
+}

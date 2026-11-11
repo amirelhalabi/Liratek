@@ -70,7 +70,10 @@ module.exports = {
     "^.+\\.ts$": [
       "ts-jest",
       {
-        tsconfig: "<rootDir>/tsconfig.json",
+        // tsconfig.jest.json = tsconfig.json + isolatedModules (per-file
+        // transpile, no language service): ~33% faster, same type checks
+        // as before since diagnostics were already off.
+        tsconfig: "<rootDir>/tsconfig.jest.json",
         diagnostics: false,
       },
     ],

@@ -36,8 +36,19 @@
  * `packages/*` run before everything else, since core is a dependency of
  * the others and its regressions are the ones most worth surfacing first.
  *
- * Usage: node scripts/run-tests.mjs
+ * Usage: node scripts/run-tests.mjs [--changed[=<git ref>]]
  * (invoked by the root "test" script, after `npm run rebuild:node`)
+ *
+ * `--changed` (root `yarn test:changed`) passes jest `--changedSince=<ref>`
+ * (default `origin/main`) to every workspace, so only suites related to files
+ * changed since that ref (committed or not) run. A workspace with no related
+ * changes legitimately runs 0 tests: jest prints "No tests found related to
+ * files changed since …" and exits 0. That case is reported as
+ * "0 (no related changes)", never as "passed" — and an exit-0 run that
+ * printed neither a summary nor that message still FAILS (the LIRA-123
+ * silent-pass shape). Limitation: jest only follows imports inside each
+ * workspace's own `roots`, so a change to packages/core source selects core's
+ * tests but NOT the frontend/backend suites that import core.
  */
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -46,6 +57,17 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
+
+const changedArg = process.argv
+  .slice(2)
+  .find((a) => a === "--changed" || a.startsWith("--changed="));
+/** Git ref for jest --changedSince, or null for a full run. */
+const CHANGED_SINCE = changedArg
+  ? changedArg.includes("=")
+    ? changedArg.slice(changedArg.indexOf("=") + 1)
+    : "origin/main"
+  : null;
+const NO_RELATED_RE = /No tests found related to files changed since/;
 
 /**
  * Ask yarn itself for the workspace graph rather than hardcoding a list or
@@ -128,6 +150,7 @@ function parseJestSummary(output) {
     suitesFailed: suitesLine ? extractCount(suitesLine[1], "failed") : null,
     testsTotal: testsLine ? extractTotal(testsLine[1]) : null,
     testsFailed: testsLine ? extractCount(testsLine[1], "failed") : null,
+    noRelatedChanges: NO_RELATED_RE.test(output),
   };
 }
 
@@ -149,6 +172,7 @@ function runWorkspaceTest(ws) {
   return new Promise((resolve) => {
     const start = Date.now();
     const args = ["workspace", ws.name, "run", "test"];
+    if (CHANGED_SINCE) args.push(`--changedSince=${CHANGED_SINCE}`);
     console.log(`\n[run-tests] ==== ${ws.name} (${ws.location}) ====`);
     console.log(`[run-tests] yarn ${args.join(" ")}`);
 
@@ -196,6 +220,20 @@ function fmtElapsed(ms) {
 }
 
 /**
+ * `--changed` mode only: jest exited 0 and said, in its own words, that no
+ * test relates to the changed files. Requires the explicit message — an
+ * exit-0 run with no summary and no message is still a failure.
+ */
+function isNoRelatedChanges(result) {
+  return (
+    CHANGED_SINCE !== null &&
+    result.code === 0 &&
+    result.summary.testsTotal === null &&
+    result.summary.noRelatedChanges === true
+  );
+}
+
+/**
  * A workspace only counts as a pass if it (a) exited 0 AND (b) reported at
  * least one test. (b) is the run-e2e.mjs floor lesson applied here: a
  * workspace that runs nothing and exits 0 must not read as a pass. A
@@ -203,6 +241,7 @@ function fmtElapsed(ms) {
  * printed one) fails (a)/(b) automatically since testsTotal stays null.
  */
 function isOk(result) {
+  if (isNoRelatedChanges(result)) return true;
   return (
     result.code === 0 &&
     result.summary.testsTotal !== null &&
@@ -218,11 +257,13 @@ function printSummary(results) {
     const tests = summary.testsTotal === null ? "—" : `${summary.testsTotal}`;
     const status = r.launchError
       ? "LAUNCH ERROR"
-      : isOk(r)
-        ? "passed"
-        : summary.testsTotal === null
-          ? "FAILED (no counts)"
-          : "FAILED";
+      : isNoRelatedChanges(r)
+        ? "0 (no related changes)"
+        : isOk(r)
+          ? "passed"
+          : summary.testsTotal === null
+            ? "FAILED (no counts)"
+            : "FAILED";
     return {
       workspace: r.ws.name,
       exit: r.code === null ? "—" : String(r.code),
@@ -255,8 +296,16 @@ function printSummary(results) {
     console.log(
       `\n[run-tests] FAILED: ${failed.map((r) => r.ws.name).join(", ")}`,
     );
+  } else if (results.every(isNoRelatedChanges)) {
+    console.log(
+      `\n[run-tests] no tests related to changes since ${CHANGED_SINCE} — nothing ran (not a pass of the full suite)`,
+    );
   } else {
-    console.log("\n[run-tests] all workspaces passed");
+    console.log(
+      CHANGED_SINCE
+        ? `\n[run-tests] all affected tests passed (changes since ${CHANGED_SINCE}; NOT the full suite)`
+        : "\n[run-tests] all workspaces passed",
+    );
   }
 }
 
@@ -274,6 +323,11 @@ async function main() {
 
   const ordered = [...testable].sort((a, b) => priority(a) - priority(b));
 
+  if (CHANGED_SINCE) {
+    console.log(
+      `[run-tests] --changed: only suites related to files changed since ${CHANGED_SINCE}`,
+    );
+  }
   console.log(
     `[run-tests] running ${ordered.length} workspace(s) serially: ${ordered
       .map((w) => w.name)

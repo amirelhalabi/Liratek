@@ -2,7 +2,7 @@
 
 Loads automatically when working under `.github/`. Root context is `../CLAUDE.md`.
 
-- **CI** (`ci.yml`): runs on PRs → install → lint → typecheck → backend-tests → core-tests → electron-handler-tests → frontend-tests → build
+- **CI** (`ci.yml`): runs on PRs and pushes to `main` → install → lint → typecheck → backend-tests → core-tests (2 jest shards) → electron-handler-tests → frontend-tests (4 jest shards) → build. Core and frontend shards each carry a suite/test-count floor (old floor ÷ shards); the jest cache dir is restored per shard and saved on `main` pushes. Change the shard count in BOTH the matrix and `SHARD_TOTAL`.
 - **Release** (`build.yml`): triggered by `v*` tags or manual → tests → draft release → build Windows → publish
 - **Node version**: 20, **Yarn**: via corepack
 - **Required secrets**: `UPDATE_TOKEN` (auto-update auth), `GH_TOKEN` (auto-provided)
