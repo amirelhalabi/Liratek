@@ -28,8 +28,13 @@
  *
  * Rule 17: run against the pre-fix query (`t.amount_usd` instead of
  * `cst.amount_usd`) and observed RED — the item refund SUCCEEDED and
- * returned only $40 of the $100 item. Fixed, it refuses with "includes a
+ * returned only $40 of the $100 item. Fixed, it refused with "includes a
  * payout".
+ *
+ * LIRA-381 (owner 2026-11-11) overruled that refusal: the basket's items
+ * and its payout can each be refunded on their own. The test is rewritten
+ * (rule 24) into a guard of the SAME mechanism under the new rule — the
+ * customer-side sign still decides the outcome (see the assertions).
  */
 
 import Database from "better-sqlite3";
@@ -234,21 +239,33 @@ describe("Round-4 review finding HIGH-1 — session payout guard uses the cst (c
   // detects it. The integration test below proves the real repository code
   // is now wired to the second one.
   it("mechanism proof: isSessionPayoutMember misses the payout on the OLD source (transactions.amount_usd=60, positive) and catches it on the NEW source (cst.amount_usd=-60)", () => {
-    const financialServiceRow = { type: "FINANCIAL_SERVICE", amount_usd: 60, amount_lbp: 0 };
+    const financialServiceRow = {
+      type: "FINANCIAL_SERVICE",
+      amount_usd: 60,
+      amount_lbp: 0,
+    };
     expect(isSessionPayoutMember(financialServiceRow)).toBe(false); // the pre-fix bug
 
-    const cstRow = { type: "FINANCIAL_SERVICE", amount_usd: -60, amount_lbp: 0 };
+    const cstRow = {
+      type: "FINANCIAL_SERVICE",
+      amount_usd: -60,
+      amount_lbp: 0,
+    };
     expect(isSessionPayoutMember(cstRow)).toBe(true); // the fix
   });
 
-  it("refuses a session item refund when a FINANCIAL_SERVICE RECEIVE payout's transactions row is POSITIVE but its cst (customer-side) amount is NEGATIVE — the exact real-world shape", () => {
+  it("LIRA-381: a FINANCIAL_SERVICE RECEIVE payout whose transactions row is POSITIVE but cst amount NEGATIVE is still seen as a payout — the sale comes back in full, the payout refunds from the customer", () => {
     const sessionId = Number(
-      db.prepare("INSERT INTO customer_sessions (started_by) VALUES ('admin')").run()
-        .lastInsertRowid,
+      db
+        .prepare("INSERT INTO customer_sessions (started_by) VALUES ('admin')")
+        .run().lastInsertRowid,
     );
     const productId = Number(
-      db.prepare(`INSERT INTO products (name, cost_price_usd, stock_quantity) VALUES ('Item', 60, 5)`).run()
-        .lastInsertRowid,
+      db
+        .prepare(
+          `INSERT INTO products (name, cost_price_usd, stock_quantity) VALUES ('Item', 60, 5)`,
+        )
+        .run().lastInsertRowid,
     );
     // $100 sale, deferred (session-paid).
     const saleResult = salesRepo.processSale(
@@ -269,14 +286,18 @@ describe("Round-4 review finding HIGH-1 — session payout guard uses the cst (c
     expect(saleResult.success).toBe(true);
     const saleId = saleResult.id!;
     const saleTxnRow = db
-      .prepare(`SELECT id FROM transactions WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE'`)
+      .prepare(
+        `SELECT id FROM transactions WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE'`,
+      )
       .get(saleId) as { id: number };
     db.prepare(
       `INSERT INTO customer_session_transactions (session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp)
        VALUES (?, 'sale', ?, ?, 100, 0)`,
     ).run(sessionId, saleId, saleTxnRow.id);
     const itemId = (
-      db.prepare(`SELECT id FROM sale_items WHERE sale_id = ?`).get(saleId) as { id: number }
+      db.prepare(`SELECT id FROM sale_items WHERE sale_id = ?`).get(saleId) as {
+        id: number;
+      }
     ).id;
 
     // The netted FINANCIAL_SERVICE RECEIVE (Binance) payout: $60 was handed
@@ -286,7 +307,9 @@ describe("Round-4 review finding HIGH-1 — session payout guard uses the cst (c
     // shape for a RECEIVE) — the bug is that the guard used to read THIS
     // value, never the customer-side sign.
     const fsId = Number(
-      db.prepare(`INSERT INTO financial_services (provider) VALUES ('BINANCE')`).run().lastInsertRowid,
+      db
+        .prepare(`INSERT INTO financial_services (provider) VALUES ('BINANCE')`)
+        .run().lastInsertRowid,
     );
     const fsTxnId = Number(
       db
@@ -310,27 +333,27 @@ describe("Round-4 review finding HIGH-1 — session payout guard uses the cst (c
       userId: USER_ID,
     });
 
-    // Fixed behavior: refused, because the basket contains a netted payout
-    // (correctly detected via the cst amount).
-    expect(() =>
-      txnRepo.refundSessionBasketItem({
-        sessionId,
-        transactionId: saleTxnRow.id,
-        saleItemId: itemId,
-        quantity: 1,
-        userId: USER_ID,
-      }),
-    ).toThrow(/includes a payout/);
-
-    // Same refusal from the read-only preview (`getSessionItemRefundPreview`
-    // also runs `_planSessionItemRefund`, which shares the guard).
-    expect(() =>
-      txnRepo.getSessionItemRefundPreview({
-        sessionId,
-        transactionId: saleTxnRow.id,
-        saleItemId: itemId,
-        quantity: 1,
-      }),
-    ).toThrow(/includes a payout/);
+    // LIRA-381 rewrite (rule 24) — the basket is no longer refused; the
+    // cst (customer-side) sign is still what decides things:
+    //  - the netted payout is SEEN (via cst), so the sale is handed back at
+    //    its full $100 under the gross-charge cap. Read from
+    //    `transactions.amount_usd` (+60) the payout would be invisible and
+    //    the pool cap would hand back only the $40 that was pooled;
+    //  - the RECEIVE member itself refunds FROM the customer, although its
+    //    own transactions row is positive.
+    const salePreview = txnRepo.getSessionItemRefundPreview({
+      sessionId,
+      transactionId: saleTxnRow.id,
+      saleItemId: itemId,
+      quantity: 1,
+    });
+    expect(salePreview.direction).toBe("to_customer");
+    expect(salePreview.remainderUsd).toBeCloseTo(100, 6);
+    const payoutPreview = txnRepo.getSessionItemRefundPreview({
+      sessionId,
+      transactionId: fsTxnId,
+    });
+    expect(payoutPreview.direction).toBe("from_customer");
+    expect(payoutPreview.remainderUsd).toBeCloseTo(60, 6);
   });
 });

@@ -251,7 +251,6 @@ export default function TransactionsViewer({
     loadAll,
     reload: load,
     sessionsWithItemRefund,
-    sessionsWithPayoutMember,
     sessionsFullyRefunded,
   } = useTransactionRows({
     limit,
@@ -709,10 +708,27 @@ export default function TransactionsViewer({
     ProductUnitDto[]
   >([]);
 
-  const sessionItemRefund = useSessionItemRefund(() => {
-    setSessionItemRefundUnits([]);
-    load();
-  });
+  const sessionItemRefund = useSessionItemRefund(
+    () => {
+      setSessionItemRefundUnits([]);
+      load();
+    },
+    // LIRA-381 — an exchange (or a member paid on its own) in a basket is
+    // refunded exactly as it was paid: the same plain confirm a standalone
+    // exchange refund uses, no method window.
+    { confirmExact: () => confirm(t("confirm.refundExchange")) },
+  );
+  // LIRA-381 — refunding a basket payout: the customer pays it back by any
+  // normal method, including their account (they then owe it).
+  const fromCustomerMethods = useMemo(
+    () => [
+      ...drawerAffectingMethods.map((m) => ({ code: m.code, label: m.label })),
+      ...paymentMethods
+        .filter((m) => m.code === "CUSTOMER_ACCOUNT")
+        .map((m) => ({ code: m.code, label: m.label })),
+    ],
+    [drawerAffectingMethods, paymentMethods],
+  );
 
   // LIRA-232 round-3 review (finding 4) — "Refund All Remaining"
   // (`handleRefundAllRemainingSaleLines` below) omits `saleItemId` (owner Q2:
@@ -1016,9 +1032,6 @@ export default function TransactionsViewer({
           hideVoidBasket={
             sessionId != null && sessionsWithItemRefund.has(sessionId)
           }
-          hideRefundItem={
-            sessionId != null && sessionsWithPayoutMember.has(sessionId)
-          }
           hideBasketActions={
             sessionId != null && sessionsFullyRefunded.has(sessionId)
           }
@@ -1200,10 +1213,15 @@ export default function TransactionsViewer({
                 }
               : {}),
           }}
-          paymentMethods={drawerAffectingMethods.map((m) => ({
-            code: m.code,
-            label: m.label,
-          }))}
+          paymentMethods={
+            sessionItemRefund.preview.direction === "from_customer"
+              ? fromCustomerMethods
+              : drawerAffectingMethods.map((m) => ({
+                  code: m.code,
+                  label: m.label,
+                }))
+          }
+          direction={sessionItemRefund.preview.direction}
           exchangeRate={
             sessionItemRefund.preview.bookedRate ?? fallbackRate ?? 89000
           }

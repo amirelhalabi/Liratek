@@ -395,33 +395,6 @@ export interface UseTransactionRowsResult {
    */
   sessionsWithItemRefund: Set<number>;
   /**
-   * LIRA-232 round-3 review (finding 2) — session ids that have ANY payout
-   * member (a loto cash prize, a wallet/Binance cash-out, a custom-service
-   * booked as a payout — anything netted against the basket's other items
-   * at checkout). Core refuses `refundSessionBasketItem` for EVERY member of
-   * such a basket, not just the payout row itself, so the Transactions page
-   * hides "Refund item" for the whole session rather than offering a button
-   * that's guaranteed to error.
-   *
-   * LIRA-236 follow-up (2026-09-27 review) — a payout member is now derived
-   * from each row's own server-computed `is_session_payout` flag
-   * (`TransactionRow.is_session_payout`, `getRecent`'s addition), NOT the
-   * former `isSessionPayoutMember` amount-sign predicate (`@liratek/core`).
-   * The sign check missed a wallet/Binance cash-out entirely: THAT member's
-   * own `transactions` row carries a positive-or-zero amount — only the
-   * session's pooled basket-link row ever carried the negative customer-side
-   * amount — so it never landed in this set and "Refund item" stayed offered
-   * on a basket the server refuses. The flag also keeps the OLD guarantee
-   * for free: an item-refund REFUND row's own negative amount was never
-   * flagged `is_session_payout` (core stamps it only on a genuine netted
-   * payout), so it still never hides "Refund item" for a sibling basket
-   * member. Absent/undefined reads as NOT a payout — never hidden. Derived
-   * from `rows` (not a dedicated unfiltered fetch like `sessionsWithItemRefund`
-   * above) — a narrower fix than finding 3's, scoped to what this finding
-   * asked for.
-   */
-  sessionsWithPayoutMember: Set<number>;
-  /**
    * Coordinator follow-up (2026-09-27), item 5 — session ids where EVERY
    * member has already been refunded item by item (server-computed,
    * `TransactionRow.session_fully_refunded`). The server now REFUSES both
@@ -693,24 +666,11 @@ export function useTransactionRows({
   const sessionsWithItemRefund =
     dedicatedSessionsWithItemRefund ?? sessionsWithItemRefundFromRows;
 
-  // LIRA-232 round-3 review (finding 2) / LIRA-236 follow-up — see the
-  // field's own doc above: flag-derived, not amount-sign-derived.
-  const sessionsWithPayoutMember = useMemo(() => {
-    const ids = new Set<number>();
-    for (const row of rows) {
-      if (row.session_id != null && row.is_session_payout === true) {
-        ids.add(row.session_id);
-      }
-    }
-    return ids;
-  }, [rows]);
-
   // Coordinator follow-up (2026-09-27), item 5 — session ids where EVERY
   // member has already been refunded item by item (server-computed,
   // `TransactionRow.session_fully_refunded` / `TransactionRepository
   // .isSessionBasketFullyRefunded`, stamped identically onto every row of
-  // that session by `getRecent()`). Mirrors `sessionsWithPayoutMember`
-  // immediately above (rule 14): derived from `rows` (the full page-level
+  // that session by `getRecent()`). Derived from `rows` (the full page-level
   // set), never `filteredRows` (further narrowed by the date range) — since
   // the flag is stamped onto EVERY row of the session identically, any one
   // visible row of that session already carries the correct value, unlike
@@ -736,7 +696,6 @@ export function useTransactionRows({
     loadAll: pages.loadAll,
     reload,
     sessionsWithItemRefund,
-    sessionsWithPayoutMember,
     sessionsFullyRefunded,
   };
 }

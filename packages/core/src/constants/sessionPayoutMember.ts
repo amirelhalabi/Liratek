@@ -80,3 +80,59 @@ export function isSessionPayoutMember(
   if (member.type === TRANSACTION_TYPES.EXCHANGE) return false;
   return (member.amount_usd ?? 0) < 0 || (member.amount_lbp ?? 0) < 0;
 }
+
+/**
+ * LIRA-381 — basket-level checkout lines: they belong to the WHOLE basket
+ * (kept change, a waived amount, the basket extra, the basket discount), not
+ * to one item, so "Refund item" is never offered on them and
+ * `refundSessionBasketItem` refuses them; only the whole-basket reversal
+ * undoes them.
+ */
+const SESSION_BASKET_LEVEL_TYPES: ReadonlySet<string> = new Set<string>([
+  TRANSACTION_TYPES.KEPT_CHANGE,
+  TRANSACTION_TYPES.WAIVED_SHORTFALL,
+  TRANSACTION_TYPES.EXTRA_CHARGE,
+  TRANSACTION_TYPES.BASKET_DISCOUNT,
+]);
+
+/** LIRA-381 — is this row a basket-level checkout line (see above)? */
+export function isSessionBasketLevelMember(member: { type: string }): boolean {
+  return SESSION_BASKET_LEVEL_TYPES.has(member.type);
+}
+
+/**
+ * LIRA-381 — the ONE rule (rule 14) for "can this session-basket row be
+ * refunded on its own": every LIVE member — a product, a service, a
+ * recharge, a loto ticket or prize, a transfer or cash-out, an exchange, a
+ * repair — except the basket-level checkout lines above. Shared by
+ * `TransactionRepository._planSessionItemRefund` (server refusal) and the
+ * Transactions page's "Refund item" button, so the two can never disagree.
+ * A voided row or any reversal row (a REFUND, or anything with
+ * `reverses_id`) is not a live member.
+ */
+export function isSessionItemRefundableMember(
+  member: SessionPayoutMemberCandidate,
+): boolean {
+  if (member.status === "VOIDED") return false;
+  if (member.reverses_id != null) return false;
+  if (member.type === TRANSACTION_TYPES.REFUND) return false;
+  return !isSessionBasketLevelMember(member);
+}
+
+/** LIRA-381 — which way the money moves when ONE member is refunded, from
+ *  its customer-side signed amount (the session link row): a charge goes
+ *  back TO the customer; a payout (any negative side) comes back FROM them. */
+export type SessionItemRefundDirection = "to_customer" | "from_customer";
+
+export function sessionItemRefundDirection(member: {
+  type?: string;
+  amount_usd: number;
+  amount_lbp: number;
+}): SessionItemRefundDirection {
+  // An exchange is a swap, refunded by its exact mirror — reported as a
+  // hand-back (`to_customer`), whatever the sign of its received side.
+  if (member.type === TRANSACTION_TYPES.EXCHANGE) return "to_customer";
+  return (member.amount_usd ?? 0) < 0 || (member.amount_lbp ?? 0) < 0
+    ? "from_customer"
+    : "to_customer";
+}

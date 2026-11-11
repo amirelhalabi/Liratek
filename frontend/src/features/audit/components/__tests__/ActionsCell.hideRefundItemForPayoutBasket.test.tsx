@@ -1,4 +1,5 @@
 /**
+ * HISTORY (superseded by LIRA-381, see the describe below).
  * LIRA-232 round-3 review (finding 2) — core now refuses
  * `refundSessionBasketItem` on a session basket that contains ANY payout
  * member (a loto cash prize, an OMT/Whish/Binance wallet cash-out, a
@@ -21,7 +22,9 @@ import { ActionsCell, type RowActionHandlers } from "../TransactionCells";
 import { deriveRow } from "../../rowDerived";
 import type { TransactionRow } from "../../hooks/useTransactionRows";
 
-function buildSessionRow(overrides: Partial<TransactionRow> = {}): TransactionRow {
+function buildSessionRow(
+  overrides: Partial<TransactionRow> = {},
+): TransactionRow {
   return {
     id: 42,
     type: "SALE",
@@ -59,11 +62,7 @@ function buildHandlers(): RowActionHandlers {
   };
 }
 
-function renderCell(
-  row: TransactionRow,
-  handlers: RowActionHandlers,
-  hideRefundItem?: boolean,
-) {
+function renderCell(row: TransactionRow, handlers: RowActionHandlers) {
   return render(
     <table>
       <tbody>
@@ -74,7 +73,6 @@ function renderCell(
             sessionId={7}
             refundLookupRowId={null}
             handlers={handlers}
-            {...(hideRefundItem !== undefined ? { hideRefundItem } : {})}
           />
         </tr>
       </tbody>
@@ -82,34 +80,47 @@ function renderCell(
   );
 }
 
-describe("ActionsCell — hides 'Refund item' on a basket that has a payout member (LIRA-232 round-3)", () => {
-  it("hides 'Refund item' when hideRefundItem is true, for an otherwise-refundable SALE member", () => {
-    const row = buildSessionRow();
-    const handlers = buildHandlers();
-    renderCell(row, handlers, true);
+// LIRA-381 rewrite (rule 24): this file used to prove "Refund item" is
+// HIDDEN on every member of a basket holding a payout (`hideRefundItem`).
+// The owner overruled that rule on 2026-11-11 and the prop is gone; the
+// cases now guard the opposite: a sold item AND the payout itself both keep
+// "Refund item" in such a basket. (Rewritten after the change — not proven
+// failing-first by a run.)
+describe("ActionsCell — a basket that holds a payout keeps 'Refund item' (LIRA-381)", () => {
+  it("shows 'Refund item' on a sold SALE member of a payout basket", () => {
+    const row = buildSessionRow({ is_session_payout: false });
+    renderCell(row, buildHandlers());
 
     expect(
-      screen.queryByRole("button", { name: "Refund item" }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: "Refund item" }),
+    ).toBeInTheDocument();
   });
 
-  it("still shows 'Void basket'/'Refund basket' when hideRefundItem is true — only the per-item action is hidden", () => {
-    const row = buildSessionRow();
-    const handlers = buildHandlers();
-    renderCell(row, handlers, true);
+  it("shows 'Refund item' on the payout row itself (a loto cash prize)", () => {
+    const row = buildSessionRow({
+      type: "LOTO_CASH_PRIZE" as TransactionRow["type"],
+      amount_usd: 0,
+      amount_lbp: -500000,
+      is_session_payout: true,
+    });
+    renderCell(row, buildHandlers());
 
     expect(
-      screen.getByRole("button", { name: "Void basket" }),
+      screen.getByRole("button", { name: "Refund item" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Refund basket" }),
     ).toBeInTheDocument();
   });
 
-  it("renders 'Refund item' as normal when hideRefundItem is false/omitted (default)", () => {
-    const row = buildSessionRow();
-    const handlers = buildHandlers();
-    renderCell(row, handlers);
+  it("shows 'Refund item' on a loto ticket row", () => {
+    const row = buildSessionRow({
+      type: "LOTO" as TransactionRow["type"],
+      source_table: "loto_tickets",
+      amount_usd: 0,
+      amount_lbp: 300000,
+    });
+    renderCell(row, buildHandlers());
 
     expect(
       screen.getByRole("button", { name: "Refund item" }),

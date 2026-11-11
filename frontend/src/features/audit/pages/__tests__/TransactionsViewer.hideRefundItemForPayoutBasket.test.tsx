@@ -121,13 +121,17 @@ async function renderRows(rows: unknown[]) {
   await waitFor(() => expect(mockGetRecentTransactions).toHaveBeenCalled());
 }
 
-describe("TransactionsViewer — hide 'Refund item' on a basket with a payout member (LIRA-232 round-3)", () => {
+// LIRA-381 rewrite (rule 24): the three cases that proved "Refund item" is
+// HIDDEN in a basket holding a payout now prove it is SHOWN on every member
+// (owner 2026-11-11 overruled decision 10). Rewritten after the change — not
+// proven failing-first by a run.
+describe("TransactionsViewer — 'Refund item' on a basket with a payout member (LIRA-381; was hidden under LIRA-232 round-3)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetRecentTransactions.mockReset();
   });
 
-  it("hides 'Refund item' on a SALE member when a sibling LOTO_CASH_PRIZE payout is in the same session", async () => {
+  it("shows 'Refund item' on a SALE member AND its sibling LOTO_CASH_PRIZE payout in the same session", async () => {
     const saleRow = baseRow({
       id: 41,
       type: "SALE",
@@ -157,10 +161,11 @@ describe("TransactionsViewer — hide 'Refund item' on a basket with a payout me
       expect(screen.getAllByRole("row").length).toBeGreaterThanOrEqual(3),
     );
 
-    expect(
-      screen.queryByRole("button", { name: "Refund item" }),
-    ).not.toBeInTheDocument();
-    // The whole-basket actions remain the only way to touch this session.
+    // LIRA-381: both the item and the payout keep "Refund item".
+    expect(screen.getAllByRole("button", { name: "Refund item" })).toHaveLength(
+      2,
+    );
+    // The whole-basket actions are still offered too.
     expect(
       screen.getAllByRole("button", { name: "Void basket" }).length,
     ).toBeGreaterThan(0);
@@ -214,12 +219,13 @@ describe("TransactionsViewer — hide 'Refund item' on a basket with a payout me
     await renderRows([saleRowSessionA, payoutRowSessionB]);
     await waitFor(() => screen.getByText("Sale #32", { exact: false }));
 
-    expect(
-      screen.getByRole("button", { name: "Refund item" }),
-    ).toBeInTheDocument();
+    // LIRA-381: one button per session member — the payout's too.
+    expect(screen.getAllByRole("button", { name: "Refund item" })).toHaveLength(
+      2,
+    );
   });
 
-  it("hides 'Refund item' when the payout is a negative-amount CUSTOM_SERVICE member flagged is_session_payout (server-derived, not a type list)", async () => {
+  it("shows 'Refund item' on a recharge AND a negative-amount CUSTOM_SERVICE payout in the same session", async () => {
     const rechargeRow = baseRow({
       id: 46,
       type: "RECHARGE",
@@ -246,9 +252,10 @@ describe("TransactionsViewer — hide 'Refund item' on a basket with a payout me
       expect(screen.getAllByRole("row").length).toBeGreaterThanOrEqual(3),
     );
 
-    expect(
-      screen.queryByRole("button", { name: "Refund item" }),
-    ).not.toBeInTheDocument();
+    // LIRA-381: both the item and the payout keep "Refund item".
+    expect(screen.getAllByRole("button", { name: "Refund item" })).toHaveLength(
+      2,
+    );
   });
 
   // LIRA-236 follow-up (2026-09-27) — the exact gap the flag switch fixes:
@@ -259,7 +266,7 @@ describe("TransactionsViewer — hide 'Refund item' on a basket with a payout me
   // `is_session_payout` entirely and called `isSessionPayoutMember` on
   // amounts instead, so a positive-amount FINANCIAL_SERVICE row never landed
   // in the set and "Refund item" stayed offered.
-  it("hides 'Refund item' for a FINANCIAL_SERVICE payout member whose OWN amount is positive but is_session_payout is true (wallet/Binance cash-out)", async () => {
+  it("shows 'Refund item' on a SALE member AND a FINANCIAL_SERVICE cash-out whose own amount is positive (wallet/Binance)", async () => {
     const saleRow = baseRow({
       id: 50,
       type: "SALE",
@@ -289,9 +296,10 @@ describe("TransactionsViewer — hide 'Refund item' on a basket with a payout me
       expect(screen.getAllByRole("row").length).toBeGreaterThanOrEqual(3),
     );
 
-    expect(
-      screen.queryByRole("button", { name: "Refund item" }),
-    ).not.toBeInTheDocument();
+    // LIRA-381: both the item and the payout keep "Refund item".
+    expect(screen.getAllByRole("button", { name: "Refund item" })).toHaveLength(
+      2,
+    );
   });
 
   // The flag's other half: absent (undefined) must read as NOT a payout, so

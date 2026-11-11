@@ -359,9 +359,15 @@ function createTestDb(): Database.Database {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function balance(db: Database.Database, drawer: string, currency: string): number {
+function balance(
+  db: Database.Database,
+  drawer: string,
+  currency: string,
+): number {
   const row = db
-    .prepare(`SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ?`)
+    .prepare(
+      `SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ?`,
+    )
     .get(drawer, currency) as { balance: number } | undefined;
   return row ? row.balance : 0;
 }
@@ -375,30 +381,46 @@ function balance(db: Database.Database, drawer: string, currency: string): numbe
 // every scenario here.)
 function clientNetDebtUsd(db: Database.Database, clientId: number): number {
   const row = db
-    .prepare(`SELECT COALESCE(SUM(amount_usd), 0) AS total FROM debt_ledger WHERE client_id = ?`)
+    .prepare(
+      `SELECT COALESCE(SUM(amount_usd), 0) AS total FROM debt_ledger WHERE client_id = ?`,
+    )
     .get(clientId) as { total: number };
   return row.total;
 }
 
 function clientNetDebtLbp(db: Database.Database, clientId: number): number {
   const row = db
-    .prepare(`SELECT COALESCE(SUM(amount_lbp), 0) AS total FROM debt_ledger WHERE client_id = ?`)
+    .prepare(
+      `SELECT COALESCE(SUM(amount_lbp), 0) AS total FROM debt_ledger WHERE client_id = ?`,
+    )
     .get(clientId) as { total: number };
   return row.total;
 }
 
-function insertProduct(db: Database.Database, name: string, costUsd: number): number {
+function insertProduct(
+  db: Database.Database,
+  name: string,
+  costUsd: number,
+): number {
   return Number(
     db
-      .prepare(`INSERT INTO products (name, cost_price_usd, stock_quantity) VALUES (?, ?, 100)`)
+      .prepare(
+        `INSERT INTO products (name, cost_price_usd, stock_quantity) VALUES (?, ?, 100)`,
+      )
       .run(name, costUsd).lastInsertRowid,
   );
 }
 
-function insertUnit(db: Database.Database, productId: number, imei: string): number {
+function insertUnit(
+  db: Database.Database,
+  productId: number,
+  imei: string,
+): number {
   return Number(
     db
-      .prepare(`INSERT INTO product_units (tenant_id, product_id, imei, status) VALUES (1, ?, ?, 'IN_STOCK')`)
+      .prepare(
+        `INSERT INTO product_units (tenant_id, product_id, imei, status) VALUES (1, ?, ?, 'IN_STOCK')`,
+      )
       .run(productId, imei).lastInsertRowid,
   );
 }
@@ -406,10 +428,20 @@ function insertUnit(db: Database.Database, productId: number, imei: string): num
 function getUnit(
   db: Database.Database,
   id: number,
-): { status: string; is_defective: number; warranty_override_until: string | null } {
+): {
+  status: string;
+  is_defective: number;
+  warranty_override_until: string | null;
+} {
   return db
-    .prepare(`SELECT status, is_defective, warranty_override_until FROM product_units WHERE id = ?`)
-    .get(id) as { status: string; is_defective: number; warranty_override_until: string | null };
+    .prepare(
+      `SELECT status, is_defective, warranty_override_until FROM product_units WHERE id = ?`,
+    )
+    .get(id) as {
+    status: string;
+    is_defective: number;
+    warranty_override_until: string | null;
+  };
 }
 
 describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () => {
@@ -459,14 +491,16 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
 
   function seedSession(): number {
     return Number(
-      db.prepare("INSERT INTO customer_sessions (started_by) VALUES ('admin')").run()
-        .lastInsertRowid,
+      db
+        .prepare("INSERT INTO customer_sessions (started_by) VALUES ('admin')")
+        .run().lastInsertRowid,
     );
   }
 
   function seedClient(name = "amir"): number {
     return Number(
-      db.prepare(`INSERT INTO clients (full_name) VALUES (?)`).run(name).lastInsertRowid,
+      db.prepare(`INSERT INTO clients (full_name) VALUES (?)`).run(name)
+        .lastInsertRowid,
     );
   }
 
@@ -479,7 +513,10 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     items: Array<{ name: string; price: number; cost: number; qty?: number }>,
   ): { saleId: number; txnId: number; itemIds: number[] } {
     const productIds = items.map((it) => insertProduct(db, it.name, it.cost));
-    const totalAmount = items.reduce((s, it) => s + it.price * (it.qty ?? 1), 0);
+    const totalAmount = items.reduce(
+      (s, it) => s + it.price * (it.qty ?? 1),
+      0,
+    );
     const result = salesRepo.processSale(
       {
         client_id: clientId,
@@ -502,21 +539,29 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     expect(result.success).toBe(true);
     const saleId = result.id!;
     const txnRow = db
-      .prepare(`SELECT id FROM transactions WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE'`)
+      .prepare(
+        `SELECT id FROM transactions WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE'`,
+      )
       .get(saleId) as { id: number };
     db.prepare(
       `INSERT INTO customer_session_transactions (session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp)
        VALUES (?, 'sale', ?, ?, ?, 0)`,
     ).run(sessionId, saleId, txnRow.id, totalAmount);
     const itemIds = (
-      db.prepare(`SELECT id FROM sale_items WHERE sale_id = ? ORDER BY id ASC`).all(saleId) as {
+      db
+        .prepare(`SELECT id FROM sale_items WHERE sale_id = ? ORDER BY id ASC`)
+        .all(saleId) as {
         id: number;
       }[]
     ).map((r) => r.id);
     return { saleId, txnId: txnRow.id, itemIds };
   }
 
-  function payCash(sessionId: number, amountUsd: number, clientId?: number | null): void {
+  function payCash(
+    sessionId: number,
+    amountUsd: number,
+    clientId?: number | null,
+  ): void {
     sessionPaymentService.recordBasketPayment(sessionId, {
       legs: [{ method: "CASH", currencyCode: "USD", amount: amountUsd }],
       exchangeRate: RATE,
@@ -525,9 +570,15 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     });
   }
 
-  function payAccount(sessionId: number, amountUsd: number, clientId: number): void {
+  function payAccount(
+    sessionId: number,
+    amountUsd: number,
+    clientId: number,
+  ): void {
     sessionPaymentService.recordBasketPayment(sessionId, {
-      legs: [{ method: "CUSTOMER_ACCOUNT", currencyCode: "USD", amount: amountUsd }],
+      legs: [
+        { method: "CUSTOMER_ACCOUNT", currencyCode: "USD", amount: amountUsd },
+      ],
       exchangeRate: RATE,
       userId: USER_ID,
       clientId,
@@ -551,9 +602,15 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     });
   }
 
-  function payAccountLbp(sessionId: number, amountLbp: number, clientId: number): void {
+  function payAccountLbp(
+    sessionId: number,
+    amountLbp: number,
+    clientId: number,
+  ): void {
     sessionPaymentService.recordBasketPayment(sessionId, {
-      legs: [{ method: "CUSTOMER_ACCOUNT", currencyCode: "LBP", amount: amountLbp }],
+      legs: [
+        { method: "CUSTOMER_ACCOUNT", currencyCode: "LBP", amount: amountLbp },
+      ],
       exchangeRate: RATE,
       userId: USER_ID,
       clientId,
@@ -572,7 +629,12 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     sessionPaymentService.recordBasketPayment(sessionId, {
       legs: [
         { method: "CASH", currencyCode: "USD", amount: cashUsd },
-        { method: "CASH", currencyCode: "USD", amount: changeUsd, direction: "OUT" },
+        {
+          method: "CASH",
+          currencyCode: "USD",
+          amount: changeUsd,
+          direction: "OUT",
+        },
       ],
       exchangeRate: RATE,
       userId: USER_ID,
@@ -680,7 +742,9 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
 
   function drawerBalance(drawerName: string, currency: "USD" | "LBP"): number {
     const row = db
-      .prepare(`SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ?`)
+      .prepare(
+        `SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ?`,
+      )
       .get(drawerName, currency) as { balance: number } | undefined;
     return row ? row.balance : 0;
   }
@@ -699,7 +763,10 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
 
     const generalBefore = balance(db, "General", "USD");
     const stockBefore = (
-      db.prepare(`SELECT stock_quantity FROM products WHERE id = (SELECT product_id FROM sale_items WHERE id = ?)`)
+      db
+        .prepare(
+          `SELECT stock_quantity FROM products WHERE id = (SELECT product_id FROM sale_items WHERE id = ?)`,
+        )
         .get(itemIds[0]) as { stock_quantity: number }
     ).stock_quantity;
 
@@ -722,7 +789,10 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     expect(clientNetDebtUsd(db, clientId)).toBeCloseTo(135, 6);
     // Stock +1.
     const stockAfter = (
-      db.prepare(`SELECT stock_quantity FROM products WHERE id = (SELECT product_id FROM sale_items WHERE id = ?)`)
+      db
+        .prepare(
+          `SELECT stock_quantity FROM products WHERE id = (SELECT product_id FROM sale_items WHERE id = ?)`,
+        )
         .get(itemIds[0]) as { stock_quantity: number }
     ).stock_quantity;
     expect(stockAfter).toBe(stockBefore + 1);
@@ -733,7 +803,9 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     expect(refundTxn.profit_usd).toBeCloseTo(-200, 6);
     // Linked to the session.
     const linked = db
-      .prepare(`SELECT id FROM customer_session_transactions WHERE session_id = ? AND unified_transaction_id = ?`)
+      .prepare(
+        `SELECT id FROM customer_session_transactions WHERE session_id = ? AND unified_transaction_id = ?`,
+      )
       .get(sessionId, result.refundTransactionId);
     expect(linked).toBeDefined();
   });
@@ -976,7 +1048,9 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     ]);
     // 50 USD * buy_rate(89000) = 4,450,000 LBP debt — book it directly in LBP.
     sessionPaymentService.recordBasketPayment(sessionId, {
-      legs: [{ method: "CUSTOMER_ACCOUNT", currencyCode: "LBP", amount: 4_450_000 }],
+      legs: [
+        { method: "CUSTOMER_ACCOUNT", currencyCode: "LBP", amount: 4_450_000 },
+      ],
       exchangeRate: RATE,
       userId: USER_ID,
       clientId,
@@ -1020,7 +1094,9 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
       { name: "item", price: 50, cost: 30 },
     ]);
     sessionPaymentService.recordBasketPayment(sessionId, {
-      legs: [{ method: "CUSTOMER_ACCOUNT", currencyCode: "LBP", amount: 4_450_000 }],
+      legs: [
+        { method: "CUSTOMER_ACCOUNT", currencyCode: "LBP", amount: 4_450_000 },
+      ],
       exchangeRate: RATE,
       userId: USER_ID,
       clientId,
@@ -1067,14 +1143,18 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     // Checkout happens at 89,000 — DIFFERENT from the cart's stamped 90,000
     // (`RATE`, used by `sellIntoSession` above). 50 USD * 89,000 = 4,450,000.
     sessionPaymentService.recordBasketPayment(sessionId, {
-      legs: [{ method: "CUSTOMER_ACCOUNT", currencyCode: "LBP", amount: 4_450_000 }],
+      legs: [
+        { method: "CUSTOMER_ACCOUNT", currencyCode: "LBP", amount: 4_450_000 },
+      ],
       exchangeRate: 89000,
       userId: USER_ID,
       clientId,
     });
     // The checkout rate landed on the sale's own snapshot, not the cart rate.
     const saleRow = db
-      .prepare(`SELECT exchange_rate_snapshot FROM sales WHERE id = (SELECT source_id FROM transactions WHERE id = ?)`)
+      .prepare(
+        `SELECT exchange_rate_snapshot FROM sales WHERE id = (SELECT source_id FROM transactions WHERE id = ?)`,
+      )
       .get(txnId) as { exchange_rate_snapshot: number };
     expect(saleRow.exchange_rate_snapshot).toBe(89000);
 
@@ -1129,14 +1209,18 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     // Checked out at 89,000 — different from the stale 90,000 on the
     // transactions row. 50 USD * 89,000 = 4,450,000 LBP.
     sessionPaymentService.recordBasketPayment(sessionId, {
-      legs: [{ method: "CUSTOMER_ACCOUNT", currencyCode: "LBP", amount: 4_450_000 }],
+      legs: [
+        { method: "CUSTOMER_ACCOUNT", currencyCode: "LBP", amount: 4_450_000 },
+      ],
       exchangeRate: 89000,
       userId: USER_ID,
       clientId,
     });
 
     const stamped = db
-      .prepare(`SELECT paid_exchange_rate FROM customer_session_transactions WHERE unified_transaction_id = ?`)
+      .prepare(
+        `SELECT paid_exchange_rate FROM customer_session_transactions WHERE unified_transaction_id = ?`,
+      )
       .get(txnId) as { paid_exchange_rate: number };
     expect(stamped.paid_exchange_rate).toBe(89000);
 
@@ -1259,28 +1343,32 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
   });
 
   // ── Refusals ──────────────────────────────────────────────────────────
-  it("refuses a payout/prize/kept-change member (owner decision #4)", () => {
+  // LIRA-381 rewrite (rule 24): was "refuses a payout/prize/kept-change
+  // member" (owner decision #4, overruled 2026-11-11 — a prize is now
+  // refundable; see lira381.refundAnyBasketItem.test.ts, real schema). Kept
+  // change is a basket-level line and is still refused on its own.
+  it("LIRA-381: a kept-change basket line is still refused on its own (it belongs to the whole basket)", () => {
     const sessionId = seedSession();
-    const prizeTxnId = Number(
+    const keptTxnId = Number(
       db
         .prepare(
-          `INSERT INTO transactions (type, source_table, source_id, user_id, amount_usd, amount_lbp)
-           VALUES ('LOTO_CASH_PRIZE', 'loto_cash_prizes', 1, ?, 0, -400000)`,
+          `INSERT INTO transactions (type, source_table, source_id, user_id, amount_usd, amount_lbp, profit_usd)
+           VALUES ('KEPT_CHANGE', 'customer_sessions', ?, ?, 0, 0, 0.5)`,
         )
-        .run(USER_ID).lastInsertRowid,
+        .run(sessionId, USER_ID).lastInsertRowid,
     );
     db.prepare(
       `INSERT INTO customer_session_transactions (session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp)
-       VALUES (?, 'loto_cash_prize', 1, ?, 0, -400000)`,
-    ).run(sessionId, prizeTxnId);
+       VALUES (?, 'kept_change', ?, ?, 0, 0)`,
+    ).run(sessionId, sessionId, keptTxnId);
 
     expect(() =>
       txnRepo.refundSessionBasketItem({
         sessionId,
-        transactionId: prizeTxnId,
+        transactionId: keptTxnId,
         userId: USER_ID,
       }),
-    ).toThrow(/cannot be refunded on its own/);
+    ).toThrow(/part of the basket's checkout, not an item/);
   });
 
   it("refuses refunding more than the available quantity", () => {
@@ -1423,7 +1511,9 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     // sellIntoSession's processSale call always sends discount: 0 — apply
     // the discount directly on the sale row the same way processSale would
     // have stamped it, so the fixture matches a REAL discounted sale.
-    db.prepare(`UPDATE sales SET discount_usd = 10, final_amount_usd = 90 WHERE id = (SELECT source_id FROM transactions WHERE id = ?)`).run(txnId);
+    db.prepare(
+      `UPDATE sales SET discount_usd = 10, final_amount_usd = 90 WHERE id = (SELECT source_id FROM transactions WHERE id = ?)`,
+    ).run(txnId);
     payCash(sessionId, 90);
     const generalBefore = balance(db, "General", "USD");
 
@@ -1503,7 +1593,12 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
   it("finding #3: a $ + LBP custom service on account reduces BOTH currencies of the charge, not just USD", () => {
     const clientId = seedClient();
     const sessionId = seedSession();
-    const serviceTxnId = customServiceIntoSession(sessionId, clientId, 10, 450000);
+    const serviceTxnId = customServiceIntoSession(
+      sessionId,
+      clientId,
+      10,
+      450000,
+    );
     // Basket charged to the account in the SAME dual-currency shape.
     payAccount(sessionId, 10, clientId);
     payAccountLbp(sessionId, 450000, clientId);
@@ -1613,7 +1708,10 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
   });
 
   // ── Finding #11 — misc refusals ──────────────────────────────────────────
-  it("finding #11: refuses a payout-direction (negative-amount) non-SALE member", () => {
+  // LIRA-381 rewrite (rule 24): was "finding #11: refuses a
+  // payout-direction (negative-amount) non-SALE member". The owner now wants
+  // it refunded: the customer pays the payout back (default: cash).
+  it("LIRA-381: a payout-direction (negative-amount) non-SALE member is refunded FROM the customer", () => {
     const sessionId = seedSession();
     const payoutTxnId = Number(
       db
@@ -1627,14 +1725,21 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
       `INSERT INTO customer_session_transactions (session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp)
        VALUES (?, 'custom_service', 1, ?, -10, 0)`,
     ).run(sessionId, payoutTxnId);
+    const generalBefore = drawerBalance("General", "USD");
 
-    expect(() =>
-      txnRepo.refundSessionBasketItem({
-        sessionId,
-        transactionId: payoutTxnId,
-        userId: USER_ID,
-      }),
-    ).toThrow(/payout, not a sold item/);
+    const result = txnRepo.refundSessionBasketItem({
+      sessionId,
+      transactionId: payoutTxnId,
+      userId: USER_ID,
+    });
+    expect(result.direction).toBe("from_customer");
+    expect(drawerBalance("General", "USD") - generalBefore).toBeCloseTo(10, 6);
+    const link = db
+      .prepare(
+        `SELECT amount_usd FROM customer_session_transactions WHERE session_id = ? AND transaction_type = 'session_item_refund'`,
+      )
+      .get(sessionId) as { amount_usd: number };
+    expect(link.amount_usd).toBeCloseTo(10, 6);
   });
 
   it("finding #11: the account credit shows on the REFUND row's own account_payments, not smeared across the whole session group", () => {
@@ -1703,7 +1808,9 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     // anywhere" post-fix.
     payAccountLbp(sessionId, 4500000, clientId);
     db.prepare(`DELETE FROM exchange_rates`).run();
-    db.prepare(`UPDATE transactions SET exchange_rate = NULL WHERE id = ?`).run(txnId);
+    db.prepare(`UPDATE transactions SET exchange_rate = NULL WHERE id = ?`).run(
+      txnId,
+    );
     db.prepare(
       `UPDATE sales SET exchange_rate_snapshot = NULL WHERE id = (SELECT source_id FROM transactions WHERE id = ?)`,
     ).run(txnId);
@@ -1846,7 +1953,12 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
       {
         client_id: null,
         items: [
-          { product_id: phoneId, quantity: 1, price: 1000, product_unit_id: phoneUnitId },
+          {
+            product_id: phoneId,
+            quantity: 1,
+            price: 1000,
+            product_unit_id: phoneUnitId,
+          },
           { product_id: chargerId, quantity: 1, price: 15 },
         ],
         total_amount: 1015,
@@ -1863,7 +1975,9 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     expect(result.success).toBe(true);
     const saleId = result.id!;
     const txnRow = db
-      .prepare(`SELECT id FROM transactions WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE'`)
+      .prepare(
+        `SELECT id FROM transactions WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE'`,
+      )
       .get(saleId) as { id: number };
     db.prepare(
       `INSERT INTO customer_session_transactions (session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp)
@@ -1912,7 +2026,9 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     // RED on the pre-fix code: totalLegsUsd ≈ 15.056 — more than the pool
     // (and the drawer) ever received for this basket.
     expect(totalLegsUsd).toBeLessThanOrEqual(15 + 1e-9);
-    expect(balance(db, "General", "USD")).toBeGreaterThanOrEqual(generalBefore - 15 - 1e-9);
+    expect(balance(db, "General", "USD")).toBeGreaterThanOrEqual(
+      generalBefore - 15 - 1e-9,
+    );
   });
 
   // ── round-2 finding #9 (LOW) — LBP remainder/default legs are whole LBP ──
@@ -1969,7 +2085,9 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     it("(a) no item refunds: a real repayment survives the whole-basket reversal as a store credit, not a cancelled debt", () => {
       const clientId = seedClient();
       const sessionId = seedSession();
-      sellIntoSession(sessionId, clientId, [{ name: "item", price: 100, cost: 60 }]);
+      sellIntoSession(sessionId, clientId, [
+        { name: "item", price: 100, cost: 60 },
+      ]);
       payAccount(sessionId, 100, clientId);
       const debtRepo = new DebtRepository();
       debtRepo.addRepayment({
@@ -2045,7 +2163,12 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
       // #2/#3; this test isolates the balance-cap fix from that conversion).
       const clientId = seedClient();
       const sessionId = seedSession();
-      const memberA = customServiceIntoSession(sessionId, clientId, 0, 2_250_000);
+      const memberA = customServiceIntoSession(
+        sessionId,
+        clientId,
+        0,
+        2_250_000,
+      );
       customServiceIntoSession(sessionId, clientId, 0, 2_250_000);
       payAccountLbp(sessionId, 4_500_000, clientId);
       const debtRepo = new DebtRepository();
@@ -2070,7 +2193,9 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     it("(d) a client with a SECOND, unrelated debt: the cancellation does not depend on the client's total balance", () => {
       const clientId = seedClient();
       const sessionId = seedSession();
-      sellIntoSession(sessionId, clientId, [{ name: "item", price: 100, cost: 60 }]);
+      sellIntoSession(sessionId, clientId, [
+        { name: "item", price: 100, cost: 60 },
+      ]);
       payAccount(sessionId, 100, clientId);
       const debtRepo = new DebtRepository();
       debtRepo.addRepayment({
@@ -2105,7 +2230,9 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     it("a basket with both a Session Debt charge and a pooled CREDIT_DEPOSIT writes TWO reversal rows", () => {
       const clientId = seedClient();
       const sessionId = seedSession();
-      sellIntoSession(sessionId, clientId, [{ name: "item", price: 30, cost: 20 }]);
+      sellIntoSession(sessionId, clientId, [
+        { name: "item", price: 30, cost: 20 },
+      ]);
       payAccount(sessionId, 30, clientId);
       // A pooled CREDIT_DEPOSIT from the same checkout (e.g. a payout kept
       // on the customer's account) — unrelated in size to the charge.
@@ -2126,9 +2253,9 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
       // rows, one per original debt-row type, exactly like the staged
       // (pre-item-refund-attribution) shape.
       expect(reversalRows).toHaveLength(2);
-      expect(reversalRows.map((r) => r.amount_usd).sort((a, b) => a - b)).toEqual(
-        [-30, 5].sort((a, b) => a - b),
-      );
+      expect(
+        reversalRows.map((r) => r.amount_usd).sort((a, b) => a - b),
+      ).toEqual([-30, 5].sort((a, b) => a - b));
       expect(clientNetDebtUsd(db, clientId)).toBeCloseTo(0, 6);
     });
 
@@ -2277,7 +2404,14 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     const result = salesRepo.processSale(
       {
         client_id: null,
-        items: [{ product_id: productId, quantity: 1, price: totalAmount, product_unit_id: unitId }],
+        items: [
+          {
+            product_id: productId,
+            quantity: 1,
+            price: totalAmount,
+            product_unit_id: unitId,
+          },
+        ],
         total_amount: totalAmount,
         discount: 0,
         final_amount: totalAmount,
@@ -2292,14 +2426,18 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     expect(result.success).toBe(true);
     const saleId = result.id!;
     const txnRow = db
-      .prepare(`SELECT id FROM transactions WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE'`)
+      .prepare(
+        `SELECT id FROM transactions WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE'`,
+      )
       .get(saleId) as { id: number };
     db.prepare(
       `INSERT INTO customer_session_transactions (session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp)
        VALUES (?, 'sale', ?, ?, ?, 0)`,
     ).run(sessionId, saleId, txnRow.id, totalAmount);
     const itemId = (
-      db.prepare(`SELECT id FROM sale_items WHERE sale_id = ?`).get(saleId) as { id: number }
+      db.prepare(`SELECT id FROM sale_items WHERE sale_id = ?`).get(saleId) as {
+        id: number;
+      }
     ).id;
     payCash(sessionId, totalAmount);
     expect(getUnit(db, unitId).status).toBe("SOLD");
@@ -2401,8 +2539,12 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     });
   });
 
-  describe("round-3 finding #2 (HIGH): a basket containing a netted payout refuses an item refund on any OTHER member", () => {
-    it("refuses refunding a SALE item when the basket also has a LOTO_CASH_PRIZE payout member netted against it", () => {
+  describe("round-3 finding #2 (HIGH) → LIRA-381: a basket containing a netted payout no longer refuses an item refund on another member", () => {
+    // LIRA-381 rewrite (rule 24): these two cases used to prove the
+    // refusal (decision 10, overruled 2026-11-11). They now guard the
+    // replacement: the item comes back at its OWN value ($100), capped by
+    // the basket's gross charge, never the netted $40 pool.
+    it("LIRA-381: a SALE item in a basket with a netted LOTO_CASH_PRIZE is refunded at its full value, not the netted pool", () => {
       const sessionId = seedSession();
       const { txnId, itemIds } = sellIntoSession(sessionId, null, [
         { name: "phone", price: 100, cost: 60 },
@@ -2411,25 +2553,24 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
       // hit the pool.
       payoutIntoSession(sessionId, 60 * RATE);
       payCash(sessionId, 40);
+      const generalBefore = drawerBalance("General", "USD");
 
-      expect(() =>
-        txnRepo.refundSessionBasketItem({
-          sessionId,
-          transactionId: txnId,
-          saleItemId: itemIds[0],
-          quantity: 1,
-          userId: USER_ID,
-        }),
-      ).toThrow(/payout/i);
-
-      // Nothing written — the guard runs before any write.
-      const refundCount = db
-        .prepare(`SELECT COUNT(*) AS c FROM transactions WHERE type = 'REFUND'`)
-        .get() as { c: number };
-      expect(refundCount.c).toBe(0);
+      const result = txnRepo.refundSessionBasketItem({
+        sessionId,
+        transactionId: txnId,
+        saleItemId: itemIds[0],
+        quantity: 1,
+        userId: USER_ID,
+      });
+      expect(result.direction).toBe("to_customer");
+      expect(result.remainderUsd).toBeCloseTo(100, 6);
+      expect(drawerBalance("General", "USD") - generalBefore).toBeCloseTo(
+        -100,
+        6,
+      );
     });
 
-    it("the SAME refusal from the read-only preview (getSessionItemRefundPreview), before any write is attempted", () => {
+    it("LIRA-381: the read-only preview offers the same full value", () => {
       const sessionId = seedSession();
       const { txnId, itemIds } = sellIntoSession(sessionId, null, [
         { name: "phone", price: 100, cost: 60 },
@@ -2437,14 +2578,14 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
       payoutIntoSession(sessionId, 60 * RATE);
       payCash(sessionId, 40);
 
-      expect(() =>
-        txnRepo.getSessionItemRefundPreview({
-          sessionId,
-          transactionId: txnId,
-          saleItemId: itemIds[0],
-          quantity: 1,
-        }),
-      ).toThrow(/payout/i);
+      const preview = txnRepo.getSessionItemRefundPreview({
+        sessionId,
+        transactionId: txnId,
+        saleItemId: itemIds[0],
+        quantity: 1,
+      });
+      expect(preview.remainderUsd).toBeCloseTo(100, 6);
+      expect(preview.direction).toBe("to_customer");
     });
 
     it("a KEPT_CHANGE member does NOT block an item refund — it nets to 0 and is not a payout", () => {
@@ -2532,7 +2673,9 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
       const tenantId = 1;
       const fsId = Number(
         db
-          .prepare(`INSERT INTO financial_services (provider, tenant_id) VALUES (?, ?)`)
+          .prepare(
+            `INSERT INTO financial_services (provider, tenant_id) VALUES (?, ?)`,
+          )
           .run(provider, tenantId).lastInsertRowid,
       );
       const txnId = Number(
@@ -2554,7 +2697,7 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     // eligible — no shop_base_system concept applies to it at all) blocks
     // an item refund on a DIFFERENT (sold) member, matching decision 10's
     // own list ("a loto prize, a wallet or Binance cash-out").
-    it("F4: a netted Binance (USDT) cash-out blocks refunding a DIFFERENT item, same as a loto prize", () => {
+    it("F4 → LIRA-381: a netted Binance (USDT) cash-out no longer blocks refunding a DIFFERENT item — it comes back at its full $100", () => {
       const sessionId = seedSession();
       const { txnId, itemIds } = sellIntoSession(sessionId, null, [
         { name: "phone", price: 100, cost: 60 },
@@ -2562,15 +2705,15 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
       financialServicePayoutIntoSession(sessionId, "BINANCE", 30);
       payCash(sessionId, 70);
 
-      expect(() =>
-        txnRepo.refundSessionBasketItem({
-          sessionId,
-          transactionId: txnId,
-          saleItemId: itemIds[0],
-          quantity: 1,
-          userId: USER_ID,
-        }),
-      ).toThrow(/payout/i);
+      const result = txnRepo.refundSessionBasketItem({
+        sessionId,
+        transactionId: txnId,
+        saleItemId: itemIds[0],
+        quantity: 1,
+        userId: USER_ID,
+      });
+      // Netted (gross-charge cap): the full item, not the $70 pool.
+      expect(result.remainderUsd).toBeCloseTo(100, 6);
     });
 
     // F6 — a NON-netted OMT SYSTEM RECEIVE (provider 'OMT', matching this
@@ -2599,7 +2742,7 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     // (its provider string can never equal shop_base_system 'OMT'/'WHISH'),
     // so it stays netted/refused even though its provider name starts with
     // "OMT".
-    it("F4: an OMT_APP (wallet) cash-out is netted — still refused, unlike the OMT SYSTEM variant", () => {
+    it("F4 → LIRA-381: an OMT_APP (wallet) cash-out is netted — the other item still comes back at its full $100", () => {
       const sessionId = seedSession();
       const { txnId, itemIds } = sellIntoSession(sessionId, null, [
         { name: "phone", price: 100, cost: 60 },
@@ -2607,22 +2750,26 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
       financialServicePayoutIntoSession(sessionId, "OMT_APP", 30);
       payCash(sessionId, 70);
 
-      expect(() =>
-        txnRepo.refundSessionBasketItem({
-          sessionId,
-          transactionId: txnId,
-          saleItemId: itemIds[0],
-          quantity: 1,
-          userId: USER_ID,
-        }),
-      ).toThrow(/payout/i);
+      const result = txnRepo.refundSessionBasketItem({
+        sessionId,
+        transactionId: txnId,
+        saleItemId: itemIds[0],
+        quantity: 1,
+        userId: USER_ID,
+      });
+      // Netted (gross-charge cap): the full item, not the $70 pool.
+      expect(result.remainderUsd).toBeCloseTo(100, 6);
     });
 
     // getRecent's is_session_payout must agree with the write-path guard —
     // ONE shared predicate (rule 14), asserted directly here.
     it("getRecent().is_session_payout agrees with the guard: true for the netted Binance member, false for the non-netted OMT SYSTEM member", () => {
       const sessionId = seedSession();
-      const binanceTxnId = financialServicePayoutIntoSession(sessionId, "BINANCE", 30);
+      const binanceTxnId = financialServicePayoutIntoSession(
+        sessionId,
+        "BINANCE",
+        30,
+      );
       const sessionId2 = seedSession();
       const omtTxnId = financialServicePayoutIntoSession(sessionId2, "OMT", 30);
 
@@ -2688,7 +2835,12 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
   describe("round-3 finding #3 (MEDIUM): the pool cap is cumulative across item refunds, never re-applied against the GROSS pool", () => {
     it("custom service ($10 + 450,000 LBP) + $5 sale, refunded from a $20 USD-only pool: total handed back never exceeds the pool", () => {
       const sessionId = seedSession();
-      const customServiceTxnId = customServiceIntoSession(sessionId, null, 10, 450000);
+      const customServiceTxnId = customServiceIntoSession(
+        sessionId,
+        null,
+        10,
+        450000,
+      );
       const { txnId: saleTxnId, itemIds } = sellIntoSession(sessionId, null, [
         { name: "gadget", price: 5, cost: 2 },
       ]);
@@ -2836,10 +2988,9 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
         userId: USER_ID,
       });
 
-      expect(splitA.accountReductionUsd + splitB.accountReductionUsd).toBeCloseTo(
-        singleResult.accountReductionUsd,
-        6,
-      );
+      expect(
+        splitA.accountReductionUsd + splitB.accountReductionUsd,
+      ).toBeCloseTo(singleResult.accountReductionUsd, 6);
       expect(splitA.remainderUsd + splitB.remainderUsd).toBeCloseTo(
         singleResult.remainderUsd,
         6,
@@ -2851,7 +3002,9 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     it("1 Session Debt + 2 CREDIT_DEPOSIT rows → 3 reversal rows (not 2), each with its own row's client_id", () => {
       const clientId = seedClient();
       const sessionId = seedSession();
-      sellIntoSession(sessionId, clientId, [{ name: "item", price: 50, cost: 30 }]);
+      sellIntoSession(sessionId, clientId, [
+        { name: "item", price: 50, cost: 30 },
+      ]);
       payAccount(sessionId, 50, clientId);
       const debtRepo = new DebtRepository();
       debtRepo.addCredit({
@@ -2873,13 +3026,17 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
       expect(clientNetDebtUsd(db, clientId)).toBeCloseTo(35, 6); // 50-10-5
 
       const beforeRows = db
-        .prepare(`SELECT COUNT(*) AS c FROM debt_ledger WHERE transaction_type = 'Refund Reversal'`)
+        .prepare(
+          `SELECT COUNT(*) AS c FROM debt_ledger WHERE transaction_type = 'Refund Reversal'`,
+        )
         .get() as { c: number };
 
       txnRepo.refundSessionBasket(sessionId, USER_ID);
 
       const afterRows = db
-        .prepare(`SELECT COUNT(*) AS c FROM debt_ledger WHERE transaction_type = 'Refund Reversal'`)
+        .prepare(
+          `SELECT COUNT(*) AS c FROM debt_ledger WHERE transaction_type = 'Refund Reversal'`,
+        )
         .get() as { c: number };
       // RED on the pre-fix per-TYPE aggregation: writes 2 rows (one combined
       // 'Session Debt' net, one combined 'CREDIT_DEPOSIT' net) instead of 3.
@@ -2890,7 +3047,9 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     it("a second refundSessionBasket call on the same (fully reversed) basket is still refused — the per-row rewrite keeps the idempotency marker", () => {
       const clientId = seedClient();
       const sessionId = seedSession();
-      sellIntoSession(sessionId, clientId, [{ name: "item", price: 50, cost: 30 }]);
+      sellIntoSession(sessionId, clientId, [
+        { name: "item", price: 50, cost: 30 },
+      ]);
       payAccount(sessionId, 50, clientId);
       txnRepo.refundSessionBasket(sessionId, USER_ID);
 
@@ -2903,7 +3062,12 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
   describe("round-3 finding #6 (LOW): every proportional LBP/USD split in the whole-basket pooled reversal sums EXACTLY to its total", () => {
     it("3 equal 300,000 LBP pooled legs, 890,000 already returned by a prior item refund: every drawer balance stays a whole LBP and the combined total nets to exactly 0", () => {
       const sessionId = seedSession();
-      const customServiceTxnId = customServiceIntoSession(sessionId, null, 0, 890000);
+      const customServiceTxnId = customServiceIntoSession(
+        sessionId,
+        null,
+        0,
+        890000,
+      );
       // 3 different drawer-affecting LBP legs of equal weight — the exact
       // shape that makes an independent Math.round per leg overshoot by 1
       // LBP (296,667 x 3 = 890,001 instead of 890,000).
@@ -3054,7 +3218,9 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
       // remaining-lines path), and the drawer nets back to its pre-payment
       // baseline (item A's $30 + item B's $20 = the full $50 paid in).
       const lineB = db
-        .prepare(`SELECT refunded_quantity, quantity FROM sale_items WHERE id = ?`)
+        .prepare(
+          `SELECT refunded_quantity, quantity FROM sale_items WHERE id = ?`,
+        )
         .get(itemIds[1]) as { refunded_quantity: number; quantity: number };
       expect(lineB.refunded_quantity).toBe(lineB.quantity);
     });
@@ -3096,7 +3262,9 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
       ).not.toThrow();
 
       const kcRow = db
-        .prepare(`SELECT id FROM transactions WHERE reverses_id = ? AND type = 'REFUND'`)
+        .prepare(
+          `SELECT id FROM transactions WHERE reverses_id = ? AND type = 'REFUND'`,
+        )
         .get(kcTxnId) as { id: number } | undefined;
       expect(kcRow).toBeTruthy();
     });
@@ -3189,7 +3357,9 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     it("a 0/0 'Refund Reversal' marker row is hidden from DebtRepository.findClientHistory but stays in the raw debt_ledger table", () => {
       const clientId = seedClient();
       const sessionId = seedSession();
-      sellIntoSession(sessionId, clientId, [{ name: "item", price: 50, cost: 30 }]);
+      sellIntoSession(sessionId, clientId, [
+        { name: "item", price: 50, cost: 30 },
+      ]);
       payAccount(sessionId, 50, clientId);
       // Fully attribute the charge to an item refund first, so the
       // whole-basket reversal's own Session Debt cancellation nets to 0 —
@@ -3270,7 +3440,9 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
       const stockAfterRefund = stockQty();
 
       const profitBeforeUndo = (
-        db.prepare(`SELECT COALESCE(SUM(profit_usd),0) AS p FROM transactions`).get() as {
+        db
+          .prepare(`SELECT COALESCE(SUM(profit_usd),0) AS p FROM transactions`)
+          .get() as {
           p: number;
         }
       ).p;
@@ -3287,14 +3459,18 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
       expect(clientNetDebtUsd(db, clientId)).toBeCloseTo(100, 5);
       expect(stockQty()).toBe(stockAfterRefund - 1);
       const refundedQty = (
-        db.prepare(`SELECT refunded_quantity FROM sale_items WHERE id = ?`).get(itemIds[0]) as {
+        db
+          .prepare(`SELECT refunded_quantity FROM sale_items WHERE id = ?`)
+          .get(itemIds[0]) as {
           refunded_quantity: number;
         }
       ).refunded_quantity;
       expect(refundedQty).toBe(0);
 
       const profitAfterUndo = (
-        db.prepare(`SELECT COALESCE(SUM(profit_usd),0) AS p FROM transactions`).get() as {
+        db
+          .prepare(`SELECT COALESCE(SUM(profit_usd),0) AS p FROM transactions`)
+          .get() as {
           p: number;
         }
       ).p;
@@ -3318,7 +3494,10 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
         quantity: 1,
         userId: USER_ID,
       });
-      expect(balance(db, "General", "USD")).toBeCloseTo(drawerBeforeRefund - 50, 5);
+      expect(balance(db, "General", "USD")).toBeCloseTo(
+        drawerBeforeRefund - 50,
+        5,
+      );
 
       txnRepo.undoSessionBasketItemRefund({
         refundTransactionId: refundResult.refundTransactionId,
@@ -3359,7 +3538,14 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
       const result = salesRepo.processSale(
         {
           client_id: null,
-          items: [{ product_id: productId, quantity: 1, price: 300, product_unit_id: unitId }],
+          items: [
+            {
+              product_id: productId,
+              quantity: 1,
+              price: 300,
+              product_unit_id: unitId,
+            },
+          ],
           total_amount: 300,
           discount: 0,
           final_amount: 300,
@@ -3383,7 +3569,9 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
          VALUES (?, 'sale', ?, ?, ?, 0)`,
       ).run(sessionId, saleId, saleTxnRow.id, 300);
       const itemId = (
-        db.prepare(`SELECT id FROM sale_items WHERE sale_id = ?`).get(saleId) as { id: number }
+        db
+          .prepare(`SELECT id FROM sale_items WHERE sale_id = ?`)
+          .get(saleId) as { id: number }
       ).id;
       payCash(sessionId, 300);
 
@@ -3399,7 +3587,14 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
       salesRepo.processSale(
         {
           client_id: null,
-          items: [{ product_id: productId, quantity: 1, price: 300, product_unit_id: unitId }],
+          items: [
+            {
+              product_id: productId,
+              quantity: 1,
+              price: 300,
+              product_unit_id: unitId,
+            },
+          ],
           total_amount: 300,
           discount: 0,
           final_amount: 300,
@@ -3466,8 +3661,9 @@ describe("TransactionRepository.getSessionItemRefundPreview (LIRA-232 phase 1)",
 
   it("previews the account reduction and default legs WITHOUT writing anything", () => {
     const sessionId = Number(
-      db.prepare("INSERT INTO customer_sessions (started_by) VALUES ('admin')").run()
-        .lastInsertRowid,
+      db
+        .prepare("INSERT INTO customer_sessions (started_by) VALUES ('admin')")
+        .run().lastInsertRowid,
     );
     const productId = insertProduct(db, "charger", 8);
     const result = salesRepo.processSale(
@@ -3487,14 +3683,18 @@ describe("TransactionRepository.getSessionItemRefundPreview (LIRA-232 phase 1)",
     );
     const saleId = result.id!;
     const txnRow = db
-      .prepare(`SELECT id FROM transactions WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE'`)
+      .prepare(
+        `SELECT id FROM transactions WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE'`,
+      )
       .get(saleId) as { id: number };
     db.prepare(
       `INSERT INTO customer_session_transactions (session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp)
        VALUES (?, 'sale', ?, ?, 15, 0)`,
     ).run(sessionId, saleId, txnRow.id);
     const itemId = (
-      db.prepare(`SELECT id FROM sale_items WHERE sale_id = ?`).get(saleId) as { id: number }
+      db.prepare(`SELECT id FROM sale_items WHERE sale_id = ?`).get(saleId) as {
+        id: number;
+      }
     ).id;
     sessionPaymentService.recordBasketPayment(sessionId, {
       legs: [{ method: "CASH", currencyCode: "USD", amount: 15 }],
@@ -3502,14 +3702,18 @@ describe("TransactionRepository.getSessionItemRefundPreview (LIRA-232 phase 1)",
       userId: USER_ID,
     });
 
-    const before = db.prepare(`SELECT COUNT(*) AS c FROM transactions`).get() as { c: number };
+    const before = db
+      .prepare(`SELECT COUNT(*) AS c FROM transactions`)
+      .get() as { c: number };
     const preview = txnRepo.getSessionItemRefundPreview({
       sessionId,
       transactionId: txnRow.id,
       saleItemId: itemId,
       quantity: 1,
     });
-    const after = db.prepare(`SELECT COUNT(*) AS c FROM transactions`).get() as { c: number };
+    const after = db
+      .prepare(`SELECT COUNT(*) AS c FROM transactions`)
+      .get() as { c: number };
 
     expect(preview.itemAmountUsd).toBeCloseTo(15, 6);
     expect(preview.remainderUsd).toBeCloseTo(15, 6);
@@ -3520,12 +3724,14 @@ describe("TransactionRepository.getSessionItemRefundPreview (LIRA-232 phase 1)",
 
   it("round-2 finding #10 (LOW): accountClientName names the client the Session Debt was charged to, present only when there's an account reduction", () => {
     const clientId = Number(
-      db.prepare(`INSERT INTO clients (full_name) VALUES ('Charged Client')`).run()
-        .lastInsertRowid,
+      db
+        .prepare(`INSERT INTO clients (full_name) VALUES ('Charged Client')`)
+        .run().lastInsertRowid,
     );
     const sessionId = Number(
-      db.prepare("INSERT INTO customer_sessions (started_by) VALUES ('admin')").run()
-        .lastInsertRowid,
+      db
+        .prepare("INSERT INTO customer_sessions (started_by) VALUES ('admin')")
+        .run().lastInsertRowid,
     );
     const productId = insertProduct(db, "item", 8);
     const result = salesRepo.processSale(
@@ -3545,14 +3751,18 @@ describe("TransactionRepository.getSessionItemRefundPreview (LIRA-232 phase 1)",
     );
     const saleId = result.id!;
     const txnRow = db
-      .prepare(`SELECT id FROM transactions WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE'`)
+      .prepare(
+        `SELECT id FROM transactions WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE'`,
+      )
       .get(saleId) as { id: number };
     db.prepare(
       `INSERT INTO customer_session_transactions (session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp)
        VALUES (?, 'sale', ?, ?, 15, 0)`,
     ).run(sessionId, saleId, txnRow.id);
     const itemId = (
-      db.prepare(`SELECT id FROM sale_items WHERE sale_id = ?`).get(saleId) as { id: number }
+      db.prepare(`SELECT id FROM sale_items WHERE sale_id = ?`).get(saleId) as {
+        id: number;
+      }
     ).id;
     sessionPaymentService.recordBasketPayment(sessionId, {
       legs: [{ method: "CUSTOMER_ACCOUNT", currencyCode: "USD", amount: 15 }],

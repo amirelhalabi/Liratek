@@ -484,15 +484,11 @@ export type {
   ProfitModuleDetailRow,
 } from "./services/ProfitService.js";
 
-// LIRA-232 phase 3 (SESSION_ITEM_REFUND_PLAN.md §4) — session-basket
-// item-refund eligibility. Pure data (a Set literal built from
-// TRANSACTION_TYPES), no Node.js deps. The Transactions page imports
-// SESSION_ITEM_REFUNDABLE_TYPES to decide which session-member rows get a
-// per-item "Refund" action, instead of hand-copying the type list a second
-// time (rule 14) — that copy would silently drift the moment this file's set
-// changed. Must be exported HERE, not only from index.ts — see the
-// telecomCredit.js note earlier in this file for the exact failure mode this
-// avoids.
+// Transaction type constants (pure data, no Node.js deps). LIRA-381: the
+// session-basket "Refund item" rule is no longer a type list here — it is
+// `isSessionItemRefundableMember` (constants/sessionPayoutMember.js, above).
+// Must be exported HERE, not only from index.ts — see the telecomCredit.js
+// note earlier in this file for the exact failure mode this avoids.
 export * from "./constants/transactionTypes.js";
 
 // LIRA-185 #1 — the MTC/Alfa discount cap (pure, no Node deps). The page's

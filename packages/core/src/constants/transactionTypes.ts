@@ -763,7 +763,16 @@ export const MODULE_DEBT_TRANSACTION_TYPES: readonly string[] = [
   // owner is VoucherRepository.cancelWithRefund, which writes the same
   // 'Refund Reversal' shape through repositories/debtReversal.ts.
   "Voucher Debt",
+  // LIRA-381: a payout member (loto prize, cash-out, payout service) refunded
+  // from a session basket, given back "on the customer's account" — the
+  // customer now owes it. Linked to the REFUND row (`transaction_id`), so the
+  // generic _cancelDebt owns it; repayments cover it like any module charge.
+  "Session Refund Debt",
 ];
+
+/** LIRA-381 — see the "Session Refund Debt" entry above (rule 14: one
+ *  string for the writer and every reader). */
+export const SESSION_REFUND_DEBT_TYPE = "Session Refund Debt";
 
 /**
  * LIRA-232 (SESSION_ITEM_REFUND_PLAN.md §5) — the debt_ledger credit a
@@ -834,25 +843,11 @@ export const REPAYMENT_COVERABLE_DEBT_TYPES: readonly string[] = [
 ];
 
 /**
- * LIRA-232 (SESSION_ITEM_REFUND_PLAN.md §2 owner decision #4) — the ONLY
- * session-basket member types `TransactionRepository.refundSessionBasketItem`
- * will act on: "sold items" (products, services, recharges). Payouts (a
- * negative-amount financial item, a loto cash prize), KEPT_CHANGE and
- * WAIVED_SHORTFALL (LIRA-310) are deliberately excluded — they were netted against the basket's other items
- * at checkout, not sold on their own, and can only be undone by the
- * whole-basket reversal (`voidSessionBasket`/`refundSessionBasket`).
- * FINANCIAL_SERVICE is excluded too: the owner's enumeration names only
- * "products (sale lines), services, recharges," and a FINANCIAL_SERVICE row
- * can be either a charge OR a payout depending on its sign — telling those
- * apart from the type alone isn't reliable, so it stays whole-basket-only in
- * this phase.
+ * LIRA-381 — `SESSION_ITEM_REFUNDABLE_TYPES` (LIRA-232's "sold items only"
+ * whitelist) is gone: every live basket member can be refunded on its own.
+ * The one rule is now `isSessionItemRefundableMember`
+ * (`constants/sessionPayoutMember.ts`), shared by core and the frontend.
  */
-export const SESSION_ITEM_REFUNDABLE_TYPES: ReadonlySet<TransactionType> =
-  new Set<TransactionType>([
-    TRANSACTION_TYPES.SALE,
-    TRANSACTION_TYPES.CUSTOM_SERVICE,
-    TRANSACTION_TYPES.RECHARGE,
-  ]);
 
 /**
  * Two-sided swaps: one currency/drawer goes out and another comes in, so the

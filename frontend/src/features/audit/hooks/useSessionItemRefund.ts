@@ -85,9 +85,29 @@ export interface SessionItemRefundPreviewState {
    *  successful response — see `TransactionRepository.getSessionItemRefundPreview`). */
   bookedRate?: number;
   bookedRateSource?: BookedRateSource;
+  /** LIRA-381 — from core's preview: `to_customer` (money back to the
+   *  customer, account first) or `from_customer` (a payout member: the
+   *  customer pays it back, by any method incl. their account). Never
+   *  derived from the row — a RECEIVE row's own amount is positive. */
+  direction: SessionItemRefundPreview["direction"];
 }
 
-export function useSessionItemRefund(onRefunded: () => void) {
+export interface UseSessionItemRefundOptions {
+  /** LIRA-381 — asked before an exact refund that needs no method window
+   *  (an exchange, or a member paid on its own): the same plain confirm a
+   *  standalone exchange refund uses. Return false to cancel. Omitted →
+   *  proceed. */
+  confirmExact?: () => boolean;
+}
+
+export function useSessionItemRefund(
+  onRefunded: () => void,
+  options: UseSessionItemRefundOptions = {},
+) {
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+  const onRefundedRef = useRef(onRefunded);
+  onRefundedRef.current = onRefunded;
   const api = useApi();
   // LIRA-236 round-2/final review, finding F10 (LOW, rule 25) — read `api`
   // through a ref so `open`/`changeRate`/`confirm` keep a STABLE identity.
@@ -103,66 +123,90 @@ export function useSessionItemRefund(onRefunded: () => void) {
   apiRef.current = api;
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [preview, setPreview] =
-    useState<SessionItemRefundPreviewState | null>(null);
+  const [preview, setPreview] = useState<SessionItemRefundPreviewState | null>(
+    null,
+  );
   // LIRA-236 — `changeRate`'s debounce timer, and the target the currently
   // OPEN preview belongs to (read inside the debounced callback, which fires
   // after this render's closure is stale — `preview` itself may have moved
   // on, so the timer reads through a ref, not the render's `preview`).
-  const rateChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
+  const rateChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewRef = useRef<SessionItemRefundPreviewState | null>(null);
   previewRef.current = preview;
 
-  const open = useCallback(
-    async (target: SessionItemRefundTarget) => {
-      setLoadingPreview(true);
-      try {
-        const payload: SessionItemRefundPreviewInput = {
-          sessionId: target.sessionId,
-          transactionId: target.transactionId,
-          saleItemId: target.saleItemId,
-          quantity: target.quantity,
-        };
-        const res = await apiRef.current.getSessionItemRefundPreview(payload);
-        if (!res.success) {
-          appEvents.emit(
-            "notification:show",
-            res.error || "Failed to load refund preview",
-            "error",
-          );
-          return;
-        }
-        const preview = res as { success: true } & SessionItemRefundPreview;
-        setPreview({
-          target,
-          legs: preview.defaultLegs ?? [],
-          accountReductionUsd: preview.accountReductionUsd ?? 0,
-          accountReductionLbp: preview.accountReductionLbp ?? 0,
-          ...(preview.accountClientName
-            ? { accountClientName: preview.accountClientName }
-            : {}),
-          ...(preview.bookedRate !== undefined
-            ? { bookedRate: preview.bookedRate }
-            : {}),
-          ...(preview.bookedRateSource
-            ? { bookedRateSource: preview.bookedRateSource }
-            : {}),
-        });
-      } catch (_err) {
+  const open = useCallback(async (target: SessionItemRefundTarget) => {
+    setLoadingPreview(true);
+    try {
+      const payload: SessionItemRefundPreviewInput = {
+        sessionId: target.sessionId,
+        transactionId: target.transactionId,
+        saleItemId: target.saleItemId,
+        quantity: target.quantity,
+      };
+      const res = await apiRef.current.getSessionItemRefundPreview(payload);
+      if (!res.success) {
         appEvents.emit(
           "notification:show",
-          "Failed to load refund preview",
+          res.error || "Failed to load refund preview",
           "error",
         );
-      } finally {
-        setLoadingPreview(false);
+        return;
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps -- apiRef.current is read at call time, not captured; no dep needed
-    },
-    [],
-  );
+      const preview = res as { success: true } & SessionItemRefundPreview;
+      // LIRA-381 — refunded exactly as it was paid: no method window.
+      if (preview.paidOnItsOwn) {
+        const ok = optionsRef.current.confirmExact?.() ?? true;
+        if (!ok) return;
+        setSubmitting(true);
+        try {
+          const exactPayload: SessionItemRefundInput = {
+            sessionId: target.sessionId,
+            transactionId: target.transactionId,
+            saleItemId: target.saleItemId,
+            quantity: target.quantity,
+            clientDay: localDay(),
+          };
+          const done =
+            await apiRef.current.refundSessionBasketItem(exactPayload);
+          if (done.success) onRefundedRef.current();
+          else
+            appEvents.emit(
+              "notification:show",
+              done.error || "Refund failed",
+              "error",
+            );
+        } finally {
+          setSubmitting(false);
+        }
+        return;
+      }
+      setPreview({
+        direction: preview.direction ?? "to_customer",
+        target,
+        legs: preview.defaultLegs ?? [],
+        accountReductionUsd: preview.accountReductionUsd ?? 0,
+        accountReductionLbp: preview.accountReductionLbp ?? 0,
+        ...(preview.accountClientName
+          ? { accountClientName: preview.accountClientName }
+          : {}),
+        ...(preview.bookedRate !== undefined
+          ? { bookedRate: preview.bookedRate }
+          : {}),
+        ...(preview.bookedRateSource
+          ? { bookedRateSource: preview.bookedRateSource }
+          : {}),
+      });
+    } catch (_err) {
+      appEvents.emit(
+        "notification:show",
+        "Failed to load refund preview",
+        "error",
+      );
+    } finally {
+      setLoadingPreview(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- apiRef.current is read at call time, not captured; no dep needed
+  }, []);
 
   const cancel = useCallback(() => {
     if (rateChangeTimerRef.current) clearTimeout(rateChangeTimerRef.current);
@@ -178,62 +222,59 @@ export function useSessionItemRefund(onRefunded: () => void) {
    * never runs for an untouched popup. A no-op once the preview has closed
    * (`cancel`/`confirm` already ran, or nothing was ever opened).
    */
-  const changeRate = useCallback(
-    (rate: number) => {
-      if (rateChangeTimerRef.current) clearTimeout(rateChangeTimerRef.current);
-      rateChangeTimerRef.current = setTimeout(() => {
-        void (async () => {
-          const current = previewRef.current;
-          if (!current) return;
-          try {
-            const payload: SessionItemRefundPreviewInput = {
-              sessionId: current.target.sessionId,
-              transactionId: current.target.transactionId,
-              saleItemId: current.target.saleItemId,
-              quantity: current.target.quantity,
-              exchangeRate: rate,
-            };
-            const res = await apiRef.current.getSessionItemRefundPreview(payload);
-            if (!res.success) return; // silent — the shown preview stays as-is
-            const updated = res as { success: true } & SessionItemRefundPreview;
-            // The preview may have moved on (cancelled/confirmed/reopened
-            // for a different target) while this request was in flight.
-            if (
-              previewRef.current?.target.sessionId !== current.target.sessionId ||
-              previewRef.current?.target.transactionId !==
-                current.target.transactionId
-            ) {
-              return;
-            }
-            setPreview((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    legs: updated.defaultLegs ?? prev.legs,
-                    accountReductionUsd:
-                      updated.accountReductionUsd ?? prev.accountReductionUsd,
-                    accountReductionLbp:
-                      updated.accountReductionLbp ?? prev.accountReductionLbp,
-                    ...(updated.accountClientName
-                      ? { accountClientName: updated.accountClientName }
-                      : {}),
-                    bookedRate: rate,
-                    ...(updated.bookedRateSource
-                      ? { bookedRateSource: updated.bookedRateSource }
-                      : {}),
-                  }
-                : prev,
-            );
-          } catch {
-            // silent — the shown preview stays as-is, same as `open`'s own
-            // "don't crash the modal over a re-preview failure" posture.
+  const changeRate = useCallback((rate: number) => {
+    if (rateChangeTimerRef.current) clearTimeout(rateChangeTimerRef.current);
+    rateChangeTimerRef.current = setTimeout(() => {
+      void (async () => {
+        const current = previewRef.current;
+        if (!current) return;
+        try {
+          const payload: SessionItemRefundPreviewInput = {
+            sessionId: current.target.sessionId,
+            transactionId: current.target.transactionId,
+            saleItemId: current.target.saleItemId,
+            quantity: current.target.quantity,
+            exchangeRate: rate,
+          };
+          const res = await apiRef.current.getSessionItemRefundPreview(payload);
+          if (!res.success) return; // silent — the shown preview stays as-is
+          const updated = res as { success: true } & SessionItemRefundPreview;
+          // The preview may have moved on (cancelled/confirmed/reopened
+          // for a different target) while this request was in flight.
+          if (
+            previewRef.current?.target.sessionId !== current.target.sessionId ||
+            previewRef.current?.target.transactionId !==
+              current.target.transactionId
+          ) {
+            return;
           }
-        })();
-      }, RATE_CHANGE_DEBOUNCE_MS);
-      // eslint-disable-next-line react-hooks/exhaustive-deps -- apiRef.current is read at call time, not captured; no dep needed
-    },
-    [],
-  );
+          setPreview((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  legs: updated.defaultLegs ?? prev.legs,
+                  accountReductionUsd:
+                    updated.accountReductionUsd ?? prev.accountReductionUsd,
+                  accountReductionLbp:
+                    updated.accountReductionLbp ?? prev.accountReductionLbp,
+                  ...(updated.accountClientName
+                    ? { accountClientName: updated.accountClientName }
+                    : {}),
+                  bookedRate: rate,
+                  ...(updated.bookedRateSource
+                    ? { bookedRateSource: updated.bookedRateSource }
+                    : {}),
+                }
+              : prev,
+          );
+        } catch {
+          // silent — the shown preview stays as-is, same as `open`'s own
+          // "don't crash the modal over a re-preview failure" posture.
+        }
+      })();
+    }, RATE_CHANGE_DEBOUNCE_MS);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- apiRef.current is read at call time, not captured; no dep needed
+  }, []);
 
   const confirm = useCallback(
     async (

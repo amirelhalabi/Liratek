@@ -124,6 +124,12 @@ export interface RefundMethodModalProps {
   exactReversal?: boolean;
   /** Why the refund is exact only — picks the subtitle (default settlement). */
   exactReason?: "settlement" | "binance";
+  /** LIRA-381 — `from_customer`: refunding a basket PAYOUT (a loto prize, a
+   *  cash-out): the customer pays the money back. The window reads "Customer
+   *  pays back", its lines are what the customer hands over (the caller
+   *  passes methods incl. the customer's account), and kept / added change
+   *  are never offered. Default `to_customer` — unchanged for every caller. */
+  direction?: "to_customer" | "from_customer";
   isSubmitting?: boolean;
   onCancel: () => void;
   /**
@@ -195,6 +201,7 @@ export function RefundMethodModal({
   allowAddedChange = false,
   exactReversal = false,
   exactReason = "settlement",
+  direction = "to_customer",
   isSubmitting = false,
   onCancel,
   onConfirm,
@@ -239,13 +246,15 @@ export function RefundMethodModal({
   // Owner decision 2026-10-07 — refund kept change needs a refund in ONE
   // currency (the server refuses a mixed one); MultiPaymentInput's payout
   // mode then reports the small shortfall it keeps.
+  const fromCustomer = direction === "from_customer";
   const keptEligible =
-    !exactReversal && allowKeptChange && defaults.length === 1;
+    !exactReversal && !fromCustomer && allowKeptChange && defaults.length === 1;
   const refundCurrency = defaults[0]?.currencyCode ?? "USD";
   // LIRA-342 — "+ Customer gives change": one USD/LBP hand-back currency
   // (the server's rule), and never while a customer account is reduced.
   const addedEligible =
     !exactReversal &&
+    !fromCustomer &&
     allowAddedChange &&
     defaults.length === 1 &&
     !(
@@ -437,21 +446,27 @@ export function RefundMethodModal({
 
   return (
     <CounterpartySettleModal
-      title={t("refundModal.title")}
+      title={
+        fromCustomer
+          ? t("refundModal.titleFromCustomer")
+          : t("refundModal.title")
+      }
       subtitle={
         <span data-testid="refund-subtitle">
-          {exactReversal
-            ? exactReason === "binance"
-              ? t("refundModal.subtitleExactBinance")
-              : t("refundModal.subtitleExact")
-            : !hasLegsToOverride
-              ? t("refundModal.subtitleUnitsOnly")
-              : keptEligible
-                ? t("refundModal.subtitleKept", {
-                    currency: refundCurrency,
-                    cap: keptCapText,
-                  })
-                : t("refundModal.subtitle")}
+          {fromCustomer
+            ? t("refundModal.subtitleFromCustomer")
+            : exactReversal
+              ? exactReason === "binance"
+                ? t("refundModal.subtitleExactBinance")
+                : t("refundModal.subtitleExact")
+              : !hasLegsToOverride
+                ? t("refundModal.subtitleUnitsOnly")
+                : keptEligible
+                  ? t("refundModal.subtitleKept", {
+                      currency: refundCurrency,
+                      cap: keptCapText,
+                    })
+                  : t("refundModal.subtitle")}
         </span>
       }
       onCancel={onCancel}
@@ -498,7 +513,9 @@ export function RefundMethodModal({
               showPmFee: false,
               // A refund's lines are money the shop hands BACK, not money
               // the customer paid (production test 2026-10-07).
-              paidLabel: t("refundModal.handBack"),
+              paidLabel: fromCustomer
+                ? t("refundModal.customerPaysBack")
+                : t("refundModal.handBack"),
               // Refund kept change — the shop hands money OUT, and only a
               // caller that may keep change wires the report (opt-in).
               ...(keptEligible || addedEligible
@@ -592,7 +609,11 @@ export function RefundMethodModal({
           data-testid="refund-return-summary"
           className="rounded-xl border border-slate-700/50 bg-slate-900/50 px-4 py-3 text-sm"
         >
-          <span className="text-slate-400">{t("refundModal.returning")}</span>
+          <span className="text-slate-400">
+            {fromCustomer
+              ? t("refundModal.receiving")
+              : t("refundModal.returning")}
+          </span>
           <span className="font-mono text-white">{returningText || "—"}</span>
           {validationError && (
             <p

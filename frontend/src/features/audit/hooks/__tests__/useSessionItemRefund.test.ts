@@ -80,6 +80,9 @@ describe("useSessionItemRefund", () => {
       quantity: 1,
     });
     expect(result.current.preview).toEqual({
+      // LIRA-381 — a preview without `direction` (an older core) reads as
+      // money back to the customer, the only direction before LIRA-381.
+      direction: "to_customer",
       target: {
         sessionId: 1,
         transactionId: 55,

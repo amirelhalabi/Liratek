@@ -6,7 +6,11 @@
  * frontend's own session-group derivation. This file proves its exclusions
  * and inclusions directly, without any DB fixture.
  */
-import { isSessionPayoutMember } from "../sessionPayoutMember";
+import {
+  isSessionItemRefundableMember,
+  isSessionPayoutMember,
+  sessionItemRefundDirection,
+} from "../sessionPayoutMember";
 
 describe("isSessionPayoutMember", () => {
   it("excludes a REFUND row even though its amount is negative — the bug that hid 'Refund item' after the first item refund", () => {
@@ -93,5 +97,66 @@ describe("isSessionPayoutMember", () => {
         status: "ACTIVE",
       }),
     ).toBe(false);
+  });
+});
+
+describe("LIRA-381 — isSessionItemRefundableMember / sessionItemRefundDirection", () => {
+  const live = {
+    amount_usd: 0,
+    amount_lbp: 0,
+    status: "ACTIVE",
+    reverses_id: null,
+  };
+  it.each([
+    "SALE",
+    "CUSTOM_SERVICE",
+    "RECHARGE",
+    "LOTO",
+    "LOTO_CASH_PRIZE",
+    "FINANCIAL_SERVICE",
+    "EXCHANGE",
+    "MAINTENANCE",
+  ])("%s is refundable on its own", (type) => {
+    expect(isSessionItemRefundableMember({ ...live, type })).toBe(true);
+  });
+  it.each([
+    "KEPT_CHANGE",
+    "WAIVED_SHORTFALL",
+    "EXTRA_CHARGE",
+    "BASKET_DISCOUNT",
+    "REFUND",
+  ])("%s is not an item", (type) => {
+    expect(isSessionItemRefundableMember({ ...live, type })).toBe(false);
+  });
+  it("a voided or reversal row is not a live member", () => {
+    expect(
+      isSessionItemRefundableMember({
+        ...live,
+        type: "LOTO",
+        status: "VOIDED",
+      }),
+    ).toBe(false);
+    expect(
+      isSessionItemRefundableMember({ ...live, type: "LOTO", reverses_id: 9 }),
+    ).toBe(false);
+  });
+  it("an exchange basket line (+given / −received) is never a payout; its refund is a hand-back mirror", () => {
+    const exchange = {
+      type: "EXCHANGE",
+      amount_usd: 100,
+      amount_lbp: -8_950_000,
+      status: "ACTIVE",
+      reverses_id: null,
+    };
+    expect(isSessionPayoutMember(exchange)).toBe(false);
+    expect(sessionItemRefundDirection(exchange)).toBe("to_customer");
+  });
+  it("direction follows the customer-side sign", () => {
+    expect(sessionItemRefundDirection({ amount_usd: 20, amount_lbp: 0 })).toBe(
+      "to_customer",
+    );
+    expect(
+      sessionItemRefundDirection({ amount_usd: 0, amount_lbp: -500000 }),
+    ).toBe("from_customer");
   });
 });

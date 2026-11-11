@@ -21,11 +21,7 @@
  * re-parsing `metadata_json` for itself.
  */
 import { useTranslation } from "react-i18next";
-import {
-  SESSION_ITEM_REFUNDABLE_TYPES,
-  noteOfDetails,
-  type TransactionType,
-} from "@liratek/core";
+import { isSessionItemRefundableMember, noteOfDetails } from "@liratek/core";
 import { StickyNote } from "lucide-react";
 import { formatNumber } from "@liratek/ui/i18n/format";
 import type { EN_RESOURCES } from "@liratek/ui/i18n/resources";
@@ -365,9 +361,11 @@ export interface RowActionHandlers {
    *  end below. */
   onVoidSessionBasket: (sessionId: number) => void;
   onRefundSessionBasket: (sessionId: number) => void;
-  /** LIRA-232 (SESSION_ITEM_REFUND_PLAN.md §4) — refund ONE sold-item session
-   *  member (a product line/quantity, a service, a recharge) instead of the
-   *  whole basket. Offered only for SESSION_ITEM_REFUNDABLE_TYPES rows. */
+  /** LIRA-232 / LIRA-381 — refund ONE session-basket member (a product
+   *  line/quantity, a service, a recharge, a loto ticket or prize, a
+   *  transfer or cash-out, an exchange, a repair) instead of the whole
+   *  basket. Offered on every live member core's
+   *  `isSessionItemRefundableMember` accepts. */
   onRefundSessionItem: (row: TransactionRow) => void;
   /** LIRA-147 — admin-only undo of a standalone per-item refund. */
   onUndoRefund: (row: TransactionRow) => void;
@@ -387,7 +385,6 @@ export function ActionsCell({
   refundLookupRowId,
   handlers,
   hideVoidBasket = false,
-  hideRefundItem = false,
   hideBasketActions = false,
   isAdmin = false,
 }: {
@@ -410,17 +407,6 @@ export function ActionsCell({
    *  left) and "Refund item" available. Defaults to `false` so every
    *  existing caller that doesn't pass it is unaffected. */
   hideVoidBasket?: boolean;
-  /** LIRA-232 round-3 review (finding 2) — true when this row's session has
-   *  ANY payout member (a loto cash prize, a wallet/Binance cash-out, a
-   *  custom-service booked as a payout — anything the basket netted against
-   *  its other items at checkout): core refuses `refundSessionBasketItem`
-   *  for EVERY member of such a basket, not just the payout row itself, so
-   *  "Refund item" is hidden (never disabled — same convention as
-   *  `hideVoidBasket`) for an otherwise-refundable SALE/CUSTOM_SERVICE/
-   *  RECHARGE row too, leaving "Void basket"/"Refund basket" as the only
-   *  way to touch that basket. Defaults to `false` so every existing caller
-   *  that doesn't pass it is unaffected. */
-  hideRefundItem?: boolean;
   /** Coordinator follow-up (2026-09-27), item 5 — true when this row's
    *  session has already been refunded item by item in FULL
    *  (`row.session_fully_refunded`/`TransactionRepository
@@ -494,7 +480,13 @@ export function ActionsCell({
             </button>
           ) : null;
         })()}
-        {isReversibleRow(row) ? (
+        {/* LIRA-381 — a session-basket member the generic Void/Refund
+            never covers (a loto cash prize) still gets the basket actions
+            and "Refund item" while it is live (not yet refunded). */}
+        {isReversibleRow(row) ||
+        (sessionId != null &&
+          row.reversed_by_id == null &&
+          isSessionItemRefundableMember(row)) ? (
           splitGroup ? (
             // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): this row is one
             // unit of a multi-unit split checkout — a lone void/refund is
@@ -546,18 +538,17 @@ export function ActionsCell({
                   {t("actions.refundBasket")}
                 </button>
               )}
-              {!hideRefundItem &&
-                SESSION_ITEM_REFUNDABLE_TYPES.has(
-                  row.type as TransactionType,
-                ) && (
-                  <button
-                    onClick={() => handlers.onRefundSessionItem(row)}
-                    title={t("actions.refundItemTitle")}
-                    className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/70 text-rose-200 hover:bg-rose-900/40 hover:text-rose-300 transition-colors"
-                  >
-                    {t("actions.refundItem")}
-                  </button>
-                )}
+              {/* LIRA-381 — every live basket member, by core's one rule
+                  (rule 14); a basket holding a payout no longer hides it. */}
+              {isSessionItemRefundableMember(row) && (
+                <button
+                  onClick={() => handlers.onRefundSessionItem(row)}
+                  title={t("actions.refundItemTitle")}
+                  className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/70 text-rose-200 hover:bg-rose-900/40 hover:text-rose-300 transition-colors"
+                >
+                  {t("actions.refundItem")}
+                </button>
+              )}
             </>
           ) : offersWholeVoidRefund(row) ? (
             <>

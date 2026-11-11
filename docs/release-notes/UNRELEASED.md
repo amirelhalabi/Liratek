@@ -36,6 +36,21 @@
 
 ## ✨ Highlights
 
+### Refund any item of a session
+
+On the Transactions page, **Refund item** now works on every line of a paid customer session — a single loto ticket, a loto prize, an OMT/Whish transfer or cash-out, an exchange, a repair — not only products, services and recharges, and a basket that paid out a prize no longer blocks refunding its other items. If the item was a prize or cash-out the customer received, the refund window switches to **Customer pays back** so you record how they return it: cash, a wallet, or on their account.
+![Refund window titled "Refund — Customer pays back" for a 500,000 LBP loto prize, paid back in cash](whats-new/1.35.0/refund-basket-item.png)
+
+### Exchanges wait in the customer's basket
+
+While a customer session is open, **Confirm** on the Exchange page now reads **Add to basket** and puts the exchange in the basket instead of paying it out on the spot. Nothing moves and nothing shows on the Transactions page until the basket is paid. The basket line shows the exchange's own rate — "Exchange $100 → 8,950,000 LBP @ 89,500" — and the checkout's rate never changes it. At checkout you take the customer's money and hand out the exchanged currency once, with the rest of the basket.
+![Exchange page in a customer session: the basket holds a $20 charger and "Exchange $100 → 8,950,000 LBP @ 89,500", Charge $120.00, Payout 8,950,000 LBP, and the button reads "Add to basket"](whats-new/1.35.0/exchange-basket-line.png)
+
+### Pay a little extra or a little less on payouts
+
+When you pay a customer out — an OMT/Whish receive, a Binance cash-out, an exchange, a Hold Money pickup, a credit buy-back or a top-up from a client — a new **− Less | + Extra** line sits under the total, like the Discount/Extra line when a customer pays you. Type 0.10 in **+ Extra** and you pay $103.00 instead of $102.90; type 5,000 in **− Less** and you pay 1,340,000 LBP instead of 1,345,000. Extra is booked as change rounding and less is kept as profit, as before, up to $5 or 450,000 LBP. Typing a round figure in the payment line fills the line for you.
+![OMT receive: $102.90 owed, "+ Extra" 0.10, "You pay $103.00"](whats-new/1.35.0/payout-extra-less.png)
+
 ### OMT pays no commission unless you tick it
 
 On Suppliers → OMT → **Settle Account**, the box **"Which OMT commission does this SMS include?"** now opens on **No commission**. The OMT SMS amount box opens at the full amount owed, and every transfer's commission is kept as "commission OMT still owes you". If OMT's SMS does include commission, tick the types it names, or **All types** in one tick, and the SMS amount and the commission update by themselves. If you type an SMS amount lower than the amount owed while nothing is ticked, Settle stays off until you tick the types, because that difference is commission. Before, the sheet opened on All types and deducted the commission even when OMT had not paid it yet.
@@ -192,6 +207,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 💳 Payment window
 
+- Every screen where you pay a customer out (OMT/Whish receive, Binance cash-out, Exchange, Hold Money pickup, credit buy-back, top-up from a client) now has a **− Less | + Extra** line under the total: type the small amount you add or keep to hand out a round figure on purpose, up to $5 / 450,000 LBP; extra is booked as change rounding, less is kept as profit, as before. Loto cash prizes do not have the line.
 - The "$" sign inside a payment line's amount now shows only for dollars. Lira, euro and other currencies show no sign (a euro line used to read "$ 100").
 - The "1 USD = … LBP" rate box now appears only when the payment mixes dollars and lira — for example a dollar total paid in lira. When everything is in one currency it stays out of the way.
 - New optional **Note** box on every payment window where the customer pays you. The note shows in the transaction details, as a mark on the row on the Transactions page, and on the customer's Debts entry when part goes on the account. Editing it later updates both.
@@ -450,6 +466,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 🧾 Transactions
 
+- Refund item now works on anything in a paid customer session, including loto tickets, loto prizes, transfers, cash-outs, exchanges and repairs, and a basket that paid out a prize no longer blocks refunding its other items. For a prize or cash-out, the customer pays the money back in cash, by wallet or on their account.
 - Audit & Transactions: both tabs now open on today's entries and show 50 at a time. Scroll down and the next 50 load on their own (there is also a "Load more" button). The day filter sits above the table, with Today, Yesterday, This week, This month and All. The Rows box is gone.
 - Transactions: a new Vouchers filter group shows gift card sales, gift card cancellations, and sales paid with a gift card.
 - Transactions: the Method column now shows how the main money moved: what the customer paid with on a sale, how they were paid on a payout (for example an OMT or Whish receive). Change handed back and fees no longer count. Items paid in a customer session show the session (for example "Session #42").
@@ -478,6 +495,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 🧺 Customer sessions
 
+- During a customer session, an exchange now waits in the basket like everything else: no cash moves and nothing shows on the Transactions page until the basket is paid. The basket line shows the exchange's own rate, which the checkout's rate does not change. Exchanges recorded in sessions before this change stay as they were.
 - A till or laptop no longer joins another cashier's open customer session by itself, so a sale there stays a normal walk-in sale instead of landing in that customer's basket. Each device goes back to its own open session after a refresh; to work on someone else's, pick it from the Sessions list.
 - Session checkout: you can now give one discount on the whole basket (the "− Discount" side of the line under Total Amount), up to the shop's profit on the basket. It cannot be combined with an extra or a waived amount. The Profits page shows these under a new "Session discounts" line.
 - The session checkout window now has "Set custom time". The time you pick is used for everything in that checkout: every item, the extra, the kept change or forgiven amount, the payment, and any amount put on the customer's account. An item that already had its own custom time when you added it keeps that time. Before, a session checkout was always saved at the time you checked out.

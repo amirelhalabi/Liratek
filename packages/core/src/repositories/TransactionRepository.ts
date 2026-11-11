@@ -29,7 +29,7 @@ import {
   SESSION_BASKET_BYPASSABLE_NON_REVERSIBLE_TYPES,
   SESSION_ITEM_REFUND_CREDIT_TYPE,
   SESSION_ITEM_REFUND_LINK_TYPE,
-  SESSION_ITEM_REFUNDABLE_TYPES,
+  SESSION_REFUND_DEBT_TYPE,
   isSettlementTransactionType,
   isSwapTransactionType,
   TRANSACTION_TYPES,
@@ -41,7 +41,10 @@ import {
   REFUND_VALUE_TOLERANCE_USD,
 } from "../constants/refundTolerance.js";
 import {
+  isSessionItemRefundableMember,
   isSessionPayoutMember,
+  sessionItemRefundDirection,
+  type SessionItemRefundDirection,
   type SessionPayoutMemberCandidate,
 } from "../constants/sessionPayoutMember.js";
 import { partnerObligationHeadRowSql } from "../constants/partnerObligation.js";
@@ -95,6 +98,7 @@ import { dbLogger } from "../utils/logger.js";
 import {
   applyDrawerDelta,
   insertPaymentRow,
+  measureCustomerLegs,
   writeCustomerLegs,
   type KeptChange,
   type MeasuredCustomerLegs,
@@ -1462,7 +1466,7 @@ export interface TransactionWithUser extends TransactionEntity {
    * cash prize, a wallet/Binance cash-out, a negative-amount custom-service
    * payout) — i.e. `refundSessionBasketItem`/`getSessionItemRefundPreview`
    * would refuse the WHOLE basket this row belongs to
-   * (`_assertNoNettedPayoutMembers`). Computed by `getRecent()` with the
+   * (`_sessionHasNettedPayoutMember`). Computed by `getRecent()` with the
    * shared `isSessionPayoutMember` predicate fed this member's
    * CUSTOMER-SIDE `customer_session_transactions` amount (see that method's
    * own doc for why, never the amount columns on THIS interface). Always
@@ -1617,6 +1621,16 @@ export interface SessionItemRefundPreview {
    *  own typed one, when given). */
   bookedRate: number;
   bookedRateSource: "sale" | "transaction" | "fallback";
+  /** LIRA-381 — which way the money moves: `to_customer` for a charge
+   *  member (money back, account first), `from_customer` for a payout
+   *  member (the customer pays it back; `defaultLegs` are then IN legs and
+   *  `remainder*` is what the customer pays). */
+  direction: SessionItemRefundDirection;
+  /** LIRA-381 — the member carries its own customer payment lines (an
+   *  exchange or transfer linked to the session from its own page) or is a
+   *  currency swap: it is refunded exactly as it was paid, so the UI skips
+   *  the method window. */
+  paidOnItsOwn: boolean;
 }
 
 /** LIRA-232 phase 1 — `TransactionRepository.refundSessionBasketItem`'s
@@ -1676,7 +1690,15 @@ export interface RefundSessionBasketItemResult {
   remainderUsd: number;
   remainderLbp: number;
   legs: TransactionPaymentLeg[];
+  /** LIRA-381 — see `SessionItemRefundPreview.direction`. */
+  direction: SessionItemRefundDirection;
 }
+
+/** LIRA-381 — note on the IN payment rows a `from_customer` session item
+ *  refund writes (the customer paying a payout back). The whole-basket
+ *  reversal and the fully-refunded check read them by this note (rule 14). */
+export const SESSION_ITEM_REFUND_COLLECTED_NOTE =
+  "Session item refund — customer pays back";
 
 // =============================================================================
 // Repository
@@ -2182,11 +2204,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // LIRA-236 follow-up (2026-09-27 review) — `is_session_payout`, computed
     // HERE in TypeScript with the ONE shared `isSessionPayoutMember`
     // predicate (rule 14 — the exact same one
-    // `_assertNoNettedPayoutMembers`/`_planSessionItemRefund` use to REFUSE a
+    // `_sessionHasNettedPayoutMember`/`_planSessionItemRefund` use to REFUSE a
     // session item refund on a basket that contains a netted payout), never
     // re-derived in SQL. Fed the member's CUSTOMER-SIDE `cst.amount_usd/lbp`
     // — never `t.amount_usd/lbp` — for the same reason
-    // `_assertNoNettedPayoutMembers` reads `cst`: a FINANCIAL_SERVICE RECEIVE
+    // `_sessionHasNettedPayoutMember` reads `cst`: a FINANCIAL_SERVICE RECEIVE
     // payout's own unified `transactions` row carries the POSITIVE transfer
     // amount; only the pooled `customer_session_transactions` row carries
     // the negative customer-side payout sign. A non-session row (no `cst`
@@ -2201,7 +2223,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         reverses_id: row.reverses_id,
       };
       // F4/F6 (round-3 review) — the SAME `_isNettedSessionPayoutMember`
-      // predicate `_assertNoNettedPayoutMembers` refuses on (rule 14), so
+      // predicate `_sessionHasNettedPayoutMember` refuses on (rule 14), so
       // this flag and that guard can never disagree about which payout
       // hides the "Refund item" button. Short-circuits on the cheap sign
       // check FIRST (`isSessionPayoutMember`, no DB access) before the
@@ -3337,6 +3359,24 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       group.forEach((p, i) => reduceByForLeg.set(p, shares[i]));
     }
 
+    // LIRA-381 — the part of an earlier item refund's pool money that no
+    // positive pooled leg of that currency could absorb: a basket netted by
+    // a payout has no IN leg in the payout's currency (story 1: the ticket's
+    // 300,000 LBP went back although the pool only paid 200,000 LBP OUT).
+    // The customer gives it back with the rest of the basket, so it is
+    // posted below as one more reversal leg into the cash drawer.
+    const excessByCurrency: Record<string, number> = {};
+    for (const [currency, amount] of Object.entries(
+      alreadyReturnedByCurrency,
+    )) {
+      const group = positiveLegsByCurrency.get(currency) ?? [];
+      const total = group.reduce((sum, p) => sum + p.amount, 0);
+      const excess = amount - Math.min(amount, total);
+      if (excess > (currency === "LBP" ? 0.5 : 0.005)) {
+        excessByCurrency[currency] = excess;
+      }
+    }
+
     for (const p of legs) {
       const unit = p.currency_code === "LBP" ? 1 : 0.01;
       const reduceBy = p.amount > 0 ? (reduceByForLeg.get(p) ?? 0) : 0;
@@ -3376,6 +3416,141 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         tenantId,
       });
     }
+
+    const writePooled = (
+      method: string,
+      drawerName: string,
+      currencyCode: string,
+      amount: number,
+    ): void => {
+      insertPaymentRow(this.db, {
+        sessionId,
+        method,
+        drawerName,
+        currencyCode,
+        amount,
+        note: SESSION_BASKET_REVERSAL_NOTE,
+        createdBy: userId,
+        tenantId,
+      });
+      applyDrawerDelta(this.db, {
+        drawerName,
+        currencyCode,
+        delta: amount,
+        tenantId,
+      });
+    };
+    for (const [currency, excess] of Object.entries(excessByCurrency)) {
+      const unit = currency === "LBP" ? 1 : 0.01;
+      writePooled(
+        "CASH",
+        paymentMethodToDrawerName("CASH"),
+        currency,
+        this._roundToUnit(excess, unit),
+      );
+    }
+
+    // LIRA-381 (rule 20) — an earlier item refund of a PAYOUT member had the
+    // customer pay it back (its own IN lines, and/or a 'Session Refund
+    // Debt' charge). The pooled legs reversed above take the payout back
+    // from the customer once more (the pool still carries it), so that
+    // earlier payment is handed back here: its drawer lines mirrored, its
+    // account charge cancelled (`_cancelDebt` keyed on the refund row).
+    const collected = this._priorSessionCollectedLegsBatch(
+      [sessionId],
+      tenantId,
+    );
+    const collectedRefundIds = new Set<number>();
+    for (const row of collected) {
+      collectedRefundIds.add(row.refund_id);
+      writePooled(row.method, row.drawer_name, row.currency_code, -row.amount);
+    }
+    for (const refundId of this._priorSessionCollectRefundIds(sessionId)) {
+      collectedRefundIds.add(refundId);
+    }
+    for (const refundId of collectedRefundIds) {
+      this._cancelDebt(refundId, userId);
+    }
+  }
+
+  /**
+   * LIRA-381 — the IN lines every earlier `from_customer` (payout / swap)
+   * session item refund wrote: the customer paying a basket member back.
+   * One query (rule 14) for the whole-basket reversal and the
+   * fully-refunded check; identified by `SESSION_ITEM_REFUND_COLLECTED_NOTE`
+   * on payment rows of a REFUND linked into the session.
+   */
+  private _priorSessionCollectedLegsBatch(
+    sessionIds: number[],
+    tenantId: number,
+  ): Array<{
+    session_id: number;
+    refund_id: number;
+    method: string;
+    drawer_name: string;
+    currency_code: string;
+    amount: number;
+  }> {
+    const out: Array<{
+      session_id: number;
+      refund_id: number;
+      method: string;
+      drawer_name: string;
+      currency_code: string;
+      amount: number;
+    }> = [];
+    for (const chunk of chunkIds(sessionIds, SESSION_BATCH_CHUNK_SIZE)) {
+      const placeholders = chunk.map(() => "?").join(", ");
+      out.push(
+        ...this.query<{
+          session_id: number;
+          refund_id: number;
+          method: string;
+          drawer_name: string;
+          currency_code: string;
+          amount: number;
+        }>(
+          `SELECT cst.session_id AS session_id, p.transaction_id AS refund_id,
+                  p.method AS method, p.drawer_name AS drawer_name,
+                  p.currency_code AS currency_code, p.amount AS amount
+             FROM customer_session_transactions cst
+             JOIN payments p ON p.transaction_id = cst.unified_transaction_id AND p.tenant_id = cst.tenant_id
+            WHERE cst.session_id IN (${placeholders}) AND cst.tenant_id = ?
+              AND cst.transaction_type = ? AND p.note = ?`,
+          ...chunk,
+          tenantId,
+          SESSION_ITEM_REFUND_LINK_TYPE,
+          SESSION_ITEM_REFUND_COLLECTED_NOTE,
+        ),
+      );
+    }
+    return out;
+  }
+
+  /** LIRA-381 — REFUND rows of earlier `from_customer` item refunds of this
+   *  session (an account-only payback writes no payment row, only debt). */
+  private _priorSessionCollectRefundIds(sessionId: number): number[] {
+    const rows = this.query<{ id: number; metadata_json: string | null }>(
+      `SELECT t.id AS id, t.metadata_json AS metadata_json
+         FROM customer_session_transactions cst
+         JOIN transactions t ON t.id = cst.unified_transaction_id AND t.tenant_id = cst.tenant_id
+        WHERE cst.session_id = ? AND cst.tenant_id = ? AND cst.transaction_type = ?`,
+      sessionId,
+      getCurrentTenantId(),
+      SESSION_ITEM_REFUND_LINK_TYPE,
+    );
+    const ids: number[] = [];
+    for (const r of rows) {
+      try {
+        const meta = JSON.parse(r.metadata_json ?? "{}") as {
+          refundDirection?: string;
+        };
+        if (meta.refundDirection === "from_customer") ids.push(r.id);
+      } catch {
+        // malformed metadata: not a payout payback (fail-soft, as elsewhere)
+      }
+    }
+    return ids;
   }
 
   /**
@@ -4192,6 +4367,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   }
 
   /**
+   * LIRA-381 — was `_sessionHasNettedPayoutMember` (round-3 finding #2,
+   * decision 10: refuse every item refund in such a basket — overruled by
+   * the owner 2026-11-11). Now only ANSWERS whether the basket holds a
+   * netted payout, so `_planSessionItemRefund` switches to the gross-charge
+   * cap (`_grossCappedPoolSplit`). History of the original guard:
    * Round-3 adversarial review, finding #2 (HIGH) — refuses an item refund
    * outright when this session basket contains ANY other member whose own
    * net effect is a payout (a loto cash prize, a wallet/Binance/
@@ -4217,7 +4397,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * "payout basket" after the FIRST item refund, hiding "Refund item" for
    * every remaining item.
    */
-  private _assertNoNettedPayoutMembers(sessionId: number): void {
+  private _sessionHasNettedPayoutMember(sessionId: number): boolean {
     const tenantId = getCurrentTenantId();
     // Round-4 review, finding HIGH-1 — `amount_usd`/`amount_lbp` come from
     // `cst` (customer_session_transactions), the member's own CUSTOMER-SIDE
@@ -4248,15 +4428,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       tenantId,
       SESSION_ITEM_REFUND_LINK_TYPE,
     );
-    const payout = candidates.find((c) =>
+    return candidates.some((c) =>
       this._isNettedSessionPayoutMember(c, c.unified_transaction_id),
     );
-    if (payout) {
-      throw new DatabaseError(
-        `This basket includes a payout (${payout.type}) that was netted against its items — refund the whole basket instead.`,
-        { entityId: sessionId },
-      );
-    }
   }
 
   /**
@@ -4264,7 +4438,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * session-basket payout member NETTED against the basket's other items"
    * (decision 10: can only be undone by the whole-basket reversal) vs
    * backed by its OWN full pooled leg (an item refund on some OTHER member
-   * still prices correctly). Reused by `_assertNoNettedPayoutMembers` (the
+   * still prices correctly). Reused by `_sessionHasNettedPayoutMember` (the
    * write-path guard) and `getRecent`'s `is_session_payout` (the SAME flag
    * that hides the frontend's "Refund item" button) — never two copies.
    *
@@ -4444,7 +4618,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     //    CHANGE/OUT leg — never the gross IN total alone).
     const pooledLegsBySession = new Map<
       number,
-      Array<{ currency_code: string; amount: number }>
+      Array<{ currency_code: string; amount: number; note: string | null }>
     >();
     for (const chunk of chunkIds(noDebtIds, SESSION_BATCH_CHUNK_SIZE)) {
       const placeholders = chunk.map(() => "?").join(", ");
@@ -4452,8 +4626,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         session_id: number;
         currency_code: string;
         amount: number;
+        note: string | null;
       }>(
-        `SELECT session_id, currency_code, amount FROM payments
+        `SELECT session_id, currency_code, amount, note FROM payments
          WHERE session_id IN (${placeholders}) AND transaction_id IS NULL AND tenant_id = ?`,
         ...chunk,
         tenantId,
@@ -4465,41 +4640,59 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       }
     }
 
-    const positiveByCurrencyBySession = new Map<number, Map<string, number>>();
-    const needsPositiveCheckIds: number[] = [];
-    for (const sid of noDebtIds) {
-      const legs = pooledLegsBySession.get(sid) ?? [];
-      const positiveByCurrency = new Map<string, number>();
-      for (const leg of legs) {
-        if (leg.amount > 0) {
-          positiveByCurrency.set(
-            leg.currency_code,
-            (positiveByCurrency.get(leg.currency_code) ?? 0) + leg.amount,
-          );
-        }
-      }
-      if (positiveByCurrency.size === 0) {
-        result.set(sid, true);
-      } else {
-        positiveByCurrencyBySession.set(sid, positiveByCurrency);
-        needsPositiveCheckIds.push(sid);
-      }
-    }
-    if (needsPositiveCheckIds.length === 0) return result;
-
+    // LIRA-381 — per currency, what the pool still holds for the customer:
+    //   (IN − change − payout legs) − Σ earlier item refunds' pool money
+    //   + Σ what customers paid back on payout refunds (their IN lines).
+    // With no payout leg and no payout refund this is exactly the LIRA-232
+    // "net positive minus already returned" check, over the same currencies
+    // (a currency with only OUT legs reads ≤ 0, as before).
     const outLegTotals = this._sessionPooledOutLegsTotalBatch(
-      needsPositiveCheckIds,
+      noDebtIds,
       tenantId,
     );
     const priorPoolAttributed = this._sumPriorSessionItemRefundMetaBatch(
-      needsPositiveCheckIds,
+      noDebtIds,
       "poolSplitUsd",
       "poolSplitLbp",
       tenantId,
     );
+    const collectedBySession = new Map<number, Map<string, number>>();
+    for (const row of this._priorSessionCollectedLegsBatch(
+      noDebtIds,
+      tenantId,
+    )) {
+      if (!isDrawerAffectingMethod(row.method)) continue;
+      const m = collectedBySession.get(row.session_id) ?? new Map();
+      m.set(row.currency_code, (m.get(row.currency_code) ?? 0) + row.amount);
+      collectedBySession.set(row.session_id, m);
+    }
 
-    for (const sid of needsPositiveCheckIds) {
-      const positiveByCurrency = positiveByCurrencyBySession.get(sid)!;
+    for (const sid of noDebtIds) {
+      const legs = pooledLegsBySession.get(sid) ?? [];
+      const positive = new Map<string, number>();
+      const payoutOut = new Map<string, number>();
+      for (const leg of legs) {
+        if (leg.amount > 0) {
+          positive.set(
+            leg.currency_code,
+            (positive.get(leg.currency_code) ?? 0) + leg.amount,
+          );
+        } else if (
+          leg.amount < 0 &&
+          (leg.note ?? "").startsWith("Basket payout to customer")
+        ) {
+          payoutOut.set(
+            leg.currency_code,
+            (payoutOut.get(leg.currency_code) ?? 0) - leg.amount,
+          );
+        }
+      }
+      const collected = collectedBySession.get(sid) ?? new Map();
+      const currencies = new Set<string>([
+        ...positive.keys(),
+        ...payoutOut.keys(),
+        ...collected.keys(),
+      ]);
       const alreadyReturned = priorPoolAttributed.get(sid) ?? {
         usd: 0,
         lbp: 0,
@@ -4509,11 +4702,15 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         LBP: alreadyReturned.lbp,
       };
       let fully = true;
-      for (const [currency, total] of positiveByCurrency) {
+      for (const currency of currencies) {
         const unit = currency === "LBP" ? 1 : 0.01;
         const outTotal = outLegTotals.get(`${sid}::${currency}`) ?? 0;
-        const netTotal = total - outTotal;
-        const remaining = netTotal - (alreadyReturnedByCurrency[currency] ?? 0);
+        const remaining =
+          (positive.get(currency) ?? 0) -
+          outTotal -
+          (payoutOut.get(currency) ?? 0) -
+          (alreadyReturnedByCurrency[currency] ?? 0) +
+          (collected.get(currency) ?? 0);
         if (remaining > unit / 2) {
           fully = false;
           break;
@@ -4724,6 +4921,25 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
      *  `extra_* = −share` on the REFUND row. 0 when the basket has none. */
     extraShareUsd: number;
     extraShareLbp: number;
+    /** LIRA-381 — `to_customer` (a charge: money back, account first) or
+     *  `from_customer` (a payout: the customer pays it back), from the
+     *  member's customer-side sign (`sessionItemRefundDirection`). */
+    direction: SessionItemRefundDirection;
+    /** LIRA-381 — the member has its own customer payment lines (linked to
+     *  the session from its own page): refunded by mirroring those lines
+     *  only, never from the basket's pool or account. */
+    paidOnItsOwn: boolean;
+    /** LIRA-381 — a currency swap (EXCHANGE…): exact mirror, no method
+     *  choice (`isSwapTransactionType`). */
+    isSwap: boolean;
+    /** LIRA-381 — what the customer pays back, per currency (a payout
+     *  member, or the received side of a swap). 0 otherwise. */
+    collectedUsd: number;
+    collectedLbp: number;
+    /** LIRA-381 — the member's own signed customer-side amounts (the
+     *  session link row); its link refund row is their exact negation. */
+    memberUsd: number;
+    memberLbp: number;
   } {
     const tenantId = getCurrentTenantId();
     const { sessionId, transactionId } = input;
@@ -4739,7 +4955,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // (`item.amount = -60`). Reading `transactions.amount_*` here (the
     // pre-fix behavior) made `isSessionPayoutMember` blind to any netted
     // wallet/Binance cash-out — see step 4a and
-    // `_assertNoNettedPayoutMembers` below, which share this SAME
+    // `_sessionHasNettedPayoutMember` below, which share this SAME
     // customer-side-amount source (rule 14).
     const membership = this.queryOne<{
       id: number;
@@ -4777,21 +4993,41 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     }
 
     // 3. Reuse the generic gate — same session-member bypass the
-    // whole-basket path uses (a LOTO_CASH_PRIZE/KEPT_CHANGE member would
-    // pass THIS gate, but is refused next by the sold-item whitelist below,
-    // matching the owner's wording exactly instead of the generic message).
+    // whole-basket path uses (a LOTO_CASH_PRIZE/KEPT_CHANGE member passes
+    // THIS gate; a basket-level line is refused next with its own reason).
     this._assertReversible(original, { allowSessionMember: true });
 
-    // 4. Only a SOLD item — never a payout, prize or kept-change member
-    // (owner decision #4).
-    if (!SESSION_ITEM_REFUNDABLE_TYPES.has(original.type)) {
+    // 4. LIRA-381 (owner 2026-11-11: "any item of a checked-out basket can
+    // be refunded on its own") — the ONE shared rule (rule 14), the same the
+    // Transactions page reads. Only the basket's own checkout lines (kept
+    // change, a waived amount, the extra, the basket discount) stay
+    // whole-basket-only: they belong to no single item.
+    if (
+      !isSessionItemRefundableMember({
+        type: original.type,
+        amount_usd: membership.amount_usd,
+        amount_lbp: membership.amount_lbp,
+        status: original.status,
+        reverses_id: original.reverses_id,
+      })
+    ) {
       throw new DatabaseError(
-        `${original.type} cannot be refunded on its own from a session basket — only sold items ` +
-          `(products, services, recharges) can be; payouts and kept change are undone by the ` +
-          `whole-basket reversal.`,
+        `${original.type} is part of the basket's checkout, not an item — refund the whole basket instead.`,
         { entityId: transactionId },
       );
     }
+
+    // 4a. LIRA-381 — the SAME up-front refusals the whole-transaction
+    // refund runs before its reversal owners (`_refundTransactionInternal`),
+    // read-only, so the preview refuses too: a settled loto ticket/prize
+    // ("already settled with Loto on <date>"), a supplier sibling already
+    // swept into a settlement, a supplier discount already settled, an
+    // exchange lot already sold. No-ops for every other type.
+    this._assertSupplierSiblingsVoidable(original);
+    this._assertSupplierBundledDiscountVoidable(original);
+    this._assertExchangeLotsVoidable(original);
+    this._assertLotoTicketVoidable(original);
+    this._assertLotoCashPrizeVoidable(original);
 
     const isSaleMember =
       original.source_table === "sales" &&
@@ -4841,51 +5077,29 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       ? input.exchangeRate
       : bookedRate;
 
-    // 4a. Finding #11 (adversarial review) — refuse a member whose net
-    // effect is a PAYOUT (direction OUT), even though its type is in
-    // `SESSION_ITEM_REFUNDABLE_TYPES`. A custom service booked as a payout
-    // (a negative amount) was never "sold" to the customer — that is not
-    // this flow's business (owner decision #4: only sold items). A SALE
-    // member's amount is always positive by construction, so this only
-    // ever fires for a CUSTOM_SERVICE/RECHARGE/FINANCIAL_SERVICE member.
-    //
-    // Round-4 review, finding HIGH-1 — uses the SAME shared predicate
-    // (`isSessionPayoutMember`) and the SAME customer-side amount source
-    // (`membership.amount_usd/lbp`, the cst row) as
-    // `_assertNoNettedPayoutMembers` below, rather than a second hand-copy
-    // of "is this a payout" that only ever looked at `transactions.amount_*`
-    // — see the `membership` query's own doc for why that missed a netted
-    // wallet/Binance cash-out.
-    if (
+    // 4b. LIRA-381 — which way the money moves, from the member's own
+    // CUSTOMER-SIDE sign (the cst row — round-4 HIGH-1: a RECEIVE's own
+    // `transactions` row is positive or 0/0, never the payout sign). The
+    // former refusals of a payout member (finding #11) and of any item in a
+    // basket holding a netted payout (round-3 #2, decision 10) are
+    // overruled by the owner (2026-11-11); see the gross-charge cap below.
+    const direction = isSaleMember
+      ? ("to_customer" as const)
+      : sessionItemRefundDirection({
+          type: original.type,
+          amount_usd: membership.amount_usd,
+          amount_lbp: membership.amount_lbp,
+        });
+    const isSwap = !isSaleMember && isSwapTransactionType(original.type);
+    // A member linked to the session from its own page (an exchange, a
+    // direct transfer) was paid on its own: its customer lines are its own
+    // `payments` rows, never the basket's pool — refunding it from the pool
+    // as well would pay it back twice.
+    const paidOnItsOwn =
       !isSaleMember &&
-      isSessionPayoutMember({
-        type: original.type,
-        amount_usd: membership.amount_usd,
-        amount_lbp: membership.amount_lbp,
-        status: original.status,
-        reverses_id: original.reverses_id,
-      })
-    ) {
-      throw new DatabaseError(
-        `${original.type} is a payout, not a sold item — it cannot be refunded on its own from a session basket.`,
-        { entityId: transactionId },
+      this.getPaymentsByTransactionId(transactionId).some((p) =>
+        isOverridableLeg(p),
       );
-    }
-
-    // 4b. Round-3 adversarial review, finding #2 (HIGH) — refuse ANY item
-    // refund when the basket contains a payout member ELSEWHERE (not just
-    // when the member BEING refunded is one, which 4a above already
-    // covers). `SessionCheckoutModal` nets a General payout (loto prize,
-    // wallet/Binance cash-out, a custom-service payout, …) against the
-    // basket's OTHER items at checkout, so the pooled IN legs are smaller
-    // than the items' own value — refunding one item against that short
-    // pool (`_splitAcrossPoolCurrencyMix`'s per-currency cap) hands back
-    // LESS than the item is worth, because the pool never held the netted
-    // portion to begin with. Orchestrator decision (owner not yet asked):
-    // since the payout was netted against every item, undoing one item in
-    // isolation can't be priced correctly — only the whole-basket reversal
-    // (which also undoes the payout) can.
-    this._assertNoNettedPayoutMembers(sessionId);
 
     // 5. Double-refund guard for the non-SALE (whole-member) branch — the
     // SALE branch gets its own per-line cap from `previewSaleItemRefundAmount`
@@ -4980,9 +5194,70 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       itemAmountUsd = lines.reduce((sum, l) => sum + l.amountUsd, 0);
       itemAmountLbp = 0; // sale lines are always sold_price_usd
     } else {
-      itemAmountUsd = Math.abs(original.amount_usd);
-      itemAmountLbp = Math.abs(original.amount_lbp);
+      // LIRA-381 — what the customer actually paid / was paid for this
+      // member in the basket (the cst row): a send's amount + fee, 0 for a
+      // For-Partner item, the payout for a cash-out — never the module's
+      // own figure (a RECEIVE's `transactions` row is the positive transfer).
+      itemAmountUsd = Math.abs(membership.amount_usd);
+      itemAmountLbp = Math.abs(membership.amount_lbp);
     }
+
+    // LIRA-381 — the three members whose money never goes through the
+    // account-first / pool path: paid on its own (mirror its own lines), a
+    // currency swap (exact per-currency mirror), a payout (the customer
+    // pays it back). No basket-extra share either: the extra was charged
+    // on the basket's items, not on these.
+    if (paidOnItsOwn || isSwap || direction === "from_customer") {
+      const tw = (v: number, unit: number) => this._roundToUnit(v, unit);
+      const pos = (v: number) => (v > 0 ? v : 0);
+      const neg = (v: number) => (v < 0 ? -v : 0);
+      const handUsd = paidOnItsOwn ? 0 : tw(pos(membership.amount_usd), 0.01);
+      const handLbp = paidOnItsOwn ? 0 : tw(pos(membership.amount_lbp), 1);
+      const collectedUsd = paidOnItsOwn
+        ? 0
+        : tw(neg(membership.amount_usd), 0.01);
+      const collectedLbp = paidOnItsOwn ? 0 : tw(neg(membership.amount_lbp), 1);
+      return {
+        original,
+        isSaleMember,
+        saleId,
+        bookedRate,
+        bookedRateSource,
+        effectiveRate,
+        lines,
+        clientId,
+        debtClientId: clientId,
+        itemAmountUsd,
+        itemAmountLbp,
+        nativeCurrency:
+          itemAmountLbp > 0 && itemAmountUsd === 0 ? "LBP" : "USD",
+        accountAttributedUsd: 0,
+        accountAttributedLbp: 0,
+        accountReductionUsd: 0,
+        accountReductionLbp: 0,
+        repaidBackUsd: 0,
+        repaidBackLbp: 0,
+        restoredFromPreexistingCreditUsd: 0,
+        restoredFromPreexistingCreditLbp: 0,
+        // A swap's handed-back side is stamped as pool money so the
+        // whole-basket reversal nets it (the same reader as every item).
+        poolSplit: { usd: handUsd, lbp: handLbp },
+        remainderUsd:
+          direction === "from_customer" && !isSwap ? collectedUsd : handUsd,
+        remainderLbp:
+          direction === "from_customer" && !isSwap ? collectedLbp : handLbp,
+        extraShareUsd: 0,
+        extraShareLbp: 0,
+        direction,
+        paidOnItsOwn,
+        isSwap,
+        collectedUsd,
+        collectedLbp,
+        memberUsd: membership.amount_usd,
+        memberLbp: membership.amount_lbp,
+      };
+    }
+
     // LIRA-319 (owner decision): the item gives back its share of the
     // basket extra by its share of the basket charge — folded into the
     // item amount here, ONCE, so every step below carries it (rule 14).
@@ -5185,17 +5460,31 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // what finding #2's pool-currency-mix split applies to. Combined into a
     // single USD-equivalent figure so ONE split call can allocate it across
     // whatever the basket's pool actually holds, then converted back.
-    const poolAttributedUsdEquiv =
-      leftoverItemUsd +
-      (leftoverItemLbp > 1
-        ? leftoverItemLbp / this._requireBuyRate(sessionId, effectiveRate)
-        : 0);
-    const poolSplit = this._splitAcrossPoolCurrencyMix(
-      sessionId,
-      poolAttributedUsdEquiv,
-      nativeCurrency,
-      effectiveRate,
-    );
+    // LIRA-381 (owner open question 2, recommended answer) — a basket
+    // that held a NETTED payout (a loto prize, a wallet / Binance cash-out,
+    // a payout service) took less cash in than its items were worth, so its
+    // pool mix no longer says what the customer paid with. The item then
+    // goes back in its OWN currency, capped per currency by the basket's
+    // gross charge minus every earlier item refund (never "more than the
+    // basket received"). Without a netted payout: the pool-mix split below,
+    // unchanged (LIRA-232 finding #2).
+    const poolSplit = this._sessionHasNettedPayoutMember(sessionId)
+      ? this._grossCappedPoolSplit(
+          sessionId,
+          leftoverItemUsd,
+          leftoverItemLbp,
+          accountAttributedUsd,
+          accountAttributedLbp,
+        )
+      : this._splitAcrossPoolCurrencyMix(
+          sessionId,
+          leftoverItemUsd +
+            (leftoverItemLbp > 1
+              ? leftoverItemLbp / this._requireBuyRate(sessionId, effectiveRate)
+              : 0),
+          nativeCurrency,
+          effectiveRate,
+        );
 
     // Finding #11 (dust legs) — floor a sub-cent/sub-LBP remainder to
     // exactly 0 rather than posting a leg (and requiring the operator's
@@ -5240,6 +5529,53 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       remainderLbp,
       extraShareUsd: extraShare.usd,
       extraShareLbp: extraShare.lbp,
+      direction,
+      paidOnItsOwn,
+      isSwap,
+      collectedUsd: 0,
+      collectedLbp: 0,
+      memberUsd: membership.amount_usd,
+      memberLbp: membership.amount_lbp,
+    };
+  }
+
+  /**
+   * LIRA-381 — the pool part of a `to_customer` item refund in a basket that
+   * held a netted payout: the item's own leftover per currency, capped by
+   * the basket's gross charge in that currency (Σ positive member amounts on
+   * the session link rows) minus every earlier item refund's account and
+   * pool attribution and this refund's own account attribution.
+   */
+  private _grossCappedPoolSplit(
+    sessionId: number,
+    leftoverUsd: number,
+    leftoverLbp: number,
+    thisAccountUsd: number,
+    thisAccountLbp: number,
+  ): { usd: number; lbp: number } {
+    const gross = this.queryOne<{ usd: number | null; lbp: number | null }>(
+      `SELECT COALESCE(SUM(CASE WHEN amount_usd > 0 THEN amount_usd ELSE 0 END), 0) AS usd,
+              COALESCE(SUM(CASE WHEN amount_lbp > 0 THEN amount_lbp ELSE 0 END), 0) AS lbp
+         FROM customer_session_transactions
+        WHERE session_id = ? AND tenant_id = ? AND transaction_type <> ?`,
+      sessionId,
+      getCurrentTenantId(),
+      SESSION_ITEM_REFUND_LINK_TYPE,
+    );
+    const priorAccount =
+      this._priorSessionItemRefundAccountAttributed(sessionId);
+    const priorPool = this._priorSessionItemRefundPoolAttributed(sessionId);
+    const capUsd = Math.max(
+      0,
+      (gross?.usd ?? 0) - priorAccount.usd - priorPool.usd - thisAccountUsd,
+    );
+    const capLbp = Math.max(
+      0,
+      (gross?.lbp ?? 0) - priorAccount.lbp - priorPool.lbp - thisAccountLbp,
+    );
+    return {
+      usd: this._roundToUnit(Math.min(Math.max(0, leftoverUsd), capUsd), 0.01),
+      lbp: this._roundToUnit(Math.min(Math.max(0, leftoverLbp), capLbp), 1),
     };
   }
 
@@ -5334,7 +5670,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * whole LBP and capped at what is still unreturned. The item charge is
    * every POSITIVE basket member link except the extra itself (and the
    * item-refund links) — payout baskets never reach here
-   * (`_assertNoNettedPayoutMembers`). The refund that leaves no item value
+   * (`_sessionHasNettedPayoutMember`). The refund that leaves no item value
    * unrefunded takes the exact remainder, so the shares always add up to
    * the extra (create + item refunds net to 0, rule 20).
    */
@@ -5429,6 +5765,49 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     return legs;
   }
 
+  /** LIRA-381 — the drawer a customer's line lands in when they pay a
+   *  basket member back: the member's own primary-system drawer for a cash
+   *  method on a primary-system transfer (`resolveServiceCashDrawer`, the
+   *  same routing the original payout used), else the method's drawer. */
+  private _collectDrawerFor(memberId: number, method: string): string {
+    const ctx = this._financialServiceCashDrawerCtx(memberId);
+    return ctx
+      ? resolveServiceCashDrawer(method, ctx)
+      : paymentMethodToDrawerName(method);
+  }
+
+  /** LIRA-381 — default IN lines for what the customer pays back: cash, one
+   *  line per currency. */
+  private _collectedCashLegs(
+    memberId: number,
+    usd: number,
+    lbp: number,
+  ): TransactionPaymentLeg[] {
+    const drawer = this._collectDrawerFor(memberId, "CASH");
+    const legs: TransactionPaymentLeg[] = [];
+    if (usd > 0.005) {
+      legs.push({
+        direction: "in",
+        amount: usd,
+        signed_amount: usd,
+        currency_code: "USD",
+        method: "CASH",
+        drawer_name: drawer,
+      });
+    }
+    if (lbp > 1) {
+      legs.push({
+        direction: "in",
+        amount: lbp,
+        signed_amount: lbp,
+        currency_code: "LBP",
+        method: "CASH",
+        drawer_name: drawer,
+      });
+    }
+    return legs;
+  }
+
   /** The FULL default money-back leg set for a plan (rule 14 — the ONE place
    *  either the preview or the real write computes it): the pool-mix split
    *  (finding #2) plus the flat repaid-account cash-back (finding #6),
@@ -5437,6 +5816,25 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     sessionId: number,
     plan: ReturnType<TransactionRepository["_planSessionItemRefund"]>,
   ): TransactionPaymentLeg[] {
+    // LIRA-381 — paid on its own: its own lines are mirrored, nothing is
+    // chosen; a payout / swap: the customer pays back in cash, in the
+    // member's own currencies (a swap also gets its given side back).
+    if (plan.paidOnItsOwn) return [];
+    if (plan.isSwap || plan.direction === "from_customer") {
+      return this._mergeLegs([
+        plan.isSwap
+          ? this._defaultSessionRefundLegs(sessionId, plan.poolSplit.usd, "USD")
+          : [],
+        plan.isSwap
+          ? this._defaultSessionRefundLegs(sessionId, plan.poolSplit.lbp, "LBP")
+          : [],
+        this._collectedCashLegs(
+          plan.original.id,
+          plan.collectedUsd,
+          plan.collectedLbp,
+        ),
+      ]);
+    }
     return this._mergeLegs([
       this._defaultSessionRefundLegs(sessionId, plan.poolSplit.usd, "USD"),
       this._defaultSessionRefundLegs(sessionId, plan.poolSplit.lbp, "LBP"),
@@ -5489,6 +5887,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       bookedRate: plan.bookedRate,
       bookedRateSource: plan.bookedRateSource,
       ...(accountClientName ? { accountClientName } : {}),
+      direction: plan.direction,
+      paidOnItsOwn: plan.paidOnItsOwn || plan.isSwap,
     };
   }
 
@@ -5570,7 +5970,95 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       poolSplit,
       extraShareUsd,
       extraShareLbp,
+      direction,
+      collectedUsd,
+      collectedLbp,
     } = plan;
+
+    // LIRA-381 — how this member's money moves:
+    //   handBack: a charge — account first, then the remainder back (as
+    //             before);
+    //   collect:  a payout — the customer pays it back (IN lines, through
+    //             the shared customer-pays writer: cash, a wallet, or the
+    //             customer's account);
+    //   swap:     a currency swap — exact per-currency mirror, no method
+    //             choice (same rule as a standalone exchange refund);
+    //   own:      paid on its own lines — only those lines are mirrored
+    //             (`_reversePayments` below), nothing from the basket.
+    const moneyMode: "handBack" | "collect" | "swap" | "own" = plan.paidOnItsOwn
+      ? "own"
+      : plan.isSwap
+        ? "swap"
+        : direction === "from_customer"
+          ? "collect"
+          : "handBack";
+    let measuredCollect: MeasuredCustomerLegs | null = null;
+    if (moneyMode !== "handBack") {
+      const claimsChange =
+        (input.kept_change_usd ?? 0) > 0 ||
+        (input.kept_change_lbp ?? 0) > 0 ||
+        (input.added_change_usd ?? 0) > 0 ||
+        (input.added_change_lbp ?? 0) > 0 ||
+        (input.customerPayments?.length ?? 0) > 0;
+      if (claimsChange) {
+        throw new DatabaseError(
+          "Change can't be kept or added on this refund — the exact amount is settled. (session item refund: kept/added change applies only when money goes back to the customer)",
+          { entityId: transactionId },
+        );
+      }
+      if (moneyMode !== "collect" && (input.refundLegs?.length ?? 0) > 0) {
+        throw new DatabaseError(
+          moneyMode === "swap"
+            ? "A currency exchange can only be refunded by swapping the money back — choosing return methods is not supported for it"
+            : "This item was paid on its own — it is refunded exactly as it was paid; choosing return methods is not supported for it",
+          { entityId: transactionId },
+        );
+      }
+      if (moneyMode === "collect") {
+        // The customer's lines: the cashier's choice, else cash in the
+        // payout's own currencies. Measured BEFORE any write (rule 16: IN
+        // lines only), against the payout's value at the refund rate.
+        const lines =
+          input.refundLegs && input.refundLegs.length > 0
+            ? input.refundLegs.map((l) => ({
+                method: l.method,
+                currencyCode: l.currencyCode,
+                amount: l.amount,
+              }))
+            : this._collectedCashLegs(
+                original.id,
+                collectedUsd,
+                collectedLbp,
+              ).map((l) => ({
+                method: l.method,
+                currencyCode: l.currency_code,
+                amount: l.amount,
+              }));
+        const bothCurrencies = collectedUsd > 0 && collectedLbp > 0;
+        const expected = bothCurrencies
+          ? {
+              amount: collectedUsd + collectedLbp / effectiveRate,
+              currency: "USD",
+            }
+          : collectedLbp > 0
+            ? { amount: collectedLbp, currency: "LBP" }
+            : { amount: collectedUsd, currency: "USD" };
+        try {
+          measuredCollect = measureCustomerLegs({
+            legs: lines,
+            expected,
+            rate: effectiveRate,
+            clientId: clientId ?? debtClientId,
+            context: "Session item refund",
+          });
+        } catch (err) {
+          throw new DatabaseError(
+            err instanceof Error ? err.message : String(err),
+            { entityId: transactionId },
+          );
+        }
+      }
+    }
 
     // Validate the operator's chosen return leg(s), if any, BEFORE any row
     // is written — same discipline as every other refund-override path.
@@ -5587,9 +6075,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // remainder (never on the account-first reduction, which moves no
     // cash). Same shared check as the whole-transaction refund; no claim →
     // the remainder is validated exactly as before.
+    const handBack = moneyMode === "handBack";
     const keptResolved = this._resolveRefundKeptChange({
       owedNet: { USD: remainderUsd, LBP: remainderLbp },
-      refundLegs: hasOverride ? refundLegs : undefined,
+      refundLegs: hasOverride && handBack ? refundLegs : undefined,
       claimed: { usd: input.kept_change_usd, lbp: input.kept_change_lbp },
       exchangeRate: this._refundKeptChangeRate(
         effectiveRate,
@@ -5605,7 +6094,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // Same shared check as the whole-transaction refund; null → unchanged.
     const addedResolved = this._resolveRefundAddedChange({
       owedNet: { USD: remainderUsd, LBP: remainderLbp },
-      refundLegs: hasOverride ? refundLegs : undefined,
+      refundLegs: hasOverride && handBack ? refundLegs : undefined,
       added: input,
       keptClaimed: { usd: input.kept_change_usd, lbp: input.kept_change_lbp },
       exchangeRate: this._refundKeptChangeRate(
@@ -5615,7 +6104,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       isForPartner: this._isForPartnerTransaction(original),
       entityId: transactionId,
     });
-    if (hasOverride) {
+    if (hasOverride && handBack) {
       validateRefundLegOverrideAmounts(
         addedResolved
           ? this._netPlusAdded(keptResolved.owedNetAfterKept, addedResolved)
@@ -5651,6 +6140,15 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         // (the caller's typed rate, else the member's own booked rate, else
         // the day's fallback — `_planSessionItemRefund`'s `effectiveRate`).
         exchangeRate: effectiveRate,
+        // LIRA-381 — which way the money moved. Not `direction`: a custom
+        // service's own metadata already uses that key (IN/OUT), and the
+        // non-SALE refund row copies the member's metadata.
+        refundDirection: direction,
+        // LIRA-381 — what the customer paid back (payout / swap received
+        // side), read by the whole-basket reversal.
+        ...(collectedUsd > 0 || collectedLbp > 0
+          ? { collectedUsd, collectedLbp }
+          : {}),
       };
 
       if (isSaleMember) {
@@ -5803,8 +6301,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         sessionId,
         original.source_id,
         refundTxnId,
-        -itemAmountUsd,
-        -itemAmountLbp,
+        // LIRA-381 — a charge's link is −(item + its extra share), as
+        // before; any other member's is the exact negation of its own
+        // signed customer-side amounts (a payout's link is positive).
+        handBack ? -itemAmountUsd : -plan.memberUsd,
+        handBack ? -itemAmountLbp : -plan.memberLbp,
         // Same stamp as the REFUND row itself, incl. refund kept change.
         (isSaleMember
           ? -lines.reduce((sum, l) => sum + l.profitUsd, 0)
@@ -5836,25 +6337,55 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
       // MONEY BACK — findings #2/#6: per-currency remainder, the operator's
       // override or the merged (pool-mix + repaid-account) default.
-      const legsToPost: TransactionPaymentLeg[] = hasOverride
-        ? refundLegs!.map((leg) => ({
-            direction: "out" as const,
+      // LIRA-381 — a payout coming back: the customer's IN lines through
+      // the shared customer-pays writer (drawer lines + a 'Session Refund
+      // Debt' charge for an account line), never the OUT loop below.
+      if (measuredCollect) {
+        writeCustomerLegs(this.db, {
+          measured: measuredCollect,
+          debtType: SESSION_REFUND_DEBT_TYPE,
+          clientId: clientId ?? debtClientId,
+          transactionId: refundTxnId,
+          drawerFor: (leg) => this._collectDrawerFor(original.id, leg.method),
+          tenantId,
+          createdBy: userId,
+          note: SESSION_ITEM_REFUND_COLLECTED_NOTE,
+        });
+      }
+      const legsToPost: TransactionPaymentLeg[] = measuredCollect
+        ? measuredCollect.drawerLegs.map((leg) => ({
+            direction: "in" as const,
             amount: leg.amount,
-            signed_amount: -leg.amount,
+            signed_amount: leg.amount,
             currency_code: leg.currencyCode,
             method: leg.method,
-            drawer_name: paymentMethodToDrawerName(leg.method),
+            drawer_name: this._collectDrawerFor(original.id, leg.method),
           }))
-        : this._planDefaultLegs(sessionId, plan);
+        : moneyMode === "own"
+          ? []
+          : hasOverride
+            ? refundLegs!.map((leg) => ({
+                direction: "out" as const,
+                amount: leg.amount,
+                signed_amount: -leg.amount,
+                currency_code: leg.currencyCode,
+                method: leg.method,
+                drawer_name: paymentMethodToDrawerName(leg.method),
+              }))
+            : this._planDefaultLegs(sessionId, plan);
 
-      for (const leg of legsToPost) {
+      for (const leg of measuredCollect ? [] : legsToPost) {
         insertPaymentRow(this.db, {
           transactionId: refundTxnId,
           method: leg.method,
           drawerName: leg.drawer_name ?? paymentMethodToDrawerName(leg.method),
           currencyCode: leg.currency_code,
           amount: leg.signed_amount,
-          note: "Session item refund",
+          // A swap's received side is money the customer pays back.
+          note:
+            leg.signed_amount > 0
+              ? SESSION_ITEM_REFUND_COLLECTED_NOTE
+              : "Session item refund",
           createdBy: userId,
           tenantId,
         });
@@ -5884,6 +6415,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         remainderUsd,
         remainderLbp,
         legs: legsToPost,
+        direction,
       };
     });
   }
