@@ -403,6 +403,7 @@ export type {
   PendingProfitRow,
   ProfitModuleDetail,
   ProfitModuleDetailRow,
+  ProfitModuleExpense,
 } from "./ProfitService.js";
 
 // Voice Bot Service

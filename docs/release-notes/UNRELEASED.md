@@ -36,6 +36,21 @@
 
 ## ✨ Highlights
 
+### Pick what the customer is paying for
+
+Settle Debt now opens with nothing ticked. Tick the item the customer is paying for and the amount fills in, in that item's own currency; type a different amount if they pay less or more. The client's purchases list then shows what was paid and what is left on each charge.
+![Process Repayment with only the OMT send ticked, $40 typed, "pays $40 · leaves $61"](whats-new/1.35.0/repay-pick-items.png)
+
+### Expenses next to each module
+
+On Profits › By Module, two new columns show what each module cost you in expenses, such as SMS fees on credit transfers, change rounding and OMT/Whish discounts. Shop costs, bills and line usage are listed in "Other expenses". Click an amount to see each expense and what it was for.
+![Profits By Module with Expenses USD/LBP columns, the MTC row expanded on its SMS fee, and the Other expenses row](whats-new/1.35.0/profits-module-expenses.png)
+
+### Alfa Gift: pick the client
+
+On a direct Alfa Gift sale, the payment window now has the same client picker as Alfa credit: search for a client or add a new one with their phone number. Once a client is picked, the gift can go on their account, anything left unpaid goes on their account, and change you don't hand back can be put on their account.
+![Alfa Gift payment window with client Maya Fares picked and the payment method on Customer Account](whats-new/1.35.0/alfa-gift-client.png)
+
 ### Refund any item of a session
 
 On the Transactions page, **Refund item** now works on every line of a paid customer session — a single loto ticket, a loto prize, an OMT/Whish transfer or cash-out, an exchange, a repair — not only products, services and recharges, and a basket that paid out a prize no longer blocks refunding its other items. If the item was a prize or cash-out the customer received, the refund window switches to **Customer pays back** so you record how they return it: cash, a wallet, or on their account.
@@ -253,6 +268,8 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 💸 OMT / Whish & suppliers
 
+- OMT/Whish History and the Transactions tab on the Suppliers page now show the commission a transfer actually earned once it is settled. The estimate, marked "est.", only shows while the transfer is waiting to be settled.
+- From now on, a settlement commission entered in the other currency (for example a dollar commission on lira transfers) is counted in Profits, both when you settle a batch and from the account's Settle sheet. The Settle sheet no longer blocks it when the transfers being paid are in the other currency.
 - OMT: when you settle the OMT account in cash on Settle Account, you can now choose whether the cash comes from the OMT Cash Drawer (the default) or General. On a Whish shop the same choice shows for Whish, also when Whish pays you a bills commission in cash.
 - OMT: Settle Account now settles from the amount on OMT's SMS. Type it, and the commission is worked out, the payment matches the SMS and all the picked days close in one settlement, whether you pay OMT or OMT pays you. Before, the commission box never lowered the payment, an OMT that owed you asked for "change" back, and an empty commission box booked no commission at all.
 - OMT: on Settle Account, "Which OMT commission does this SMS include?" now opens with nothing ticked, which means **OMT is not paying any commission in this SMS**: the SMS box opens at the full amount owed and every transfer's commission stays as "commission OMT still owes you". Tick the types the SMS includes (or **All types** in one tick) to book that commission. If the SMS amount you type is less than the amount owed while nothing is ticked, Settle stays off until you tick the types, because the difference is commission. Before, the sheet opened on "All types" and deducted the commission even when OMT had not paid it.
@@ -359,6 +376,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 📱 MTC / Alfa
 
+- Alfa Gift: the payment window of a direct gift sale now lets you search for a client or add a new one with their phone number, so the gift can go on their account; before, it had only a name box and "Customer Account" was always refused.
 - Mobile Recharge: a price changed in Settings → Mobile services now reaches recharge screens already open on other tills (web app), within moments, instead of only after they reload.
 - Checkpoint for MTC or Alfa alone: Save works again. It used to stop with "At least one drawer amount is required" and save nothing.
 - Checkpoint: the Credits box for each line now shows the amount rounded to cents (705.3), instead of a long number like 705.3000000000001.
@@ -402,6 +420,8 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 📒 Accounts
 
+- Accounts: Settle Debt now opens with nothing ticked. Tick the item the customer is paying for and the amount fills in; you can still change it: less pays part of that item, more pays the next items. With nothing ticked, the oldest debts are paid first. Amounts stay in the item's own currency ($ or LBP), so paying a lira item no longer touches a dollar sale.
+- Accounts: on a client's purchases list, a charge that was partly paid shows "paid $12.00 · left $8.00", and a fully paid charge shows "Paid".
 - Accounts: on Settle Debt, "Forgive (no cash)" is now the Discount line, up to $5 or 450,000 LBP. Typing it lowers the amount to pay by itself (owes $100, discount $5 → pay $95), also when you typed the payment first. The Waive button is gone; to forgive more, use Write off (admins).
 - Accounts: voiding or refunding a payment that had a discount now puts the whole debt back, discount included (owed $105, paid $100 with a $5 discount → after the void the client owes $105 again). This applies to payments made from now on; Write off entries are not affected.
 - Accounts: when a customer pays off an OMT send with cash on Settle Debt, "Goes to" now lets you choose the OMT Cash Drawer (the default) or General.
@@ -446,6 +466,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 📊 Profits page
 
+- Profits › By Module now shows each module's expenses next to its profit (USD and LBP), with an "Other expenses" row for everything not tied to one module (shop costs, bills, line usage, drawer shortages). The TOTAL row adds them up and the net line below is unchanged. Click any expense figure to see the expenses behind it.
 - Dashboard: profit is no longer shown there, for any user. The "Net profit — last 30 days" tile and the trend chart's Profit view are gone; the chart shows product and telecom sales. Profit stays on the Profits page.
 - New "Wrong-number credits recovered" line: credits sent back for cards recharged onto the wrong number, which lower the loss from those cards.
 - Web app: the Profits page opens much faster, and other people using the shop no longer get errors or a frozen app while someone has it open. Nothing on the page changes.

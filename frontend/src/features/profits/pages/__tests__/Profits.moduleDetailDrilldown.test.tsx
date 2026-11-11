@@ -242,3 +242,131 @@ describe("Profits By Module drill-down — 'Show transactions' (PROF-DD-FIX, rev
     expect(secondCallFrom).toBe("2026-08-01");
   });
 });
+
+// ---------------------------------------------------------------------------
+// LIRA-385 (owner decision 2026-11-11, "Per-module columns + Other row") —
+// Expenses USD / Expenses LBP columns per module, a final "Other expenses"
+// row, and a click on an expense figure opens that row's expense list.
+// ---------------------------------------------------------------------------
+
+const SALE_ROW_WITH_EXPENSES = {
+  ...SALE_ROW,
+  expenses_usd: 0.5,
+  expenses_lbp: 0,
+};
+const OTHER_ROW = {
+  module: "OTHER_EXPENSES",
+  label: "Other expenses (not linked to a module)",
+  revenue_usd: 0,
+  revenue_lbp: 0,
+  cost_usd: 0,
+  cost_lbp: 0,
+  profit_usd: 0,
+  profit_lbp: 0,
+  count: 0,
+  margin_pct: null,
+  margin_converted: false,
+  expenses_usd: 5,
+  expenses_lbp: 450000,
+};
+const SALE_EXPENSE = {
+  id: 41,
+  date: "2026-09-05 10:00:00",
+  category: "Change rounding",
+  description: "Change rounding on sale #1",
+  amount_usd: 0.5,
+  amount_lbp: 0,
+  linked_summary: "Sale #1 — Charger x1",
+};
+const OTHER_EXPENSES_DETAIL = {
+  module: "OTHER_EXPENSES",
+  counted: [],
+  not_counted: [],
+  counted_total_profit_usd: 0,
+  counted_total_profit_lbp: 0,
+  expenses: [
+    {
+      id: 42,
+      date: "2026-09-06 09:00:00",
+      category: "Shop_Supply",
+      description: "Paper rolls",
+      amount_usd: 5,
+      amount_lbp: 0,
+      linked_summary: null,
+    },
+    {
+      id: 43,
+      date: "2026-09-07 09:00:00",
+      category: "Bill",
+      description: "Electricity",
+      amount_usd: 0,
+      amount_lbp: 450000,
+      linked_summary: null,
+    },
+  ],
+};
+
+describe("Profits By Module — expenses per module (LIRA-385)", () => {
+  beforeEach(() => {
+    mockGetProfitByModule.mockResolvedValue([SALE_ROW_WITH_EXPENSES, OTHER_ROW]);
+    mockGetProfitModuleDetail.mockImplementation((key: string) =>
+      Promise.resolve(
+        key === "OTHER_EXPENSES"
+          ? OTHER_EXPENSES_DETAIL
+          : { ...DETAIL, expenses: [SALE_EXPENSE] },
+      ),
+    );
+  });
+
+  it("shows Expenses USD/LBP columns, an Other row, and a TOTAL that sums them", async () => {
+    await renderByModule();
+    expect(screen.getAllByText("Expenses (USD)").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Expenses (LBP)").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("by-module-expenses-usd-SALE").textContent).toBe(
+      "0.5 USD",
+    );
+    const other = screen.getByTestId("by-module-row-OTHER_EXPENSES");
+    expect(other.textContent).toContain("Other expenses (not linked to a module)");
+    expect(
+      screen.getByTestId("by-module-expenses-lbp-OTHER_EXPENSES").textContent,
+    ).toBe("450000 LBP");
+    expect(screen.getByTestId("by-module-total-expenses-usd").textContent).toBe(
+      "5.5 USD",
+    );
+    expect(screen.getByTestId("by-module-total-expenses-lbp").textContent).toBe(
+      "450000 LBP",
+    );
+    // The net row spans every column (11 now).
+    const netCell = screen.getByTestId("by-module-net-row").querySelector("td");
+    expect(netCell?.getAttribute("colspan")).toBe("11");
+  });
+
+  it("clicking a module's expense figure opens its panel on the expense list", async () => {
+    await renderByModule();
+    fireEvent.click(screen.getByTestId("by-module-expenses-usd-SALE"));
+    await waitFor(() =>
+      expect(mockGetProfitModuleDetail).toHaveBeenCalledWith(
+        "SALE",
+        expect.any(String),
+        expect.any(String),
+      ),
+    );
+    const list = await screen.findByTestId("by-module-expenses-list-SALE");
+    expect(list.textContent).toContain("Change rounding");
+    expect(list.textContent).toContain("Sale #1 — Charger x1");
+    expect(list.textContent).toContain("0.5 USD");
+  });
+
+  it("clicking the Other row's expense figure lists the unlinked expenses (no transactions button)", async () => {
+    await renderByModule();
+    fireEvent.click(screen.getByTestId("by-module-expenses-lbp-OTHER_EXPENSES"));
+    const list = await screen.findByTestId(
+      "by-module-expenses-list-OTHER_EXPENSES",
+    );
+    expect(list.textContent).toContain("Paper rolls");
+    expect(list.textContent).toContain("450000 LBP");
+    expect(
+      screen.queryByTestId("by-module-show-transactions-OTHER_EXPENSES"),
+    ).not.toBeInTheDocument();
+  });
+});

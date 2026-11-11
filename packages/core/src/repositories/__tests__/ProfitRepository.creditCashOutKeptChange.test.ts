@@ -23,8 +23,10 @@ function createSchema(db: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, type TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'ACTIVE',
       source_table TEXT NOT NULL, source_id INTEGER NOT NULL, user_id INTEGER, amount_usd REAL DEFAULT 0, amount_lbp REAL DEFAULT 0,
       profit_usd REAL DEFAULT 0, profit_lbp REAL DEFAULT 0, extra_usd REAL NOT NULL DEFAULT 0, extra_lbp REAL NOT NULL DEFAULT 0, client_id INTEGER, client_name TEXT, client_phone TEXT,
-      reverses_id INTEGER, created_at TEXT
+      reverses_id INTEGER, summary TEXT, created_at TEXT
     );
+    -- LIRA-385: the expense→module mapping resolves a recharge's carrier.
+    CREATE TABLE recharges (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, carrier TEXT);
     CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, username TEXT, created_at TEXT, updated_at TEXT);
     CREATE TABLE clients (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, full_name TEXT, phone_number TEXT, created_at TEXT, updated_at TEXT);
     CREATE TABLE financial_services (
@@ -59,6 +61,8 @@ function createSchema(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE TABLE sales (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, status TEXT, final_amount_usd REAL DEFAULT 0, paid_usd REAL DEFAULT 0, paid_lbp REAL DEFAULT 0, exchange_rate_snapshot REAL DEFAULT 90000, created_at TEXT);
+    -- LIRA-385: getModuleDetail now also lists the row's linked expenses.
+    CREATE TABLE expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, status TEXT DEFAULT 'active', is_refunded INTEGER DEFAULT 0, category TEXT, description TEXT, amount_usd REAL DEFAULT 0, amount_lbp REAL DEFAULT 0, expense_date TEXT, source_ref_table TEXT, source_ref_id INTEGER);
   `);
   db.prepare(
     `INSERT INTO users (id, tenant_id, username) VALUES (1, 1, 'cashier1')`,

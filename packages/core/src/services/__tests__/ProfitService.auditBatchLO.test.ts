@@ -161,6 +161,9 @@ function makeFakeRepo(overrides: FakeOverrides = {}): ProfitRepository {
     // LIRA-341 — session basket discounts (none in these fixtures).
     getBasketDiscountProfit: () => zeroTopupBuyback,
     getExpenseTotals: () => zeroExpense,
+    // LIRA-385 — no expenses in these fixtures.
+    getExpenseTotalsByModule: () => [],
+    getModuleExpenses: () => [],
     getDeferredProfit: () => zeroDeferred,
     getPendingSaleProfit: (): PendingSaleProfitRow[] => [],
     getFinancialSettledByProvider: (): FinByProviderRow[] => [],

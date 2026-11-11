@@ -61,3 +61,14 @@ export function hasModuleDetailSupport(moduleKey: string): boolean {
     )
   );
 }
+
+/**
+ * LIRA-385 — the reserved By Module key of the "Other expenses (not linked
+ * to a module)" row: every active expense in the period whose
+ * `source_ref_table` does not resolve to a module (manual expenses, Line
+ * usage, Drawer shortage, a voucher discount, an OMT credit not accepted,
+ * a wrong-number card loss). `ProfitService.getByModule` appends it last;
+ * `ProfitService.getModuleDetail` answers it with an expense-only list.
+ * Pure leaf (rule 29) — `Profits.tsx` pins the row by this key.
+ */
+export const OTHER_EXPENSES_MODULE_KEY = "OTHER_EXPENSES";

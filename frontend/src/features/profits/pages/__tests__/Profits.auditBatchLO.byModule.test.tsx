@@ -368,12 +368,13 @@ describe("Profits By Module — PA-4.23 expandable rows and footer", () => {
     expect(footer.textContent).toContain("200000 LBP");
     expect(footer.textContent).toContain("40 USD");
     expect(footer.textContent).toContain("20000 LBP");
-    // count column: 2 + 3 = 5 — read the Count <td> directly (index 7:
+    // count column: 2 + 3 = 5 — read the Count <td> directly (index 9:
     // Module, RevUSD, RevLBP, CostUSD, CostLBP, ProfitUSD, ProfitLBP,
-    // Count, Margin) rather than regex-matching the concatenated
-    // textContent, where "LBP" + "5" abut with no word boundary.
+    // ExpensesUSD, ExpensesLBP (LIRA-385), Count, Margin) rather than
+    // regex-matching the concatenated textContent, where "LBP" + "5" abut
+    // with no word boundary.
     const cells = footer.querySelectorAll("td");
-    expect(cells[7].textContent).toBe("5");
+    expect(cells[9].textContent).toBe("5");
   });
 });
 

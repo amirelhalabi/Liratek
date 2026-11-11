@@ -229,6 +229,23 @@ export interface ExpenseTotalsRow {
   count: number;
 }
 
+/** LIRA-385 — {@link ExpenseTotalsRow} per By Module key (null = Other). */
+export interface ExpenseTotalsByModuleRow extends ExpenseTotalsRow {
+  module_key: string | null;
+}
+
+/** LIRA-385 — one expense behind a By Module row's Expenses cell. */
+export interface ModuleExpenseRow {
+  id: number;
+  date: string;
+  category: string | null;
+  description: string | null;
+  amount_usd: number;
+  amount_lbp: number;
+  /** The linked parent transaction's own summary; null when unlinked. */
+  linked_summary: string | null;
+}
+
 export interface FinByProviderRow {
   provider: string;
   revenue_usd: number;
@@ -1544,6 +1561,63 @@ export function notReversedByRefund(alias: string): string {
  */
 export function activeExpense(alias = "expenses"): string {
   return `${alias}.status = 'active' AND ${notRefunded(alias)}`;
+}
+
+/**
+ * LIRA-385 — the ONE "which expenses count in this period" gate: active
+ * ({@link activeExpense}), `expense_date` inside [fromDt, toDt], this
+ * tenant. Binds `(fromDt, toDt, tenantId)`, in that order. Shared by
+ * {@link ProfitRepository.getExpenseTotals} (the Overview's Expenses and the
+ * By Module net row) and the By Module per-module expense queries, so the
+ * new Expenses column and the net row can never disagree about what an
+ * expense in range is.
+ */
+export function expenseInPeriod(alias = "expenses"): string {
+  return `${activeExpense(alias)} AND ${dateRange(`${alias}.expense_date`)} AND ${alias}.tenant_id = ?`;
+}
+
+/**
+ * LIRA-385 / PROF-DD — an expense linked to one parent row through the v166
+ * `source_ref_table`/`source_ref_id` back-link, still active. ONE spelling
+ * of the link for a parent-side lookup, used by the RECHARGE drill-down's
+ * per-row SMS-fee note ({@link ProfitRepository.getRechargeDetail}). The
+ * expense-side direction (expense → its module) is {@link expenseModuleKey}.
+ */
+export function linkedExpense(
+  alias: string,
+  parentTable: string,
+  parentIdExpr: string,
+): string {
+  return `${alias}.source_ref_table = '${parentTable}' AND ${alias}.source_ref_id = ${parentIdExpr} AND ${activeExpense(alias)}`;
+}
+
+/**
+ * LIRA-385 — the ONE mapping from an expense to its By Module row key,
+ * through the expense's own source link only. NULL = not attributable
+ * (the "Other expenses" row): manual expenses, Line usage (no link),
+ * Drawer shortage (`checkpoint_differences`), a voucher discount (no
+ * voucher module row), an OMT credit not accepted (`supplier_ledger`), a
+ * wrong-number card loss (no link) and any dangling link. Recharge/financial
+ * keys use the parent's raw `carrier`/`provider`, the same columns
+ * `getRechargesByCarrier`/`getFinancialSettledByProvider` key their rows by.
+ * Scalar subqueries, not JOINs, so a caller can never multiply rows.
+ */
+export function expenseModuleKey(alias: string): string {
+  return `CASE ${alias}.source_ref_table
+    WHEN 'sales' THEN 'SALE'
+    WHEN 'exchange_transactions' THEN 'EXCHANGE'
+    WHEN 'maintenance' THEN 'MAINTENANCE'
+    WHEN 'hold_money_pickups' THEN 'HOLD_MONEY'
+    WHEN 'recharges' THEN (
+      SELECT 'RECHARGE_' || xr.carrier FROM recharges xr
+      WHERE xr.id = ${alias}.source_ref_id AND xr.tenant_id = ${alias}.tenant_id
+    )
+    WHEN 'financial_services' THEN (
+      SELECT 'FINANCIAL_SERVICE_' || xf.provider FROM financial_services xf
+      WHERE xf.id = ${alias}.source_ref_id AND xf.tenant_id = ${alias}.tenant_id
+    )
+    ELSE NULL
+  END`;
 }
 
 // Re-exported (see the import above) so every EXISTING external importer of
@@ -5705,11 +5779,70 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COALESCE(SUM(amount_lbp), 0) AS total_lbp,
           COUNT(*) AS count
         FROM expenses
-        WHERE ${activeExpense()}
-          AND ${dateRange("expense_date")}
-          AND tenant_id = ?`,
+        WHERE ${expenseInPeriod()}`,
       )
       .get(fromDt, toDt, getCurrentTenantId()) as ExpenseTotalsRow;
+  }
+
+  /**
+   * LIRA-385 — {@link getExpenseTotals}, split by By Module key
+   * ({@link expenseModuleKey}; `module_key` NULL = the Other row). Same
+   * {@link expenseInPeriod} gate, so Σ rows = getExpenseTotals exactly, per
+   * currency.
+   */
+  getExpenseTotalsByModule(
+    fromDt: string,
+    toDt: string,
+  ): ExpenseTotalsByModuleRow[] {
+    return this.db
+      .prepare(
+        `SELECT
+          ${expenseModuleKey("e")} AS module_key,
+          COALESCE(SUM(e.amount_usd), 0) AS total_usd,
+          COALESCE(SUM(e.amount_lbp), 0) AS total_lbp,
+          COUNT(*) AS count
+        FROM expenses e
+        WHERE ${expenseInPeriod("e")}
+        GROUP BY module_key`,
+      )
+      .all(fromDt, toDt, getCurrentTenantId()) as ExpenseTotalsByModuleRow[];
+  }
+
+  /**
+   * LIRA-385 — the expenses behind one By Module row's Expenses cell
+   * (`moduleKey` null = the Other row). `IS ?` matches both a key and NULL,
+   * so this is the same classification {@link getExpenseTotalsByModule}
+   * groups by. `linked_summary` is the linked parent's own transaction
+   * summary (the original, never its refund row).
+   */
+  getModuleExpenses(
+    moduleKey: string | null,
+    fromDt: string,
+    toDt: string,
+  ): ModuleExpenseRow[] {
+    return this.db
+      .prepare(
+        `SELECT
+          e.id AS id,
+          e.expense_date AS date,
+          e.category AS category,
+          e.description AS description,
+          COALESCE(e.amount_usd, 0) AS amount_usd,
+          COALESCE(e.amount_lbp, 0) AS amount_lbp,
+          (
+            SELECT t.summary FROM transactions t
+            WHERE t.source_table = e.source_ref_table
+              AND t.source_id = e.source_ref_id
+              AND t.tenant_id = e.tenant_id
+            ORDER BY (t.reverses_id IS NOT NULL), t.id
+            LIMIT 1
+          ) AS linked_summary
+        FROM expenses e
+        WHERE ${expenseInPeriod("e")}
+          AND (${expenseModuleKey("e")}) IS ?
+        ORDER BY e.expense_date DESC, e.id DESC`,
+      )
+      .all(fromDt, toDt, getCurrentTenantId(), moduleKey) as ModuleExpenseRow[];
   }
 
   /**
@@ -6465,18 +6598,15 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           CASE WHEN ${notDebtPending("t.id")} THEN 0 ELSE 1 END AS debt_pending,
           COALESCE((
             SELECT SUM(e.amount_usd) FROM expenses e
-            WHERE e.source_ref_table = 'recharges' AND e.source_ref_id = r.id
-              AND ${activeExpense("e")} AND e.tenant_id = ?
+            WHERE ${linkedExpense("e", "recharges", "r.id")} AND e.tenant_id = ?
           ), 0) AS fee_expense_usd,
           COALESCE((
             SELECT SUM(e.amount_lbp) FROM expenses e
-            WHERE e.source_ref_table = 'recharges' AND e.source_ref_id = r.id
-              AND ${activeExpense("e")} AND e.tenant_id = ?
+            WHERE ${linkedExpense("e", "recharges", "r.id")} AND e.tenant_id = ?
           ), 0) AS fee_expense_lbp,
           (
             SELECT GROUP_CONCAT(e.description, ', ') FROM expenses e
-            WHERE e.source_ref_table = 'recharges' AND e.source_ref_id = r.id
-              AND ${activeExpense("e")} AND e.tenant_id = ?
+            WHERE ${linkedExpense("e", "recharges", "r.id")} AND e.tenant_id = ?
           ) AS fee_expense_description,
           (${otherCurrencyKeptChangeUsd("r.currency_code")}) AS kept_change_usd,
           (${otherCurrencyKeptChangeLbp("r.currency_code")}) AS kept_change_lbp

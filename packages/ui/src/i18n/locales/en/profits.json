@@ -203,7 +203,15 @@
     "detailNotCountedSuffix": ", {{n}} not counted yet",
     "noCounted": "No counted transactions in this period.",
     "countedTotal": "Counted total",
-    "notCountedYet": "Not counted yet"
+    "notCountedYet": "Not counted yet",
+    "otherExpenses": "Other expenses (not linked to a module)",
+    "otherExpensesNote": "Expenses not tied to one module: shop costs, bills, line usage, drawer shortages and similar.",
+    "showExpenses": "Show expenses",
+    "showExpensesTitle": "Show the expenses behind this figure",
+    "loadingExpenses": "Loading expenses…",
+    "expensesHeading": "Expenses — {{n}}",
+    "expenseCategory": "Category",
+    "expenseFor": "For"
   },
   "byDate": {
     "loadFailed": "Failed to load profit by date",

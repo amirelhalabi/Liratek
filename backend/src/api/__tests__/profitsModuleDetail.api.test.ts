@@ -56,7 +56,11 @@ jest.mock("../../middleware/auth.js", () => {
 
 import express, { type Express } from "express";
 import request from "supertest";
-import { getProfitService } from "@liratek/core";
+import {
+  getProfitService,
+  OTHER_EXPENSES_MODULE_KEY,
+  ProfitRepository,
+} from "@liratek/core";
 import profitsRouter from "../profits.js";
 import {
   revokeProfitsUnlock,
@@ -79,6 +83,7 @@ const EMPTY_DETAIL = {
   not_counted: [],
   counted_total_profit_usd: 0,
   counted_total_profit_lbp: 0,
+  expenses: [],
 };
 
 describe("GET /api/profits/module-detail (PROF-DD, #14 slice 2)", () => {
@@ -199,5 +204,43 @@ describe("GET /api/profits/module-detail (PROF-DD, #14 slice 2)", () => {
     ];
     expect(from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(from).toBe(to);
+  });
+
+  // LIRA-385 — the REAL service (only its repository read is stubbed): the
+  // "Other expenses" row's list reaches the browser through this route with
+  // the same envelope. Not proven failing-first: written after the core
+  // change (the core test ProfitService.moduleExpenses.test.ts was).
+  it("LIRA-385: the Other expenses row answers its expense list through the real service", async () => {
+    const expense = {
+      id: 7,
+      date: "2026-11-05 12:00:00",
+      category: "Shop_Supply",
+      description: "Paper rolls",
+      amount_usd: 5,
+      amount_lbp: 0,
+      linked_summary: null,
+    };
+    const repoSpy = jest
+      .spyOn(ProfitRepository.prototype, "getModuleExpenses")
+      .mockReturnValue([expense]);
+    grantProfitsUnlock(TENANT_ID, USER_ID);
+
+    const res = await request(app)
+      .get(
+        `/api/profits/module-detail?module=${OTHER_EXPENSES_MODULE_KEY}&from=2026-11-01&to=2026-11-30`,
+      )
+      .set("x-test-role", "staff");
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.module).toBe(OTHER_EXPENSES_MODULE_KEY);
+    expect(res.body.data.counted).toEqual([]);
+    expect(res.body.data.expenses).toEqual([expense]);
+    // The Other row reads the UNLINKED expenses (module key NULL).
+    expect(repoSpy).toHaveBeenCalledWith(
+      null,
+      "2026-11-01 00:00:00",
+      "2026-11-30 23:59:59",
+    );
   });
 });

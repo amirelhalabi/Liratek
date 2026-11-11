@@ -49,7 +49,15 @@ import {
   classifyProfitModuleRow,
   PROFIT_ROW_CLASS,
   hasModuleDetailSupport,
+  OTHER_EXPENSES_MODULE_KEY,
 } from "@liratek/core";
+import type {
+  ProfitByModule,
+  ProfitModuleDetail,
+  ProfitModuleDetailRow,
+  ProfitModuleExpense,
+} from "@liratek/core";
+import { expenseCategoryLabel } from "@/features/expenses/pages/Expenses/expenseCategoryLabel";
 
 const CommissionsChart = lazy(
   () => import("../../dashboard/components/CommissionsChart"),
@@ -60,56 +68,12 @@ const CommissionsChart = lazy(
 // ---------------------------------------------------------------------------
 
 // PROF-DD (2026-09-24, OWNER_NOTES_REMAINING_BUILD.md #14 slice 2) — the By
-// Module drill-down's "Show transactions" payload. Local mirror of core's
-// `ProfitModuleDetail`/`ProfitModuleDetailRow` (same convention as
-// `ProfitSummary` below — this file hand-declares report payload shapes
-// rather than importing them, so this stays consistent with its neighbours).
-interface ModuleDetailRow {
-  id: number;
-  date: string;
-  counterpart: string;
-  detail: string | null;
-  amount_usd: number;
-  amount_lbp: number;
-  cost_usd: number;
-  cost_lbp: number;
-  profit_usd: number;
-  profit_lbp: number;
-  counted_pct: number;
-  counted_profit_usd: number;
-  counted_profit_lbp: number;
-  reason: string | null;
-  fee_note: string | null;
-  // LIRA-233 (#14 slice 3 review round, finding 9) — "fee" (a real cost
-  // deduction — red) vs "info" (a positive/neutral aside — never red).
-  // Optional/undefined defaults to "fee" so an older cached payload (or a
-  // row that never set it) keeps today's red styling unchanged.
-  fee_note_kind?: "fee" | "info";
-  // LIRA-233 (#14 slice 3 review round, finding 2) — which underlying row
-  // this was built from (e.g. "financial_service_transfer" vs
-  // "financial_service_allocation"). `id` alone collides across a
-  // FINANCIAL_SERVICE_<provider> row's two source tables — rows are keyed
-  // by `${source}-${id}`, never bare `id`. Optional so an older cached
-  // payload doesn't crash; falls back to a constant string in that case.
-  source?: string;
-  // LIRA-233 (#14 slice 3) — MAINTENANCE-only, mirrors the module TOTALS
-  // row's own parts/labour split (ModuleRow, below) at the per-transaction
-  // level. Optional so a non-MAINTENANCE row (or an older cached payload)
-  // doesn't crash.
-  parts_revenue_usd?: number;
-  parts_cost_usd?: number;
-  parts_profit_usd?: number;
-  labour_profit_usd?: number;
-  labour_profit_lbp?: number;
-}
-
-interface ModuleDetailResult {
-  module: string;
-  counted: ModuleDetailRow[];
-  not_counted: ModuleDetailRow[];
-  counted_total_profit_usd: number;
-  counted_total_profit_lbp: number;
-}
+// Module drill-down's "Show transactions" payload. LIRA-385 (rule 21): taken
+// from core's own `ProfitModuleDetail`/`ProfitModuleDetailRow` instead of a
+// hand-kept local mirror, so a field core adds (the new `expenses` list)
+// cannot silently go missing here.
+type ModuleDetailRow = ProfitModuleDetailRow;
+type ModuleDetailResult = ProfitModuleDetail;
 
 // LIRA-233 (#14 slice 3 review round, finding 10) — `hasModuleDetailSupport`
 // used to be a hand-maintained copy of core's own `moduleDetailRegistry` key
@@ -401,49 +365,10 @@ interface ProfitSummary {
   };
 }
 
-interface ModuleRow {
-  module: string;
-  label: string;
-  revenue_usd: number;
-  revenue_lbp: number;
-  /** PA-2.9 — cost by currency (was hard-coded 0 for FS-provider rows).
-   *  Optional so an older cached payload doesn't crash. */
-  cost_usd?: number;
-  cost_lbp?: number;
-  profit_usd: number;
-  profit_lbp: number;
-  count: number;
-  /** MAINTENANCE row only (LIRA-176): parts are always USD. */
-  parts_revenue_usd?: number;
-  parts_cost_usd?: number;
-  parts_profit_usd?: number;
-  labour_profit_usd?: number;
-  labour_profit_lbp?: number;
-  /** PA-4.21 — server-computed net margin %, `null` when revenue is 0 or
-   *  the row mixes USD+LBP with no LBP rate configured to combine them.
-   *  Optional so an older cached payload falls back to the old client-side
-   *  USD-only formatPct computation. */
-  margin_pct?: number | null;
-  /** PA-4.21 — true when margin_pct required converting one currency into
-   *  the other via the LBP buy rate. */
-  margin_converted?: boolean;
-  /** LO-V1 (round 2) — off-currency kept change on this row's own
-   *  transaction(s). Only ever populated on FINANCIAL_SERVICE_* and
-   *  RECHARGE_* rows. Additive: NOT already folded into profit_usd/
-   *  profit_lbp above (those keep meaning "this row's own margin") — see
-   *  ProfitByModule.kept_change_usd's own doc comment in ProfitService.ts.
-   *  Optional so an older cached payload doesn't crash. */
-  kept_change_usd?: number;
-  kept_change_lbp?: number;
-  /** PFU-a-3 — SALE row ONLY, NOT additive (already inside profit_usd/
-   *  profit_lbp) — see ProfitByModule.sale_kept_change_usd's own doc
-   *  comment in ProfitService.ts. PFU-a-3-residual (verifier round 2): a
-   *  NEGATIVE value is not guaranteed to be genuine kept change (same doc
-   *  comment) — the renderer below labels it "unexplained difference"
-   *  instead of "kept change". */
-  sale_kept_change_usd?: number;
-  sale_kept_change_lbp?: number;
-}
+// LIRA-385 (rule 21) — the By Module row IS core's `ProfitByModule`
+// (see its own doc comments for every field, incl. the new
+// expenses_usd/expenses_lbp), never a second hand-written copy.
+type ModuleRow = ProfitByModule;
 
 interface DateRow {
   date: string;
@@ -764,6 +689,8 @@ function SummaryCard({
 export default function Profits() {
   const api = useApi();
   const { t } = useTranslation(["profits", "common"]);
+  // LIRA-385 — expense categories read the Expenses page's own labels.
+  const { t: tExpenses } = useTranslation("expenses");
   const { formatDate, formatNumber } = useFormat();
   // LIRA-331: the loaders' fallback messages read `t` through a ref so the
   // loaders' dependency arrays (and so the fetch counts) stay unchanged.
@@ -1215,6 +1142,131 @@ export default function Profits() {
   // Module, whose table depends on `byModule` alone) keeps reading `loading`
   // unchanged.
   const currentTabLoading = tab === "overview" ? summaryLoading : loading;
+
+  // LIRA-385 — clicking an Expenses figure opens that row's panel and loads
+  // its detail (which now carries `expenses[]`), unless already loaded.
+  const openModuleExpenses = (moduleKey: string) => {
+    setExpandedModules((prev) =>
+      prev.has(moduleKey) ? prev : new Set(prev).add(moduleKey),
+    );
+    const entry = moduleDetail[moduleKey];
+    if (!entry || entry.status === "error") loadModuleDetail(moduleKey);
+  };
+
+  // By Module columns, hoisted so every full-width cell (net row, expanded
+  // panel) spans exactly this many — never a hard-coded count.
+  const byModuleColumns = [
+    { header: t("col.module"), className: "text-start px-4 py-3" },
+    { header: t("col.revenueUsd"), className: "text-end px-4 py-3" },
+    { header: t("col.revenueLbp"), className: "text-end px-4 py-3" },
+    { header: t("col.costUsd"), className: "text-end px-4 py-3" },
+    { header: t("col.costLbp"), className: "text-end px-4 py-3" },
+    { header: t("col.profitUsd"), className: "text-end px-4 py-3" },
+    { header: t("col.profitLbp"), className: "text-end px-4 py-3" },
+    // LIRA-385 — expenses linked to this module (never converted, never
+    // subtracted from the Profit columns; the net row below does that once).
+    { header: t("col.expensesUsd"), className: "text-end px-4 py-3" },
+    { header: t("col.expensesLbp"), className: "text-end px-4 py-3" },
+    { header: t("col.count"), className: "text-end px-4 py-3" },
+    { header: t("col.margin"), className: "text-end px-4 py-3" },
+  ];
+
+  const renderModuleExpenseCell = (row: ModuleRow, currency: "USD" | "LBP") => {
+    const value = currency === "USD" ? row.expenses_usd : row.expenses_lbp;
+    return (
+      <td className="px-4 py-3 text-end text-red-400">
+        {value ? (
+          <button
+            type="button"
+            data-testid={`by-module-expenses-${currency.toLowerCase()}-${row.module}`}
+            onClick={() => openModuleExpenses(row.module)}
+            title={t("byModule.showExpensesTitle")}
+            className="underline decoration-dotted underline-offset-2 hover:text-red-300"
+          >
+            {formatAmount(value, currency)}
+          </button>
+        ) : (
+          "—"
+        )}
+      </td>
+    );
+  };
+
+  // `showStatus` — a row with no "Show transactions" section (the Other
+  // row, Hold Money) shows its own loading/error line here instead.
+  const renderModuleExpenseList = (moduleKey: string, showStatus: boolean) => {
+    const entry = moduleDetail[moduleKey];
+    if (!entry) return null;
+    if (entry.status === "loading") {
+      return showStatus ? (
+        <p className="sm:col-span-2 text-xs text-slate-500 italic">
+          {t("byModule.loadingExpenses")}
+        </p>
+      ) : null;
+    }
+    if (entry.status === "error") {
+      return showStatus ? (
+        <p
+          data-testid={`by-module-expenses-error-${moduleKey}`}
+          className="sm:col-span-2 text-xs text-red-400"
+        >
+          {entry.error}
+        </p>
+      ) : null;
+    }
+    const expenses: ProfitModuleExpense[] = entry.data.expenses ?? [];
+    if (expenses.length === 0) return null;
+    return (
+      <div
+        data-testid={`by-module-expenses-list-${moduleKey}`}
+        className="sm:col-span-2 border-t border-slate-700 pt-2 space-y-1"
+      >
+        <p className="font-semibold text-slate-300">
+          {t("byModule.expensesHeading", { n: expenses.length })}
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-[11px]">
+            <thead>
+              <tr className="text-slate-500">
+                <th className="text-start py-1 pe-2">{t("col.date")}</th>
+                <th className="text-start py-1 pe-2">
+                  {t("byModule.expenseCategory")}
+                </th>
+                <th className="text-start py-1 pe-2">
+                  {t("byModule.expenseFor")}
+                </th>
+                <th className="text-end py-1">{t("col.amount")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {expenses.map((e) => (
+                <tr key={e.id} className="border-t border-slate-800">
+                  <td className="py-1 pe-2 text-slate-400">
+                    {formatDate(parseDbDate(e.date), NUMERIC_DATE)}
+                  </td>
+                  <td className="py-1 pe-2 text-slate-300">
+                    {e.category
+                      ? expenseCategoryLabel(e.category, tExpenses)
+                      : "—"}
+                  </td>
+                  <td className="py-1 pe-2 text-slate-400">
+                    {e.linked_summary ?? e.description ?? "—"}
+                  </td>
+                  <td className="py-1 text-end text-red-400">
+                    {combinedAmountLabel(
+                      e.amount_usd,
+                      e.amount_lbp,
+                      formatAmount,
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
 
   // ---------- Render ----------
 
@@ -2822,23 +2874,7 @@ export default function Profits() {
               {t("byModule.countZeroNote")}
             </p>
             <DataTable<ModuleRow>
-              columns={[
-                { header: t("col.module"), className: "text-start px-4 py-3" },
-                {
-                  header: t("col.revenueUsd"),
-                  className: "text-end px-4 py-3",
-                },
-                {
-                  header: t("col.revenueLbp"),
-                  className: "text-end px-4 py-3",
-                },
-                { header: t("col.costUsd"), className: "text-end px-4 py-3" },
-                { header: t("col.costLbp"), className: "text-end px-4 py-3" },
-                { header: t("col.profitUsd"), className: "text-end px-4 py-3" },
-                { header: t("col.profitLbp"), className: "text-end px-4 py-3" },
-                { header: t("col.count"), className: "text-end px-4 py-3" },
-                { header: t("col.margin"), className: "text-end px-4 py-3" },
-              ]}
+              columns={byModuleColumns}
               data={byModule}
               exportExcel
               exportPdf
@@ -2897,6 +2933,14 @@ export default function Profits() {
                         totalKeptChangeLbp;
                       const totalCount = byModule.reduce(
                         (s, r) => s + r.count,
+                        0,
+                      );
+                      const totalExpensesUsd = byModule.reduce(
+                        (s, r) => s + (r.expenses_usd ?? 0),
+                        0,
+                      );
+                      const totalExpensesLbp = byModule.reduce(
+                        (s, r) => s + (r.expenses_lbp ?? 0),
                         0,
                       );
                       // note #3 (2026-09-24, CLOSED "no change") — the field
@@ -3000,6 +3044,23 @@ export default function Profits() {
                                 ? formatAmount(totalProfitLbp, "LBP")
                                 : "—"}
                             </td>
+                            {/* LIRA-385 — Σ every row's expenses, the Other
+                                row included: equals the net row's own
+                                Expenses figure below (same server gate). */}
+                            <td
+                              data-testid="by-module-total-expenses-usd"
+                              className="px-4 py-3 text-end text-red-400"
+                            >
+                              {formatAmount(totalExpensesUsd, "USD")}
+                            </td>
+                            <td
+                              data-testid="by-module-total-expenses-lbp"
+                              className="px-4 py-3 text-end text-red-400"
+                            >
+                              {totalExpensesLbp !== 0
+                                ? formatAmount(totalExpensesLbp, "LBP")
+                                : "—"}
+                            </td>
                             <td className="px-4 py-3 text-end text-slate-300">
                               {totalCount}
                             </td>
@@ -3012,7 +3073,7 @@ export default function Profits() {
                             className="border-t border-slate-700 bg-slate-900/40"
                           >
                             <td
-                              colSpan={9}
+                              colSpan={byModuleColumns.length}
                               className="px-4 py-2 text-xs text-slate-400"
                             >
                               {summaryMatchesRange ? (
@@ -3084,6 +3145,89 @@ export default function Profits() {
               }
               renderRow={(row) => {
                 const isExpanded = expandedModules.has(row.module);
+                const toggleExpanded = () =>
+                  setExpandedModules((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(row.module)) {
+                      next.delete(row.module);
+                    } else {
+                      next.add(row.module);
+                    }
+                    return next;
+                  });
+                // LIRA-385 — the "Other expenses (not linked to a module)"
+                // row (core pins it last): expenses only, no profit figures
+                // and no Revenue − Cost breakdown.
+                if (row.module === OTHER_EXPENSES_MODULE_KEY) {
+                  return (
+                    <Fragment key={row.module}>
+                      <tr
+                        data-testid={`by-module-row-${row.module}`}
+                        className="border-b border-slate-700/50 bg-slate-900/30"
+                      >
+                        <td className="px-4 py-3 font-medium text-slate-300">
+                          <button
+                            type="button"
+                            data-testid={`by-module-expand-${row.module}`}
+                            onClick={toggleExpanded}
+                            className="inline-flex items-center gap-1.5 text-start italic hover:text-blue-400"
+                          >
+                            {isExpanded ? (
+                              <ChevronDown className="h-3.5 w-3.5 flex-shrink-0" />
+                            ) : (
+                              <DirIcon
+                                icon={ChevronRight}
+                                className="h-3.5 w-3.5 flex-shrink-0"
+                              />
+                            )}
+                            {t("byModule.otherExpenses")}
+                          </button>
+                        </td>
+                        {[0, 1, 2, 3, 4, 5].map((i) => (
+                          <td
+                            key={i}
+                            className="px-4 py-3 text-end text-slate-500"
+                          >
+                            —
+                          </td>
+                        ))}
+                        {renderModuleExpenseCell(row, "USD")}
+                        {renderModuleExpenseCell(row, "LBP")}
+                        <td className="px-4 py-3 text-end text-slate-500">—</td>
+                        <td className="px-4 py-3 text-end text-slate-500">—</td>
+                      </tr>
+                      {isExpanded && (
+                        <tr
+                          data-testid={`by-module-detail-${row.module}`}
+                          className="border-b border-slate-700/50 bg-slate-900/40"
+                        >
+                          <td
+                            colSpan={byModuleColumns.length}
+                            className="px-4 py-3"
+                          >
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-400">
+                              <p className="sm:col-span-2 text-[11px] italic text-slate-500">
+                                {t("byModule.otherExpensesNote")}
+                              </p>
+                              {moduleDetail[row.module] ? (
+                                renderModuleExpenseList(row.module, true)
+                              ) : (
+                                <button
+                                  type="button"
+                                  data-testid={`by-module-show-expenses-${row.module}`}
+                                  onClick={() => loadModuleDetail(row.module)}
+                                  className="sm:col-span-2 text-start text-xs text-blue-400 hover:text-blue-300 underline"
+                                >
+                                  {t("byModule.showExpenses")}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                }
                 const isMaintenance = row.module === "MAINTENANCE";
                 // PFU-a-3 — the SALE row's sale_kept_change_usd/_lbp
                 // (ProfitService.getByModule) is DERIVED as
@@ -3123,7 +3267,10 @@ export default function Profits() {
                 // every render of this table.
                 return (
                   <Fragment key={row.module}>
-                    <tr className="border-b border-slate-700/50 hover:bg-slate-700/30">
+                    <tr
+                      data-testid={`by-module-row-${row.module}`}
+                      className="border-b border-slate-700/50 hover:bg-slate-700/30"
+                    >
                       <td className="px-4 py-3 font-medium text-white">
                         {/* PA-4.23 — expandable row: click to see
                             Revenue − Cost = Profit per currency, and for
@@ -3133,17 +3280,7 @@ export default function Profits() {
                         <button
                           type="button"
                           data-testid={`by-module-expand-${row.module}`}
-                          onClick={() =>
-                            setExpandedModules((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(row.module)) {
-                                next.delete(row.module);
-                              } else {
-                                next.add(row.module);
-                              }
-                              return next;
-                            })
-                          }
+                          onClick={toggleExpanded}
                           className="inline-flex items-center gap-1.5 text-start hover:text-blue-400"
                         >
                           {isExpanded ? (
@@ -3199,6 +3336,8 @@ export default function Profits() {
                           ? formatAmount(row.profit_lbp, "LBP")
                           : "—"}
                       </td>
+                      {renderModuleExpenseCell(row, "USD")}
+                      {renderModuleExpenseCell(row, "LBP")}
                       <td
                         className="px-4 py-3 text-end text-slate-300"
                         title={
@@ -3224,7 +3363,10 @@ export default function Profits() {
                         data-testid={`by-module-detail-${row.module}`}
                         className="border-b border-slate-700/50 bg-slate-900/40"
                       >
-                        <td colSpan={9} className="px-4 py-3">
+                        <td
+                          colSpan={byModuleColumns.length}
+                          className="px-4 py-3"
+                        >
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-400">
                             <div>
                               <p className="font-semibold text-slate-300 mb-1">
@@ -3469,6 +3611,26 @@ export default function Profits() {
                                 not a hand-maintained frontend copy — rule
                                 14/29). A module not yet in that list simply
                                 gets no button. */}
+                            {/* LIRA-385 — the expenses behind this row's
+                                Expenses cells (loaded with the same detail
+                                call as "Show transactions"). */}
+                            {renderModuleExpenseList(
+                              row.module,
+                              !hasModuleDetailSupport(row.module),
+                            )}
+                            {!hasModuleDetailSupport(row.module) &&
+                              !moduleDetail[row.module] &&
+                              (row.expenses_usd !== 0 ||
+                                row.expenses_lbp !== 0) && (
+                                <button
+                                  type="button"
+                                  data-testid={`by-module-show-expenses-${row.module}`}
+                                  onClick={() => loadModuleDetail(row.module)}
+                                  className="sm:col-span-2 text-start text-xs text-blue-400 hover:text-blue-300 underline"
+                                >
+                                  {t("byModule.showExpenses")}
+                                </button>
+                              )}
                             {hasModuleDetailSupport(row.module) && (
                               <div
                                 data-testid={`by-module-transactions-${row.module}`}

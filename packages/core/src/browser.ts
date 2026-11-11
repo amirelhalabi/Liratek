@@ -482,6 +482,7 @@ export type {
 export type {
   ProfitModuleDetail,
   ProfitModuleDetailRow,
+  ProfitModuleExpense,
 } from "./services/ProfitService.js";
 
 // Transaction type constants (pure data, no Node.js deps). LIRA-381: the

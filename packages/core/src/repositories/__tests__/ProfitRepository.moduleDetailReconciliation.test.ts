@@ -118,6 +118,8 @@ function createSchema(db: Database.Database): void {
       profit_lbp REAL NOT NULL DEFAULT 0,
       extra_usd REAL NOT NULL DEFAULT 0,
       extra_lbp REAL NOT NULL DEFAULT 0,
+      -- LIRA-385: the expense list shows the linked transaction's summary.
+      summary TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -287,6 +289,9 @@ function createSchema(db: Database.Database): void {
       is_refunded INTEGER NOT NULL DEFAULT 0,
       source_ref_table TEXT,
       source_ref_id INTEGER,
+      -- LIRA-385: real schema columns read by the drill-down's expense list.
+      category TEXT,
+      expense_date TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);

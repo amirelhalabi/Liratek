@@ -222,7 +222,9 @@ function createSchema(d: TestDb): void {
       amount_lbp REAL NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'active',
       expense_date TEXT
-    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL,
+      -- LIRA-385: real schema columns read by the By Module expense split.
+      category TEXT, description TEXT, source_ref_table TEXT, source_ref_id INTEGER);
 
     CREATE TABLE payments (
       tenant_id INTEGER DEFAULT 1,

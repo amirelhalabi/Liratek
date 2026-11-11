@@ -33,7 +33,10 @@ import {
   type RateRepository,
 } from "../repositories/RateRepository.js";
 import { formatMoneyAmount } from "../utils/formatMoney.js";
-import { hasModuleDetailSupport } from "../constants/profitModuleDetailSupport.js";
+import {
+  hasModuleDetailSupport,
+  OTHER_EXPENSES_MODULE_KEY,
+} from "../constants/profitModuleDetailSupport.js";
 import logger from "../utils/logger.js";
 
 /**
@@ -55,6 +58,35 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 function humanizeProviderLabel(provider: string): string {
   return PROVIDER_LABELS[provider] ?? provider;
+}
+
+/**
+ * LIRA-385 — the ONE label for every By Module key an expense can be linked
+ * to (`ProfitRepository.expenseModuleKey`) plus the Other row. Used by
+ * `getByModule`'s own push sites for these modules AND by the expense-only
+ * row it adds when a linked expense's module has no profit row this period
+ * (rule 14 — one spelling, so the two can never label one module twice).
+ */
+const BY_MODULE_FIXED_LABELS: Record<string, string> = {
+  SALE: "Product Sales",
+  EXCHANGE: "Currency Exchange",
+  MAINTENANCE: "Maintenance",
+  HOLD_MONEY: "Hold Money",
+  [OTHER_EXPENSES_MODULE_KEY]: "Other expenses (not linked to a module)",
+};
+const RECHARGE_KEY_PREFIX = "RECHARGE_";
+const FINANCIAL_SERVICE_KEY_PREFIX = "FINANCIAL_SERVICE_";
+
+function byModuleLabel(moduleKey: string): string {
+  if (moduleKey.startsWith(RECHARGE_KEY_PREFIX)) {
+    return `${moduleKey.slice(RECHARGE_KEY_PREFIX.length)} Recharges`;
+  }
+  if (moduleKey.startsWith(FINANCIAL_SERVICE_KEY_PREFIX)) {
+    return humanizeProviderLabel(
+      moduleKey.slice(FINANCIAL_SERVICE_KEY_PREFIX.length),
+    );
+  }
+  return BY_MODULE_FIXED_LABELS[moduleKey] ?? moduleKey;
 }
 
 /**
@@ -229,6 +261,15 @@ export interface ProfitByModule {
    */
   sale_kept_change_usd?: number;
   sale_kept_change_lbp?: number;
+  /**
+   * LIRA-385 — active expenses in the period linked to this module through
+   * the expense's own source link (`ProfitRepository.expenseModuleKey`),
+   * per currency, never converted. NOT subtracted from `profit_*` above.
+   * The {@link OTHER_EXPENSES_MODULE_KEY} row carries every unlinked one,
+   * so Σ over all rows = `ProfitSummary.expenses` exactly.
+   */
+  expenses_usd: number;
+  expenses_lbp: number;
 }
 
 /**
@@ -322,7 +363,29 @@ export interface ProfitModuleDetail {
   not_counted: ProfitModuleDetailRow[];
   counted_total_profit_usd: number;
   counted_total_profit_lbp: number;
+  /** LIRA-385 — the expenses behind this row's Expenses cell (same
+   *  classification as {@link ProfitByModule.expenses_usd}), so the list
+   *  sums to the cell exactly, per currency. Empty when none. */
+  expenses: ProfitModuleExpense[];
 }
+
+/** LIRA-385 — one expense in a By Module row's expense list. */
+export interface ProfitModuleExpense {
+  id: number;
+  /** The expense's own `expense_date`. */
+  date: string;
+  category: string | null;
+  description: string | null;
+  amount_usd: number;
+  amount_lbp: number;
+  /** The linked transaction's summary (e.g. the recharge an SMS fee was
+   *  paid for); null when the expense is not linked to one. */
+  linked_summary: string | null;
+}
+
+/** The per-module transaction builders' part of {@link ProfitModuleDetail};
+ *  `getModuleDetail` adds `expenses` once for every module. */
+type ModuleTransactionDetail = Omit<ProfitModuleDetail, "expenses">;
 
 export interface ProfitByDate {
   date: string;
@@ -1320,8 +1383,10 @@ export class ProfitService {
       // margin_pct/margin_converted (PA-4.21) are computed once, after every
       // row is assembled — see the map() below — so every push site below
       // stays the raw row shape.
-      const results: Omit<ProfitByModule, "margin_pct" | "margin_converted">[] =
-        [];
+      const results: Omit<
+        ProfitByModule,
+        "margin_pct" | "margin_converted" | "expenses_usd" | "expenses_lbp"
+      >[] = [];
 
       // Sales
       const salesRevCost = this.repo.getSalesRevCost(fromDt, toDt);
@@ -1356,7 +1421,7 @@ export class ProfitService {
         const keptChangeLbp = salesProfit.profit_lbp;
         results.push({
           module: "SALE",
-          label: "Product Sales",
+          label: byModuleLabel("SALE"),
           revenue_usd: salesRevCost.revenue_usd,
           revenue_lbp: 0,
           cost_usd: salesRevCost.cost_usd,
@@ -1390,7 +1455,7 @@ export class ProfitService {
         results.push({
           module: `FINANCIAL_SERVICE_${row.provider}`,
           // PA-4.12: human label for the raw provider code.
-          label: humanizeProviderLabel(row.provider),
+          label: byModuleLabel(`FINANCIAL_SERVICE_${row.provider}`),
           revenue_usd: row.revenue_usd,
           revenue_lbp: row.revenue_lbp,
           // PA-2.9: real BILL-flow cost — was hard-coded 0 while revenue =
@@ -1429,7 +1494,7 @@ export class ProfitService {
       for (const row of rechargeRows) {
         results.push({
           module: `RECHARGE_${row.carrier}`,
-          label: `${row.carrier} Recharges`,
+          label: byModuleLabel(`RECHARGE_${row.carrier}`),
           revenue_usd: row.revenue_usd,
           revenue_lbp: row.revenue_lbp,
           cost_usd: row.cost_usd,
@@ -1458,7 +1523,7 @@ export class ProfitService {
         const labourProfitUsd = maintRow.profit_usd - partsProfitUsd;
         results.push({
           module: "MAINTENANCE",
-          label: "Maintenance",
+          label: byModuleLabel("MAINTENANCE"),
           revenue_usd: maintRow.revenue_usd,
           revenue_lbp: maintRow.revenue_lbp,
           cost_usd: maintRow.cost_usd,
@@ -1529,7 +1594,7 @@ export class ProfitService {
       if (exchangeRow.count > 0) {
         results.push({
           module: "EXCHANGE",
-          label: "Currency Exchange",
+          label: byModuleLabel("EXCHANGE"),
           revenue_usd: exchangeRow.revenue_usd, // USD equivalent of all exchanges
           revenue_lbp: 0,
           cost_usd: exchangeRow.revenue_usd - exchangeRow.profit_usd, // Revenue - Profit = Cost
@@ -1712,7 +1777,7 @@ export class ProfitService {
       if (holdMoney.profit_usd !== 0 || holdMoney.profit_lbp !== 0) {
         results.push({
           module: "HOLD_MONEY",
-          label: "Hold Money",
+          label: byModuleLabel("HOLD_MONEY"),
           revenue_usd: 0,
           revenue_lbp: 0,
           cost_usd: 0,
@@ -1766,12 +1831,45 @@ export class ProfitService {
         });
       }
 
+      // LIRA-385 — expenses per module, attached once here (not at every
+      // push site above). Grouped by the ONE expense→module mapping
+      // (`ProfitRepository.expenseModuleKey`) under the SAME gate as the
+      // Overview's expense total, so Σ rows (Other included) = summary
+      // .expenses exactly. A linked expense whose module has no profit row
+      // this period (e.g. an SMS fee on a recharge still owed on account,
+      // a rounding on an OMT transfer not settled yet) gets an expense-only
+      // row rather than vanishing; unlinked ones form the Other row.
+      const expenseByKey = new Map<
+        string | null,
+        { total_usd: number; total_lbp: number }
+      >();
+      for (const e of this.repo.getExpenseTotalsByModule(fromDt, toDt)) {
+        expenseByKey.set(e.module_key, e);
+      }
+      for (const key of expenseByKey.keys()) {
+        if (key !== null && !results.some((r) => r.module === key)) {
+          results.push({
+            module: key,
+            label: byModuleLabel(key),
+            revenue_usd: 0,
+            revenue_lbp: 0,
+            cost_usd: 0,
+            cost_lbp: 0,
+            profit_usd: 0,
+            profit_lbp: 0,
+            count: 0,
+          });
+        }
+      }
+
       // PA-4.21: margin_pct/margin_converted, computed once per row here
       // (not at every push site above — rule 14).
       const buyRate = this.getLbpBuyRate();
       const withMargins: ProfitByModule[] = results.map((row) => ({
         ...row,
         ...computeMargin(row, buyRate),
+        expenses_usd: expenseByKey.get(row.module)?.total_usd ?? 0,
+        expenses_lbp: expenseByKey.get(row.module)?.total_lbp ?? 0,
       }));
 
       // PA-4.12: sort by USD-EQUIVALENT profit at the LBP buy rate — the old
@@ -1779,10 +1877,32 @@ export class ProfitService {
       // LBP-only recharge/custom-service row) to the bottom regardless of
       // its real value. Degrades to the old USD-only sort when no LBP rate
       // is configured (usdEquivalentForSort's own fallback).
-      return withMargins.sort(
+      const sorted = withMargins.sort(
         (a, b) =>
           usdEquivalentForSort(b, buyRate) - usdEquivalentForSort(a, buyRate),
       );
+      // LIRA-385 — the Other row is pinned last, after the profit sort.
+      const other = expenseByKey.get(null);
+      if (other) {
+        const otherRow = {
+          module: OTHER_EXPENSES_MODULE_KEY,
+          label: byModuleLabel(OTHER_EXPENSES_MODULE_KEY),
+          revenue_usd: 0,
+          revenue_lbp: 0,
+          cost_usd: 0,
+          cost_lbp: 0,
+          profit_usd: 0,
+          profit_lbp: 0,
+          count: 0,
+        };
+        sorted.push({
+          ...otherRow,
+          ...computeMargin(otherRow, buyRate),
+          expenses_usd: other.total_usd,
+          expenses_lbp: other.total_lbp,
+        });
+      }
+      return sorted;
     } catch (error) {
       // PA-4.16 (OWNER_NOTES_2026-09-21.md §6.6): see getByPaymentMethod's
       // own comment for the full rationale — a caught-and-swallowed `[]`
@@ -1804,7 +1924,11 @@ export class ProfitService {
    */
   private readonly moduleDetailRegistry: Array<{
     match: (key: string) => boolean;
-    build: (key: string, fromDt: string, toDt: string) => ProfitModuleDetail;
+    build: (
+      key: string,
+      fromDt: string,
+      toDt: string,
+    ) => ModuleTransactionDetail;
   }> = [
     {
       match: (key) => key === "SALE",
@@ -1935,7 +2059,27 @@ export class ProfitService {
       const fromDt = `${from} 00:00:00`;
       const toDt = `${to} 23:59:59`;
 
+      // LIRA-385 — the expenses behind this row's Expenses cell, for every
+      // module (the Other row reads the unlinked ones: key NULL).
+      const expenses: ProfitModuleExpense[] = this.repo.getModuleExpenses(
+        moduleKey === OTHER_EXPENSES_MODULE_KEY ? null : moduleKey,
+        fromDt,
+        toDt,
+      );
+
       if (!hasModuleDetailSupport(moduleKey)) {
+        // A row with expenses but no transaction drill-down (the Other row,
+        // Hold Money) still answers its expense list.
+        if (moduleKey === OTHER_EXPENSES_MODULE_KEY || expenses.length > 0) {
+          return {
+            module: moduleKey,
+            counted: [],
+            not_counted: [],
+            counted_total_profit_usd: 0,
+            counted_total_profit_lbp: 0,
+            expenses,
+          };
+        }
         throw new Error(
           `No transaction-level detail is available for "${moduleKey}" yet (slice 3, a later ticket).`,
         );
@@ -1943,7 +2087,7 @@ export class ProfitService {
 
       const entry = this.moduleDetailRegistry.find((e) => e.match(moduleKey));
       if (entry) {
-        return entry.build(moduleKey, fromDt, toDt);
+        return { ...entry.build(moduleKey, fromDt, toDt), expenses };
       }
       // hasModuleDetailSupport said yes but the registry has no matching
       // entry — the shared constant and this class's own registry have
@@ -1961,7 +2105,7 @@ export class ProfitService {
   private buildSaleModuleDetail(
     fromDt: string,
     toDt: string,
-  ): ProfitModuleDetail {
+  ): ModuleTransactionDetail {
     const rows = this.repo.getSalesDetail(fromDt, toDt);
     const counted: ProfitModuleDetailRow[] = [];
     const notCounted: ProfitModuleDetailRow[] = [];
@@ -2045,7 +2189,7 @@ export class ProfitService {
     carrier: string,
     fromDt: string,
     toDt: string,
-  ): ProfitModuleDetail {
+  ): ModuleTransactionDetail {
     const rows = this.repo.getRechargeDetail(carrier, fromDt, toDt);
     const counted: ProfitModuleDetailRow[] = [];
     const notCounted: ProfitModuleDetailRow[] = [];
@@ -2187,7 +2331,7 @@ export class ProfitService {
     provider: string,
     fromDt: string,
     toDt: string,
-  ): ProfitModuleDetail {
+  ): ModuleTransactionDetail {
     const rows: FinancialServiceDetailRow[] =
       this.repo.getFinancialServiceDetail(provider, fromDt, toDt);
     const counted: ProfitModuleDetailRow[] = [];
@@ -2331,7 +2475,7 @@ export class ProfitService {
   private buildCustomServiceModuleDetail(
     fromDt: string,
     toDt: string,
-  ): ProfitModuleDetail {
+  ): ModuleTransactionDetail {
     const rows: CustomServiceDetailRow[] = this.repo.getCustomServiceDetail(
       fromDt,
       toDt,
@@ -2407,7 +2551,7 @@ export class ProfitService {
   private buildMaintenanceModuleDetail(
     fromDt: string,
     toDt: string,
-  ): ProfitModuleDetail {
+  ): ModuleTransactionDetail {
     const rows: MaintenanceDetailRow[] = this.repo.getMaintenanceDetail(
       fromDt,
       toDt,
@@ -2484,7 +2628,7 @@ export class ProfitService {
   private buildLotoModuleDetail(
     fromDt: string,
     toDt: string,
-  ): ProfitModuleDetail {
+  ): ModuleTransactionDetail {
     const rows: LotoDetailRow[] = this.repo.getLotoDetail(fromDt, toDt);
     const counted: ProfitModuleDetailRow[] = [];
     const notCounted: ProfitModuleDetailRow[] = [];
@@ -2565,7 +2709,7 @@ export class ProfitService {
   private buildExchangeModuleDetail(
     fromDt: string,
     toDt: string,
-  ): ProfitModuleDetail {
+  ): ModuleTransactionDetail {
     const rows: ExchangeDetailRow[] = this.repo.getExchangeDetail(fromDt, toDt);
     const counted: ProfitModuleDetailRow[] = [];
     const notCounted: ProfitModuleDetailRow[] = [];
@@ -2644,7 +2788,7 @@ export class ProfitService {
   private buildPmFeeModuleDetail(
     fromDt: string,
     toDt: string,
-  ): ProfitModuleDetail {
+  ): ModuleTransactionDetail {
     const rows: PmFeeDetailRow[] = this.repo.getPmFeeDetail(fromDt, toDt);
     const counted: ProfitModuleDetailRow[] = [];
     const notCounted: ProfitModuleDetailRow[] = [];
@@ -2737,7 +2881,7 @@ export class ProfitService {
   private buildKeptChangeModuleDetail(
     fromDt: string,
     toDt: string,
-  ): ProfitModuleDetail {
+  ): ModuleTransactionDetail {
     const rows: ProfitOnlyDetailRow[] = this.repo.getKeptChangeDetail(
       fromDt,
       toDt,
@@ -2821,7 +2965,7 @@ export class ProfitService {
   private buildSessionDiscountModuleDetail(
     fromDt: string,
     toDt: string,
-  ): ProfitModuleDetail {
+  ): ModuleTransactionDetail {
     const counted: ProfitModuleDetailRow[] = [];
     const notCounted: ProfitModuleDetailRow[] = [];
     let countedProfitUsd = 0;
@@ -2876,7 +3020,7 @@ export class ProfitService {
   private buildWaivedModuleDetail(
     fromDt: string,
     toDt: string,
-  ): ProfitModuleDetail {
+  ): ModuleTransactionDetail {
     const rows: ProfitOnlyDetailRow[] = this.repo.getWaivedShortfallDetail(
       fromDt,
       toDt,
@@ -2936,7 +3080,7 @@ export class ProfitService {
   private buildCounterpartyDiscountModuleDetail(
     fromDt: string,
     toDt: string,
-  ): ProfitModuleDetail {
+  ): ModuleTransactionDetail {
     const rows: ProfitOnlyDetailRow[] = this.repo.getCounterpartyDiscountDetail(
       fromDt,
       toDt,
@@ -3004,7 +3148,7 @@ export class ProfitService {
   private buildSupplierCommissionModuleDetail(
     fromDt: string,
     toDt: string,
-  ): ProfitModuleDetail {
+  ): ModuleTransactionDetail {
     const rows: ProfitOnlyDetailRow[] = this.repo.getSupplierCommissionDetail(
       fromDt,
       toDt,
@@ -3071,7 +3215,7 @@ export class ProfitService {
   private buildTopupBuybackModuleDetail(
     fromDt: string,
     toDt: string,
-  ): ProfitModuleDetail {
+  ): ModuleTransactionDetail {
     const rows: ProfitOnlyDetailRow[] = this.repo.getTopupBuybackDetail(
       fromDt,
       toDt,
@@ -3149,7 +3293,7 @@ export class ProfitService {
   private buildWarrantyModuleDetail(
     fromDt: string,
     toDt: string,
-  ): ProfitModuleDetail {
+  ): ModuleTransactionDetail {
     const counted: ProfitModuleDetailRow[] = [];
     const notCounted: ProfitModuleDetailRow[] = [];
     let countedProfitUsd = 0;
@@ -3199,7 +3343,7 @@ export class ProfitService {
   private buildWrongNumberModuleDetail(
     fromDt: string,
     toDt: string,
-  ): ProfitModuleDetail {
+  ): ModuleTransactionDetail {
     const counted: ProfitModuleDetailRow[] = [];
     const notCounted: ProfitModuleDetailRow[] = [];
     let countedProfitUsd = 0;
@@ -3250,7 +3394,7 @@ export class ProfitService {
   private buildExtraChargeModuleDetail(
     fromDt: string,
     toDt: string,
-  ): ProfitModuleDetail {
+  ): ModuleTransactionDetail {
     const counted: ProfitModuleDetailRow[] = [];
     let countedProfitUsd = 0;
     let countedProfitLbp = 0;

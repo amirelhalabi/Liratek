@@ -203,7 +203,15 @@
     "detailNotCountedSuffix": "، {{n}} غير محتسبة بعد",
     "noCounted": "لا معاملات محتسبة في هذه الفترة.",
     "countedTotal": "المجموع المحتسب",
-    "notCountedYet": "غير محتسبة بعد"
+    "notCountedYet": "غير محتسبة بعد",
+    "otherExpenses": "مصاريف أخرى (غير مرتبطة بقسم)",
+    "otherExpensesNote": "مصاريف لا تخص قسماً واحداً: مستلزمات المحل، الفواتير، استهلاك الخطوط، نقص الصندوق وما شابه.",
+    "showExpenses": "عرض المصاريف",
+    "showExpensesTitle": "عرض المصاريف وراء هذا الرقم",
+    "loadingExpenses": "جارٍ تحميل المصاريف…",
+    "expensesHeading": "المصاريف — {{n}}",
+    "expenseCategory": "الفئة",
+    "expenseFor": "لِـ"
   },
   "byDate": {
     "loadFailed": "تعذّر تحميل الأرباح حسب التاريخ",
