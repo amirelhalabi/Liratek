@@ -9,8 +9,9 @@ import {
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { buildPaymentDetailLines } from "../paymentDetailLines";
+import { refundPlanForRow } from "../actionGating";
+import { oppositeEntryText } from "../refundEntryText";
 import {
-  voidTransaction,
   refundTransaction,
   voidCheckoutGroup,
   voidSessionBasket,
@@ -392,20 +393,6 @@ export default function TransactionsViewer({
     [shopInfo],
   );
 
-  const handleVoid = useCallback(
-    async (id: number) => {
-      if (!confirm(t("confirm.void"))) return;
-      try {
-        const res = await voidTransaction(id);
-        if (res.success) load();
-        else alert(describeActionFailure(res.error, "voidTransaction", t));
-      } catch (err) {
-        alert(describeActionFailure(err, "voidTransaction", t));
-      }
-    },
-    [load, t],
-  );
-
   const handleUndoRefund = useCallback(
     async (row: TransactionRow) => {
       if (!confirm(t("confirm.undoRefund"))) return;
@@ -517,6 +504,21 @@ export default function TransactionsViewer({
       // ticket).
       if (row.session_id != null) {
         if (!confirm(t("confirm.refund"))) return;
+        void doRefund(row.id);
+        return;
+      }
+
+      // LIRA-388 — a bookkeeping row (or a page action with no method
+      // choice) is reversed exactly as written: one confirm naming the
+      // opposite entry, then the same refund call (core routes it to its
+      // owner). Core's one classification decides (rule 14).
+      if (refundPlanForRow(row).kind === "confirm") {
+        if (
+          !confirm(
+            t("confirm.oppositeEntry", { entry: oppositeEntryText(row) }),
+          )
+        )
+          return;
         void doRefund(row.id);
         return;
       }
@@ -828,7 +830,6 @@ export default function TransactionsViewer({
   const rowActionHandlers: RowActionHandlers = useMemo(
     () => ({
       onPrintReceipt: handlePrintReceipt,
-      onVoid: handleVoid,
       onRefund: handleRefund,
       onVoidCheckoutGroup: handleVoidCheckoutGroup,
       onVoidSessionBasket: handleVoidSessionBasket,
@@ -840,7 +841,6 @@ export default function TransactionsViewer({
     }),
     [
       handlePrintReceipt,
-      handleVoid,
       handleRefund,
       handleVoidCheckoutGroup,
       handleVoidSessionBasket,
@@ -1113,6 +1113,12 @@ export default function TransactionsViewer({
       )}
       {refundModalRow && (
         <RefundMethodModal
+          // LIRA-388 — the money's direction from core's classification:
+          // "Customer pays back" when the shop paid out (a loto prize, an
+          // account cash-out), "Give back" otherwise.
+          direction={
+            refundPlanForRow(refundModalRow).direction ?? "to_customer"
+          }
           legs={refundModalRow.payments ?? []}
           units={refundModalUnits}
           paymentMethods={drawerAffectingMethods.map((m) => ({

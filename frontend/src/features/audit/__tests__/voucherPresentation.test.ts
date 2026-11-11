@@ -18,12 +18,19 @@ describe("voucher transaction presentation", () => {
     expect(["in", "out"]).toContain(p.direction);
   });
 
-  it.each(TYPES)("%s has a reason that mentions the Vouchers page", (type) => {
-    expect(NON_REVERSIBLE_REASONS[type]).toMatch(/Vouchers page/);
+  // LIRA-388 — a voucher SALE is now refunded from its row (the Vouchers
+  // page's own "Cancel voucher" runs behind it), so only the CANCEL keeps a
+  // "can't refund here" reason; the sale has none (guard, rule 24).
+  it("VOUCHER_CANCEL has a reason that mentions the Vouchers page", () => {
+    expect(NON_REVERSIBLE_REASONS.VOUCHER_CANCEL).toMatch(/Vouchers page/);
     const enR = en.nonReversible as Record<string, string>;
     const arR = ar.nonReversible as Record<string, string>;
-    expect(enR[type]).toBe(NON_REVERSIBLE_REASONS[type]);
-    expect(arR[type]).toBeTruthy();
+    expect(enR.VOUCHER_CANCEL).toBe(NON_REVERSIBLE_REASONS.VOUCHER_CANCEL);
+    expect(arR.VOUCHER_CANCEL).toBeTruthy();
+  });
+
+  it("VOUCHER_SALE has no reason: it is refunded from its row (LIRA-388)", () => {
+    expect(NON_REVERSIBLE_REASONS.VOUCHER_SALE).toBeUndefined();
   });
 
   it("titles and filter labels translate to Arabic", () => {

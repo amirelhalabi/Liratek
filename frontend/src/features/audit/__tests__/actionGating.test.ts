@@ -11,10 +11,12 @@
  * depends on state left by the block above it.
  */
 
-import {
-  TRANSACTION_TYPES,
-  NON_REVERSIBLE_TRANSACTION_TYPES,
-} from "../../../../../packages/core/src/constants/transactionTypes";
+import { TRANSACTION_TYPES } from "../../../../../packages/core/src/constants/transactionTypes";
+// LIRA-388 — the page's Refund button partitions against core's
+// NON-REFUNDABLE set (the structural rows), no longer against the generic
+// path's raw-void gate (NON_REVERSIBLE_TRANSACTION_TYPES), which still
+// refuses a raw void of the types core routes to their own owner.
+import { NON_REFUNDABLE_TRANSACTION_TYPES as NON_REVERSIBLE_TRANSACTION_TYPES } from "../../../../../packages/core/src/constants/refundKinds";
 import { ACTIONABLE_TYPES, RECEIPTABLE_TYPES } from "../auditConstants";
 import { isReversibleRow, type ActionGatingFields } from "../actionGating";
 
@@ -135,6 +137,39 @@ describe("actionGating", () => {
       expect(isReversibleRow(row({ status: "VOIDED" }))).toBe(false);
     });
 
+    it("LIRA-388 — an owned type (standalone loto prize, account cash-in, drawer top-up) is refundable from its row", () => {
+      for (const type of [
+        "LOTO_CASH_PRIZE",
+        "CREDIT_CASH_IN",
+        "DRAWER_TOPUP",
+      ]) {
+        expect(isReversibleRow(row({ type }))).toBe(true);
+      }
+    });
+
+    it("LIRA-388 — a carrier-line edit refunds only when it recorded its credits", () => {
+      expect(
+        isReversibleRow(
+          row({
+            type: "CARRIER_LINE_ADJUSTMENT",
+            metadata_json: JSON.stringify({ reason: "edited" }),
+          }),
+        ),
+      ).toBe(false);
+      expect(
+        isReversibleRow(
+          row({
+            type: "CARRIER_LINE_ADJUSTMENT",
+            metadata_json: JSON.stringify({
+              reason: "edited",
+              credits_before: 1,
+              credits_after: 4,
+            }),
+          }),
+        ),
+      ).toBe(true);
+    });
+
     it("a REFUND row (type REFUND) is not reversible", () => {
       expect(isReversibleRow(row({ type: "REFUND", reverses_id: 1 }))).toBe(
         false,
@@ -164,8 +199,11 @@ describe("actionGating", () => {
       expect(isReversibleRow(row({ type: "LOTO" }))).toBe(true);
     });
 
-    it("a LOTO_CASH_PRIZE is NOT reversible — no Void/Refund button is offered", () => {
-      expect(isReversibleRow(row({ type: "LOTO_CASH_PRIZE" }))).toBe(false);
+    // LIRA-388 (owner, 2026-11-11) — premise reversed: a standalone prize
+    // used to be a dead end ("Can't refund here", pointing at a Loto page
+    // action that never existed); it now gets "Refund" from its row.
+    it("a LOTO_CASH_PRIZE IS refundable from its row (LIRA-388)", () => {
+      expect(isReversibleRow(row({ type: "LOTO_CASH_PRIZE" }))).toBe(true);
     });
 
     it("a LOTO_SETTLEMENT is NOT reversible — no Void/Refund button is offered", () => {

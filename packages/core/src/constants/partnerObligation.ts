@@ -230,6 +230,13 @@ export function partnerObligationCoverableSql(alias: string): string {
  * which keeps every void symmetric (a type whitelist left commission stuck
  * after voiding a cash-moved entry or a top-up).
  *
+ * LIRA-388: a paper CREDIT refunded from its Transactions row is reversed
+ * by an opposite DEBIT row that references it (`reference_table =
+ * 'partner_ledger'`, `reference_id` = the paper row). That DEBIT counts 0
+ * exactly like the CREDIT it reverses, so the pair nets 0 here too. (A
+ * reversed paper DEBIT's CREDIT counts −amount through the last branch,
+ * netting its +amount.)
+ *
  * The unary `+` on `+plb_tx.tenant_id` / `+plb_tx2.tenant_id` is REQUIRED:
  * it stops SQLite from choosing `idx_transactions_tenant_id` (a scan of the
  * whole tenant's transactions per CREDIT row — measured 14.7 s / 56 s on the
@@ -238,6 +245,14 @@ export function partnerObligationCoverableSql(alias: string): string {
  */
 export function partnerNettingBalanceSql(alias: string): string {
   return `(SELECT COALESCE(SUM(CASE
+      WHEN plb.direction = 'DEBIT'
+        AND plb.reference_table = 'partner_ledger'
+        AND EXISTS (
+          SELECT 1 FROM transactions plb_tx3
+          WHERE plb_tx3.type = 'PARTNER_ADJUSTMENT'
+            AND plb_tx3.source_table = 'partner_ledger'
+            AND plb_tx3.source_id = plb.reference_id
+            AND +plb_tx3.tenant_id = plb.tenant_id) THEN 0
       WHEN plb.direction = 'DEBIT' THEN plb.amount
       WHEN EXISTS (
         SELECT 1 FROM transactions plb_tx

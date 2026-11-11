@@ -667,7 +667,9 @@ test.describe("Exchange lot settlement — FIFO cost-basis profit, driven throug
       .filter({ hasText: BUY_CLIENT });
     await expect(buyAuditRow).toBeVisible({ timeout: 10_000 });
     await buyAuditRow.scrollIntoViewIfNeeded();
-    const buyVoidBtn = buyAuditRow.getByRole("button", { name: /^Void$/ });
+    // LIRA-388 — the row's one action is "Refund" (no per-row Void); an
+    // exchange refund is a plain swap-back confirm.
+    const buyVoidBtn = buyAuditRow.getByTestId("row-refund");
     await expect(buyVoidBtn).toBeVisible();
 
     let seen = dialogLog.length;
@@ -678,7 +680,7 @@ test.describe("Exchange lot settlement — FIFO cost-basis profit, driven throug
       .poll(() => dialogLog.length, { timeout: 8_000 })
       .toBeGreaterThanOrEqual(seen + 2);
     const [confirmMsg, blockedMsg] = dialogLog.slice(seen);
-    expect(confirmMsg).toMatch(/Void this transaction/i);
+    expect(confirmMsg).toMatch(/Refund this exchange/i);
     expect(blockedMsg).toMatch(/^Failed:/);
     expect(blockedMsg).toMatch(/already been partially or fully sold/i);
     expect(blockedMsg).toMatch(/void the consuming sell transaction/i);
@@ -692,17 +694,25 @@ test.describe("Exchange lot settlement — FIFO cost-basis profit, driven throug
       .filter({ hasText: SELL_CLIENT });
     await expect(sellAuditRow).toBeVisible({ timeout: 10_000 });
     await sellAuditRow.scrollIntoViewIfNeeded();
-    const sellVoidBtn = sellAuditRow.getByRole("button", { name: /^Void$/ });
+    const sellVoidBtn = sellAuditRow.getByTestId("row-refund");
     await expect(sellVoidBtn).toBeVisible();
 
     seen = dialogLog.length;
     await sellVoidBtn.click();
+    // A refund keeps the original ACTIVE and links a REFUND row to it.
+    const sellTxnId = (await unifiedExchangeTxn(appPage, sellExchangeId))?.id;
     await expect
       .poll(
-        async () => (await unifiedExchangeTxn(appPage, sellExchangeId))?.status,
+        async () =>
+          appPage.evaluate(async (id) => {
+            const recent = await window.api.transactions.getRecent(100);
+            return recent.some(
+              (t) => t.type === "REFUND" && t.reverses_id === id,
+            );
+          }, sellTxnId),
         { timeout: 10_000 },
       )
-      .toBe("VOIDED");
+      .toBe(true);
     // No failure alert this time — only the confirm() dialog fired.
     expect(dialogLog.slice(seen).some((m) => m.startsWith("Failed:"))).toBe(
       false,

@@ -86,6 +86,20 @@ export class LotoMonthlyFeeRepository {
     return stmt.all(year, getCurrentTenantId()) as LotoMonthlyFee[];
   }
 
+  /**
+   * LIRA-388 (rule 20) — the payment of this month was refunded from its
+   * Transactions row: the month reads unpaid again. The cash leg is mirrored
+   * by the refund itself; this only resets the flag `markFeePaid` set.
+   * Runs inside the refund's db transaction.
+   */
+  markFeeUnpaid(id: number): void {
+    this.db
+      .prepare(
+        `UPDATE loto_monthly_fees SET is_paid = 0, paid_date = NULL WHERE id = ? AND tenant_id = ?`,
+      )
+      .run(id, getCurrentTenantId());
+  }
+
   markFeePaid(
     id: number,
     paidDate: string,

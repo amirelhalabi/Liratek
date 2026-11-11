@@ -29,6 +29,7 @@ import { isReceiptableRow } from "../receiptGating";
 import {
   isReversibleRow,
   offersWholeVoidRefund,
+  refundPlanForRow,
   isWrongNumberEligible,
   wrongNumberRecordTarget,
   wrongNumberSaleProvider,
@@ -353,7 +354,7 @@ export function UserCell({ row }: { row: TransactionRow }) {
 
 export interface RowActionHandlers {
   onPrintReceipt: (id: number) => void;
-  onVoid: (id: number) => void;
+  /** LIRA-388 — the ONE row action (the per-row Void is gone). */
   onRefund: (row: TransactionRow) => void;
   onVoidCheckoutGroup: (groupId: string, units: number | null) => void;
   /** LIRA-201c (OWNER_NOTES_REMAINING_BUILD.md #11-C) — whole-basket
@@ -551,21 +552,18 @@ export function ActionsCell({
               )}
             </>
           ) : offersWholeVoidRefund(row) ? (
-            <>
-              <button
-                onClick={() => handlers.onVoid(row.id)}
-                className="px-1.5 py-0.5 text-[10px] rounded bg-red-900/70 text-red-200 hover:bg-red-900/40 hover:text-red-300 transition-colors"
-              >
-                {t("actions.void")}
-              </button>
-              <button
-                onClick={() => handlers.onRefund(row)}
-                disabled={refundLookupRowId === row.id}
-                className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/70 text-rose-200 hover:bg-rose-900/40 hover:text-rose-300 transition-colors disabled:opacity-50"
-              >
-                {refundLookupRowId === row.id ? "…" : t("actions.refund")}
-              </button>
-            </>
+            // LIRA-388 — ONE action, "Refund", on every refundable row (the
+            // per-row Void is gone: the refund window opens with the
+            // original method preselected, so "give it back the same way"
+            // is one confirm; a bookkeeping row asks one confirm).
+            <button
+              onClick={() => handlers.onRefund(row)}
+              disabled={refundLookupRowId === row.id}
+              data-testid="row-refund"
+              className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/70 text-rose-200 hover:bg-rose-900/40 hover:text-rose-300 transition-colors disabled:opacity-50"
+            >
+              {refundLookupRowId === row.id ? "…" : t("actions.refund")}
+            </button>
           ) : null
         ) : isAdmin &&
           row.type === "REFUND" &&
@@ -592,11 +590,20 @@ export function ActionsCell({
           </button>
         ) : isReceiptableRow(row) ? null : (
           (() => {
-            const reason = getNonReversibleReason(row.type);
+            // LIRA-388 — the reason comes from core's one classification
+            // (a structural type, or a row-level case such as a carrier-line
+            // edit that recorded no previous values). A reversal row or a
+            // row already refunded shows no reason.
+            const plan = refundPlanForRow(row);
+            const reasonKey =
+              plan.kind === "none" && plan.reason !== "reversal"
+                ? plan.reason
+                : undefined;
+            const reason = reasonKey ? getNonReversibleReason(reasonKey) : null;
             return reason ? (
               <span
                 className="text-[10px] text-slate-500 italic cursor-help"
-                title={t(`nonReversible.${row.type as NonReversibleKey}`, {
+                title={t(`nonReversible.${reasonKey as NonReversibleKey}`, {
                   defaultValue: reason,
                 })}
                 data-testid="non-reversible-reason"

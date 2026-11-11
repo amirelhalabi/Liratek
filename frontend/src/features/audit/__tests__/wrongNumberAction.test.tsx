@@ -73,7 +73,6 @@ function saleRow(overrides: Partial<TransactionRow> = {}): TransactionRow {
 function buildHandlers(): RowActionHandlers {
   return {
     onPrintReceipt: jest.fn(),
-    onVoid: jest.fn(),
     onRefund: jest.fn(),
     onVoidCheckoutGroup: jest.fn(),
     onVoidSessionBasket: jest.fn(),

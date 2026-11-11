@@ -15400,6 +15400,35 @@ DROP TABLE IF EXISTS omt_owed_shares;`);
       setOfflineReviewKinds(db, OFFLINE_REVIEW_KINDS_V210);
     },
   },
+  {
+    version: 232,
+    name: "hold_money_voided",
+    description:
+      "LIRA-388: a Hold Money drop-off refunded from its Transactions row is " +
+      "cancelled. Adds hold_money.voided_at / voided_by (nullable): a voided " +
+      "hold leaves the active list and refuses a pickup. The status CHECK " +
+      "('held','collected') is left as is, so no table rebuild. Seeds nothing.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "hold_money")) return;
+      if (!columnExists(db, "hold_money", "voided_at")) {
+        db.exec(`ALTER TABLE hold_money ADD COLUMN voided_at DATETIME`);
+      }
+      if (!columnExists(db, "hold_money", "voided_by")) {
+        db.exec(
+          `ALTER TABLE hold_money ADD COLUMN voided_by INTEGER REFERENCES users(id)`,
+        );
+      }
+    },
+    down(db: Database.Database) {
+      if (columnExists(db, "hold_money", "voided_by")) {
+        db.exec(`ALTER TABLE hold_money DROP COLUMN voided_by`);
+      }
+      if (columnExists(db, "hold_money", "voided_at")) {
+        db.exec(`ALTER TABLE hold_money DROP COLUMN voided_at`);
+      }
+    },
+  },
 ];
 
 /** v210 — offline_review_items.kind's original 14 values (frozen). */

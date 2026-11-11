@@ -297,20 +297,20 @@ test.describe("CARRIER_LINES_VALIDITY_PLAN.md Phase 6 — telecom credit buy-bac
     const row = appPage
       .locator("tbody tr")
       .filter({ hasText: `+$${CREDITS} credits` })
-      .filter({ hasNotText: "VOID:" });
+      .filter({ hasNotText: "VOID:" })
+      // LIRA-388 — the refund's own row repeats the summary after "REFUND:".
+      .filter({ hasNotText: "REFUND:" });
     await expect(row).toBeVisible({ timeout: 10_000 });
-    const voidBtn = row.getByRole("button", { name: /^Void$/ });
-    await expect(voidBtn).toBeVisible();
-    // Register an explicit one-shot accept: the fixtures' global dialog
-    // handler is only a backup that can lose the race to this click, and
-    // losing it leaves the native confirm() open, freezing the shared
-    // renderer for every later spec (workers: 1 / one shared page for all
-    // specs).
-    appPage.once("dialog", (d) => {
-      d.accept().catch(() => {});
-    });
-    await voidBtn.click();
-    await expect(row).toContainText("VOIDED", { timeout: 10_000 });
+    // LIRA-388 — the row's one action is "Refund" (no per-row Void); the
+    // window opens with the payout's own method and an untouched confirm
+    // mirrors every leg, as the void did.
+    await expect(row.getByRole("button", { name: /^Void$/ })).toHaveCount(0);
+    await row.getByTestId("row-refund").click();
+    const refundModal = appPage.getByTestId("counterparty-settle-modal");
+    await expect(refundModal).toBeVisible({ timeout: 10_000 });
+    await appPage.getByRole("button", { name: "Confirm Refund" }).click();
+    await expect(refundModal).toBeHidden({ timeout: 10_000 });
+    await expect(row).toContainText("REFUNDED", { timeout: 10_000 });
 
     const afterVoid = await drawers(appPage);
     const afterVoidCredits = await readCarrierLineCredits(appPage, lineId);

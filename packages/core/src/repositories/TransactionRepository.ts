@@ -36,6 +36,7 @@ import {
   type TransactionStatus,
   type TransactionType,
 } from "../constants/transactionTypes.js";
+import { REFUND_OWNERS, refundPlanOf } from "../constants/refundKinds.js";
 import {
   REFUND_LEG_AMOUNT_EPSILON,
   REFUND_VALUE_TOLERANCE_USD,
@@ -70,6 +71,9 @@ import {
 import { PAID_VIA_ACCOUNT_OWN_TUPLES } from "../constants/paidViaAccount.js";
 import { PAID_VIA_VOUCHER_OWN_TUPLES } from "../constants/paidViaVoucher.js";
 import { insertDebtRefundReversal } from "./debtReversal.js";
+import { getHoldMoneyRepository } from "./HoldMoneyRepository.js";
+import { getLotoMonthlyFeeRepository } from "./LotoMonthlyFeeRepository.js";
+import { getCarrierLineRepository } from "./CarrierLineRepository.js";
 import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
 import { getRateRepository } from "./RateRepository.js";
 import { requestNow } from "../utils/requestNow.js";
@@ -198,6 +202,33 @@ const ACCOUNT_CHARGE_PREDICATE = `transaction_type NOT IN ('Refund Reversal', '$
 // basket already been voided/refunded" predicate `_assertSessionBasketReversible`
 // uses, instead of hand-copying the literal note string a second time (rule 14).
 export const SESSION_BASKET_REVERSAL_NOTE = "Basket reversal";
+
+/**
+ * LIRA-388 — the ONE definition of "this row was reversed" for the
+ * Transactions page (`reversed_by_id`): the id of the row that reversed it,
+ * or NULL. A REFUND row (the generic owner) — and, for the rows a page owns,
+ * that page's own reversal row: a Hold Money pickup void
+ * (HOLD_MONEY_COLLECT_VOID), a discount's compensating
+ * COUNTERPARTY_DISCOUNT, a voided warranty claim's cost reversal (written
+ * only by `WarrantyService.voidClaim`'s `reverseCosts`), and a
+ * voucher's VOUCHER_CANCEL (matched by the voucher, since the cancel carries
+ * no `reverses_id`). Indexed: `reverses_id`, `idx_transactions_source`. The
+ * unary `+` on `+r.tenant_id` keeps SQLite off `idx_transactions_tenant_id`
+ * (one DB file per shop: tenant_id selects nothing; see partnerObligation.ts).
+ */
+export function reversedByIdSql(a: string): string {
+  return `CASE ${a}.type
+      WHEN 'VOUCHER_SALE' THEN (SELECT r.id FROM transactions r
+        WHERE r.type = 'VOUCHER_CANCEL' AND r.source_table = 'vouchers'
+          AND r.source_id = ${a}.source_id AND +r.tenant_id = ${a}.tenant_id
+        LIMIT 1)
+      ELSE (SELECT r.id FROM transactions r
+        WHERE r.reverses_id = ${a}.id
+          AND r.type IN ('REFUND', 'HOLD_MONEY_COLLECT_VOID', 'COUNTERPARTY_DISCOUNT', 'WARRANTY_COST')
+          AND +r.tenant_id = ${a}.tenant_id
+        LIMIT 1)
+    END`;
+}
 
 // Coordinator follow-up (2026-09-27) — the ONE message
 // `voidSessionBasket`/`refundSessionBasket`'s up-front
@@ -2178,11 +2209,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
               cst.amount_lbp AS cst_amount_lbp,
               ${accountLinkedSql(tenantId, selectParams)} AS paid_via_account,
               ${voucherLinkedSql(tenantId, selectParams)} AS paid_via_voucher,
-              (SELECT r.id FROM transactions r
-                WHERE r.reverses_id = t.id
-                  AND r.type = 'REFUND'
-                  AND r.tenant_id = t.tenant_id
-                LIMIT 1) AS reversed_by_id,
+              ${reversedByIdSql("t")} AS reversed_by_id,
               CASE WHEN t.reverses_id IS NULL
                    THEN ${saleItemRefundOriginalIdSql("t", "'REFUND'")}
               END AS item_refund_of_id
@@ -7228,6 +7255,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       keptChange?: KeptChange;
       /** LIRA-342 — see `_resolveRefundAddedChange`. */
       addedChange?: RefundAddedChange;
+      /** LIRA-388 — set ONLY by `TransactionService.refundTransaction`'s
+       *  dispatcher after `refundPlanOf` named the generic owner: lets a
+       *  type in `NON_REVERSIBLE_TRANSACTION_TYPES` that `REFUND_OWNERS`
+       *  names (loto prize, account cash, bookkeeping rows) through, so its
+       *  own owner step runs. No transport forwards it. */
+      allowOwnedRefund?: boolean;
     },
   ): number {
     return this._refundTransactionInternal(id, userId, {
@@ -7236,6 +7269,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       exchangeRate: opts?.exchangeRate,
       keptChange: opts?.keptChange,
       addedChange: opts?.addedChange,
+      allowOwnedRefund: opts?.allowOwnedRefund === true,
     });
   }
 
@@ -7262,6 +7296,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       keptChange?: KeptChange;
       /** LIRA-342 — the customer gives money back during the refund. */
       addedChange?: RefundAddedChange;
+      /** LIRA-388 — see `refundTransaction`. */
+      allowOwnedRefund?: boolean;
     },
   ): number {
     const original = this.findById(id);
@@ -7275,6 +7311,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     }
     this._assertReversible(original, {
       allowSessionMember: opts.allowSessionMember,
+      allowOwnedRefund: opts.allowOwnedRefund,
     });
     // LIRA-091: same up-front settled-sibling guard as voidTransaction — see
     // _assertSupplierSiblingsVoidable's doc.
@@ -7313,6 +7350,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // voidTransaction's identical step (after the double-refund guard, so the
     // more specific message wins). See `_assertNoPartialItemRefunds`.
     this._assertNoPartialItemRefunds(original);
+
+    // LIRA-388 — dependency refusals of an owned type, before any write.
+    if (opts.allowOwnedRefund && REFUND_OWNERS[original.type]) {
+      this._assertOwnedRefundable(original);
+    }
 
     // LIRA-078: validate the operator's chosen return method(s) BEFORE any
     // row is written — a throw here never enters this.transaction(), so a
@@ -7420,6 +7462,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           refundUnitExtras: opts.refundUnitExtras,
           exchangeRate: refundRate,
           kept,
+          // LIRA-388 — an owned type's REFUND row names its kind.
+          refundType:
+            opts.allowOwnedRefund && REFUND_OWNERS[original.type]
+              ? refundPlanOf(original).kind === "confirm"
+                ? "bookkeeping"
+                : "standalone"
+              : undefined,
         },
       );
 
@@ -7578,8 +7627,19 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       -original.amount_usd - (extraShare?.usd ?? 0),
       -original.amount_lbp - (extraShare?.lbp ?? 0),
       original.exchange_rate,
-      kept ? -original.profit_usd + kept.usd : -original.profit_usd,
-      kept ? -original.profit_lbp + kept.lbp : -original.profit_lbp,
+      // LIRA-388 — a counterparty discount's profit is taken back by its
+      // own compensating COUNTERPARTY_DISCOUNT row (the only rows the
+      // discount total reads, `counterpartyDiscountSource`), never here.
+      original.type === TRANSACTION_TYPES.COUNTERPARTY_DISCOUNT
+        ? 0
+        : kept
+          ? -original.profit_usd + kept.usd
+          : -original.profit_usd,
+      original.type === TRANSACTION_TYPES.COUNTERPARTY_DISCOUNT
+        ? 0
+        : kept
+          ? -original.profit_lbp + kept.lbp
+          : -original.profit_lbp,
       // LIRA-319 (rule 20): the refund gives the whole extra back — its
       // negation leaves "Extra charges" (Σ extra over ACTIVE rows) at 0.
       -(original.extra_usd ?? 0) - (extraShare?.usd ?? 0),
@@ -7608,6 +7668,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       /** Refund kept change (owner decision 2026-10-07), already checked by
        *  `_resolveRefundKeptChange` — added to the REFUND row's profit. */
       kept?: { usd: number; lbp: number };
+      /** LIRA-388 — `metadata_json.refundType` on an owned type's row. */
+      refundType?: "standalone" | "bookkeeping";
     } = {},
   ): number {
     // LIRA-236, contract item 6 — every REFUND row records the rate it used
@@ -7625,12 +7687,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     const keptLbp = opts.kept?.lbp ?? 0;
     const hasKept = keptUsd > 0 || keptLbp > 0;
     const extraMetadata =
-      rateUsed != null || hasKept
+      rateUsed != null || hasKept || opts.refundType
         ? {
             ...(rateUsed != null ? { exchangeRate: rateUsed } : {}),
             ...(hasKept
               ? { kept_change_usd: keptUsd, kept_change_lbp: keptLbp }
               : {}),
+            ...(opts.refundType ? { refundType: opts.refundType } : {}),
           }
         : undefined;
     const refundId = this._createRefundRow(
@@ -7659,7 +7722,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     id: number,
     refundId: number,
     userId: number,
-    opts: { refundUnitExtras?: RefundUnitExtra[] } = {},
+    opts: {
+      refundUnitExtras?: RefundUnitExtra[];
+      /** LIRA-388 — set only on an owned type's refund (see
+       *  `_reverseOwnedRefundEffects`). */
+      refundType?: "standalone" | "bookkeeping";
+    } = {},
   ): void {
     const tenantId = getCurrentTenantId();
 
@@ -7750,6 +7818,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // price/cost drops back and restores the line's credit.
     this._reverseResaleLineGiveBack(original);
 
+    // 4h. LIRA-388, rule 20 — the owner step of a type `REFUND_OWNERS`
+    // gives to the generic path (account cash, hold drop-off, loto fee,
+    // partner/discount ledgers, carrier-line edit). Only on such a refund.
+    if (opts.refundType) {
+      this._reverseOwnedRefundEffects(original, refundId, userId);
+    }
+
     // 4e3. LIRA-143 phase 4, rule 20 — flip every SOLD product_unit tied
     // to this SALE back to IN_STOCK, applying the operator's chosen
     // defective/warranty-override flags (`opts.refundUnitExtras`) at the
@@ -7813,6 +7888,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       allowParentOwnedWaivedSibling?: boolean;
       internal?: boolean;
       allowParentOwnedExpense?: boolean;
+      /** LIRA-388 — see `refundTransaction`. */
+      allowOwnedRefund?: boolean;
     } = {},
   ): void {
     if (!opts.internal) this._assertNotDrawerShortageExpense(original);
@@ -7834,7 +7911,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         // forgiven leftover is owned by that parent — reachable only from
         // the parent's own cascade, never by a standalone void/refund.
         (opts.allowParentOwnedWaivedSibling === true &&
-          original.type === TRANSACTION_TYPES.WAIVED_SHORTFALL);
+          original.type === TRANSACTION_TYPES.WAIVED_SHORTFALL) ||
+        // LIRA-388: a type `REFUND_OWNERS` gives to the generic owner, on
+        // the refund path only (never a raw void). Row-level plan, so a
+        // carrier-line edit with no recorded values stays refused.
+        (opts.allowOwnedRefund === true &&
+          REFUND_OWNERS[original.type]?.owner === "generic" &&
+          refundPlanOf(original).kind !== "none");
       if (!bypassable) {
         throw new DatabaseError(
           `${original.type} transactions cannot be voided or refunded — reverse them from their own module`,
@@ -8452,6 +8535,350 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     );
   }
 
+  // ─── LIRA-388 — owner steps for types refunded from their own row ────────
+
+  /** Dependency refusals of a type `REFUND_OWNERS` gives to the generic
+   *  path (rule 20: refused when a later row depends on it, the dependency
+   *  named). Runs before any write. */
+  private _assertOwnedRefundable(original: TransactionEntity): void {
+    switch (original.type) {
+      case TRANSACTION_TYPES.CREDIT_CASH_IN:
+      case TRANSACTION_TYPES.ACCOUNT_ADJUSTMENT:
+        this._assertAccountCreditUnspent(original);
+        return;
+      case TRANSACTION_TYPES.HOLD_MONEY:
+        this._assertHoldNotPickedUp(original);
+        return;
+      case TRANSACTION_TYPES.DRAWER_TOPUP:
+        this._assertDrawerTopUpBothLegs(original);
+        return;
+      case TRANSACTION_TYPES.SUPPLIER_ADJUSTMENT:
+        this._assertSupplierRowNotWholeSettled(original);
+        return;
+      case TRANSACTION_TYPES.PARTNER_ADJUSTMENT:
+        this._assertPartnerEntryNotCovered(original);
+        return;
+      case TRANSACTION_TYPES.COUNTERPARTY_DISCOUNT:
+        this._assertStandaloneDiscount(original);
+        return;
+      case TRANSACTION_TYPES.CARRIER_LINE_ADJUSTMENT:
+        this._assertCarrierLineUnchanged(original);
+        return;
+      default:
+        return;
+    }
+  }
+
+  /** The owner step itself (inside the refund's db transaction). The
+   *  generic steps around it already mirrored the payment legs, cancelled
+   *  CREDIT_DEPOSIT rows (`_cancelDebt`) and soft-voided a supplier_ledger
+   *  source row (`_markSourceRefunded`). */
+  private _reverseOwnedRefundEffects(
+    original: TransactionEntity,
+    refundId: number,
+    userId: number,
+  ): void {
+    switch (original.type) {
+      case TRANSACTION_TYPES.CREDIT_CASH_OUT:
+      case TRANSACTION_TYPES.DEBT_CASH_OUT:
+      case TRANSACTION_TYPES.ACCOUNT_ADJUSTMENT:
+        this._reverseAccountEntryLedger(original, userId);
+        return;
+      case TRANSACTION_TYPES.HOLD_MONEY:
+        getHoldMoneyRepository().markHoldVoided(original.source_id, userId);
+        return;
+      case TRANSACTION_TYPES.LOTO_MONTHLY_FEE:
+        getLotoMonthlyFeeRepository().markFeeUnpaid(original.source_id);
+        return;
+      case TRANSACTION_TYPES.PARTNER_ADJUSTMENT:
+        this._reversePartnerSettlementLedger(original, userId, refundId, true);
+        return;
+      case TRANSACTION_TYPES.COUNTERPARTY_DISCOUNT:
+        this._reverseStandaloneDiscount(original, refundId, userId);
+        return;
+      case TRANSACTION_TYPES.CARRIER_LINE_ADJUSTMENT: {
+        const m = JSON.parse(original.metadata_json ?? "{}") as {
+          credits_before: number;
+        };
+        getCarrierLineRepository().restoreCreditsForRefund(
+          original.source_id,
+          m.credits_before,
+        );
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
+  /** Account cash-out / cash advance / paper debt: the 'CREDIT_USED' and
+   *  'Manual Debt' rows the entry wrote (linked by `transaction_id`, which
+   *  `_cancelDebt` never matches) each get a 'Refund Reversal' — the same
+   *  one insert every other debt reversal uses (rule 14). */
+  private _reverseAccountEntryLedger(
+    original: TransactionEntity,
+    userId: number,
+  ): void {
+    const tenantId = getCurrentTenantId();
+    const rows = this.query<{
+      client_id: number;
+      amount_usd: number;
+      amount_lbp: number;
+    }>(
+      `SELECT client_id, amount_usd, amount_lbp FROM debt_ledger
+        WHERE transaction_id = ? AND transaction_type IN ('CREDIT_USED', 'Manual Debt')
+          AND tenant_id = ?`,
+      original.id,
+      tenantId,
+    );
+    for (const d of rows) {
+      insertDebtRefundReversal(this.db, {
+        clientId: d.client_id,
+        amountUsd: d.amount_usd,
+        amountLbp: d.amount_lbp,
+        transactionId: original.id,
+        createdBy: userId,
+        tenantId,
+      });
+    }
+  }
+
+  /** A credit the customer deposited can only be taken back while the
+   *  customer still holds it, per currency (DebtRepository's one balance
+   *  definition: negative = credit). */
+  private _assertAccountCreditUnspent(original: TransactionEntity): void {
+    const tenantId = getCurrentTenantId();
+    const dep = this.queryOne<{
+      client_id: number;
+      usd: number;
+      lbp: number;
+    }>(
+      `SELECT client_id, -SUM(amount_usd) AS usd, -SUM(amount_lbp) AS lbp
+         FROM debt_ledger
+        WHERE transaction_id = ? AND transaction_type = 'CREDIT_DEPOSIT' AND tenant_id = ?
+        GROUP BY client_id`,
+      original.id,
+      tenantId,
+    );
+    if (!dep) return;
+    const bal = getDebtRepository().getClientBalance(dep.client_id);
+    const checks: Array<[number, number, string]> = [
+      [dep.usd, -bal.balance_usd, "USD"],
+      [dep.lbp, -bal.balance_lbp, "LBP"],
+    ];
+    for (const [need, credit, cur] of checks) {
+      if (need > 0 && credit + 1e-6 < need) {
+        const show = (n: number) =>
+          cur === "USD"
+            ? `$${(Math.round(Math.max(n, 0) * 100) / 100).toFixed(2)}`
+            : `${Math.round(Math.max(n, 0))} LBP`;
+        throw new DatabaseError(
+          `The customer's credit was spent since — only ${show(credit)} of the ${show(need)} credit is left. Nothing was refunded.`,
+          { entityId: original.id },
+        );
+      }
+    }
+  }
+
+  private _assertHoldNotPickedUp(original: TransactionEntity): void {
+    const live = this.queryOne<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM hold_money_pickups
+        WHERE hold_money_id = ? AND COALESCE(is_voided, 0) = 0 AND tenant_id = ?`,
+      original.source_id,
+      getCurrentTenantId(),
+    );
+    if (live && live.n > 0) {
+      throw new DatabaseError(
+        'Part of this held money was already picked up — void the pickup first (refund its row, or "Void pickup" on the Hold Money page). Nothing was refunded.',
+        { entityId: original.id },
+      );
+    }
+  }
+
+  /** A from-drawer top-up written before both drawers were journaled
+   *  (LIRA-258 G9) carries only the General leg; mirroring it would strand
+   *  the source drawer's deduction. */
+  private _assertDrawerTopUpBothLegs(original: TransactionEntity): void {
+    const meta = JSON.parse(original.metadata_json ?? "{}") as {
+      source_drawer?: string;
+    };
+    if (!meta.source_drawer) return;
+    const src = this.queryOne<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM payments WHERE transaction_id = ? AND drawer_name = ? AND tenant_id = ?`,
+      original.id,
+      meta.source_drawer,
+      getCurrentTenantId(),
+    );
+    if (!src || src.n === 0) {
+      throw new DatabaseError(
+        `This top-up was recorded before the ${meta.source_drawer} side was tracked, so it can't be reversed exactly — correct it with a new transfer. Nothing was refunded.`,
+        { entityId: original.id },
+      );
+    }
+  }
+
+  /** A supplier entry a settlement closed whole (no per-row coverage kept)
+   *  cannot be taken out of it; one with coverage follows LIRA-343 (the
+   *  settled part goes back on the account). */
+  private _assertSupplierRowNotWholeSettled(original: TransactionEntity): void {
+    if (
+      original.source_table !== "supplier_ledger" ||
+      !this._supplierLedgerHasSettlementIdColumn()
+    ) {
+      return;
+    }
+    const row = this.queryOne<{ id: number; settlement_id: number | null }>(
+      `SELECT id, settlement_id FROM supplier_ledger WHERE id = ? AND tenant_id = ?`,
+      original.source_id,
+      getCurrentTenantId(),
+    );
+    if (
+      row?.settlement_id != null &&
+      !this._hasActiveSettlementCoverage("LEDGER", row.id)
+    ) {
+      throw new DatabaseError(
+        `This entry is already included in supplier settlement #${row.settlement_id} — correct it with a new adjustment. Nothing was refunded.`,
+        { entityId: original.id },
+      );
+    }
+  }
+
+  /** A partner entry another settlement already counted (its coverage
+   *  row) cannot be taken back without un-settling that settlement. */
+  private _assertPartnerEntryNotCovered(original: TransactionEntity): void {
+    if (!getPartnerSettlementRepository().hasCoverageTable()) return;
+    const cov = this.queryOne<{ settlement_ledger_id: number }>(
+      `SELECT settlement_ledger_id FROM partner_settlement_coverage
+        WHERE partner_ledger_id = ? AND settlement_ledger_id <> partner_ledger_id
+          AND is_reversed = 0 AND tenant_id = ?
+        LIMIT 1`,
+      original.source_id,
+      getCurrentTenantId(),
+    );
+    if (cov) {
+      throw new DatabaseError(
+        `This entry is already included in a partner settlement (entry #${cov.settlement_ledger_id}) — refund that settlement first. Nothing was refunded.`,
+        { entityId: original.id },
+      );
+    }
+  }
+
+  /** Only a discount given on its own (a write-off) is refunded from its
+   *  row; one given WITH a repayment, payment or settlement belongs to that
+   *  parent's refund (LIRA-372 / owner decision 2026-10-07 / LIRA-085). */
+  private _assertStandaloneDiscount(original: TransactionEntity): void {
+    const tenantId = getCurrentTenantId();
+    const meta = JSON.parse(original.metadata_json ?? "{}") as Record<
+      string,
+      unknown
+    >;
+    const parent = meta[BUNDLED_REPAYMENT_TXN_KEY];
+    if (original.source_table === "debt_ledger" && parent != null) {
+      throw new DatabaseError(
+        `This discount was given with repayment #${String(parent)} — refund that repayment instead. Nothing was refunded.`,
+        { entityId: original.id },
+      );
+    }
+    if (original.source_table === "partner_ledger") {
+      const row = this.queryOne<{ reference_id: number | null }>(
+        `SELECT reference_id FROM partner_ledger
+          WHERE id = ? AND reference_table = 'partner_ledger' AND tenant_id = ?`,
+        original.source_id,
+        tenantId,
+      );
+      if (row) {
+        throw new DatabaseError(
+          `This discount was given with a partner settlement (entry #${row.reference_id}) — refund that settlement instead. Nothing was refunded.`,
+          { entityId: original.id },
+        );
+      }
+    }
+    if (original.source_table === "supplier_ledger") {
+      const row = this.queryOne<{ ref: number | null }>(
+        `SELECT ${this._supplierLedgerHasSourceRefColumns() ? "source_ref_id" : "NULL"} AS ref
+           FROM supplier_ledger WHERE id = ? AND tenant_id = ?`,
+        original.source_id,
+        tenantId,
+      );
+      if (row?.ref != null) {
+        throw new DatabaseError(
+          `This discount was given with a supplier payment or settlement (entry #${row.ref}) — refund that one instead. Nothing was refunded.`,
+          { entityId: original.id },
+        );
+      }
+      this._assertSupplierRowNotWholeSettled(original);
+    }
+    // Already reversed by its own compensating row (a parent's sweep).
+    const swept = this.queryOne<{ id: number }>(
+      `SELECT id FROM transactions WHERE reverses_id = ? AND type = 'COUNTERPARTY_DISCOUNT' AND tenant_id = ?`,
+      original.id,
+      tenantId,
+    );
+    if (swept) {
+      throw new DatabaseError("This discount was already reversed.", {
+        entityId: original.id,
+      });
+    }
+  }
+
+  /** Standalone discount: the ledger side by counterparty, profit through
+   *  the compensating COUNTERPARTY_DISCOUNT row (the REFUND row carries 0). */
+  private _reverseStandaloneDiscount(
+    original: TransactionEntity,
+    refundId: number,
+    userId: number,
+  ): void {
+    const summary = `Discount refunded from its row (#${original.id})`;
+    if (original.source_table === "debt_ledger") {
+      this._reverseDebtDiscountTxn(
+        {
+          id: original.id,
+          source_id: original.source_id,
+          metadata_json: original.metadata_json,
+        },
+        summary,
+        userId,
+      );
+      return;
+    }
+    if (original.source_table === "partner_ledger") {
+      this._reversePartnerSettlementLedger(original, userId, refundId, true);
+    }
+    // supplier_ledger: `_markSourceRefunded` already soft-voided the row.
+    this._negateCounterpartyDiscountProfit(
+      original.source_table as "partner_ledger" | "supplier_ledger",
+      original.source_id,
+      summary,
+      userId,
+    );
+  }
+
+  /** A carrier-line edit is put back only while the line still holds what
+   *  the edit left (anything since — a sale, another edit — would be
+   *  silently undone with it). */
+  private _assertCarrierLineUnchanged(original: TransactionEntity): void {
+    const m = JSON.parse(original.metadata_json ?? "{}") as {
+      credits_after?: number;
+    };
+    const line = this.queryOne<{ credits: number | null; is_active: number }>(
+      `SELECT credits, is_active FROM carrier_lines WHERE id = ? AND tenant_id = ?`,
+      original.source_id,
+      getCurrentTenantId(),
+    );
+    const now = line?.credits ?? 0;
+    if (
+      !line ||
+      line.is_active !== 1 ||
+      Math.abs(now - (m.credits_after ?? NaN)) > 1e-6 ||
+      Number.isNaN(m.credits_after ?? NaN)
+    ) {
+      throw new DatabaseError(
+        `The line's credits changed since this edit ($${now.toFixed(2)} now, $${(m.credits_after ?? 0).toFixed(2)} after the edit) — edit the line again instead. Nothing was refunded.`,
+        { entityId: original.id },
+      );
+    }
+  }
+
   /**
    * The ONE way a bundled counterparty discount's profit is taken back
    * (rule 14 — shared by the partner settlement sweep and the supplier
@@ -8467,7 +8894,18 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     summary: string,
     userId: number,
   ): number | null {
-    const discountTxn = this.getBySourceId(sourceTable, sourceId);
+    // The discount's OWN row (LIRA-388: a refund of it writes a REFUND row on
+    // the same source first, which `getBySourceId`'s newest-row pick would
+    // return instead).
+    const discountTxn = this.queryOne<TransactionEntity>(
+      `SELECT ${this.getColumns()} FROM transactions
+        WHERE source_table = ? AND source_id = ? AND type = 'COUNTERPARTY_DISCOUNT'
+          AND reverses_id IS NULL AND status = 'ACTIVE' AND tenant_id = ?
+        ORDER BY id DESC LIMIT 1`,
+      sourceTable,
+      sourceId,
+      getCurrentTenantId(),
+    );
     if (!discountTxn) return null;
     const reversalTxnId = this.createTransaction({
       type: "COUNTERPARTY_DISCOUNT",
@@ -9095,20 +9533,20 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * over a table it only reads defensively.
    */
   private _assertExchangeLotsVoidable(original: TransactionEntity): void {
-    if (
-      original.type !== "EXCHANGE" ||
-      original.source_table !== "exchange_transactions" ||
-      original.source_id == null ||
-      !this._exchangeLotTablesExist()
-    ) {
+    const lotSource = this._lotSourceOf(original);
+    if (!lotSource || !this._exchangeLotTablesExist()) {
       return;
     }
     const settlerTables =
-      getExchangeLotRepository().getActiveSettlerTablesAgainstSource({
-        sourceTable: "exchange_transactions",
-        sourceId: original.source_id,
-      });
+      getExchangeLotRepository().getActiveSettlerTablesAgainstSource(lotSource);
     if (settlerTables.length === 0) return;
+    // LIRA-388 — a drawer top-up's currency lot (extra currency cash-in).
+    if (original.type === "DRAWER_TOPUP") {
+      throw new DatabaseError(
+        "Cannot refund — the currency this top-up brought in has already been partly or fully sold.",
+        { entityId: original.id },
+      );
+    }
 
     // Adversarial review FIX 5 — name the REAL blocker instead of always
     // claiming a sell exists to void. An admin write-off
@@ -9776,6 +10214,30 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       tenantId,
     );
     if (!discountTxn) return;
+    this._reverseDebtDiscountTxn(
+      discountTxn,
+      `Discount reversed by debt repayment void/refund #${original.id}`,
+      userId,
+    );
+  }
+
+  /**
+   * The ONE reversal of a client 'Debt Discount' (rule 14): shared by a
+   * repayment's bundled discount (`_reverseDebtBundledDiscount`, LIRA-372)
+   * and a standalone write-off refunded from its own row (LIRA-388). Negates
+   * its profit with a compensating COUNTERPARTY_DISCOUNT row, writes the
+   * 'Discount Reversal' ledger row, and gives back the coverage it recorded.
+   */
+  private _reverseDebtDiscountTxn(
+    discountTxn: {
+      id: number;
+      source_id: number;
+      metadata_json: string | null;
+    },
+    summary: string,
+    userId: number,
+  ): void {
+    const tenantId = getCurrentTenantId();
     const ledger = this.queryOne<{
       client_id: number;
       amount_usd: number;
@@ -9791,7 +10253,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     const reversalTxnId = this._negateCounterpartyDiscountProfit(
       "debt_ledger",
       discountTxn.source_id,
-      `Discount reversed by debt repayment void/refund #${original.id}`,
+      summary,
       userId,
     );
 
@@ -10926,9 +11388,14 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     userId: number,
     /** LIRA-346 — the void / refund transaction (owns any RELIEF row). */
     reversalTxnId: number | null = null,
+    /** LIRA-388 — a paper PARTNER_ADJUSTMENT or a standalone partner
+     *  COUNTERPARTY_DISCOUNT refunded from its row: the same own-row
+     *  opposite entry + exact coverage give-back (rule 14, one owner). */
+    owned = false,
   ): void {
     if (
-      (original.type !== "PARTNER_SETTLEMENT" &&
+      (!owned &&
+        original.type !== "PARTNER_SETTLEMENT" &&
         original.type !== "PARTNER_PAYMENT") ||
       original.source_table !== "partner_ledger" ||
       original.source_id == null
@@ -11629,23 +12096,41 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * this connection.
    */
   private _reverseExchangeLotEffects(original: TransactionEntity): void {
-    if (
-      original.type !== "EXCHANGE" ||
-      original.source_table !== "exchange_transactions" ||
-      original.source_id == null ||
-      !this._exchangeLotTablesExist()
-    ) {
+    const lotSource = this._lotSourceOf(original);
+    if (!lotSource || !this._exchangeLotTablesExist()) {
       return;
     }
     const lotRepo = getExchangeLotRepository();
     lotRepo.restoreSettlements({
-      settledByTable: "exchange_transactions",
-      settledById: original.source_id,
+      settledByTable: lotSource.sourceTable,
+      settledById: lotSource.sourceId,
     });
-    lotRepo.voidLotsBySource({
-      sourceTable: "exchange_transactions",
-      sourceId: original.source_id,
-    });
+    lotRepo.voidLotsBySource(lotSource);
+  }
+
+  /** The lot source a row's reversal owns: an EXCHANGE's own lots, or
+   *  (LIRA-388) a drawer top-up's extra-currency lot (DrawerTopUpRepository
+   *  `createLot` with `sourceTable: 'drawer_topups'`). Null otherwise. */
+  private _lotSourceOf(
+    original: TransactionEntity,
+  ): { sourceTable: string; sourceId: number } | null {
+    if (original.source_id == null) return null;
+    if (
+      original.type === "EXCHANGE" &&
+      original.source_table === "exchange_transactions"
+    ) {
+      return {
+        sourceTable: "exchange_transactions",
+        sourceId: original.source_id,
+      };
+    }
+    if (
+      original.type === "DRAWER_TOPUP" &&
+      original.source_table === "drawer_topups"
+    ) {
+      return { sourceTable: "drawer_topups", sourceId: original.source_id };
+    }
+    return null;
   }
 
   /**
@@ -12028,6 +12513,54 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         { entityId: original.id },
       );
     }
+    // LIRA-388 (spec story 1.3) — a STANDALONE prize (paid from the Loto
+    // page, refunded from its Transactions row) is refused once its day was
+    // settled with Loto (LIRA-351 day calendar: the prize's CASH_PRIZE
+    // ledger row is stamped, or a settlement's coverage counts it). A basket
+    // member keeps the LIRA-351 rule (the settled part goes back on the
+    // account, `_planSettlementCoverageRelief`) — unchanged.
+    if (this._sessionIdForTransaction(original.id) == null) {
+      const settledDay = this._lotoPrizeSettledDay(original.id);
+      if (settledDay !== undefined) {
+        throw new DatabaseError(
+          `This prize is already included in settlement of ${settledDay ?? "an earlier day"} with Loto — nothing was refunded.`,
+          { entityId: original.id },
+        );
+      }
+    }
+  }
+
+  /** LIRA-388 — the day of the Loto settlement that already includes this
+   *  prize's CASH_PRIZE ledger row (`null` when the day is unknown), or
+   *  `undefined` when no settlement includes it. */
+  private _lotoPrizeSettledDay(prizeTxnId: number): string | null | undefined {
+    if (!this._supplierLedgerHasSettlementIdColumn()) return undefined;
+    const tenantId = getCurrentTenantId();
+    const row = this.queryOne<{
+      id: number;
+      settlement_id: number | null;
+      settled_at: string | null;
+    }>(
+      `SELECT sl.id, sl.settlement_id, s.created_at AS settled_at
+         FROM supplier_ledger sl
+         LEFT JOIN supplier_ledger s ON s.id = sl.settlement_id AND s.tenant_id = sl.tenant_id
+        WHERE sl.transaction_id = ? AND sl.entry_type = 'CASH_PRIZE'
+          AND COALESCE(sl.is_refunded, 0) = 0 AND sl.tenant_id = ?
+        LIMIT 1`,
+      prizeTxnId,
+      tenantId,
+    );
+    if (!row) return undefined;
+    if (row.settlement_id != null) return row.settled_at?.slice(0, 10) ?? null;
+    if (!this._hasActiveSettlementCoverage("LEDGER", row.id)) return undefined;
+    const cov = this.queryOne<{ created_at: string }>(
+      `SELECT created_at FROM supplier_settlement_coverage
+        WHERE tenant_id = ? AND row_kind = 'LEDGER' AND row_id = ? AND is_reversed = 0
+        ORDER BY id LIMIT 1`,
+      tenantId,
+      row.id,
+    );
+    return cov?.created_at?.slice(0, 10) ?? null;
   }
 
   /**

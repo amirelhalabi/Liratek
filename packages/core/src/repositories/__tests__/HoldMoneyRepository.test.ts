@@ -108,7 +108,10 @@ function createTestDb(): Database.Database {
       collected_at TEXT,
       tenant_id    INTEGER DEFAULT 1,
       created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at   TEXT DEFAULT CURRENT_TIMESTAMP
+      updated_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+      -- v232 (LIRA-388)
+      voided_at    TEXT,
+      voided_by    INTEGER
     );
 
     -- migration v183 (LIRA-214) — the partial-pickup balance model.

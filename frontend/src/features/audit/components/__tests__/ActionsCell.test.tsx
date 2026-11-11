@@ -75,7 +75,6 @@ describe("ActionsCell.hideRefundItemForPayoutBasket (LIRA-381)", () => {
   function buildHandlers(): RowActionHandlers {
     return {
       onPrintReceipt: jest.fn(),
-      onVoid: jest.fn(),
       onRefund: jest.fn(),
       onVoidCheckoutGroup: jest.fn(),
       onVoidSessionBasket: jest.fn(),
@@ -194,7 +193,6 @@ describe("ActionsCell.nonReversibleReason (LIRA-079)", () => {
   function buildHandlers(): RowActionHandlers {
     return {
       onPrintReceipt: jest.fn(),
-      onVoid: jest.fn(),
       onRefund: jest.fn(),
       onVoidCheckoutGroup: jest.fn(),
       onVoidSessionBasket: jest.fn(),
@@ -240,11 +238,18 @@ describe("ActionsCell.nonReversibleReason (LIRA-079)", () => {
       expect(label.title).toMatch(/undo (it|refund)/i);
     });
 
-    it("names the Hold Money page for a HOLD_MONEY_COLLECT row", () => {
+    // LIRA-388 — premise reversed: a Hold Money pickup is refunded from its
+    // row (the Hold Money page's own "Void pickup" runs behind it), so it
+    // shows "Refund", never a "Can't refund here" pointer.
+    it("a HOLD_MONEY_COLLECT row gets Refund, not a reason (LIRA-388)", () => {
       renderCell(buildRow({ type: "HOLD_MONEY_COLLECT" }));
 
-      const label = screen.getByTestId("non-reversible-reason");
-      expect(label.title).toMatch(/hold money/i);
+      expect(
+        screen.queryByTestId("non-reversible-reason"),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Refund" }),
+      ).toBeInTheDocument();
     });
 
     it("still shows a bare '—' for a type with no listed reason (unknown/never-classified)", () => {
@@ -256,13 +261,17 @@ describe("ActionsCell.nonReversibleReason (LIRA-079)", () => {
       expect(screen.getByText("—")).toBeInTheDocument();
     });
 
-    it("still shows real Void/Refund buttons for a reversible type (SALE) — unaffected", () => {
+    // LIRA-388 — one action: the per-row Void is gone (guard that the old
+    // path is NOT offered, rule 24).
+    it("shows ONE Refund button and no Void for a reversible type (SALE)", () => {
       renderCell(buildRow({ type: "SALE" }));
 
       expect(
         screen.queryByTestId("non-reversible-reason"),
       ).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Void" })).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Void" }),
+      ).not.toBeInTheDocument();
       expect(
         screen.getByRole("button", { name: "Refund" }),
       ).toBeInTheDocument();
@@ -312,7 +321,6 @@ describe("ActionsCell.sessionBasketButtons (LIRA-201)", () => {
   function buildHandlers(): RowActionHandlers {
     return {
       onPrintReceipt: jest.fn(),
-      onVoid: jest.fn(),
       onRefund: jest.fn(),
       onVoidCheckoutGroup: jest.fn(),
       onVoidSessionBasket: jest.fn(),
@@ -405,7 +413,7 @@ describe("ActionsCell.sessionBasketButtons (LIRA-201)", () => {
       expect(handlers.onVoidSessionBasket).not.toHaveBeenCalled();
     });
 
-    it("a non-session row (sessionId null) still gets plain Void/Refund buttons, not the basket buttons", () => {
+    it("a non-session row (sessionId null) gets the single Refund button (no Void, LIRA-388), not the basket buttons", () => {
       const row = buildSessionRow({ session_id: null });
       const handlers = buildHandlers();
 
@@ -428,7 +436,9 @@ describe("ActionsCell.sessionBasketButtons (LIRA-201)", () => {
       expect(
         screen.queryByRole("button", { name: "Void basket" }),
       ).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Void" })).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Void" }),
+      ).not.toBeInTheDocument();
       expect(
         screen.getByRole("button", { name: "Refund" }),
       ).toBeInTheDocument();
@@ -581,7 +591,6 @@ describe("ActionsCell.sessionItemRefund (LIRA-232)", () => {
   function buildHandlers(): RowActionHandlers {
     return {
       onPrintReceipt: jest.fn(),
-      onVoid: jest.fn(),
       onRefund: jest.fn(),
       onVoidCheckoutGroup: jest.fn(),
       onVoidSessionBasket: jest.fn(),
@@ -761,7 +770,6 @@ describe("ActionsCell.undoRefund (LIRA-147)", () => {
   function buildHandlers(): RowActionHandlers {
     return {
       onPrintReceipt: jest.fn(),
-      onVoid: jest.fn(),
       onRefund: jest.fn(),
       onVoidCheckoutGroup: jest.fn(),
       onVoidSessionBasket: jest.fn(),

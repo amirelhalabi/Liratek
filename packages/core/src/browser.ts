@@ -491,6 +491,9 @@ export type {
 // Must be exported HERE, not only from index.ts — see the telecomCredit.js
 // note earlier in this file for the exact failure mode this avoids.
 export * from "./constants/transactionTypes.js";
+// LIRA-388 — the one refund classification the Transactions page reads
+// (leaf, rule 29).
+export * from "./constants/refundKinds.js";
 
 // LIRA-185 #1 — the MTC/Alfa discount cap (pure, no Node deps). The page's
 // payment-sheet `maxDiscount` and RechargeRepository's server-side cap share

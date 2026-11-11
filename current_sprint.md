@@ -22,9 +22,9 @@
 > single-item basket reversal, and two new tickets this batch filed, **LIRA-229** and **LIRA-230**.
 > That document outranks `PLAN_OVERVIEW.md` §5 and says so in its own header.
 >
-> **Superseded banner, kept for the record:** *"HIGHEST PRIORITY (2026-09-11): OMT open-credit
+> **Superseded banner, kept for the record:** _"HIGHEST PRIORITY (2026-09-11): OMT open-credit
 > account epic, LIRA-187 → LIRA-192 — BUILT 2026-09-15, uncommitted, awaiting diff review. ✓
-> LIRA-193 — the live money bug in shipped code is now FIXED."* That epic **shipped and its plan
+> LIRA-193 — the live money bug in shipped code is now FIXED."_ That epic **shipped and its plan
 > was archived to `done_plans/` on 2026-09-21** once its confirming web run came back green; the
 > "uncommitted, awaiting diff review" wording had been stale for over a week.
 
@@ -116,14 +116,14 @@ validation; or a guard added in slice 1.
 
 ## LIRA-119: Settle modal shows "Net payment $0.00" for an LBP commission
 
-| Field                | Value                                  |
-| -------------------- | -------------------------------------- |
-| **Epic**             | Suppliers / Commission                 |
-| **Type**             | Bug - money risk                       |
-| **Priority**         | **High**                               |
+| Field                | Value                                                                            |
+| -------------------- | -------------------------------------------------------------------------------- |
+| **Epic**             | Suppliers / Commission                                                           |
+| **Type**             | Bug - money risk                                                                 |
+| **Priority**         | **High**                                                                         |
 | **Status**           | **DONE 2026-10-02 (not yet committed)** - see 2026-10-03 verification note below |
-| **Affected Modules** | Suppliers (settle), Commission         |
-| **Source Plan**      | Owner manual test 2026-08-10           |
+| **Affected Modules** | Suppliers (settle), Commission                                                   |
+| **Source Plan**      | Owner manual test 2026-08-10                                                     |
 
 ### Summary
 
@@ -380,13 +380,13 @@ report a file count - an empty glob passed silently).
 
 ## LIRA-124: THROUGH-partner OMT/Whish RECEIVE pays the customer from no drawer
 
-| Field                | Value                                                                         |
-| -------------------- | ----------------------------------------------------------------------------- |
-| **Epic**             | Partners / Money posting                                                      |
-| **Type**             | Bug - untracked cash outflow                                                  |
-| **Priority**         | **High** (latent today, realizes on first use)                                |
-| **Status**           | **DONE** (2e9e822)                                                            |
-| **Affected Modules** | omt_whish, partners                                                           |
+| Field                | Value                                                                            |
+| -------------------- | -------------------------------------------------------------------------------- |
+| **Epic**             | Partners / Money posting                                                         |
+| **Type**             | Bug - untracked cash outflow                                                     |
+| **Priority**         | **High** (latent today, realizes on first use)                                   |
+| **Status**           | **DONE** (2e9e822)                                                               |
+| **Affected Modules** | omt_whish, partners                                                              |
 | **Source Plan**      | `docs/plans/ongoing_plans/PARTNER_DISBURSEMENT_MATRIX.md` (22be723), VIOLATES #1 |
 
 ### Summary
@@ -825,14 +825,14 @@ nothing else in the whitelist is affected.
 
 ## LIRA-139: Sort-by-Amount ignores `amount_lbp` — every LBP-primary row sorts as 0
 
-| Field                | Value                                                              |
-| -------------------- | ------------------------------------------------------------------ |
-| **Epic**             | Transactions / Reporting                                           |
-| **Type**             | Bug - pre-existing, table-wide                                     |
-| **Priority**         | Medium                                                             |
-| **Status** | CLOSED 2026-10-02 (owner confirmed): shipped in 631d0930 (sort by USD equivalent) |
-| **Affected Modules** | audit (Transactions page)                                          |
-| **Source**           | Found 2026-08-12 during the LIRA-137 render-site sweep (`752e154`) |
+| Field                | Value                                                                             |
+| -------------------- | --------------------------------------------------------------------------------- |
+| **Epic**             | Transactions / Reporting                                                          |
+| **Type**             | Bug - pre-existing, table-wide                                                    |
+| **Priority**         | Medium                                                                            |
+| **Status**           | CLOSED 2026-10-02 (owner confirmed): shipped in 631d0930 (sort by USD equivalent) |
+| **Affected Modules** | audit (Transactions page)                                                         |
+| **Source**           | Found 2026-08-12 during the LIRA-137 render-site sweep (`752e154`)                |
 
 > **Note:** Likely shipped in 631d0930 / cab27aa6 — awaiting the owner's confirmation.
 
@@ -871,14 +871,14 @@ what "sort by amount" should MEAN:
 
 ## LIRA-140: Non-till money renders identically to till cash on a settlement row
 
-| Field                | Value                                                        |
-| -------------------- | ------------------------------------------------------------ |
-| **Epic**             | Transactions / Reporting                                     |
-| **Type**             | UX - missing distinction (money is correct)                  |
-| **Priority**         | Low                                                          |
-| **Status** | CLOSED 2026-10-02 (owner confirmed): shipped in cab27aa6 (provider-balance inflows marked apart from till cash) |
-| **Affected Modules** | audit (Transactions page), suppliers                         |
-| **Source**           | Found 2026-08-12 assessing the amber marker during `752e154` |
+| Field                | Value                                                                                                           |
+| -------------------- | --------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Transactions / Reporting                                                                                        |
+| **Type**             | UX - missing distinction (money is correct)                                                                     |
+| **Priority**         | Low                                                                                                             |
+| **Status**           | CLOSED 2026-10-02 (owner confirmed): shipped in cab27aa6 (provider-balance inflows marked apart from till cash) |
+| **Affected Modules** | audit (Transactions page), suppliers                                                                            |
+| **Source**           | Found 2026-08-12 assessing the amber marker during `752e154`                                                    |
 
 > **Note:** Likely shipped in 631d0930 / cab27aa6 — awaiting the owner's confirmation.
 
@@ -1118,16 +1118,16 @@ Ticket closed — DONE.
 
 ## LIRA-138: Generalise the commission-at-settlement drawer top-up to OMT/WHISH (Phase 2)
 
-| Field                | Value                                                                                           |
-| -------------------- | ----------------------------------------------------------------------------------------------- |
-| **Epic**             | Suppliers / Commission-at-settlement                                                            |
-| **Type**             | Feature (deferred generalisation)                                                               |
-| **Priority**         | Medium                                                                                          |
-| **Status** | CLOSED 2026-10-03, no build needed. The owner confirmed OMT/Whish never pays commission separately: it is deducted from what the shop pays ("INCLUDES INTRA SHARES" on the OMT statement SMS). The shipped settle flow already handles this (gross payable, commission off the payment, profit at settlement / deferred per D17). See LIRA-255 for the statement check |
-| **Affected Modules** | Suppliers (OMT/WHISH), `SupplierRepository`                                                     |
-| **Assigned To**      | —                                                                                               |
-| **Depends On**       | LIRA-137 (DONE), `COMMISSION_AT_SETTLEMENT_PLAN.md` Phase 2 (OMT/WHISH gross flip, not shipped) |
-| **Source Plan**      | `COMMISSION_AT_SETTLEMENT_PLAN.md` D13; `BILL_COMMISSION_SETTLEMENT_PLAN.md` §4                 |
+| Field                | Value                                                                                                                                                                                                                                                                                                                                                                  |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Suppliers / Commission-at-settlement                                                                                                                                                                                                                                                                                                                                   |
+| **Type**             | Feature (deferred generalisation)                                                                                                                                                                                                                                                                                                                                      |
+| **Priority**         | Medium                                                                                                                                                                                                                                                                                                                                                                 |
+| **Status**           | CLOSED 2026-10-03, no build needed. The owner confirmed OMT/Whish never pays commission separately: it is deducted from what the shop pays ("INCLUDES INTRA SHARES" on the OMT statement SMS). The shipped settle flow already handles this (gross payable, commission off the payment, profit at settlement / deferred per D17). See LIRA-255 for the statement check |
+| **Affected Modules** | Suppliers (OMT/WHISH), `SupplierRepository`                                                                                                                                                                                                                                                                                                                            |
+| **Assigned To**      | —                                                                                                                                                                                                                                                                                                                                                                      |
+| **Depends On**       | LIRA-137 (DONE), `COMMISSION_AT_SETTLEMENT_PLAN.md` Phase 2 (OMT/WHISH gross flip, not shipped)                                                                                                                                                                                                                                                                        |
+| **Source Plan**      | `COMMISSION_AT_SETTLEMENT_PLAN.md` D13; `BILL_COMMISSION_SETTLEMENT_PLAN.md` §4                                                                                                                                                                                                                                                                                        |
 
 ### Summary
 
@@ -1167,15 +1167,15 @@ this ticket is what extends the SAME drawer-top-up/profit-stamp treatment to the
 
 ## LIRA-079: Refund Scope + Void Button Decision
 
-| Field                | Value                      |
-| -------------------- | -------------------------- |
-| **Epic**             | Transactions               |
-| **Type**             | Enhancement / Decision     |
-| **Priority**         | Medium                     |
-| **Status** | DONE 2026-10-02 (not yet committed) — verified: before this change, the Transactions page's Actions cell showed a bare "—" for all 24 `NON_REVERSIBLE_TRANSACTION_TYPES` members with no explanation (`frontend/src/features/audit/components/TransactionCells.tsx` `ActionsCell`). Added `frontend/src/features/audit/nonReversibleReasons.ts` — one plain-language "where to reverse it instead" message per type (sourced from each type's own rule-20 rationale comment in `transactionTypes.ts`), wired into `ActionsCell` as a "Can't refund here" label with the full explanation as its tooltip (falls back to "—" for any future type not yet classified, same as before). A guard test (`nonReversibleReasons.guard.test.ts`) pins the message map 1:1 against core's `NON_REVERSIBLE_TRANSACTION_TYPES` (24/24, no missing/stale entries) the same way `actionGating.guard.test.ts` already pins `ACTIONABLE_TYPES`. Also fixed a comment in `transactionTypes.ts` (PARTNER_ADJUSTMENT) that still pointed at the "Record Tx" button LIRA-096 just removed. Void stays next to Refund, unchanged — pure additive UI, no backend/IPC/REST change needed (reads only `row.type`, already present on both transports, rule 19 satisfied for free). `yarn workspace @liratek/frontend typecheck` (27.5s), `yarn workspace @liratek/core typecheck` (10.4s), eslint on touched files, and `src/features/audit/**` (35 suites / 368 tests) all green. |
-| **Affected Modules** | Audit > TransactionsViewer |
-| **Assigned To**      | —                          |
-| **Depends On**       | —                          |
+| Field                | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Transactions                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| **Type**             | Enhancement / Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| **Priority**         | Medium                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| **Status**           | DONE 2026-10-02 (not yet committed) — verified: before this change, the Transactions page's Actions cell showed a bare "—" for all 24 `NON_REVERSIBLE_TRANSACTION_TYPES` members with no explanation (`frontend/src/features/audit/components/TransactionCells.tsx` `ActionsCell`). Added `frontend/src/features/audit/nonReversibleReasons.ts` — one plain-language "where to reverse it instead" message per type (sourced from each type's own rule-20 rationale comment in `transactionTypes.ts`), wired into `ActionsCell` as a "Can't refund here" label with the full explanation as its tooltip (falls back to "—" for any future type not yet classified, same as before). A guard test (`nonReversibleReasons.guard.test.ts`) pins the message map 1:1 against core's `NON_REVERSIBLE_TRANSACTION_TYPES` (24/24, no missing/stale entries) the same way `actionGating.guard.test.ts` already pins `ACTIONABLE_TYPES`. Also fixed a comment in `transactionTypes.ts` (PARTNER_ADJUSTMENT) that still pointed at the "Record Tx" button LIRA-096 just removed. Void stays next to Refund, unchanged — pure additive UI, no backend/IPC/REST change needed (reads only `row.type`, already present on both transports, rule 19 satisfied for free). `yarn workspace @liratek/frontend typecheck` (27.5s), `yarn workspace @liratek/core typecheck` (10.4s), eslint on touched files, and `src/features/audit/**` (35 suites / 368 tests) all green. |
+| **Affected Modules** | Audit > TransactionsViewer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| **Assigned To**      | —                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| **Depends On**       | —                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 ### Summary
 
@@ -1200,15 +1200,15 @@ generic reversal path cannot safely undo. Blocked on owner answers before any co
 
 ## LIRA-083: Service Status Workflow for Custom Services — DONE 2026-10-03 (`b802dae7`)
 
-| Field                | Value           |
-| -------------------- | --------------- |
-| **Epic**             | Custom Services |
-| **Type**             | Feature         |
-| **Priority**         | Medium          |
-| **Status**           | DONE 2026-10-03 — committed `b802dae7` — owner decisions: four states Received -> In_Progress -> Ready -> Delivered (matching Maintenance's own `status` vocabulary exactly, not the existing `fulfillment_status`/LIRA-155 enum which is a different, strict-transition insurance concept reserved for that ticket); freeform transitions, any value to any value (mirrors `MaintenanceRepository.updateJob`'s own whole-form-resubmit model, not `insuranceFulfillment.ts`'s forward-only one — a single-operator housekeeping field doesn't need enforcement); every pre-migration row backfills to 'Delivered' (new rows default 'Received'). Migration v190 (`packages/core/src/db/migrations/index.ts`, mirrored in `electron-app/create_db.sql`) adds `custom_services.work_status` via ALTER with NO CHECK constraint (SQLite limitation, same convention as v185's `direction`), vocabulary enforced at the Zod layer (`updateCustomServiceWorkStatusSchema`, `packages/core/src/validators/customService.ts`) via the one shared definition `packages/core/src/utils/customServiceWorkStatus.ts` (exported from both `index.ts` and `browser.ts`). Dual-transport (rule 19): IPC `custom-services:set-work-status` (`electron-app/handlers/customServiceHandlers.ts`) + REST `POST /api/custom-services/work-status` (`backend/src/api/customServices.ts`), both calling `CustomServiceService.setWorkStatus`; `getAll`/`getServices`/the list IPC/REST routes gained an optional `workStatus` filter too. Frontend: `HistoryModal.tsx` gained a "Work Status" column (a per-row `<select>`, disabled once refunded) plus an "All work status" filter dropdown; `CustomServiceRepository`/`CustomServiceService`/preload/`electron.d.ts`/`backendApi.ts`/`ElectronApiAdapter.ts`/`packages/ui/src/api/types.ts` all updated (rules 12, 21). Caught and fixed along the way: 7 pre-existing core test fixtures' hand-rolled in-memory `custom_services` schemas were missing the new column (the documented "test schemas silently void whole files" trap) — patched; and `WORK_STATUS_LABELS`' derived-not-literal construction exists specifically to avoid tripping `maintenanceInProgressLiteral.guard.test.ts`, a core-wide guard against a quoted "In Progress" (space) string (the real value is `In_Progress`, underscore) — first attempt used a hand-typed label and was caught red by this pre-existing guard; fixed by deriving the label (`s.replace(/_/g, " ")`) instead of spelling it out, which also means the guard's regex never appears literally anywhere in this ticket's own source. Verified: `packages/core` full jest (469 suites / 4557 tests, 85.7s) green; `packages/core`, `backend`, `electron-app`, `frontend` (`tsconfig.app.json`, 15.4s), `packages/ui` typechecks all clean; `backend` customServices API tests, `electron-app` customServiceHandlers tests, and `frontend/src/features/custom-services` (11 suites / 68 tests, including the new `CustomServices.workStatus.test.tsx`) all green — one pre-existing frontend test (`CustomServices.insuranceFulfillmentHistory.test.tsx`) needed a `{ selector: "span" }` disambiguator since the new column's "Delivered" `<option>` is now a second text match in the same row; not a regression, a legitimately more specific query. E2E skipped per this session's lean-test-routine owner rule (no e2e this pass) — flagged for the owner/next e2e pass; no spec file added or touched. |
-| **Affected Modules** | Custom Services |
-| **Assigned To**      | —               |
-| **Depends On**       | —               |
+| Field                | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Epic**             | Custom Services                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| **Type**             | Feature                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **Priority**         | Medium                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| **Status**           | DONE 2026-10-03 — committed `b802dae7` — owner decisions: four states Received -> In*Progress -> Ready -> Delivered (matching Maintenance's own `status` vocabulary exactly, not the existing `fulfillment_status`/LIRA-155 enum which is a different, strict-transition insurance concept reserved for that ticket); freeform transitions, any value to any value (mirrors `MaintenanceRepository.updateJob`'s own whole-form-resubmit model, not `insuranceFulfillment.ts`'s forward-only one — a single-operator housekeeping field doesn't need enforcement); every pre-migration row backfills to 'Delivered' (new rows default 'Received'). Migration v190 (`packages/core/src/db/migrations/index.ts`, mirrored in `electron-app/create_db.sql`) adds `custom_services.work_status` via ALTER with NO CHECK constraint (SQLite limitation, same convention as v185's `direction`), vocabulary enforced at the Zod layer (`updateCustomServiceWorkStatusSchema`, `packages/core/src/validators/customService.ts`) via the one shared definition `packages/core/src/utils/customServiceWorkStatus.ts` (exported from both `index.ts` and `browser.ts`). Dual-transport (rule 19): IPC `custom-services:set-work-status` (`electron-app/handlers/customServiceHandlers.ts`) + REST `POST /api/custom-services/work-status` (`backend/src/api/customServices.ts`), both calling `CustomServiceService.setWorkStatus`; `getAll`/`getServices`/the list IPC/REST routes gained an optional `workStatus` filter too. Frontend: `HistoryModal.tsx` gained a "Work Status" column (a per-row `<select>`, disabled once refunded) plus an "All work status" filter dropdown; `CustomServiceRepository`/`CustomServiceService`/preload/`electron.d.ts`/`backendApi.ts`/`ElectronApiAdapter.ts`/`packages/ui/src/api/types.ts` all updated (rules 12, 21). Caught and fixed along the way: 7 pre-existing core test fixtures' hand-rolled in-memory `custom_services` schemas were missing the new column (the documented "test schemas silently void whole files" trap) — patched; and `WORK_STATUS_LABELS`' derived-not-literal construction exists specifically to avoid tripping `maintenanceInProgressLiteral.guard.test.ts`, a core-wide guard against a quoted "In Progress" (space) string (the real value is `In_Progress`, underscore) — first attempt used a hand-typed label and was caught red by this pre-existing guard; fixed by deriving the label (`s.replace(/*/g, " ")`) instead of spelling it out, which also means the guard's regex never appears literally anywhere in this ticket's own source. Verified: `packages/core`full jest (469 suites / 4557 tests, 85.7s) green;`packages/core`, `backend`, `electron-app`, `frontend` (`tsconfig.app.json`, 15.4s), `packages/ui`typechecks all clean;`backend`customServices API tests,`electron-app`customServiceHandlers tests, and`frontend/src/features/custom-services`(11 suites / 68 tests, including the new`CustomServices.workStatus.test.tsx`) all green — one pre-existing frontend test (`CustomServices.insuranceFulfillmentHistory.test.tsx`) needed a `{ selector: "span" }`disambiguator since the new column's "Delivered"`<option>` is now a second text match in the same row; not a regression, a legitimately more specific query. E2E skipped per this session's lean-test-routine owner rule (no e2e this pass) — flagged for the owner/next e2e pass; no spec file added or touched. |
+| **Affected Modules** | Custom Services                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| **Assigned To**      | —                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| **Depends On**       | —                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 ### Summary
 
@@ -1240,15 +1240,15 @@ progresses.
 
 ## LIRA-084: Partial Keep-Change — DONE 2026-10-02 (`b802dae7`)
 
-| Field                | Value                                            |
-| -------------------- | ------------------------------------------------ |
-| **Epic**             | Payments                                         |
-| **Type**             | Enhancement                                      |
-| **Priority**         | Medium                                           |
+| Field                | Value                                               |
+| -------------------- | --------------------------------------------------- |
+| **Epic**             | Payments                                            |
+| **Type**             | Enhancement                                         |
+| **Priority**         | Medium                                              |
 | **Status**           | DONE 2026-10-02 — committed `b802dae7` (2026-10-03) |
-| **Affected Modules** | MultiPaymentInput (shared)                       |
-| **Assigned To**      | —                                                |
-| **Depends On**       | T3 Keep Change (shipped — this is the follow-up) |
+| **Affected Modules** | MultiPaymentInput (shared)                          |
+| **Assigned To**      | —                                                   |
+| **Depends On**       | T3 Keep Change (shipped — this is the follow-up)    |
 
 ### Summary
 
@@ -1296,15 +1296,15 @@ of a 140,000 LBP change, return 100,000 LBP and keep 40,000 on the customer's ac
 
 ## LIRA-087: Product-Supplier — Record Debt Now, Attach Products Later — DONE 2026-10-02 (`b802dae7`)
 
-| Field                | Value                 |
-| -------------------- | --------------------- |
-| **Epic**             | Suppliers / Inventory |
-| **Type**             | Feature               |
-| **Priority**         | Medium                |
+| Field                | Value                                                                |
+| -------------------- | -------------------------------------------------------------------- |
+| **Epic**             | Suppliers / Inventory                                                |
+| **Type**             | Feature                                                              |
+| **Priority**         | Medium                                                               |
 | **Status**           | DONE 2026-10-02 — committed `b802dae7` (2026-10-03) — migration v189 |
-| **Affected Modules** | Suppliers, Inventory  |
-| **Assigned To**      | —                     |
-| **Depends On**       | —                     |
+| **Affected Modules** | Suppliers, Inventory                                                 |
+| **Assigned To**      | —                                                                    |
+| **Depends On**       | —                                                                    |
 
 ### Summary
 
@@ -1344,25 +1344,25 @@ items. Add a flow to record the debt first, then attach the related products to 
 
 ### Files to Modify (as built)
 
-| Layer    | File                                                                       | Change                                                           |
-| -------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| Database | `packages/core/src/db/migrations/index.ts`, `electron-app/create_db.sql`   | Migration v189: `supplier_ledger.entry_type` widened + `attached_at` column |
-| Backend  | `packages/core/src/repositories/{SupplierRepository,ProductRepository}.ts`, `TransactionRepository.ts` (void reuse), `constants/transactionTypes.ts`, `services/{SupplierService,InventoryService}.ts`, `validators/{supplier,inventory}.ts` | Two-step debt→attach flow, dual-transport (IPC `suppliers:record-debt`/`suppliers:open-recorded-debts`, REST `/api/suppliers/:id/record-debt`+`/recorded-debts`, `/api/inventory/products/:id/receive-stock` reused as-is via the shared schema) |
-| Frontend | `frontend/src/features/suppliers/{pages/Suppliers/index.tsx,hooks/useSuppliers.ts}`, `frontend/src/features/inventory/{components/AdjustStockModal.tsx,hooks/useStockAdjustments.ts}`, `frontend/src/api/{backendApi.ts,ElectronApiAdapter.ts}`, `packages/ui/src/api/types.ts`, `frontend/src/types/electron.d.ts`, `electron-app/{preload.ts,schemas/index.ts,handlers/supplierHandlers.ts}` | "Record Debt" modal (Suppliers), "Attach to a recorded debt" picker (Inventory restock modal), full dual-transport wiring |
+| Layer    | File                                                                                                                                                                                                                                                                                                                                                                                           | Change                                                                                                                                                                                                                                           |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Database | `packages/core/src/db/migrations/index.ts`, `electron-app/create_db.sql`                                                                                                                                                                                                                                                                                                                       | Migration v189: `supplier_ledger.entry_type` widened + `attached_at` column                                                                                                                                                                      |
+| Backend  | `packages/core/src/repositories/{SupplierRepository,ProductRepository}.ts`, `TransactionRepository.ts` (void reuse), `constants/transactionTypes.ts`, `services/{SupplierService,InventoryService}.ts`, `validators/{supplier,inventory}.ts`                                                                                                                                                   | Two-step debt→attach flow, dual-transport (IPC `suppliers:record-debt`/`suppliers:open-recorded-debts`, REST `/api/suppliers/:id/record-debt`+`/recorded-debts`, `/api/inventory/products/:id/receive-stock` reused as-is via the shared schema) |
+| Frontend | `frontend/src/features/suppliers/{pages/Suppliers/index.tsx,hooks/useSuppliers.ts}`, `frontend/src/features/inventory/{components/AdjustStockModal.tsx,hooks/useStockAdjustments.ts}`, `frontend/src/api/{backendApi.ts,ElectronApiAdapter.ts}`, `packages/ui/src/api/types.ts`, `frontend/src/types/electron.d.ts`, `electron-app/{preload.ts,schemas/index.ts,handlers/supplierHandlers.ts}` | "Record Debt" modal (Suppliers), "Attach to a recorded debt" picker (Inventory restock modal), full dual-transport wiring                                                                                                                        |
 
 ---
 
 ## LIRA-088: MTC/Alfa Provider-Balance Decrement Adjustment — DONE 2026-09-25 (`9ed8d90f`)
 
-| Field                | Value                |
-| -------------------- | -------------------- |
-| **Epic**             | Recharge             |
-| **Type**             | Feature              |
-| **Priority**         | Medium               |
+| Field                | Value                                                                                                                                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Epic**             | Recharge                                                                                                                                                                                               |
+| **Type**             | Feature                                                                                                                                                                                                |
+| **Priority**         | Medium                                                                                                                                                                                                 |
 | **Status**           | DONE 2026-09-25 — committed `9ed8d90f` — built as #21's shop-line checkbox (buy back vs charge the customer) + #22's signed decrement, per `OWNER_NOTES_REMAINING_BUILD.md`; unit/typecheck/lint green |
-| **Affected Modules** | Recharge > MTC, Alfa |
-| **Assigned To**      | —                    |
-| **Depends On**       | —                    |
+| **Affected Modules** | Recharge > MTC, Alfa                                                                                                                                                                                   |
+| **Assigned To**      | —                                                                                                                                                                                                      |
+| **Depends On**       | —                                                                                                                                                                                                      |
 
 ### Summary
 
@@ -1396,16 +1396,16 @@ NEEDS INTERVIEW — confirm which balance the owner meant before building
 
 ## LIRA-099: Multi-tenant — admin/impersonation e2e spec + final full-suite proof
 
-| Field                | Value                                                                        |
-| -------------------- | ---------------------------------------------------------------------------- |
-| **Epic**             | Multi-Tenant / Admin                                                         |
-| **Type**             | Test                                                                         |
-| **Priority**         | Medium                                                                       |
+| Field                | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Multi-Tenant / Admin                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| **Type**             | Test                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| **Priority**         | Medium                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | **Status**           | DONE 2026-10-03 (WP9 e2e spec only — the full-suite proof item is explicitly out of scope here, see note below) — `frontend/tests/e2e-web/lira-web-038-admin-impersonation.spec.ts`: seeded super_admin logs in through the real UI, provisions a tenant via the real `AddTenantModal`, "Connect as admin" opens a real new tab carrying the handoff, `ImpersonationBanner` renders, a write made under the impersonation token lands ONLY in the target tenant (REST isolation check against tenant 1), the audit trail is proven against the SHIPPED contract (platform + shop-note `IMPERSONATION_START` rows, `impersonator_id` always NULL by design — B-D3 — actor identity lives in `metadata.impersonatorUserId`), and Disconnect returns the impersonated tab to `/login` while the original super-admin tab stays authenticated. Web: 2/2 passed. Also fixed a real test-harness gap: `playwright.web.config.ts`'s webServer didn't pin `APP_BASE_DOMAIN`, so a developer's own `backend/.env` (`APP_BASE_DOMAIN=liratek.shop`) leaked in and made the impersonation handoff navigate to an unreachable real subdomain — now pinned to `""` like the backend jest suite already pins it. |
-| **Affected Modules** | Admin, Multi-Tenant                                                          |
-| **Assigned To**      | —                                                                            |
-| **Depends On**       | —                                                                            |
-| **Source Plan**      | `docs/plans/done_plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md` (WP9, last item) |
+| **Affected Modules** | Admin, Multi-Tenant                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| **Assigned To**      | —                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| **Depends On**       | —                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| **Source Plan**      | `docs/plans/done_plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md` (WP9, last item)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 ### Summary
 
@@ -1442,16 +1442,16 @@ browser (`impersonat` has zero hits across all of `frontend/tests/`).
 
 ## LIRA-101: Primary Cash Drawer — cleanup stale docs/dead code + verify Suppliers `settleNetPayUsd`
 
-| Field                | Value                                                                     |
-| -------------------- | ------------------------------------------------------------------------- |
-| **Epic**             | Suppliers / Financial Services                                            |
-| **Type**             | Cleanup / Verification                                                    |
-| **Priority**         | Medium (one sub-item touches money math)                                  |
+| Field                | Value                                                                      |
+| -------------------- | -------------------------------------------------------------------------- |
+| **Epic**             | Suppliers / Financial Services                                             |
+| **Type**             | Cleanup / Verification                                                     |
+| **Priority**         | Medium (one sub-item touches money math)                                   |
 | **Status**           | DONE 2026-10-02 (not yet committed) — core-side items only; see note below |
-| **Affected Modules** | Suppliers, Financial Services                                             |
-| **Assigned To**      | —                                                                         |
-| **Depends On**       | —                                                                         |
-| **Source Plan**      | `docs/plans/done_plans/PRIMARY_CASH_DRAWER_PLAN.md` (§6, remaining items) |
+| **Affected Modules** | Suppliers, Financial Services                                              |
+| **Assigned To**      | —                                                                          |
+| **Depends On**       | —                                                                          |
+| **Source Plan**      | `docs/plans/done_plans/PRIMARY_CASH_DRAWER_PLAN.md` (§6, remaining items)  |
 
 ### Summary
 
@@ -1504,7 +1504,7 @@ attention:
   `npm run build` both clean afterward.
 - **`settleNetPayUsd` verification**: this is a FRONTEND-computed variable
   (`frontend/src/features/suppliers/pages/Suppliers/index.tsx:1324-1333`) — `isNewModelBatch ? max(0, gross −
-  enteredCommission) : max(0, gross)` — with no core-side namesake. Its comments there (and in
+enteredCommission) : max(0, gross)` — with no core-side namesake. Its comments there (and in
   `useSuppliers.ts:465-483`) were re-read in full and are ALREADY CORRECT/current, accurately describing the
   gated legacy-fee-only-vs-new-model-gross split (post-dating this ticket's original diagnosis — ticket line
   numbers were stale, not the code). No edit needed on either acceptance-criteria sub-item.
@@ -1522,7 +1522,7 @@ attention:
   all passed, 61.2s**; `yarn workspace @liratek/backend test -- suppliers.api` → **24/24 passed**;
   `yarn workspace @liratek/backend test -- services.api FinancialService.test` → **49/49 passed**;
   `node scripts/check-tenant-scoping.mjs` → 0 violations (218 files, 940 statements); `node
-  scripts/check-bind-arity.mjs` → OK. **Verdict: `settleNetPayUsd`'s math is correct under the current GROSS
+scripts/check-bind-arity.mjs` → OK. **Verdict: `settleNetPayUsd`'s math is correct under the current GROSS
   model — no discrepancy found, so no guard test was needed (rule 17 only requires one when a bug is found).**
 - No release note (rule 30): no user-visible behavior changed — comments, dead code, and verification only.
 - **Owner question**: none — no removal or behavior question required a stop.
@@ -1539,16 +1539,16 @@ attention:
 
 ## LIRA-110: Daily closing sums financial-services commission with ZERO gates — SUPERSEDED by LIRA-158 + LIRA-160
 
-| Field                | Value                                                                    |
-| -------------------- | ------------------------------------------------------------------------ |
-| **Epic**             | Closing / Profits                                                        |
-| **Type**             | Bug (candidate — same class as LIRA-108)                                 |
-| **Priority**         | Medium                                                                   |
+| Field                | Value                                                                                                             |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Closing / Profits                                                                                                 |
+| **Type**             | Bug (candidate — same class as LIRA-108)                                                                          |
+| **Priority**         | Medium                                                                                                            |
 | **Status**           | **SUPERSEDED** — split into LIRA-158 (DONE) + LIRA-160 (**DONE** 2026-09-04, see the `## LIRA-160:` ticket below) |
-| **Affected Modules** | Closing                                                                  |
-| **Assigned To**      | —                                                                        |
-| **Depends On**       | —                                                                        |
-| **Source Plan**      | Found by LIRA-108's workflow (2026-08-08, confirmed by both reviewers)   |
+| **Affected Modules** | Closing                                                                                                           |
+| **Assigned To**      | —                                                                                                                 |
+| **Depends On**       | —                                                                                                                 |
+| **Source Plan**      | Found by LIRA-108's workflow (2026-08-08, confirmed by both reviewers)                                            |
 
 ### Summary
 
@@ -1601,14 +1601,14 @@ other.
 
 ## LIRA-116: Rename the crossed "Services" module labels/routes (owner approved)
 
-| Field                | Value                                |
-| -------------------- | ------------------------------------ |
-| **Epic**             | Naming / DX                          |
-| **Type**             | Refactor (naming only)               |
-| **Priority**         | **High** (raised 2026-08-22)         |
+| Field                | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Naming / DX                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **Type**             | Refactor (naming only)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| **Priority**         | **High** (raised 2026-08-22)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | **Status**           | **DONE** — verified already shipped 2026-10-02 (stale TODO status corrected; this ticket's own file had drifted, rule per `feedback_verify_plan_doc_status`). Shipped in `890290c8` ("refactor(routing): rename the omt_whish route /services -> /omt-whish (LIRA-116)") plus migration v162 (`rename_omt_whish_route_to_omt_whish`, `packages/core/src/db/migrations/index.ts`). Verified by reading current code, not just the commit message: `omt_whish` module row is `('OMT/Whish', '/omt-whish')` and `custom_services` is `('Services', '/custom-services')` in both `electron-app/create_db.sql` (tenant-1 seed) and migration v162's `up()`; `ActiveModuleContext.tsx`'s route→key map has `"/omt-whish": "omt_whish"` and `"/custom-services": "custom_services"`; `App.tsx` serves both target routes and keeps `path="/services"` as a `<Navigate to="/omt-whish" replace />` redirect (old bookmarks don't 404) with an inline comment explaining why. Grepped `frontend/tests/` for `"/services"` / `'/services'` — zero hits, so no e2e spec needed updating. The "For Partner" checkbox label was not touched, per the ticket's own note. No further work needed. |
-| **Affected Modules** | Custom Services, OMT/Whish           |
-| **Source Plan**      | Found while diagnosing LIRA-114      |
+| **Affected Modules** | Custom Services, OMT/Whish                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| **Source Plan**      | Found while diagnosing LIRA-114                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 > 🔴 **THIRD STRIKE, 2026-08-22 — priority raised to High.** This has now misled a **third**
 > consecutive LIRA-114 investigation, and that one produced a dated, file:line-cited "resolved"
@@ -1657,14 +1657,14 @@ Owner approved the rename 2026-08-09 ("rename yes").
 
 ## LIRA-117: No e2e spec drives the inventory-pick → stock-decrement flow
 
-| Field                | Value                                 |
-| -------------------- | ------------------------------------- |
-| **Epic**             | Custom Services / Inventory           |
-| **Type**             | Test coverage gap                     |
-| **Priority**         | Medium                                |
+| Field                | Value                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Epic**             | Custom Services / Inventory                                                                                                                                                                                                                                                                                                                                                                                              |
+| **Type**             | Test coverage gap                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **Priority**         | Medium                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | **Status**           | DONE 2026-10-03 — `frontend/tests/e2e-electron/lira-117-custom-service-item-pick.spec.ts` drives the real `custom-service-item-search` dropdown PICK (not fill+Enter): stock decrements by exactly 1 (delta), price/cost pre-fill, the transaction carries the right amount/profit, refund restores stock, and a follow-up free-text submission proves `product_id` stays NULL and stock untouched. Desktop: 2/2 passed. |
-| **Affected Modules** | Custom Services, Inventory            |
-| **Source Plan**      | Found while shipping §2b (2026-08-09) |
+| **Affected Modules** | Custom Services, Inventory                                                                                                                                                                                                                                                                                                                                                                                               |
+| **Source Plan**      | Found while shipping §2b (2026-08-09)                                                                                                                                                                                                                                                                                                                                                                                    |
 
 ### Summary
 
@@ -1704,15 +1704,15 @@ IPC payloads bypass the frontend entirely and cannot catch a frontend↔reposito
 
 ## LIRA-058: OMT APP — Topup Flow Design
 
-| Field                | Value                         |
-| -------------------- | ----------------------------- |
-| **Epic**             | OMT App Topup                 |
-| **Type**             | Feature                       |
-| **Priority**         | Medium                        |
-| **Status** | CLOSED 2026-10-02 (owner confirmed): delivered by the OMT open-credit work (LIRA-187..194): an OMT App top-up adds to what is owed to OMT instead of taking drawer cash; Cash Out to OMT returns it |
-| **Affected Modules** | Recharge > OMT App, Suppliers |
-| **Assigned To**      | —                             |
-| **Depends On**       | —                             |
+| Field                | Value                                                                                                                                                                                               |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | OMT App Topup                                                                                                                                                                                       |
+| **Type**             | Feature                                                                                                                                                                                             |
+| **Priority**         | Medium                                                                                                                                                                                              |
+| **Status**           | CLOSED 2026-10-02 (owner confirmed): delivered by the OMT open-credit work (LIRA-187..194): an OMT App top-up adds to what is owed to OMT instead of taking drawer cash; Cash Out to OMT returns it |
+| **Affected Modules** | Recharge > OMT App, Suppliers                                                                                                                                                                       |
+| **Assigned To**      | —                                                                                                                                                                                                   |
+| **Depends On**       | —                                                                                                                                                                                                   |
 
 ### Summary
 
@@ -1743,15 +1743,15 @@ Topping up OMT App from OMT System should:
 
 ## LIRA-096: Partners Page — Remove "Record Transaction" (Redundant with Add Credit/Debt)
 
-| Field                | Value                                                               |
-| -------------------- | ------------------------------------------------------------------- |
-| **Epic**             | Partner System                                                      |
-| **Type**             | Cleanup / Decision                                                  |
-| **Priority**         | Low                                                                 |
-| **Status** | DONE 2026-10-02 (not yet committed) — confirmed no functional gap (the generic type picker's non-ADJUSTMENT types bucket identically to ADJUSTMENT in every balance/coverage query; `SETTLEMENT` is already written, better, by the dedicated "Settle" button, including its no-cash-moved paper case), then removed the "Record Tx" action/button/modal-branch/state from `frontend/src/features/partners/pages/Partners/index.tsx`, keeping `RecordTxModal` as the "Add Credit/Debt"-only modal (dropped the now-dead `adjustmentOnly` prop and `TRANSACTION_TYPE_GROUPS`). Backend `recordTransaction` IPC/REST path kept unchanged — still used by Add Credit/Debt. Guard test added confirming the button/modal title are gone. `yarn workspace @liratek/frontend typecheck` (27.6s) and eslint on touched files both clean. |
-| **Affected Modules** | Partners                                                            |
-| **Assigned To**      | —                                                                   |
-| **Depends On**       | LIRA-051 (DONE — prior Record Transaction type-list simplification) |
+| Field                | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Partner System                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| **Type**             | Cleanup / Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| **Priority**         | Low                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| **Status**           | DONE 2026-10-02 (not yet committed) — confirmed no functional gap (the generic type picker's non-ADJUSTMENT types bucket identically to ADJUSTMENT in every balance/coverage query; `SETTLEMENT` is already written, better, by the dedicated "Settle" button, including its no-cash-moved paper case), then removed the "Record Tx" action/button/modal-branch/state from `frontend/src/features/partners/pages/Partners/index.tsx`, keeping `RecordTxModal` as the "Add Credit/Debt"-only modal (dropped the now-dead `adjustmentOnly` prop and `TRANSACTION_TYPE_GROUPS`). Backend `recordTransaction` IPC/REST path kept unchanged — still used by Add Credit/Debt. Guard test added confirming the button/modal title are gone. `yarn workspace @liratek/frontend typecheck` (27.6s) and eslint on touched files both clean. |
+| **Affected Modules** | Partners                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| **Assigned To**      | —                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| **Depends On**       | LIRA-051 (DONE — prior Record Transaction type-list simplification)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 ### Summary
 
@@ -1783,14 +1783,14 @@ exists, it needs to move into Add Credit/Debt first, or the owner needs to accep
 
 ## LIRA-068: Price-change alert on every page with a selling price (was "Amount Changed" badge) — POSTPONED
 
-| Field                | Value                                                                 |
-| -------------------- | --------------------------------------------------------------------- |
-| **Epic**             | Transaction Visibility / Audit                                        |
-| **Type**             | Enhancement                                                           |
-| **Priority**         | Low                                                                   |
+| Field                | Value                                                                                 |
+| -------------------- | ------------------------------------------------------------------------------------- |
+| **Epic**             | Transaction Visibility / Audit                                                        |
+| **Type**             | Enhancement                                                                           |
+| **Priority**         | Low                                                                                   |
 | **Status**           | POSTPONED by the owner 2026-10-02 (enhancement for later). Redefined; findings below. |
-| **Affected Modules** | recharge (exists), pos, custom_services, omt_whish, audit (Transactions table) |
-| **Depends On**       | —                                                                     |
+| **Affected Modules** | recharge (exists), pos, custom_services, omt_whish, audit (Transactions table)        |
+| **Depends On**       | —                                                                                     |
 
 ### Findings (2026-10-02)
 
@@ -1801,6 +1801,7 @@ exists, it needs to move into Add Credit/Debt first, or the owner needs to accep
 who did it in Transactions and the Audit Log. An "amount changed" badge would never fire.
 
 **2. The related mechanism that DOES exist: the recharge "Margin" alert.**
+
 - Setting: Settings → Shop Config → "Recharge Margin Alert" → `recharge_margin_alert_threshold`
   (default 100,000 LBP).
 - Logic: `frontend/src/features/recharge/components/HistoryModal.tsx` ~305-350. Each MTC/Alfa sale stores
@@ -1811,11 +1812,11 @@ who did it in Transactions and the Audit Log. An "amount changed" badge would ne
 
 **3. Live test on cornertech (2026-10-02; both sales refunded, all drawers back to identical values):**
 
-| Sale ($3 MTC credit) | Usual price | Charged | Badge |
-| --- | --- | --- | --- |
-| A, raised | 300,000 LBP | 450,000 LBP | yes ("margin: 150,000 LBP") |
-| B, lowered | 300,000 LBP | 150,000 LBP | **no** |
-| C, priced in $ | — | — | not possible: the Credit tab's price is LBP-only (USD price entry exists only on Days) |
+| Sale ($3 MTC credit) | Usual price | Charged     | Badge                                                                                  |
+| -------------------- | ----------- | ----------- | -------------------------------------------------------------------------------------- |
+| A, raised            | 300,000 LBP | 450,000 LBP | yes ("margin: 150,000 LBP")                                                            |
+| B, lowered           | 300,000 LBP | 150,000 LBP | **no**                                                                                 |
+| C, priced in $       | —           | —           | not possible: the Credit tab's price is LBP-only (USD price entry exists only on Days) |
 
 So today the alert misses undercharging (the usual way a cashier keeps the difference), and it is visible
 only inside one History window.
@@ -1824,16 +1825,17 @@ only inside one History window.
 
 Not a generic "remember every price" system. Compare against the usual price each page ALREADY has:
 
-| Page | Usual price exists? | Alert? |
-| --- | --- | --- |
-| MTC / Alfa | yes — auto-filled Price to Client | yes (exists; fix it) |
-| POS | yes — the product's selling price in Inventory | yes, IF the cashier can change a line's price at checkout (to confirm in code) |
-| Custom services | yes, when sold from a preset | yes, preset sales only |
-| OMT / Whish fees | partly — fee tables for Intra / Western Union | only where a fee table exists |
-| Exchange | the shop rate | already covered by the payment-form rate warning (LIRA-240) |
-| Maintenance, free-typed services | no | no |
+| Page                             | Usual price exists?                            | Alert?                                                                         |
+| -------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------ |
+| MTC / Alfa                       | yes — auto-filled Price to Client              | yes (exists; fix it)                                                           |
+| POS                              | yes — the product's selling price in Inventory | yes, IF the cashier can change a line's price at checkout (to confirm in code) |
+| Custom services                  | yes, when sold from a preset                   | yes, preset sales only                                                         |
+| OMT / Whish fees                 | partly — fee tables for Intra / Western Union  | only where a fee table exists                                                  |
+| Exchange                         | the shop rate                                  | already covered by the payment-form rate warning (LIRA-240)                    |
+| Maintenance, free-typed services | no                                             | no                                                                             |
 
 Rules:
+
 1. **One shop-wide threshold in %** (e.g. "warn when a price is changed by more than 10%"), replacing the fixed
    100,000 LBP, so it works for small and large items and in $ and LBP. Per-page thresholds only if needed later.
 2. **Store the usual price at the moment of sale** (as recharge does with `default_price_to_client`), so a later
@@ -1852,25 +1854,26 @@ checkout (if not, POS drops out and the scope shrinks)? Staff or admin-only visi
 **What users will notice (when built):** sales charged at a price far from the usual one, higher or lower, are
 marked with a warning in the Transactions table and in each page's history.
 
-
 **Update 2026-10-03 (owner):** stays POSTPONED. Facts and decisions recorded for when it is picked up:
+
 - **POS is out of scope:** the POS cart has no editable line price. The only input on a cart line is the
   phone-unit picker (`CartLineRow.tsx`), and the checkout discount doesn't count as a price change.
 - **Threshold:** 10% above OR below the usual price (owner, 2026-10-03).
 - **Remaining scope when built:** fix the MTC/Alfa alert (% threshold, both directions) and show it on the
   Transactions page with a filter (admin only). Custom-service presets and the OMT/Whish fee tables are optional.
+
 ---
 
 ## LIRA-075: Favorite/Pin Whish App Quick Link in Home Grid
 
-| Field                | Value                 |
-| -------------------- | --------------------- |
-| **Epic**             | Navigation / Home     |
-| **Type**             | Feature               |
-| **Priority**         | Low                   |
+| Field                | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Navigation / Home                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| **Type**             | Feature                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| **Priority**         | Low                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | **Status**           | DONE 2026-10-03 (not yet committed) — found the pin/favorite mechanism already mostly built (`useSidebarFavorites.ts`, shared `localStorage["sidebar_favorites"]` key, same list the sidebar's press-and-hold favorites use — one list, not two, per-viewer convenience as the CLAUDE.md capabilities guidance recommends for this kind of state) with a working star toggle already wired into every `HomeGrid.tsx` tile (persists, navigates correctly, shared with Sidebar — all pre-existing and already covered by `HomeGrid.test.tsx`). The one real gap against this ticket's acceptance criteria ("pinned pages show first"): tiles never reordered — pinning only filled in the star, the tile stayed in its original module-sort position. Fixed in `HomeGrid.tsx`'s `navItems` useMemo: Dashboard stays first (unchanged long-standing invariant), then a stable sort moves every pinned tile ahead of the unpinned ones, preserving original relative order within each group (so re-pinning promotes a tile instead of reshuffling the whole grid), live-reactive (`favorites` added to the memo's dep array) — no remount needed. "ANY page can be pinned" is already satisfied: `navItems` already enumerates every enabled module (Whish/OMT included), not a hardcoded subset. Verified: `frontend` typecheck clean for every file this ticket touched (one PRE-EXISTING, UNRELATED error surfaced by the full-project `tsc` run — `features/audit/transactionPresentation.ts` missing `SUPPLIER_RECORDED_DEBT` — traced via `git diff --stat` to the parallel MONEY-lane agent's uncommitted `transactionTypes.ts` change, not touched by this ticket, left alone per the "don't edit their files" instruction); eslint clean on all touched files (0 warnings, 0 errors); `HomeGrid.test.tsx` full suite (12 tests: 9 pre-existing + 3 new pinned-first-ordering tests) green. |
-| **Affected Modules** | Dashboard / Home grid |
-| **Depends On**       | —                     |
+| **Affected Modules** | Dashboard / Home grid                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| **Depends On**       | —                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 ### Summary
 
@@ -1893,15 +1896,15 @@ Add favorite/pinned **quick links** to a page (starting with Whish App) in the h
 
 ## LIRA-086: Dashboard Checkpoint Freshness Coloring — DONE 2026-10-03 (`b802dae7`)
 
-| Field                | Value       |
-| -------------------- | ----------- |
-| **Epic**             | Dashboard   |
-| **Type**             | Enhancement |
-| **Priority**         | Low         |
+| Field                | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Dashboard                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| **Type**             | Enhancement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| **Priority**         | Low                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | **Status**           | DONE 2026-10-03 — committed `b802dae7` — thresholds per owner decision 2026-10-02: green within $1 (or 100,000 LBP), orange >$1 up to $10, red >$10, defined once as `CHECKPOINT_VARIANCE_GREEN_MAX_USD`/`CHECKPOINT_VARIANCE_ORANGE_MAX_USD` (`frontend/src/features/dashboard/pages/Dashboard.tsx`). Source of the counted-vs-expected numbers: `ClosingRepository.getLastCheckpointPerDrawer()` (already shipped, already returns `{physical, expected}` per currency per drawer — this ticket is purely a new read + a color mapping, no backend change). An LBP variance converts to its USD-equivalent via the shop's own sell rate (`useSellRate()`, the existing shared hook — "convert LBP at the shop rate" per the ticket) before bucketing, rather than a second hardcoded LBP threshold that could drift from the USD one. Rendered as a small colored dot next to the EXISTING checkpoint-time text (kept as-is — that one is a different, already-shipped signal: how long ago, not how accurate) with a title tooltip giving the exact dollar drift; no dot at all when the drawer has never been checkpointed. `drawerStatuses` state widened to carry the `amounts` field the API already returned but the page was dropping. Verified: `frontend` typecheck (`tsconfig.app.json`, 15.9s) clean; `src/features/dashboard` full suite (15 suites / 83 tests) green, including a new `Dashboard.checkpointVarianceColor.test.tsx` (5 tests: green/orange/red/LBP-conversion/no-checkpoint). Fixing this also surfaced and fixed a latent gap in 6 PRE-EXISTING dashboard test files: none mocked `api.getRates()`, which the newly-added `useSellRate()` call now reaches on every Dashboard render — unmocked, it threw synchronously inside the dashboard's load effect and broke those suites; each gained a one-line `getRates: jest.fn().mockResolvedValue([])` mock (not a behavior change, a fixture completeness fix, listed in Files below). Eslint on touched files: 0 errors (pre-existing `any` warnings only, same count as before this ticket). |
-| **Affected Modules** | Dashboard   |
-| **Assigned To**      | —           |
-| **Depends On**       | —           |
+| **Affected Modules** | Dashboard                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| **Assigned To**      | —                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| **Depends On**       | —                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 ### Summary
 
@@ -2316,6 +2319,7 @@ been fully refunded item-by-item — nothing remains to refund."). Repo-level te
 **Tests (failing-first per rule 17 where meaningful — see each file's own header for exactly what was proven red/green; this is new capability, so most "red" is the double-undo/dependent-activity guards proven directly within the test, not a before/after diff of finished code):** `packages/core/src/repositories/__tests__/SalesRepository.undoItemRefund.test.ts` (4 tests — full nets-to-zero across stock/batch/unit/drawer/profit, double-undo refusal, resold-unit refusal, whole-sale-refund refusal); `electron-app/handlers/__tests__/salesHandlers.undoItemRefund.test.ts` (5 tests — admin gate, payload validation, audit-on-success-only); `backend/src/api/__tests__/salesUndoItemRefund.api.test.ts` (6 tests — REST parity, 403 for staff, 401 unauthenticated, envelope parity on both business-rule and thrown failures); `frontend/src/features/audit/components/__tests__/ActionsCell.undoRefund.test.tsx` (5 tests — button visibility by admin/type/status). All green. 20 `SalesRepository.*` suites (88 tests), `StockBatchRepository.fifoAndReversal`, `profitRecognition.guard`, `TransactionRepository.nonReversibleGate`, `moduleDebtTypes.guard`, `ProfitRepository.itemRefundOriginalLink`, full `salesHandlers.*` (6 suites/34), related backend sales REST suites (22 tests), and the full frontend `features/audit` suite (36 suites/373 tests) all re-run green — no regressions. `yarn workspace @liratek/core typecheck` (10.7s), `@liratek/frontend typecheck` (27.7s), `@liratek/backend typecheck` (15s), `@liratek/electron-app typecheck` (4s), `@liratek/ui typecheck` (3.9s) all clean; eslint on touched files clean (pre-existing `any` warnings only, no new errors).
 
 **Known gaps for the owner:**
+
 1. **Session-basket item refund has no undo.** `refundSessionBasketItem` pools money against a session's shared account/legs across potentially several prior item-refund calls on the same basket — materially riskier to reverse generically than the standalone path. Deliberately refused with a clear message rather than attempted under this pass's time budget; a real follow-up ticket, not silently dropped.
 2. **FIFO batch tracing is conservative for a split consumption row.** `restoreForSaleItem`'s own `is_restored` flag only marks a row fully restored — a refund whose restore SPLIT a batch-consumption row (requested quantity didn't land on a row boundary) leaves that split fraction untraceable by id, so `canUnrestoreForSaleItem` refuses the undo even though nothing was actually resold (a false negative, never a false positive — it never risks driving `quantity_remaining` negative or misattributing cost). Rare in practice (single-unit IMEI-tracked sales are the dominant case and are unaffected), documented in the repository's own doc comment.
 3. **No e2e coverage** (excluded from this pass's scope per the lean-routine instruction — no e2e runs) and no "Undo Refund" entry added to the Transactions-page type filter dropdown (`auditConstants.ts` `FILTER_GROUPS`) — the row is still visible by default, just not individually filterable by type.
@@ -4195,7 +4199,7 @@ than silently converting them.
 
 **Re-verified against current `main` before touching anything (per LIRA-185's own caveat that this
 audit read a working tree being edited in parallel) — the premise was stale.** Of the original six
-cited sites, **three were already gone**, removed by *other*, already-shipped tickets before this one
+cited sites, **three were already gone**, removed by _other_, already-shipped tickets before this one
 was picked up:
 
 - `ClosingRepository.ts:871` — removed by **LIRA-219**; that repository no longer computes profit at
@@ -4269,8 +4273,8 @@ comparatively cheap and is the recommended next step.
 Note the caveat that the audit read a working tree the owner was editing in parallel, so findings
 touching `SalesRepository`/`TransactionRepository` should be re-checked against current `main`.
 
-
 **Owner decisions on the audit's open questions (2026-10-02):**
+
 1. **MTC/Alfa payment-window Discount:** MAKE IT WORK. The discount lowers the price charged and the profit booked, capped at the margin. Today it is never applied: the sale is refused, or the discount becomes client debt.
 2. **Loto page Commission card:** keep it as pure commission AND add a "Kept change" line under it, so it adds up to the Profits figure.
 3. **Maintenance History / jobs list price:** show both, list price struck through next to the charged amount (e.g. 300,000 → 250,000).
@@ -4403,27 +4407,27 @@ a real router.
 
 ## EPIC LIRA-187 → LIRA-192: OMT open-credit account — iPick + OMT App roll up under the OMT supplier — **DONE 2026-09-15 (`40a184c8`)**
 
-| Field        | Value                                                                                                     |
-| ------------ | --------------------------------------------------------------------------------------------------------- |
-| **Epic**     | Suppliers / OMT                                                                                           |
-| **Type**     | Money model change (rules 16, 17, 18, 20)                                                                 |
-| **Priority** | **HIGHEST** (owner, 2026-09-11)                                                                           |
+| Field        | Value                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Epic**     | Suppliers / OMT                                                                                                                                                                                                                                                                                                                                                                                        |
+| **Type**     | Money model change (rules 16, 17, 18, 20)                                                                                                                                                                                                                                                                                                                                                              |
+| **Priority** | **HIGHEST** (owner, 2026-09-11)                                                                                                                                                                                                                                                                                                                                                                        |
 | **Status**   | **DONE 2026-09-15 — committed `40a184c8`** (LIRA-187/188/189/190/192). Originally built 2026-09-15 as 77 paths (+4,967/-135). Gates run by the orchestrator: build / typecheck / lint exit 0; full suite **639 suites, 5,941 tests, 0 failures**. **Desktop + web e2e specs written but NEVER RUN** (needs the owner's `yarn dev` → stop → e2e cycle). LIRA-191 deliberately NOT built (deferred, D9). |
-| **Plan**     | `docs/plans/ongoing_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md` — decisions D1–D16, code facts, full ticket bodies |
+| **Plan**     | `docs/plans/ongoing_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md` — decisions D1–D16, code facts, full ticket bodies                                                                                                                                                                                                                                                                                          |
 
 OMT is ONE open-credit account: the counter (OMT SEND/RECEIVE), the OMT App wallet, and iPick credit
 all draw on it and are settled with one payment from the OMT Cash Drawer. Loading the wallet or iPick
 moves no cash — the drawer goes up, the debt goes up. Design: read-time grouping via a nullable
 `suppliers.account_supplier_id`; ledger rows never move.
 
-| Ticket   | Title                                                                            | Priority     | Depends on |
-| -------- | -------------------------------------------------------------------------------- | ------------ | ---------- |
-| LIRA-187 | `suppliers.account_supplier_id` — the account link (schema only) — **BUILT** (v176)  | Medium       | —          |
-| LIRA-188 | OMT account rollup on the Suppliers page — sub-rows + Type column — **BUILT**    | High         | 187        |
-| LIRA-189 | Account settlement — per-child allocation, PAY+COLLECT, reversible — **BUILT**   | High (money) | 187, 188   |
-| LIRA-190 | OMT App wallet loads on OMT credit by default — **BUILT**                        | High (money) | 187        |
-| LIRA-192 | OMT App **cashout** — account credited + 0.1% commission — **BUILT**            | High (money) | 187        |
-| LIRA-191 | Grouping configurable in Service Providers settings; Whish-base shops (deferred) | Low          | 187–192    |
+| Ticket   | Title                                                                               | Priority     | Depends on |
+| -------- | ----------------------------------------------------------------------------------- | ------------ | ---------- |
+| LIRA-187 | `suppliers.account_supplier_id` — the account link (schema only) — **BUILT** (v176) | Medium       | —          |
+| LIRA-188 | OMT account rollup on the Suppliers page — sub-rows + Type column — **BUILT**       | High         | 187        |
+| LIRA-189 | Account settlement — per-child allocation, PAY+COLLECT, reversible — **BUILT**      | High (money) | 187, 188   |
+| LIRA-190 | OMT App wallet loads on OMT credit by default — **BUILT**                           | High (money) | 187        |
+| LIRA-192 | OMT App **cashout** — account credited + 0.1% commission — **BUILT**                | High (money) | 187        |
+| LIRA-191 | Grouping configurable in Service Providers settings; Whish-base shops (deferred)    | Low          | 187–192    |
 
 Built in that order. **Settlement (LIRA-189) was attacked four times and six real defects were found
 and fixed** — see plan §11 for the table and the durable lesson. The same bug class is LIVE in
@@ -4441,13 +4445,13 @@ before this ships.
 
 ## LIRA-193: a supplier settlement can mark a debt paid while ZERO money moves — **DONE 2026-09-15 (`40a184c8`)** — HIGH (money)
 
-| Field        | Value                                                                                                  |
-| ------------ | ------------------------------------------------------------------------------------------------------ |
-| **Epic**     | Suppliers                                                                                              |
-| **Type**     | Money bug, pre-existing                                                                                |
-| **Priority** | **High** — silent, and it surfaces as an unexplained drawer shortfall at closing, not as an error       |
+| Field        | Value                                                                                                                                                                                                                                                                  |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**     | Suppliers                                                                                                                                                                                                                                                              |
+| **Type**     | Money bug, pre-existing                                                                                                                                                                                                                                                |
+| **Priority** | **High** — silent, and it surfaces as an unexplained drawer shortfall at closing, not as an error                                                                                                                                                                      |
 | **Status**   | **FIXED 2026-09-15 — committed `40a184c8`** (with the OMT epic). Found while hardening LIRA-189, then fixed on the owner's go. Gates: build/typecheck/lint exit 0, full suite **5,963 tests, 0 failures**. **Three defects closed, not one** — see the fix note below. |
-| **Found by** | Three independent adversarial agents, each reproducing it with an executed test against `settleAccount`'s identical pre-fix shape |
+| **Found by** | Three independent adversarial agents, each reproducing it with an executed test against `settleAccount`'s identical pre-fix shape                                                                                                                                      |
 
 ### What is wrong
 
@@ -4456,7 +4460,7 @@ amount they record as settled**, and both silently skip legs whose method moves 
 
 **`SupplierRepository.settleTransactions`** — the single-supplier settlement in the app today. On the
 normal cash-owed path it never reconciles `data.payments` against `amount_usd`/`amount_lbp`; it only
-checks that *at least one leg exists*. Its posting loop then does
+checks that _at least one leg exists_. Its posting loop then does
 `if (!isDrawerAffectingMethod(p.method)) continue;`.
 
 Two consequences, both silent:
@@ -4471,7 +4475,7 @@ Two consequences, both silent:
 guard at all**.
 
 **The single-supplier settle UI** (`Suppliers/index.tsx`, `settleHasActiveLegs` /
-`settleConfirmDisabled`) enforces only a lower bound — it checks that *some* leg amount is > 0, never
+`settleConfirmDisabled`) enforces only a lower bound — it checks that _some_ leg amount is > 0, never
 that the entered amount matches the net owed, and never wires return/change legs. So consequence 1 is
 reachable by an ordinary typo, not only by a crafted payload.
 
@@ -4546,26 +4550,26 @@ was relying on the removed leniency.
 
 ## LIRA-216: a shipped code comment says a guard test is stale; the test was fixed in the same commit — LOW — DONE 2026-10-10 (`bd387510`, done under LIRA-164)
 
-| Field                | Value                                                   |
-| -------------------- | ------------------------------------------------------- |
-| **Epic**             | Commission / Suppliers                                  |
-| **Type**             | Doc defect in source + an unexecuted re-derivation      |
-| **Priority**         | Low (no money at risk; costs an agent a wrong hunt)     |
+| Field                | Value                                                                                                                            |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Commission / Suppliers                                                                                                           |
+| **Type**             | Doc defect in source + an unexecuted re-derivation                                                                               |
+| **Priority**         | Low (no money at risk; costs an agent a wrong hunt)                                                                              |
 | **Status**           | DONE 2026-10-10 — committed `bd387510` under LIRA-164 (comment corrected; the "re-break to prove it" step is not done — rule 17) |
-| **Affected Modules** | omt_whish                                               |
-| **Source Plan**      | COMMISSION_AT_SETTLEMENT_PLAN.md Phase 2; OWNER_NOTES_2026-09-21.md §0.3 |
+| **Affected Modules** | omt_whish                                                                                                                        |
+| **Source Plan**      | COMMISSION_AT_SETTLEMENT_PLAN.md Phase 2; OWNER_NOTES_2026-09-21.md §0.3                                                         |
 
 ### Summary
 
 `FinancialServiceRepository.ts:1541-1544` still tells the reader:
 
-> *"see `FinancialServiceRepository.omtCommissionModelGate.test.ts` for the guard (that file's
+> _"see `FinancialServiceRepository.omtCommissionModelGate.test.ts` for the guard (that file's
 > expectations describe the PRE-Phase-2 shape and are stale after this change — a Phase 2
-> follow-up must re-derive them to the new invariant, rule 17)."*
+> follow-up must re-derive them to the new invariant, rule 17)."_
 
 **That follow-up already happened, in the same commit (`43948a35`).** The test's own header
-(`…omtCommissionModelGate.test.ts:19-43`) reads *"UPDATED 2026-08-29 … re-derived to the
-POST-Phase-2 invariant"*, and its assertions are the new shape: `commission_model` → 1
+(`…omtCommissionModelGate.test.ts:19-43`) reads _"UPDATED 2026-08-29 … re-derived to the
+POST-Phase-2 invariant"_, and its assertions are the new shape: `commission_model` → 1
 (`:395`), `supplier_owed` → 110 gross (`:405`), ledger nets to 0 after settlement (`:440`).
 The comment is the only thing that is stale.
 
@@ -4574,8 +4578,8 @@ The comment is the only thing that is stale.
 1. **Delete or correct the comment** at `FinancialServiceRepository.ts:1541-1544`. A comment that
    points at a guard and calls it untrustworthy is worse than none: it invites the next agent to
    "fix" a test that is already correct — which is rule 24 running in reverse.
-2. **Confirm the re-derivation actually executes.** The test header admits it is *"a STATIC
-   re-derivation from the shipped production code (read, not executed)"*. Run
+2. **Confirm the re-derivation actually executes.** The test header admits it is _"a STATIC
+   re-derivation from the shipped production code (read, not executed)"_. Run
    `yarn test` and confirm this suite's assertions run and pass — rule 28(a): a green that was
    never observed is not a green. If any number is off, the arithmetic to re-derive is in the
    header (TOP_UP 110 + SETTLEMENT −109 + SUPPLIER_PAYS_US −1 = 0).
@@ -4605,21 +4609,21 @@ invariant it pins is the correct one.
 
 ## LIRA-198: the audit page is invisible to staff, and the nav flag is a curtain not a gate — MEDIUM — DONE
 
-| Field                | Value                                                             |
-| -------------------- | ----------------------------------------------------------------- |
-| **Epic**             | Audit / Permissions                                               |
-| **Type**             | Feature (owner note #2)                                           |
-| **Priority**         | Medium                                                            |
-| **Status**           | **DONE** 2026-09-23                                               |
-| **Affected Modules** | audit, (all — `modules` table)                                    |
-| **Source Plan**      | `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md` §0.5, note #2    |
+| Field                | Value                                                           |
+| -------------------- | --------------------------------------------------------------- |
+| **Epic**             | Audit / Permissions                                             |
+| **Type**             | Feature (owner note #2)                                         |
+| **Priority**         | Medium                                                          |
+| **Status**           | **DONE** 2026-09-23                                             |
+| **Affected Modules** | audit, (all — `modules` table)                                  |
+| **Source Plan**      | `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md` §0.5, note #2 |
 
 ### What shipped
 
 Three pieces, because the nav flag alone would have produced a menu item leading to a 403.
 
 1. **Migration v178** `audit_module_visible_to_all_roles` — `UPDATE modules SET admin_only = 0
-   WHERE key = 'audit'`, mirroring v163's `profits` shape exactly. Rule 10 satisfied:
+WHERE key = 'audit'`, mirroring v163's `profits` shape exactly. Rule 10 satisfied:
    `electron-app/create_db.sql`'s tenant-1 seed carries the post-migration value directly
    (`:1584`) and a `(178, 'audit_module_visible_to_all_roles')` `schema_migrations` seed row
    (`:2253`).
@@ -4670,15 +4674,15 @@ staff-readable.
 
 ## LIRA-205: show the returned credits on an MTC/Alfa card sale in the transactions table — MEDIUM — DONE
 
-| Field                | Value                                                             |
-| -------------------- | ----------------------------------------------------------------- |
-| **Epic**             | Audit / Recharge                                                  |
-| **Type**             | Feature (owner note #9)                                           |
-| **Priority**         | Medium                                                            |
-| **Status**           | **DONE** 2026-09-23                                               |
-| **Affected Modules** | audit, recharge, omt_whish                                        |
-| **Source Plan**      | `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md` note #9          |
-| **Depends On**       | LIRA-180 (the number itself — already shipped)                    |
+| Field                | Value                                                     |
+| -------------------- | --------------------------------------------------------- |
+| **Epic**             | Audit / Recharge                                          |
+| **Type**             | Feature (owner note #9)                                   |
+| **Priority**         | Medium                                                    |
+| **Status**           | **DONE** 2026-09-23                                       |
+| **Affected Modules** | audit, recharge, omt_whish                                |
+| **Source Plan**      | `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md` note #9 |
+| **Depends On**       | LIRA-180 (the number itself — already shipped)            |
 
 ### What shipped
 
@@ -4706,7 +4710,7 @@ non-USD CREDIT_RETURN leg is now a **documented** gap, not a silent one.
 
 Staff keep the Void / Refund / Void-entire-checkout buttons. What changed is the message: a new
 `describeActionFailure(raw, verb)` in `TransactionsViewer.tsx` turns a `Forbidden` rejection into
-*"Failed: &lt;verb&gt; is restricted to admins — ask an admin to do this."* — identically on both
+_"Failed: &lt;verb&gt; is restricted to admins — ask an admin to do this."_ — identically on both
 transports. It needed doing on both because the shapes differ: desktop returns
 `{ success: false, error: "Forbidden" }`, while web **throws a plain object**
 `{ status, message, details }` that is not an `Error` (so `instanceof Error` swallows it). The
@@ -4719,20 +4723,20 @@ errors now surface their real reason, which the old `catch` branch did not do at
 
 ## LIRA-208: "Adjust stock" is undiscoverable from the product edit form — LOW (UX) — DONE
 
-| Field                | Value                                                             |
-| -------------------- | ----------------------------------------------------------------- |
-| **Epic**             | Inventory                                                         |
+| Field                | Value                                                                |
+| -------------------- | -------------------------------------------------------------------- |
+| **Epic**             | Inventory                                                            |
 | **Type**             | UX (owner note #18) — and one real silent no-op found while doing it |
-| **Priority**         | Low → the second half is Medium (a control that did nothing)       |
-| **Status**           | **DONE** 2026-09-23                                               |
-| **Affected Modules** | inventory                                                         |
-| **Source Plan**      | `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md` §0.7, note #18   |
+| **Priority**         | Low → the second half is Medium (a control that did nothing)         |
+| **Status**           | **DONE** 2026-09-23                                                  |
+| **Affected Modules** | inventory                                                            |
+| **Source Plan**      | `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md` §0.7, note #18     |
 
 ### What shipped
 
 - An **Adjust Stock** button on the edit form itself (`ProductForm.tsx`, testid
   `product-form-adjust-stock`), rendered only when `product && onAdjustStock`. With unsaved edits it
-  shows a confirm strip: *Discard & adjust* / *Keep editing*.
+  shows a confirm strip: _Discard & adjust_ / _Keep editing_.
 - The hand-off resolves the row **fresh** from `ProductList`'s own `products` state at click time
   (`handleAdjustFromForm(productId)`, `ProductList.tsx:738-779`) instead of from the `editingProduct`
   snapshot captured when the form opened. That snapshot was stale-prone **and it moves money**:
@@ -4756,8 +4760,8 @@ both are now disabled on edit.
 
 ### Follow-ups this opened
 
-**LIRA-224** (a *Save & adjust* option — owner answer needed), **LIRA-225** (the hand-off searches a
-*filtered* client-side list, so a filtered-out product dead-ends), **LIRA-228** (`warrantyMonths` is
+**LIRA-224** (a _Save & adjust_ option — owner answer needed), **LIRA-225** (the hand-off searches a
+_filtered_ client-side list, so a filtered-out product dead-ends), **LIRA-228** (`warrantyMonths` is
 lost on minimize/restore) and **LIRA-222** (`updateProductFull` NULLs `image_url` on every edit —
 found while tracing D13, not caused by this ticket).
 
@@ -4765,15 +4769,15 @@ found while tracing D13, not caused by this ticket).
 
 ## LIRA-220: settings audit rows leak sensitive values to staff, and are written for writes that never happened — HIGH
 
-| Field                | Value                                                             |
-| -------------------- | ----------------------------------------------------------------- |
-| **Epic**             | Audit / Settings / Security                                       |
-| **Type**             | Bug (security + rule-19c transport divergence)                    |
-| **Priority**         | **High** — a live data exposure created by LIRA-198               |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — the Profits password is redacted in settings audit rows on write AND on read (`constants/sensitiveSettings.ts`); a settings audit row is written only when the write succeeded |
-| **Affected Modules** | settings, audit                                                   |
-| **Source Plan**      | Found while building LIRA-198 (`OWNER_NOTES_2026-09-21.md` §0.5)  |
-| **Depends On**       | LIRA-198 (DONE) — which is what made this reachable               |
+| Field                | Value                                                                                                                                                                                                                   |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Audit / Settings / Security                                                                                                                                                                                             |
+| **Type**             | Bug (security + rule-19c transport divergence)                                                                                                                                                                          |
+| **Priority**         | **High** — a live data exposure created by LIRA-198                                                                                                                                                                     |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — the Profits password is redacted in settings audit rows on write AND on read (`constants/sensitiveSettings.ts`); a settings audit row is written only when the write succeeded |
+| **Affected Modules** | settings, audit                                                                                                                                                                                                         |
+| **Source Plan**      | Found while building LIRA-198 (`OWNER_NOTES_2026-09-21.md` §0.5)                                                                                                                                                        |
+| **Depends On**       | LIRA-198 (DONE) — which is what made this reachable                                                                                                                                                                     |
 
 ### Summary
 
@@ -4790,8 +4794,8 @@ with `new_values: { value }` **unconditionally**, with two consequences:
    audits it anyway. Desktop therefore persists a plaintext value for a change that never happened.
 
 **The REST twin already gets this right**: `backend/src/api/settings.ts:99-104` returns early on
-`!result.success`, before `auditRest`, with a comment saying *"no audit row for a write that was
-rejected, not performed"*. So this is a **desktop-only leak AND a rule-19c divergence**.
+`!result.success`, before `auditRest`, with a comment saying _"no audit row for a write that was
+rejected, not performed"_. So this is a **desktop-only leak AND a rule-19c divergence**.
 
 ### Fix
 
@@ -4800,7 +4804,7 @@ rejected, not performed"*. So this is a **desktop-only leak AND a rule-19c diver
 2. Redact `new_values` for `SENSITIVE_SETTING_KEYS` on both transports — store the key and the fact
    of the change, never the value.
 3. Correct `profitHandlers.ts:96`'s comment, which currently points at `dbHandlers` as the
-   *good* example of a secret-omitting audit shape. It is not.
+   _good_ example of a secret-omitting audit shape. It is not.
 
 ### Acceptance Criteria
 
@@ -4813,14 +4817,14 @@ rejected, not performed"*. So this is a **desktop-only leak AND a rule-19c diver
 
 ## LIRA-221: `MODULE_SEED_ROWS` is not yet the single source of the module seed — MEDIUM
 
-| Field                | Value                                                             |
-| -------------------- | ----------------------------------------------------------------- |
-| **Epic**             | Multi-tenant / Schema                                             |
-| **Type**             | Tech debt (rule 14) — the drift that caused LIRA-198's third piece |
-| **Priority**         | Medium                                                            |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — `MODULE_SEED_ROWS` exported; drift guard `db/__tests__/moduleSeedRows.driftGuard.test.ts` |
-| **Affected Modules** | all (`modules` table)                                             |
-| **Source Plan**      | Found while building LIRA-198                                     |
+| Field                | Value                                                                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Multi-tenant / Schema                                                                                                              |
+| **Type**             | Tech debt (rule 14) — the drift that caused LIRA-198's third piece                                                                 |
+| **Priority**         | Medium                                                                                                                             |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — `MODULE_SEED_ROWS` exported; drift guard `db/__tests__/moduleSeedRows.driftGuard.test.ts` |
+| **Affected Modules** | all (`modules` table)                                                                                                              |
+| **Source Plan**      | Found while building LIRA-198                                                                                                      |
 
 ### Summary
 
@@ -4862,14 +4866,14 @@ off disk)?
 
 ## LIRA-222: every product edit silently NULLs the product's image — MEDIUM
 
-| Field                | Value                                                             |
-| -------------------- | ----------------------------------------------------------------- |
-| **Epic**             | Inventory                                                         |
-| **Type**             | Bug — silent data loss                                            |
-| **Priority**         | Medium                                                            |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — reproduced; `updateProductFull` keeps `image_url` when none is sent. Pictures already lost stay lost |
-| **Affected Modules** | inventory                                                         |
-| **Source Plan**      | Found while tracing D13 for LIRA-208; pre-existing, not caused by it |
+| Field                | Value                                                                                                                                         |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Inventory                                                                                                                                     |
+| **Type**             | Bug — silent data loss                                                                                                                        |
+| **Priority**         | Medium                                                                                                                                        |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — reproduced; `updateProductFull` keeps `image_url` when none is sent. Pictures already lost stay lost |
+| **Affected Modules** | inventory                                                                                                                                     |
+| **Source Plan**      | Found while tracing D13 for LIRA-208; pre-existing, not caused by it                                                                          |
 
 ### Summary
 
@@ -4900,14 +4904,14 @@ Make the write conditional the way `category` / `category_id` already are —
 
 ## LIRA-223: the guards this batch added have never been shown to fail — MEDIUM
 
-| Field                | Value                                                             |
-| -------------------- | ----------------------------------------------------------------- |
-| **Epic**             | Testing / process                                                 |
-| **Type**             | Rule-17 debt                                                      |
-| **Priority**         | Medium — a guard that has never failed proves nothing             |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — every guard from the 2026-09-23 batch and this batch is either recorded as proven failing-first or labelled "NOT proven failing-first"; no finished code was re-broken |
-| **Affected Modules** | audit, inventory, recharge, multi-tenant                          |
-| **Source Plan**      | Batch process note, 2026-09-23                                    |
+| Field                | Value                                                                                                                                                                                                           |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Testing / process                                                                                                                                                                                               |
+| **Type**             | Rule-17 debt                                                                                                                                                                                                    |
+| **Priority**         | Medium — a guard that has never failed proves nothing                                                                                                                                                           |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — every guard from the 2026-09-23 batch and this batch is either recorded as proven failing-first or labelled "NOT proven failing-first"; no finished code was re-broken |
+| **Affected Modules** | audit, inventory, recharge, multi-tenant                                                                                                                                                                        |
+| **Source Plan**      | Batch process note, 2026-09-23                                                                                                                                                                                  |
 
 ### Summary
 
@@ -4919,14 +4923,14 @@ rule 17**; only watching them go red does.
 
 ### The revert/run/revert cycle, per file
 
-| File | Revert this | Expect |
-| --- | --- | --- |
-| `backend/src/api/__tests__/auditRoleGate.api.test.ts` | `audit.ts`'s two role arrays → `["admin"]` | cases 1-2 return 403, service spy at 0 calls |
-| `electron-app/handlers/__tests__/auditHandlers.roleGate.test.ts` | same, in `auditHandlers.ts` | the `toHaveBeenCalledWith(1, ["admin","staff"])` assertions fail |
-| `backend/src/__tests__/wp5_wp6_admin_tenant.api.test.ts` (module parity) | `MODULE_SEED_ROWS`' `audit` + `profits` → `adminOnly: 1` | fails on BOTH keys |
-| `TransactionRepository.paymentLegs.test.ts` (non-USD exclusion) | drop `&& p.currency_code === "USD"` | the non-USD exclusion case fails |
-| `TransactionsViewer.extraCurrencyDrawerMove.test.tsx` | `METHOD_COL_INDEX` → 5 | the four `"Cash"` assertions fail |
-| `ProductForm.adjustStock.test.tsx` | remove the form's Adjust Stock button | the 3 presence/click cases fail |
+| File                                                                     | Revert this                                              | Expect                                                           |
+| ------------------------------------------------------------------------ | -------------------------------------------------------- | ---------------------------------------------------------------- |
+| `backend/src/api/__tests__/auditRoleGate.api.test.ts`                    | `audit.ts`'s two role arrays → `["admin"]`               | cases 1-2 return 403, service spy at 0 calls                     |
+| `electron-app/handlers/__tests__/auditHandlers.roleGate.test.ts`         | same, in `auditHandlers.ts`                              | the `toHaveBeenCalledWith(1, ["admin","staff"])` assertions fail |
+| `backend/src/__tests__/wp5_wp6_admin_tenant.api.test.ts` (module parity) | `MODULE_SEED_ROWS`' `audit` + `profits` → `adminOnly: 1` | fails on BOTH keys                                               |
+| `TransactionRepository.paymentLegs.test.ts` (non-USD exclusion)          | drop `&& p.currency_code === "USD"`                      | the non-USD exclusion case fails                                 |
+| `TransactionsViewer.extraCurrencyDrawerMove.test.tsx`                    | `METHOD_COL_INDEX` → 5                                   | the four `"Cash"` assertions fail                                |
+| `ProductForm.adjustStock.test.tsx`                                       | remove the form's Adjust Stock button                    | the 3 presence/click cases fail                                  |
 
 Then restore, confirm green, and **replace each docblock's TODO paragraph with what was actually
 observed** — not with a prediction.
@@ -4956,19 +4960,19 @@ observed** — not with a prediction.
 
 ## LIRA-224: should the product form offer "Save & adjust"? — LOW — NEEDS INTERVIEW
 
-| Field                | Value                                                             |
-| -------------------- | ----------------------------------------------------------------- |
-| **Epic**             | Inventory                                                         |
-| **Type**             | Owner decision                                                    |
-| **Priority**         | Low                                                               |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — owner said yes (2026-09-28); "Save & adjust" added to the unsaved-changes warning |
-| **Affected Modules** | inventory                                                         |
-| **Source Plan**      | Raised while building LIRA-208                                    |
+| Field                | Value                                                                                                                      |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Inventory                                                                                                                  |
+| **Type**             | Owner decision                                                                                                             |
+| **Priority**         | Low                                                                                                                        |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — owner said yes (2026-09-28); "Save & adjust" added to the unsaved-changes warning |
+| **Affected Modules** | inventory                                                                                                                  |
+| **Source Plan**      | Raised while building LIRA-208                                                                                             |
 
 ### The question
 
 LIRA-208's confirm strip offers only **Discard & adjust** / **Keep editing**. An operator who opened
-Edit Product to change the price *and* wants to adjust quantity in the same visit must therefore lose
+Edit Product to change the price _and_ wants to adjust quantity in the same visit must therefore lose
 one of the two.
 
 Do you want a **Save & adjust** option — save the form first, then hand off to `AdjustStockModal` on
@@ -4980,14 +4984,14 @@ money-moving intake event, and forcing a clean save before it is arguably the sa
 
 ## LIRA-225: the adjust-stock hand-off searches a filtered list, and has no regression test — MEDIUM
 
-| Field                | Value                                                             |
-| -------------------- | ----------------------------------------------------------------- |
-| **Epic**             | Inventory                                                         |
-| **Type**             | Bug (reachable dead-end) + missing coverage                       |
-| **Priority**         | Medium                                                            |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — the hand-off fetches the product by id (`getProductById`, dual-mode), not from the filtered list; regression test added |
-| **Affected Modules** | inventory                                                         |
-| **Source Plan**      | Found reviewing LIRA-208                                          |
+| Field                | Value                                                                                                                                                            |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Inventory                                                                                                                                                        |
+| **Type**             | Bug (reachable dead-end) + missing coverage                                                                                                                      |
+| **Priority**         | Medium                                                                                                                                                           |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — the hand-off fetches the product by id (`getProductById`, dual-mode), not from the filtered list; regression test added |
+| **Affected Modules** | inventory                                                                                                                                                        |
+| **Source Plan**      | Found reviewing LIRA-208                                                                                                                                         |
 
 ### Summary
 
@@ -4996,7 +5000,7 @@ money-moving intake event, and forcing a clean save before it is arguably the sa
 search → minimize the form (the list stays interactive, and `minimizedProducts` is persisted to
 `localStorage`, so this survives a restart) → change the search box or a filter so that product no
 longer matches → restore the form → click Adjust Stock. `products.find()` returns `undefined`, the
-operator is told *"This product is no longer in the list — refreshing."* — which is **false**, the
+operator is told _"This product is no longer in the list — refreshing."_ — which is **false**, the
 product exists — and the fallback `loadProducts()` re-runs the same filters, so it never appears.
 Dead end, with a misleading message.
 
@@ -5025,25 +5029,25 @@ fails against the pre-fix `setAdjustingProduct(target)` line first (rule 17).
 
 ## LIRA-226: `check-schema-equivalence`'s shape half is vacuous in CI, and duplicate versions go unreported — MEDIUM
 
-| Field                | Value                                                             |
-| -------------------- | ----------------------------------------------------------------- |
-| **Epic**             | CI / Schema                                                       |
-| **Type**             | Bug in a guard (a check that cannot fail)                         |
-| **Priority**         | Medium                                                            |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — CI passes `SCHEMA_CHECK_BASE_REF`; duplicate migration versions are reported; `scripts/__tests__/checkSchemaEquivalence.test.mjs` |
-| **Affected Modules** | — (tooling)                                                       |
-| **Source Plan**      | Found while wiring the check up, 2026-09-23                       |
+| Field                | Value                                                                                                                                                                      |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | CI / Schema                                                                                                                                                                |
+| **Type**             | Bug in a guard (a check that cannot fail)                                                                                                                                  |
+| **Priority**         | Medium                                                                                                                                                                     |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — CI passes `SCHEMA_CHECK_BASE_REF`; duplicate migration versions are reported; `scripts/__tests__/checkSchemaEquivalence.test.mjs` |
+| **Affected Modules** | — (tooling)                                                                                                                                                                |
+| **Source Plan**      | Found while wiring the check up, 2026-09-23                                                                                                                                |
 
 ### Summary — two independent gaps
 
-**(a) The A-vs-B *shape* comparison has no signal in CI.** DB (A) is built from
+**(a) The A-vs-B _shape_ comparison has no signal in CI.** DB (A) is built from
 `git show HEAD:electron-app/create_db.sql`. On `push: [main]`, `HEAD` **is** the pushed commit; on
 `pull_request`, `actions/checkout` uses the merge ref. Either way A's source file equals the working
 tree's. Once every version is seeded — which the new contents check now enforces — `runMigrations`
 applies nothing, so A and B are byte-identical **by construction**. Proven, not reasoned: adding a
 column to a copy of `create_db.sql` is caught when old ≠ new, and **not** caught when old = new.
 
-So the classic rule-10 miss of *"added the seed row, forgot the column"* escapes CI. The **new
+So the classic rule-10 miss of _"added the seed row, forgot the column"_ escapes CI. The **new
 seed-contents half is unaffected** and does have signal in CI (both the drifted-name and
 missing-row cases still exit 1 with old = new), so the step is a real net gain — and the
 missing-seed-row form of a rule-10 miss, by far the common one, IS caught.
@@ -5074,14 +5078,14 @@ Map, and report any duplicated version as a diff.
 
 ## LIRA-227: an upgraded tenant 1 and a fresh install disagree on sidebar module order — LOW
 
-| Field                | Value                                                             |
-| -------------------- | ----------------------------------------------------------------- |
-| **Epic**             | Schema                                                            |
-| **Type**             | Bug — presentation only                                           |
-| **Priority**         | Low                                                               |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — migration v188 re-asserts custom_services=12, profits=13, loto=16 |
-| **Affected Modules** | all (`modules` table)                                             |
-| **Source Plan**      | Surfaced while proving fresh-vs-upgraded equivalence for LIRA-198 |
+| Field                | Value                                                                                                      |
+| -------------------- | ---------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Schema                                                                                                     |
+| **Type**             | Bug — presentation only                                                                                    |
+| **Priority**         | Low                                                                                                        |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — migration v188 re-asserts custom_services=12, profits=13, loto=16 |
+| **Affected Modules** | all (`modules` table)                                                                                      |
+| **Source Plan**      | Surfaced while proving fresh-vs-upgraded equivalence for LIRA-198                                          |
 
 ### Summary
 
@@ -5104,14 +5108,14 @@ A new migration re-asserting the three `sort_order` values to the `create_db.sql
 
 ## LIRA-228: the product form loses a warranty edit on minimize/restore — LOW
 
-| Field                | Value                                                             |
-| -------------------- | ----------------------------------------------------------------- |
-| **Epic**             | Inventory                                                         |
-| **Type**             | Bug — silent data loss                                            |
-| **Priority**         | Low                                                               |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — the warranty edit survives minimize/restore |
-| **Affected Modules** | inventory                                                         |
-| **Source Plan**      | Found reviewing LIRA-208; pre-existing                            |
+| Field                | Value                                                                                |
+| -------------------- | ------------------------------------------------------------------------------------ |
+| **Epic**             | Inventory                                                                            |
+| **Type**             | Bug — silent data loss                                                               |
+| **Priority**         | Low                                                                                  |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — the warranty edit survives minimize/restore |
+| **Affected Modules** | inventory                                                                            |
+| **Source Plan**      | Found reviewing LIRA-208; pre-existing                                               |
 
 ### Summary
 
@@ -5121,7 +5125,7 @@ A new migration re-asserting the three `sort_order` values to the `create_db.sql
 from `product.warranty_months`.
 
 Consequence: an operator who edits **only** the warranty, minimizes, and restores silently loses the
-edit, and the form restores reading *clean* — so nothing warns them.
+edit, and the form restores reading _clean_ — so nothing warns them.
 
 ### Fix
 
@@ -5133,14 +5137,14 @@ in the UI that warranty is not preserved across a minimize. Prove it with a fail
 
 ## LIRA-229: a sale's draft autosave writes a fresh SALE transaction row every time — MEDIUM
 
-| Field                | Value                                                                              |
-| -------------------- | ---------------------------------------------------------------------------------- |
-| **Epic**             | POS / Sales                                                                        |
-| **Type**             | Bug — duplicate ledger rows (money path)                                           |
-| **Priority**         | Medium                                                                             |
-| **Status**           | DONE 2026-09-26 — committed `24651e83` — see "Resolution" below                   |
-| **Affected Modules** | pos, profits                                                                       |
-| **Source Plan**      | Profits audit run 2026-09-24, lane LCC (`OWNER_NOTES_2026-09-21.md` §6.9)          |
+| Field                | Value                                                                     |
+| -------------------- | ------------------------------------------------------------------------- |
+| **Epic**             | POS / Sales                                                               |
+| **Type**             | Bug — duplicate ledger rows (money path)                                  |
+| **Priority**         | Medium                                                                    |
+| **Status**           | DONE 2026-09-26 — committed `24651e83` — see "Resolution" below           |
+| **Affected Modules** | pos, profits                                                              |
+| **Source Plan**      | Profits audit run 2026-09-24, lane LCC (`OWNER_NOTES_2026-09-21.md` §6.9) |
 
 ### Summary
 
@@ -5191,14 +5195,14 @@ route); it has been added (`salesDeleteDraft.api.test.ts`). Not fixed, reported:
 
 ## LIRA-230: a named walk-in's kept change lands in the unnamed "Walk-in" bucket — LOW
 
-| Field                | Value                                                                              |
-| -------------------- | ---------------------------------------------------------------------------------- |
-| **Epic**             | Sessions / Profits                                                                 |
-| **Type**             | Bug — wrong attribution (reporting)                                                |
-| **Priority**         | Low                                                                                |
-| **Status**           | DONE 2026-09-26 — committed `24651e83` — see "Resolution" below                   |
-| **Affected Modules** | pos (session checkout), profits                                                    |
-| **Source Plan**      | Profits audit run 2026-09-24, lane LCC (`OWNER_NOTES_2026-09-21.md` §6.9)          |
+| Field                | Value                                                                     |
+| -------------------- | ------------------------------------------------------------------------- |
+| **Epic**             | Sessions / Profits                                                        |
+| **Type**             | Bug — wrong attribution (reporting)                                       |
+| **Priority**         | Low                                                                       |
+| **Status**           | DONE 2026-09-26 — committed `24651e83` — see "Resolution" below           |
+| **Affected Modules** | pos (session checkout), profits                                           |
+| **Source Plan**      | Profits audit run 2026-09-24, lane LCC (`OWNER_NOTES_2026-09-21.md` §6.9) |
 
 ### Summary
 
@@ -5218,6 +5222,7 @@ already groups walk-ins by the stamped name.
 ### Resolution (2026-09-26)
 
 **Reproduced first:**
+
 - a named walk-in's KEPT_CHANGE row had `client_name` null (so it landed in "Walk-in");
 - a saved client's KEPT_CHANGE row was also missing the name, though its `client_id` was already there.
 
@@ -5242,6 +5247,7 @@ owner. Rule-17 red-proofs for this batch's own new guards passed (undo → red �
 checks across the two build runs).
 
 **Closed by this batch:**
+
 - The four money bugs: #4/#15 (D1, OMT/Whish RECEIVE fee model, migration v180), #6 (LIRA-202, OMT
   fee no longer forced for cash-to-business), #7 (LIRA-203, supplier overpayment books a credit),
   #8 (LIRA-204, debt-settlement cross-currency shortfall), #10 (LIRA-206, buy-back double-credit),
@@ -5263,6 +5269,7 @@ checks across the two build runs).
   and the `TopUpModal` scroll fix (lira-141).
 
 **Still open — no ticket ID invented for any of these; do not file one without the owner:**
+
 - **#1** (staff name in the txn user column) and **#25** (maintenance "Start" button) — both may
   already be fixed by earlier commits; **waiting on the customer to confirm**, per
   `OWNER_NOTES_2026-09-21.md` §0.8/§0.9.
@@ -5286,14 +5293,14 @@ so it names no single fee field. Verified: core jest 3,940/3,940, backend 963/96
 
 ## LIRA-231: POS refunds hand money back silently — use the payment form; block session-paid sales — HIGH
 
-| Field                | Value                                                                              |
-| -------------------- | ---------------------------------------------------------------------------------- |
-| **Epic**             | POS / Refunds                                                                      |
-| **Type**             | Bug + small feature (money path)                                                   |
-| **Priority**         | High                                                                               |
-| **Status**           | DONE 2026-09-26 — committed `24651e83` — incl. items 3–7 below                    |
-| **Affected Modules** | pos, audit                                                                         |
-| **Source**           | Owner test 2026-09-26: an item refund on session Sale #4                           |
+| Field                | Value                                                          |
+| -------------------- | -------------------------------------------------------------- |
+| **Epic**             | POS / Refunds                                                  |
+| **Type**             | Bug + small feature (money path)                               |
+| **Priority**         | High                                                           |
+| **Status**           | DONE 2026-09-26 — committed `24651e83` — incl. items 3–7 below |
+| **Affected Modules** | pos, audit                                                     |
+| **Source**           | Owner test 2026-09-26: an item refund on session Sale #4       |
 
 ### Summary
 
@@ -5352,6 +5359,7 @@ data.
 ### Resolution (2026-09-26)
 
 **Built:**
+
 - **Refund window in the POS.** "Refund Sale" and "Refund item" open `RefundMethodModal`, pre-filled
   from a new read-only preview (`sales:refund-preview` / `GET /api/sales/:id/refund-preview`). The
   cashier's legs flow through the existing refund-override contract: `refundBySaleId`'s `refundLegs`, and
@@ -5364,6 +5372,7 @@ data.
 - **Web sale detail** (`saleIdParamSchema`).
 
 **Verified 2026-09-26:**
+
 - build:core, schema-equivalence (74 tables), tenant-scoping, bind-arity, `yarn typecheck` and `yarn lint`
   (0 errors);
 - jest: core 3,960, backend 990 (995 after item 7), electron 219, frontend 1,982 (1 pre-existing skip).
@@ -5372,6 +5381,7 @@ data.
 
 **Desktop e2e (owner run, 2026-09-26):** 311 of 313 passed. Both failures were in `lira-143`, and both
 came from the spec not driving this ticket's new screens, not from an app bug:
+
 - the re-sell scan of the refunded-as-defective phone now hits the defective confirm;
 - the POS per-item refund now opens the refund payment form.
 
@@ -5386,14 +5396,14 @@ The spec was updated to click "Sell Anyway" (it now also checks that the confirm
 
 ## LIRA-232: refund a single item from a session basket — HIGH
 
-| Field                | Value                                                                              |
-| -------------------- | ---------------------------------------------------------------------------------- |
-| **Epic**             | Sessions / Refunds                                                                 |
-| **Type**             | Feature (money path)                                                               |
-| **Priority**         | High                                                                               |
+| Field                | Value                                                                                                                            |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Sessions / Refunds                                                                                                               |
+| **Type**             | Feature (money path)                                                                                                             |
+| **Priority**         | High                                                                                                                             |
 | **Status**           | DONE 2026-09-27 — committed `24651e83` — 5 review rounds fixed; desktop e2e 313 + lira-232 2/2; web e2e 124 + lira-web-031 fixed |
-| **Affected Modules** | pos, audit, debts, sessions                                                        |
-| **Source**           | Owner item #9 (2026-09-26); owner's own test of Sale #4 / Session #1               |
+| **Affected Modules** | pos, audit, debts, sessions                                                                                                      |
+| **Source**           | Owner item #9 (2026-09-26); owner's own test of Sale #4 / Session #1                                                             |
 
 ### Summary
 
@@ -5405,12 +5415,14 @@ flow.
 **Full design:** `docs/plans/done_plans/SESSION_ITEM_REFUND_PLAN.md`.
 
 **Owner answers (2026-09-26, all four took the recommended option):**
+
 - A whole-basket reversal after item refunds reverses only what's left.
 - POS "Refund Sale" on a session sale refunds all remaining lines in one operation.
 - A currency mismatch converts at the day's buy rate.
 - The Debts basket view stays read-only.
 
 **Phases:**
+
 1. Core.
 2. Transports.
 3. UI (Transactions session group, POS sale screen).
@@ -5420,18 +5432,19 @@ flow.
 
 ## LIRA-233: Profits drill-down for the remaining modules (#14 slice 3) — MEDIUM
 
-| Field                | Value                                                                              |
-| -------------------- | ---------------------------------------------------------------------------------- |
-| **Epic**             | Profits                                                                            |
-| **Type**             | Feature (read-only reporting)                                                      |
-| **Priority**         | Medium                                                                             |
-| **Status**           | DONE 2026-09-27 — committed `24651e83` — full suites + desktop and web e2e green  |
-| **Affected Modules** | profits                                                                            |
-| **Source**           | Owner note #14 (OWNER_NOTES_2026-09-21), slice 3                                   |
+| Field                | Value                                                                            |
+| -------------------- | -------------------------------------------------------------------------------- |
+| **Epic**             | Profits                                                                          |
+| **Type**             | Feature (read-only reporting)                                                    |
+| **Priority**         | Medium                                                                           |
+| **Status**           | DONE 2026-09-27 — committed `24651e83` — full suites + desktop and web e2e green |
+| **Affected Modules** | profits                                                                          |
+| **Source**           | Owner note #14 (OWNER_NOTES_2026-09-21), slice 3                                 |
 
 ### Summary
 
 Slice 2 gave By Module rows a transaction list for Product Sales and Recharges. This slice adds the rest:
+
 - financial services, per transfer plus per settlement allocation;
 - custom services;
 - maintenance, with the parts/labour split;
@@ -5441,6 +5454,7 @@ Slice 2 gave By Module rows a transaction list for Product Sales and Recharges. 
 - simple lists for kept change, counterparty discounts, supplier commission and top-up buyback.
 
 It applies the same owner rules as slice 2:
+
 - counted rows add up exactly to the module row, per currency;
 - a "not counted yet" section with a reason per row;
 - auto-booked fees are shown next to a row, never subtracted.
@@ -5452,14 +5466,14 @@ transport change was needed.
 
 ## LIRA-234: desktop cancel-draft role check + web expense error envelope — LOW
 
-| Field                | Value                                                                              |
-| -------------------- | ---------------------------------------------------------------------------------- |
-| **Epic**             | Transport parity                                                                   |
-| **Type**             | Bug                                                                                |
-| **Priority**         | Low                                                                                |
-| **Status**           | DONE 2026-09-26 — committed `24651e83`                                            |
-| **Affected Modules** | pos, expenses                                                                      |
-| **Source**           | Follow-ups found while building LIRA-229 / LIRA-231                                |
+| Field                | Value                                               |
+| -------------------- | --------------------------------------------------- |
+| **Epic**             | Transport parity                                    |
+| **Type**             | Bug                                                 |
+| **Priority**         | Low                                                 |
+| **Status**           | DONE 2026-09-26 — committed `24651e83`              |
+| **Affected Modules** | pos, expenses                                       |
+| **Source**           | Follow-ups found while building LIRA-229 / LIRA-231 |
 
 ### Summary
 
@@ -5481,18 +5495,19 @@ transport change was needed.
 
 ## LIRA-235: shared staff login for the web e2e suite — LOW
 
-| Field                | Value                                                                              |
-| -------------------- | ---------------------------------------------------------------------------------- |
-| **Epic**             | Testing                                                                            |
-| **Type**             | Test infrastructure                                                                |
-| **Priority**         | Low                                                                                |
+| Field                | Value                                                                                               |
+| -------------------- | --------------------------------------------------------------------------------------------------- |
+| **Epic**             | Testing                                                                                             |
+| **Type**             | Test infrastructure                                                                                 |
+| **Priority**         | Low                                                                                                 |
 | **Status**           | DONE 2026-09-27 — committed `24651e83` — web e2e run; lira-web-031 case 4 snapshot order fixed, 4/4 |
-| **Affected Modules** | e2e-web                                                                            |
-| **Source**           | lira-web-028/029/031 each noted "no staff login fixture exists"                    |
+| **Affected Modules** | e2e-web                                                                                             |
+| **Source**           | lira-web-028/029/031 each noted "no staff login fixture exists"                                     |
 
 ### Summary
 
 `frontend/tests/e2e-web/fixtures.ts` now has `seedStaffUser`, `staffHeaders` and `loginAsUser`.
+
 - lira-web-019/022/025 use it instead of three identical copies.
 - lira-web-031 case 4 is no longer skipped: a staff login gets 403 on Reset Data preview/reset, and nothing
   changes.
@@ -5503,18 +5518,19 @@ transport change was needed.
 
 ## LIRA-236: refund form — editable exchange rate + free currency mix (all refunds) — HIGH
 
-| Field                | Value                                                                              |
-| -------------------- | ---------------------------------------------------------------------------------- |
-| **Epic**             | Refunds                                                                            |
-| **Type**             | Feature (money path)                                                               |
-| **Priority**         | High                                                                               |
+| Field                | Value                                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------ |
+| **Epic**             | Refunds                                                                                                |
+| **Type**             | Feature (money path)                                                                                   |
+| **Priority**         | High                                                                                                   |
 | **Status**           | DONE 2026-09-27 — committed `24651e83` — incl. migration v186; full suites + desktop and web e2e green |
-| **Affected Modules** | pos, audit, sessions                                                               |
-| **Source**           | Owner, 2026-09-27, answering the LIRA-232 rate question                            |
+| **Affected Modules** | pos, audit, sessions                                                                                   |
+| **Source**           | Owner, 2026-09-27, answering the LIRA-232 rate question                                                |
 
 ### Summary
 
 Every refund popup gets:
+
 - an editable exchange rate, defaulting to the rate the sale was paid at;
 - free currency mixing, where the total value at that rate must equal the refund.
 
@@ -5527,12 +5543,14 @@ The typed rate also converts the account-first part of a session item refund.
 ### LIRA-232 / LIRA-236 — verification and a bug found by the e2e run (2026-09-27)
 
 **Final checks** (all green on the final tree):
+
 - **Checks:** typecheck, lint (0 errors), schema-equivalence (176 migrations), tenant-scoping, bind-arity.
 - **Jest:** core 4,147, backend 1,020, electron 246, frontend 2,109.
 - **Desktop e2e:** full run 313 of 315; the 2 `lira-232` failures were then fixed, and `lira-232` re-ran 2 of 2.
 - **Web e2e:** full run 124 of 125; the `lira-web-031` failure was then fixed, and it re-ran 4 of 4.
 
 **Bug found by the lira-232 e2e — rule 11, pre-existing, fixed.** A POS sale checked out through a session basket never carried the customer. `SessionCheckoutService` stamped `clientId`/`clientName` (camelCase) onto cart items, but `SaleRequest` reads snake_case `client_id`/`client_name` only. So every session-basket sale landed with no client. The fix:
+
 - Both spellings are now stamped.
 - `SalesRepository.processSale` no longer auto-creates or name-matches a client for session sales (`deferPayment`), because the session owns client resolution; standalone POS is unchanged.
 - Tests: `SessionCheckoutService.salesClientPropagation.test.ts` (3 cases, labelled "not proven failing-first").
@@ -5540,6 +5558,7 @@ The typed rate also converts the account-first part of a session item refund.
 **Migration v186** adds `customer_session_transactions.paid_exchange_rate` (nullable, not backfilled): the rate each basket member was paid at, which is the default refund rate. Both `migrations/index.ts` and `create_db.sql` are updated.
 
 **Follow-ups: all fixed 2026-09-27** (full suites + desktop e2e 315/315 + web e2e 125/125 afterwards):
+
 - **`getRecent` query count:** the per-session flags are now batched. The count is flat: 13 queries for 5 sessions and for 50. The single-session check calls the batched one (rule 14).
 - **REST envelopes (rule 19c):**
   - `POST /api/transactions/:id/refund`, `/:id/void`, `/checkout-group/:groupId/void` and `/session-basket/:sessionId/void|refund` now return 200 `{ success: false, error }` on failure.
@@ -5558,14 +5577,14 @@ The typed rate also converts the account-first part of a session item refund.
 
 ## LIRA-237: web daily reports may put 00:00–03:00 Beirut rows on the previous day — HIGH — DONE 2026-09-28 (`8cf9361d`)
 
-| Field                | Value                                                                              |
-| -------------------- | ---------------------------------------------------------------------------------- |
-| **Epic**             | Dual transport / dates (rule 27)                                                   |
-| **Type**             | Investigation (possible bug)                                                       |
-| **Priority**         | High                                                                               |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — CONFIRMED and fixed the rule-27 way: the browser sends `X-Client-Tz-Offset` → tenant context → `repositories/reportingTimeFragments.ts`; Profit, Closing, Sales, Exchange, FinancialService, CustomService, CustomerSession and Product queries converted; desktop falls back to `localtime` |
-| **Affected Modules** | profits, closing, dashboard, every daily report on web                             |
-| **Source**           | Found while fixing the flaky "today" core tests (2026-09-27)                       |
+| Field                | Value                                                                                                                                                                                                                                                                                                                                 |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Dual transport / dates (rule 27)                                                                                                                                                                                                                                                                                                      |
+| **Type**             | Investigation (possible bug)                                                                                                                                                                                                                                                                                                          |
+| **Priority**         | High                                                                                                                                                                                                                                                                                                                                  |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — CONFIRMED and fixed the rule-27 way: the browser sends `X-Client-Tz-Offset` → tenant context → `repositories/reportingTimeFragments.ts`; Profit, Closing, Sales, Exchange, FinancialService, CustomService, CustomerSession and Product queries converted; desktop falls back to `localtime` |
+| **Affected Modules** | profits, closing, dashboard, every daily report on web                                                                                                                                                                                                                                                                                |
+| **Source**           | Found while fixing the flaky "today" core tests (2026-09-27)                                                                                                                                                                                                                                                                          |
 
 ### Summary
 
@@ -5575,6 +5594,7 @@ a row written between 00:00 and 03:00 Beirut may land on the previous day in web
 Something in that path may already compensate — verify first.
 
 **Steps:**
+
 1. Reproduce with a fixed UTC instant and a Beirut client day, over REST.
 2. If it is real, fix it the rule-27 way: the client supplies its day, the server's day is only a
    fallback. Never fix it by setting `TZ` on the server.
@@ -5585,18 +5605,19 @@ Something in that path may already compensate — verify first.
 
 ## LIRA-238: repair old data the owner-notes fixes left behind, and take the SMS fee off the shop line — MEDIUM — CLOSED
 
-| Field                | Value                                                                              |
-| -------------------- | ---------------------------------------------------------------------------------- |
-| **Epic**             | Owner notes 2026-09-21 — follow-ups                                                |
-| **Type**             | Data repair + one code gap                                                         |
-| **Priority**         | Medium                                                                             |
+| Field                | Value                                                                                                                                                                                                      |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Owner notes 2026-09-21 — follow-ups                                                                                                                                                                        |
+| **Type**             | Data repair + one code gap                                                                                                                                                                                 |
+| **Priority**         | Medium                                                                                                                                                                                                     |
 | **Status**           | CLOSED 2026-10-02 — the data repairs were dropped by the owner ("old data is fine"; a read-only check of cornertech found nothing to repair), and the SMS-fee-on-the-line code gap was fixed in `01609da6` |
-| **Affected Modules** | debts, expenses, recharge, settings (shop lines)                                   |
-| **Source**           | `OWNER_NOTES_2026-09-21.md` §00.4                                                  |
+| **Affected Modules** | debts, expenses, recharge, settings (shop lines)                                                                                                                                                           |
+| **Source**           | `OWNER_NOTES_2026-09-21.md` §00.4                                                                                                                                                                          |
 
 ### Summary
 
 The fixes for notes #8, #26, #10 and #22 work from now on; past records were not repaired.
+
 1. **#8:** debt balances left at a few hundred LBP (e.g. −340 LBP) by settlements made before
    the fix. A one-off repair per tenant, after a dry-run listing.
 2. **#26:** web expenses saved before 2026-09-25 have no `expense_date`, so they don't show on
@@ -5614,14 +5635,14 @@ shop line's balance matches the credits actually left after SMS fees.
 
 ## LIRA-239: verify that refunding a "sold ahead" days sale plus the later line recharge nets to zero — MEDIUM — DONE 2026-09-28 (`8cf9361d`)
 
-| Field                | Value                                                                              |
-| -------------------- | ---------------------------------------------------------------------------------- |
-| **Epic**             | Owner notes 2026-09-21 — follow-ups (#28)                                          |
-| **Type**             | Execution-based verification                                                       |
-| **Priority**         | Medium                                                                             |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — REAL bug: voiding the days sale and then the later self-charge left the line wrong. A CHARGE reversal is now refused when out of order, with a plain message; newest-first nets every ledger to 0. "Refund basket" is unaffected (a self-charge is never a session member) |
-| **Affected Modules** | recharge (carrier lines), sessions, dashboard (owed days)                          |
-| **Source**           | `OWNER_NOTES_2026-09-21.md` §00.5                                                  |
+| Field                | Value                                                                                                                                                                                                                                                                                                               |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Owner notes 2026-09-21 — follow-ups (#28)                                                                                                                                                                                                                                                                           |
+| **Type**             | Execution-based verification                                                                                                                                                                                                                                                                                        |
+| **Priority**         | Medium                                                                                                                                                                                                                                                                                                              |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — REAL bug: voiding the days sale and then the later self-charge left the line wrong. A CHARGE reversal is now refused when out of order, with a plain message; newest-first nets every ledger to 0. "Refund basket" is unaffected (a self-charge is never a session member) |
+| **Affected Modules** | recharge (carrier lines), sessions, dashboard (owed days)                                                                                                                                                                                                                                                           |
+| **Source**           | `OWNER_NOTES_2026-09-21.md` §00.5                                                                                                                                                                                                                                                                                   |
 
 ### Summary
 
@@ -5630,6 +5651,7 @@ open item: refunding the days sale together with the later line recharge, in the
 may not net to zero on every ledger.
 
 With real writers, check that create + refund nets to 0 on:
+
 - line credits;
 - the drawer;
 - the "days still to send" list;
@@ -5644,13 +5666,13 @@ and the owed-days list exactly.
 
 ## LIRA-240: the ±15% payment-rate check blocks payments; make it an alert — HIGH
 
-| Field | Value |
-| --- | --- |
-| **Type** | Behaviour change (owner decision) |
-| **Priority** | High |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — the server no longer refuses a far-off rate; the payment form shows an amber warning past 15% ("check for a typo" past 50%) |
-| **Affected Modules** | recharge, omt_whish, all payment forms |
-| **Source** | Owner note #17 + Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
+| Field                | Value                                                                                                                                                                |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Type**             | Behaviour change (owner decision)                                                                                                                                    |
+| **Priority**         | High                                                                                                                                                                 |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — the server no longer refuses a far-off rate; the payment form shows an amber warning past 15% ("check for a typo" past 50%) |
+| **Affected Modules** | recharge, omt_whish, all payment forms                                                                                                                               |
+| **Source**           | Owner note #17 + Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8)                                                                            |
 
 ### Summary
 
@@ -5664,13 +5686,13 @@ The payment form refuses a typed exchange rate more than 15% from the shop rate 
 
 ## LIRA-241: Debts history has no User column — LOW
 
-| Field | Value |
-| --- | --- |
-| **Type** | Feature (owner decision) |
-| **Priority** | Low |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — User column in both Debts history tables; the Sale Debt `created_by` actor fixed |
-| **Affected Modules** | debts |
-| **Source** | Owner note #1 + Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
+| Field                | Value                                                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| **Type**             | Feature (owner decision)                                                                                                  |
+| **Priority**         | Low                                                                                                                       |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — User column in both Debts history tables; the Sale Debt `created_by` actor fixed |
+| **Affected Modules** | debts                                                                                                                     |
+| **Source**           | Owner note #1 + Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8)                                  |
 
 ### Summary
 
@@ -5684,13 +5706,13 @@ The Debts page client history shows Date / Note / USD / LBP but not who recorded
 
 ## LIRA-242: staff are silently refused for recharges, expenses and maintenance — HIGH
 
-| Field | Value |
-| --- | --- |
-| **Type** | Permissions (owner decision) |
-| **Priority** | High |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — staff may process recharges (incl. buy-back and shop-line use), add expenses, and create/start/update repair jobs; deletes, cash-out to supplier and line settings stay admin. Owner confirmed 2026-09-29: staff KEEP buy-backs |
-| **Affected Modules** | recharge, expenses, maintenance |
-| **Source** | Owner note #25 + Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
+| Field                | Value                                                                                                                                                                                                                                                                    |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Type**             | Permissions (owner decision)                                                                                                                                                                                                                                             |
+| **Priority**         | High                                                                                                                                                                                                                                                                     |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — staff may process recharges (incl. buy-back and shop-line use), add expenses, and create/start/update repair jobs; deletes, cash-out to supplier and line settings stay admin. Owner confirmed 2026-09-29: staff KEEP buy-backs |
+| **Affected Modules** | recharge, expenses, maintenance                                                                                                                                                                                                                                          |
+| **Source**           | Owner note #25 + Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8)                                                                                                                                                                                |
 
 ### Summary
 
@@ -5704,13 +5726,13 @@ Staff get a 403 with no message for MTC/Alfa recharges, adding expenses, and cre
 
 ## LIRA-243: Audit Log times show 3 hours ahead on the web — MEDIUM
 
-| Field | Value |
-| --- | --- |
-| **Type** | Bug (rule 27) |
-| **Priority** | Medium |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — `AuditRepository.log` stamps UTC; entries written before the fix keep the old time (owner decision 2026-09-29: leave them, no backfill) |
-| **Affected Modules** | audit |
-| **Source** | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
+| Field                | Value                                                                                                                                                                            |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Type**             | Bug (rule 27)                                                                                                                                                                    |
+| **Priority**         | Medium                                                                                                                                                                           |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — `AuditRepository.log` stamps UTC; entries written before the fix keep the old time (owner decision 2026-09-29: leave them, no backfill) |
+| **Affected Modules** | audit                                                                                                                                                                            |
+| **Source**           | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8)                                                                                                         |
 
 ### Summary
 
@@ -5722,13 +5744,13 @@ The same moment shows 20:53 on Transactions and 23:53 on the Audit Log. Audit ro
 
 ## LIRA-244: Dashboard "Cash Collected (Today)" counts a debt repayment twice — MEDIUM
 
-| Field | Value |
-| --- | --- |
-| **Type** | Bug (money display) |
-| **Priority** | Medium |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — Cash Collected sums payment legs by their own day (sale transactions + session checkouts) plus repayments; a 12-case matrix matches the drawer (`SalesRepository.dashboardCashCollected.matrix.test.ts`) |
-| **Affected Modules** | dashboard |
-| **Source** | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
+| Field                | Value                                                                                                                                                                                                                                             |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Type**             | Bug (money display)                                                                                                                                                                                                                               |
+| **Priority**         | Medium                                                                                                                                                                                                                                            |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — Cash Collected sums payment legs by their own day (sale transactions + session checkouts) plus repayments; a 12-case matrix matches the drawer (`SalesRepository.dashboardCashCollected.matrix.test.ts`) |
+| **Affected Modules** | dashboard                                                                                                                                                                                                                                         |
+| **Source**           | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8)                                                                                                                                                                          |
 
 ### Summary
 
@@ -5740,13 +5762,13 @@ Measured twice: $8.00 shown against a $4.00 drawer, and $21.37 against $17.37. I
 
 ## LIRA-245: Escape in POS checkout empties the cart without asking — MEDIUM
 
-| Field | Value |
-| --- | --- |
-| **Type** | Bug (UX / lost work) |
-| **Priority** | Medium |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — Escape closes only the top panel; POS passes a non-destructive `onClose` |
-| **Affected Modules** | pos |
-| **Source** | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
+| Field                | Value                                                                                                             |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| **Type**             | Bug (UX / lost work)                                                                                              |
+| **Priority**         | Medium                                                                                                            |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — Escape closes only the top panel; POS passes a non-destructive `onClose` |
+| **Affected Modules** | pos                                                                                                               |
+| **Source**           | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8)                                          |
 
 ### Summary
 
@@ -5758,13 +5780,13 @@ Pressing Escape in checkout, even with only the receipt preview open, cancels th
 
 ## LIRA-246: maintenance: status changes keep no user, Lebanese phone formats rejected, name-only client linking — MEDIUM
 
-| Field | Value |
-| --- | --- |
-| **Type** | Bug |
-| **Priority** | Medium |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — `changed_by` set from the actor; phones normalised (`normalizeLineNumber`); no name-only client link |
-| **Affected Modules** | maintenance |
-| **Source** | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
+| Field                | Value                                                                                                                                         |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Type**             | Bug                                                                                                                                           |
+| **Priority**         | Medium                                                                                                                                        |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — `changed_by` set from the actor; phones normalised (`normalizeLineNumber`); no name-only client link |
+| **Affected Modules** | maintenance                                                                                                                                   |
+| **Source**           | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8)                                                                      |
 
 ### Summary
 
@@ -5776,13 +5798,13 @@ Pressing Escape in checkout, even with only the receipt preview open, cancels th
 
 ## LIRA-247: refusals returned as HTTP 400/403 lose their reason on the web — MEDIUM
 
-| Field | Value |
-| --- | --- |
-| **Type** | Bug (rule 19c) |
-| **Priority** | Medium |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — about 35 sites use `getApiErrorMessage`; also added the missing success checks (Binance submit, preset on/off) |
-| **Affected Modules** | inventory, recharge, expenses, maintenance, others |
-| **Source** | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
+| Field                | Value                                                                                                                                                   |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Type**             | Bug (rule 19c)                                                                                                                                          |
+| **Priority**         | Medium                                                                                                                                                  |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — about 35 sites use `getApiErrorMessage`; also added the missing success checks (Binance submit, preset on/off) |
+| **Affected Modules** | inventory, recharge, expenses, maintenance, others                                                                                                      |
+| **Source**           | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8)                                                                                |
 
 ### Summary
 
@@ -5794,13 +5816,13 @@ Inventory "retail below cost" shows "An unexpected error occurred"; staff 403s s
 
 ## LIRA-248: OMT: an edited exchange rate carries over to the next transaction — LOW
 
-| Field | Value |
-| --- | --- |
-| **Type** | Bug |
-| **Priority** | Low |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — the edited rate resets after each transfer and before opening the payment sheet |
-| **Affected Modules** | omt_whish |
-| **Source** | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
+| Field                | Value                                                                                                                    |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| **Type**             | Bug                                                                                                                      |
+| **Priority**         | Low                                                                                                                      |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — the edited rate resets after each transfer and before opening the payment sheet |
+| **Affected Modules** | omt_whish                                                                                                                |
+| **Source**           | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8)                                                 |
 
 ### Summary
 
@@ -5812,13 +5834,13 @@ After a rate is edited in the payment form, the next OMT transaction starts with
 
 ## LIRA-249: toasts cover the payment panel's Pay button — LOW
 
-| Field | Value |
-| --- | --- |
-| **Type** | Bug (UX) |
-| **Priority** | Low |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — toasts are click-through; their close button still works |
-| **Affected Modules** | ui |
-| **Source** | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
+| Field                | Value                                                                                             |
+| -------------------- | ------------------------------------------------------------------------------------------------- |
+| **Type**             | Bug (UX)                                                                                          |
+| **Priority**         | Low                                                                                               |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — toasts are click-through; their close button still works |
+| **Affected Modules** | ui                                                                                                |
+| **Source**           | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8)                          |
 
 ### Summary
 
@@ -5830,13 +5852,13 @@ Toasts sit at the bottom right for about 3–5 seconds, on top of the Pay button
 
 ## LIRA-250: Recharge page COUNT / PROFIT cards read 0 after recharges — LOW
 
-| Field | Value |
-| --- | --- |
-| **Type** | Verify |
-| **Priority** | Low |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — CONFIRMED real (the cards read `financial_services`, which never holds recharges). New core read `RechargeRepository.getTodayStats(provider)` (IPC `recharge:get-today-stats` + `GET /api/recharge/today-stats`) reuses the Profits page's own recharge gates (`type='RECHARGE'`, `notRefunded`, `notDebtPending`, stamped profit, `isToday`); feeds Count, Profit and Total Profit. NOT proven failing-first |
-| **Affected Modules** | recharge |
-| **Source** | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
+| Field                | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Type**             | Verify                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| **Priority**         | Low                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — CONFIRMED real (the cards read `financial_services`, which never holds recharges). New core read `RechargeRepository.getTodayStats(provider)` (IPC `recharge:get-today-stats` + `GET /api/recharge/today-stats`) reuses the Profits page's own recharge gates (`type='RECHARGE'`, `notRefunded`, `notDebtPending`, stamped profit, `isToday`); feeds Count, Profit and Total Profit. NOT proven failing-first |
+| **Affected Modules** | recharge                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| **Source**           | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8)                                                                                                                                                                                                                                                                                                                                                                               |
 
 ### Summary
 
@@ -5848,13 +5870,13 @@ After 8 successful recharges the cards still read 0. Not yet checked after a rel
 
 ## LIRA-251: `getUsdLbpSellRate()` has no tenant filter — MEDIUM
 
-| Field | Value |
-| --- | --- |
-| **Type** | Security / tenant isolation |
-| **Priority** | Medium |
-| **Status** | DONE 2026-09-28 — committed `8cf9361d` — the filter was ALREADY fixed in `9ed8d90f` (guard `utils/__tests__/exchangeRate.tenantScoping.test.ts`, re-run 9/9). The real gap: `check-tenant-scoping.mjs` never scanned `packages/core/src/utils/`; now it does (216 files, 0 violations) |
-| **Affected Modules** | exchange rates (all money flows) |
-| **Source** | Found while building LIRA-240 (2026-09-28) |
+| Field                | Value                                                                                                                                                                                                                                                                                  |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Type**             | Security / tenant isolation                                                                                                                                                                                                                                                            |
+| **Priority**         | Medium                                                                                                                                                                                                                                                                                 |
+| **Status**           | DONE 2026-09-28 — committed `8cf9361d` — the filter was ALREADY fixed in `9ed8d90f` (guard `utils/__tests__/exchangeRate.tenantScoping.test.ts`, re-run 9/9). The real gap: `check-tenant-scoping.mjs` never scanned `packages/core/src/utils/`; now it does (216 files, 0 violations) |
+| **Affected Modules** | exchange rates (all money flows)                                                                                                                                                                                                                                                       |
+| **Source**           | Found while building LIRA-240 (2026-09-28)                                                                                                                                                                                                                                             |
 
 ### Summary
 
@@ -5868,13 +5890,13 @@ comment in `constants/tenderRateBand.ts` was corrected.
 
 ## LIRA-252: MTC/Alfa drawer can drift from the carrier lines it's supposed to equal — HIGH — DONE (closed 2026-10-10)
 
-| Field | Value |
-| --- | --- |
-| **Type** | Bug (money) |
-| **Priority** | High |
-| **Status** | **DONE 2026-10-10** (`7275d60d`) — A–C built 2026-10-02, D owner decision (no data repair), E built 2026-10-10. History: PARTIAL 2026-10-02 — items A, B, C built. B+C (core, both transports) proven failing-first then green; full verification green from that session: core jest 465/465 suites (4528/4528 tests), electron-app jest 260/260, backend jest 1114/1114, core+electron-app+backend+frontend typecheck clean, eslint clean on touched files, check-tenant-scoping (0 violations), check-bind-arity (OK), check-schema-equivalence (0 diffs). Item A (Checkpoint page + Setup wizard per-line UI) built this session — see "What was built (item A)" below; frontend typecheck (tsconfig.app.json + tsconfig.playwright.json, both ~15s/~4s real), packages/ui typecheck, eslint (0 errors/warnings on touched files) and the full frontend jest suite (344/344 suites, 2246/2246 tests, 135s real) all green. Item E (Recharge-page mismatch warning) was then built 2026-10-10 — see below |
-| **Affected Modules** | recharge, closing, carrier lines, Setup wizard |
-| **Source** | Production cornertech investigation, 2026-10-02 |
+| Field                | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Type**             | Bug (money)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| **Priority**         | High                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **Status**           | **DONE 2026-10-10** (`7275d60d`) — A–C built 2026-10-02, D owner decision (no data repair), E built 2026-10-10. History: PARTIAL 2026-10-02 — items A, B, C built. B+C (core, both transports) proven failing-first then green; full verification green from that session: core jest 465/465 suites (4528/4528 tests), electron-app jest 260/260, backend jest 1114/1114, core+electron-app+backend+frontend typecheck clean, eslint clean on touched files, check-tenant-scoping (0 violations), check-bind-arity (OK), check-schema-equivalence (0 diffs). Item A (Checkpoint page + Setup wizard per-line UI) built this session — see "What was built (item A)" below; frontend typecheck (tsconfig.app.json + tsconfig.playwright.json, both ~15s/~4s real), packages/ui typecheck, eslint (0 errors/warnings on touched files) and the full frontend jest suite (344/344 suites, 2246/2246 tests, 135s real) all green. Item E (Recharge-page mismatch warning) was then built 2026-10-10 — see below |
+| **Affected Modules** | recharge, closing, carrier lines, Setup wizard                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| **Source**           | Production cornertech investigation, 2026-10-02                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 ### Summary
 
@@ -5985,7 +6007,7 @@ since an unscoped sum now also picks up the untransacted manual-adjustment rows)
   `useApi()` not `window.api`, filters a bare MTC/Alfa row even from a defensive stale-payload case,
   surfaces a server refusal readably).
 - Verification: frontend `tsc -p tsconfig.app.json --noEmit` (~15s) and `tsc -p tsconfig.playwright.json
-  --noEmit` (~4s) clean; `packages/ui` `tsc --noEmit` (~5s) clean; eslint 0 errors/0 warnings on every
+--noEmit` (~4s) clean; `packages/ui` `tsc --noEmit` (~5s) clean; eslint 0 errors/0 warnings on every
   touched file; full frontend jest suite 344/344 suites, 2246/2246 tests green (135s real — not a
   zero-output no-op).
 
@@ -6044,12 +6066,12 @@ warning with both amounts, so the shop can fix it with a checkpoint.
 
 ## LIRA-253: "Undo refund" for an item refunded inside a customer-session basket — MEDIUM — DONE 2026-10-02 (`b802dae7`)
 
-| Field | Value |
-| --- | --- |
-| **Type** | Feature (follow-up to LIRA-147) |
-| **Priority** | Medium |
-| **Status** | DONE 2026-10-02 — committed `b802dae7` (2026-10-03) — SALE-member scope only, see note below |
-| **Affected Modules** | sessions, pos, transactions |
+| Field                | Value                                                                                        |
+| -------------------- | -------------------------------------------------------------------------------------------- |
+| **Type**             | Feature (follow-up to LIRA-147)                                                              |
+| **Priority**         | Medium                                                                                       |
+| **Status**           | DONE 2026-10-02 — committed `b802dae7` (2026-10-03) — SALE-member scope only, see note below |
+| **Affected Modules** | sessions, pos, transactions                                                                  |
 
 ### Summary
 
@@ -6110,11 +6132,11 @@ show the undo as its own line item.
 
 ## LIRA-254: Reset Data keeps MTC/Alfa carrier lines, zeroing their credits — DONE
 
-| Field | Value |
-| --- | --- |
-| **Type** | Fix |
-| **Priority** | Medium |
-| **Status** | DONE, built 2026-10-02 |
+| Field                | Value                                |
+| -------------------- | ------------------------------------ |
+| **Type**             | Fix                                  |
+| **Priority**         | Medium                               |
+| **Status**           | DONE, built 2026-10-02               |
 | **Affected Modules** | settings (Reset Data), carrier-lines |
 
 ### Summary
@@ -6150,12 +6172,12 @@ sets their credits to 0.
 
 ## LIRA-255: OMT account: compare the app with OMT's statement SMS — MEDIUM
 
-| Field | Value |
-| --- | --- |
-| **Type** | Feature (owner request) |
-| **Priority** | Medium |
-| **Status** | DONE 2026-10-03. Added `SupplierRepository.getAccountExpectedStatement` (core) — reuses the account card's own gross figure (`getAccountBalances`) and the Settle tab's own pending-settlement row set (`getUnsettledBySupplier`/`pendingSettlementSql`, rule 14) to sum `commission` across ALL `commission_model` values (deliberately NOT legacy-only like `getUnsettledSummaryByProvider`'s dollar columns — see `AccountExpectedStatement`'s doc comment for why the creation-time estimate IS the real figure for this one purpose, and the D17 nuance). `expected = gross − unsettled_commission`, no sign flip (the app's own balance sign is already OMT's own convention — positive = shop owes). Wired IPC (`suppliers:account-expected-statement`) + REST (`GET /api/suppliers/:id/account-expected-statement`) + adapter (types derived/mirrored per the existing `AccountBalance` pattern, rule 21) + a `useSupplierAccountExpectedStatementQuery` hook. New `OmtStatementCheckPanel` renders on the OMT account's own panel (gated the same way the Settle Account button is, `isSelectedAccountParent`), showing gross/−commission/=expected per currency plus two SMS inputs (minus allowed) with a green/amber diff badge (±$0.01 / ±1 LBP); last-typed values persist to localStorage behind try/catch, keyed per account, read only by the panel itself. Display-only — nothing is booked. Core test (`SupplierRepository.accountExpectedStatement.test.ts`, real writers via `FinancialServiceRepository.createTransaction`): USD SEND $207+$1 fee/$0.25 commission + an LBP transfer ⇒ expected = gross − commission per currency; a RECEIVE case proves the OMT-owes-the-shop (negative) direction too — both failing-first (a schema gap, then a wrong RECEIVE-sign expectation, were caught red before going green). Frontend test (`OmtStatementCheckPanel.test.tsx`): renders the three figures, green "Matches" within tolerance, amber "Off by $X" outside it in both sign directions, and localStorage persistence across a remount. `yarn workspace @liratek/core typecheck`/`lint` (tsc, 9.6s), `yarn workspace @liratek/frontend` app typecheck (19.6s), `electron-app`/`backend` typecheck, eslint on touched files (0 errors), full `src/features/suppliers` (17 suites/69 tests) and core Supplier/FinancialService suites (48 suites/607 tests) all green. |
-| **Affected Modules** | Suppliers (OMT account), omt_whish |
+| Field                | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Type**             | Feature (owner request)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| **Priority**         | Medium                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| **Status**           | DONE 2026-10-03. Added `SupplierRepository.getAccountExpectedStatement` (core) — reuses the account card's own gross figure (`getAccountBalances`) and the Settle tab's own pending-settlement row set (`getUnsettledBySupplier`/`pendingSettlementSql`, rule 14) to sum `commission` across ALL `commission_model` values (deliberately NOT legacy-only like `getUnsettledSummaryByProvider`'s dollar columns — see `AccountExpectedStatement`'s doc comment for why the creation-time estimate IS the real figure for this one purpose, and the D17 nuance). `expected = gross − unsettled_commission`, no sign flip (the app's own balance sign is already OMT's own convention — positive = shop owes). Wired IPC (`suppliers:account-expected-statement`) + REST (`GET /api/suppliers/:id/account-expected-statement`) + adapter (types derived/mirrored per the existing `AccountBalance` pattern, rule 21) + a `useSupplierAccountExpectedStatementQuery` hook. New `OmtStatementCheckPanel` renders on the OMT account's own panel (gated the same way the Settle Account button is, `isSelectedAccountParent`), showing gross/−commission/=expected per currency plus two SMS inputs (minus allowed) with a green/amber diff badge (±$0.01 / ±1 LBP); last-typed values persist to localStorage behind try/catch, keyed per account, read only by the panel itself. Display-only — nothing is booked. Core test (`SupplierRepository.accountExpectedStatement.test.ts`, real writers via `FinancialServiceRepository.createTransaction`): USD SEND $207+$1 fee/$0.25 commission + an LBP transfer ⇒ expected = gross − commission per currency; a RECEIVE case proves the OMT-owes-the-shop (negative) direction too — both failing-first (a schema gap, then a wrong RECEIVE-sign expectation, were caught red before going green). Frontend test (`OmtStatementCheckPanel.test.tsx`): renders the three figures, green "Matches" within tolerance, amber "Off by $X" outside it in both sign directions, and localStorage persistence across a remount. `yarn workspace @liratek/core typecheck`/`lint` (tsc, 9.6s), `yarn workspace @liratek/frontend` app typecheck (19.6s), `electron-app`/`backend` typecheck, eslint on touched files (0 errors), full `src/features/suppliers` (17 suites/69 tests) and core Supplier/FinancialService suites (48 suites/607 tests) all green. |
+| **Affected Modules** | Suppliers (OMT account), omt_whish                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 ### Summary
 
@@ -6165,6 +6187,7 @@ LBP 11,584,062. INCLUDES INTRA SHARES". **OMT's sign:** minus = OMT owes the sho
 
 The app books OMT GROSS (transfer + fee), so the app's figure and OMT's differ by exactly the commission not settled
 yet. On the OMT account (Suppliers page), show per currency (USD, LBP):
+
 - **Owed to OMT (gross)**, from the app;
 - **minus unsettled commission**, ALL commission types for now (owner: not yet split by type);
 - **= what OMT's statement should show**, in OMT's own sign convention.
@@ -6178,13 +6201,13 @@ stands out at a glance.
 
 ## LIRA-256: tell the app which commission types an OMT statement includes, and settle the FIFO queue by type — LOW — DONE (not deployed)
 
-| Field | Value |
-| --- | --- |
-| **Type** | Feature (owner 2026-10-03; built 2026-10-11 overnight, decisions delegated) |
-| **Priority** | Low |
-| **Status** | **DONE** 2026-10-11 in the working tree; ships on the next deploy. Desktop e2e twin unverified until CI. |
-| **Spec** | `specs/256-omt-statement-commission-types/` (spec, plan, research incl. R10 baseline + R11 analyze re-check, tasks 47/47) |
-| **Decisions** | `docs/plans/OVERNIGHT_DECISIONS_2026-10-11.md` §2, S1–S9 |
+| Field         | Value                                                                                                                     |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| **Type**      | Feature (owner 2026-10-03; built 2026-10-11 overnight, decisions delegated)                                               |
+| **Priority**  | Low                                                                                                                       |
+| **Status**    | **DONE** 2026-10-11 in the working tree; ships on the next deploy. Desktop e2e twin unverified until CI.                  |
+| **Spec**      | `specs/256-omt-statement-commission-types/` (spec, plan, research incl. R10 baseline + R11 analyze re-check, tasks 47/47) |
+| **Decisions** | `docs/plans/OVERNIGHT_DECISIONS_2026-10-11.md` §2, S1–S9                                                                  |
 
 ### Summary
 
@@ -6234,7 +6257,6 @@ those transfers and the others wait in the list until a statement includes them.
 transfers waiting will also see the expected figure change, because those transfers' commission is no longer taken off
 twice.
 
-
 ### Follow-ups
 
 - [ ] Confirm with OMT that their balance SMS equals the gross minus the included types' commission (the owner's LIRA-255 model; not confirmed with OMT).
@@ -6282,7 +6304,7 @@ tenant 5 has (not checked against live data: flyctl was unavailable).
 
 - If a tenant already has a supplier NAMED like a system one but without its provider (e.g. a
   hand-added "OMT"), v191 skips that provider and logs `Migration v191: tenant N NOT seeded for
-  provider(s) …`. That shop still needs a manual fix. Check the deploy log.
+provider(s) …`. That shop still needs a manual fix. Check the deploy log.
 
 - Past OMT / Whish / iPick / Katsh entries on an affected web shop that should have written a
   supplier ledger row while the supplier was missing are not reconstructed. Check the live data after
@@ -6294,12 +6316,12 @@ with them.
 
 ## LIRA-258: posting integrity — every multi-ledger gap from the 2026-10-06 audit (G1–G39) — HIGH — DONE (closed 2026-10-10)
 
-| Field    | Value                                                          |
-| -------- | -------------------------------------------------------------- |
-| Epic     | Posting integrity                                              |
-| Type     | Bug                                                            |
-| Priority | High                                                           |
-| Status   | IN PROGRESS 2026-10-06                                         |
+| Field    | Value                                                                                               |
+| -------- | --------------------------------------------------------------------------------------------------- |
+| Epic     | Posting integrity                                                                                   |
+| Type     | Bug                                                                                                 |
+| Priority | High                                                                                                |
+| Status   | IN PROGRESS 2026-10-06                                                                              |
 | Source   | Plan `docs/plans/done_plans/POSTING_INTEGRITY_PLAN.md` batch 1 (gap list: `docs/POSTING_MAP.md` §7) |
 
 ### Summary
@@ -6356,14 +6378,14 @@ types still marked `todo-phase5` in `packages/core/src/constants/postingRules.ts
 
 Interviewed 2026-10-06. Each item ships with a failing-first guard unless noted in its report.
 
-| Ticket | Item | Owner decision | Status |
-| --- | --- | --- | --- |
-| LIRA-259 | Katsh: handing back less change than due (e.g. card 450,000 LBP, customer pays $6, cashier returns 10,000 instead of ~34,000 LBP) fails | The un-returned part is kept change (shop profit), like partial keep-change elsewhere | DONE — the form never sent the un-returned part, so the server's reconcile refused it; MultiPaymentInput `keepUnreturnedChange` (on for Katsh/iPick). Also fixed globally: with Keep change on, change returned in the other currency was not recorded leaving the drawer. Owner decision pending: whole change kept silently when both change fields are cleared |
-| LIRA-260 | Price-change alert | Any price a cashier changes away from its saved price: amber warning only (saved vs new), sale still goes through | DONE (MTC/Alfa credit, Katsh/iPick Only-Days, Services presets/items, maintenance parts, including parts on a reopened saved job; POS has no editable line price). What users will notice: reopening a saved maintenance job now shows the price warning on any part whose price differs from the product's current price. |
-| LIRA-261 | Exchange default direction | Opens on USD → LBP | DONE |
-| LIRA-262 | Expense from stock | Search bar (like Services) over inventory + Katsh/iPick/Whish App items; shop uses its own stock: leaves stock / provider balance at cost, no cash moves; one transaction type per source | DONE (uncommitted) — `EXPENSE_INVENTORY` / `EXPENSE_KATSH` / `EXPENSE_IPICK` / `EXPENSE_WHISH_APP`; v193; void/refund restores stock + batches / provider drawer (`ExpenseRepository.stockUse.test.ts`). Not done: web e2e, IMEI-tracked products (refused) |
-| LIRA-263 | Maintenance client number lost | Test the full workflow and fix | DONE — link dropped at the first re-save of a job (draft edit / In progress); kept now through payment, receipt shows the customer. Follow-ups: web route envelope (HTTP 200), typed save payload |
-| LIRA-264 | Return-change autofill + both currencies | "All in $" / "All in LBP" buttons; remaining and change always shown as "$ \| LBP" with thousands separators | DONE |
+| Ticket   | Item                                                                                                                                    | Owner decision                                                                                                                                                                            | Status                                                                                                                                                                                                                                                                                                                                                            |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| LIRA-259 | Katsh: handing back less change than due (e.g. card 450,000 LBP, customer pays $6, cashier returns 10,000 instead of ~34,000 LBP) fails | The un-returned part is kept change (shop profit), like partial keep-change elsewhere                                                                                                     | DONE — the form never sent the un-returned part, so the server's reconcile refused it; MultiPaymentInput `keepUnreturnedChange` (on for Katsh/iPick). Also fixed globally: with Keep change on, change returned in the other currency was not recorded leaving the drawer. Owner decision pending: whole change kept silently when both change fields are cleared |
+| LIRA-260 | Price-change alert                                                                                                                      | Any price a cashier changes away from its saved price: amber warning only (saved vs new), sale still goes through                                                                         | DONE (MTC/Alfa credit, Katsh/iPick Only-Days, Services presets/items, maintenance parts, including parts on a reopened saved job; POS has no editable line price). What users will notice: reopening a saved maintenance job now shows the price warning on any part whose price differs from the product's current price.                                        |
+| LIRA-261 | Exchange default direction                                                                                                              | Opens on USD → LBP                                                                                                                                                                        | DONE                                                                                                                                                                                                                                                                                                                                                              |
+| LIRA-262 | Expense from stock                                                                                                                      | Search bar (like Services) over inventory + Katsh/iPick/Whish App items; shop uses its own stock: leaves stock / provider balance at cost, no cash moves; one transaction type per source | DONE (uncommitted) — `EXPENSE_INVENTORY` / `EXPENSE_KATSH` / `EXPENSE_IPICK` / `EXPENSE_WHISH_APP`; v193; void/refund restores stock + batches / provider drawer (`ExpenseRepository.stockUse.test.ts`). Not done: web e2e, IMEI-tracked products (refused)                                                                                                       |
+| LIRA-263 | Maintenance client number lost                                                                                                          | Test the full workflow and fix                                                                                                                                                            | DONE — link dropped at the first re-save of a job (draft edit / In progress); kept now through payment, receipt shows the customer. Follow-ups: web route envelope (HTTP 200), typed save payload                                                                                                                                                                 |
+| LIRA-264 | Return-change autofill + both currencies                                                                                                | "All in $" / "All in LBP" buttons; remaining and change always shown as "$ \| LBP" with thousands separators                                                                              | DONE                                                                                                                                                                                                                                                                                                                                                              |
 
 Also from the production test: **G40** — voided supplier history rows read "Unpaid" and still took manual payments in the FIFO; now "Voided", excluded (DONE). **G41** — desktop backdated expense lost its time (schema key missing); fixed (DONE).
 
@@ -6394,13 +6416,13 @@ appear under "Kept change" on the Profits page.
 
 ## LIRA-265: add missing Whish App catalog items — URGENT — NEEDS ITEM LIST
 
-| Field    | Value                                        |
-| -------- | -------------------------------------------- |
-| Epic     | Recharge / catalog (Whish App)               |
-| Type     | Feature / data                               |
-| Priority | **URGENT** (owner, 2026-10-07)               |
-| Status   | NEEDS ITEM LIST from owner                   |
-| Modules  | recharge (Whish App catalog items)           |
+| Field    | Value                              |
+| -------- | ---------------------------------- |
+| Epic     | Recharge / catalog (Whish App)     |
+| Type     | Feature / data                     |
+| Priority | **URGENT** (owner, 2026-10-07)     |
+| Status   | NEEDS ITEM LIST from owner         |
+| Modules  | recharge (Whish App catalog items) |
 
 ### Summary
 
@@ -6432,12 +6454,12 @@ shop edited).
 
 ## LIRA-266: kept change built once, used by every payment page — HIGH — DONE
 
-| Field    | Value                                                                 |
-| -------- | --------------------------------------------------------------------- |
-| Epic     | Payments / Posting integrity                                          |
-| Type     | Feature + bug fixes (POSTING_MAP G42, G43, G44)                       |
-| Priority | High                                                                  |
-| Status   | DONE (2026-10-07)                                   |
+| Field    | Value                                                                                                  |
+| -------- | ------------------------------------------------------------------------------------------------------ |
+| Epic     | Payments / Posting integrity                                                                           |
+| Type     | Feature + bug fixes (POSTING_MAP G42, G43, G44)                                                        |
+| Priority | High                                                                                                   |
+| Status   | DONE (2026-10-07)                                                                                      |
 | Modules  | pos, maintenance, sessions, debts, custom_services, expenses, omt_whish, recharge, hold money, refunds |
 
 ### Owner decisions (2026-10-07)
@@ -6644,6 +6666,7 @@ Reported: OMT system SEND, Cash to Business, $10,000, fee 0 — refused with "OM
 Spec: `specs/309-phone-lines-management/` (spec, plan, research, data model, contracts, quickstart, tasks).
 
 **Owner decisions 2026-10-11 (binding):**
+
 1. One Phone Lines page for shop lines (`carrier_lines`) and lines held for sale (inventory products in a lines category, LIRA-207).
 2. For-sale lines warn 3 days before expiry; shop lines keep their 7-day warning. Both red through the 5-day grace, then lost.
 3. Recharging a for-sale line adds its cost to the line's cost AND selling price (no expense that day; profit unchanged — $15/$25 + $3 → $18/$28).
@@ -6659,6 +6682,7 @@ Spec: `specs/309-phone-lines-management/` (spec, plan, research, data model, con
 Spec: `specs/312-wrong-number-recharge/` (spec, plan, research, data model, contract, quickstart, tasks).
 
 **Owner decisions 2026-10-12 (binding):**
+
 1. Noticed before the sale is saved: record it from Expenses (use an iPick/Katsh/Whish App MTC/Alfa card, tick "Wrong number").
 2. Noticed after the sale is saved: "Wrong number…" on the sale in Transactions. It is NOT a refund — the sale stays and counts as the recharge of the right number; the wasted card is a stock-use expense (the loss) from the provider balance.
 3. Credits sent back are typed as they arrived on the chosen shop line (no SMS-fee math), now or later, in parts, up to what the card carried. Shop line and MTC/Alfa drawer go up; the loss goes down at the resold-credit price (`telecom_credit_sell_price_lbp`, 100,000 per $1). Days are not priced separately.
@@ -6709,6 +6733,7 @@ Owner decisions at build (2026-10-17): impersonation is gated like the shop; use
 The owner's case: a cashier forgets to enter a $50 sale. The evening checkpoint shows Over $50 and corrects the drawer to the cash. Next day the owner finds the sale on camera, re-enters it in POS with "Set custom time" and makes a new checkpoint, which then shows a false Short $50: the checkpoint already took the $50 into the drawer and the re-entered sale adds it again. Spec Kit: `specs/335-checkpoint-open-differences/`. Design pages: https://claude.ai/artifact/VvoSEJNgZ4ACPaFygm6YjR (review, proposal, current vs proposed screens) and https://claude.ai/artifact/VxqWjjdycf89oi87tZqvmd (how checkpoints work today).
 
 Owner decisions 2026-10-18:
+
 - Every Over/Short on a checkpoint stays an open difference per drawer and currency, with no time limit. The checkpoint still corrects the drawer at once, as today.
 - A transaction saved with a custom time before a checkpoint of the same drawer resolves the first checkpoint after that time: same currency, same direction, capped at the open amount. The drawer is not raised a second time; the transaction keeps its sales, profit and history. Partial resolution allowed. Status word: **Resolved** (also Partly resolved).
 - No manual "link" button: the custom time is the link.
@@ -6794,6 +6819,7 @@ Owner decisions: a "− Discount | + Extra" switch at session checkout; the disc
 ## LIRA-336: Customer adds change on payouts — IN PROGRESS (owner decisions 2026-10-18)
 
 The owner's case: the shop owes a $197 payout, asks the customer for $3 (or 268,500 LBP) and hands out $200. Today this can't be recorded:
+
 - the "Customer pays" section refuses any overpay;
 - what the shop pays out ignores what the customer handed in;
 - typing $200 books a false $3 LIRA-334 "Change rounding" expense.
@@ -6801,6 +6827,7 @@ The owner's case: the shop owes a $197 payout, asks the customer for $3 (or 268,
 Spec Kit: `specs/336-customer-adds-change/`.
 
 Owner decisions 2026-10-18:
+
 - All payout screens: OMT/Whish system receive, Binance, app receive, From client, Exchange, Hold Money (one currency) and buy-back. Debts cash-out and refunds are excluded.
 - Money the customer adds above what they owe raises what the shop pays out. It is applied before the round-up and kept-change checks.
 - Cap: $5 / 450,000 LBP. A bigger swap goes through Exchange.
@@ -6812,6 +6839,7 @@ Owner decisions 2026-10-18:
 Spec, plan and tasks: `specs/339-voucher-transactions/`.
 
 Owner decisions 2026-10-24:
+
 - A voucher is sold for money. The customer pays cash, wallet or split through the normal payment form, the money goes into the drawer, and a transaction row is written.
 - Creating a voucher writes a transaction, and so does cancelling one. Cancelling an unused sold voucher refunds its money to the customer. Expiry writes nothing.
 - No profit on the sale (it is money owed to the customer). The purchase it later pays for carries the profit.
@@ -6819,11 +6847,13 @@ Owner decisions 2026-10-24:
 - Works on both the desktop app and the web app.
 
 Owner answers 2026-10-24 (second round):
+
 - Confirmed: cancelling a voucher made before this change refunds nothing and writes a $0 cancel row.
 - Confirmed: an expired, unused, sold voucher can be cancelled for a refund (admin only).
 - Changed: the customer's account CAN pay for a voucher. Buying on credit adds a 'Voucher Debt' to the customer's account; Gift card is still refused. Cancelling refunds leg by leg: the account part comes off the account, and the cash part is paid out. An on-account sale also shows under the Debts filter.
 
 Defaults still unconfirmed:
+
 - The cash part of a refund is paid with cash or wallets only.
 - If the voucher debt was already repaid, cancelling still takes the full amount off the account, so the repaid part becomes credit (same as every other refund). Confirmed by owner 2026-10-24.
 - Voucher rows cannot be voided from Transactions: cancel from the Vouchers page instead.
@@ -6837,12 +6867,14 @@ Proof: web e2e `lira-web-079-voucher-transactions` green (sale/cancel deltas, on
 The owner's case: on the iPick/Katsh grids, "Charge to shop line" always charged the carrier's main line, with no way to pick another shop line or a line held for sale.
 
 Owner decisions 2026-10-19:
+
 - The window opens with the main line already picked.
 - Shop lines and lines for sale are listed as two groups in one window.
 - Only active lines of the card's carrier are listed: turned-off shop lines and lost or sold lines for sale are left out.
 - Whish App MTC/Alfa cards get the button too.
 
 **Built 2026-10-19 (no Spec Kit, built directly on the owner's request):**
+
 - Core:
   - `constants/lineChargeProviders.ts` holds the one provider list (iPick, Katsh, WHISH_APP). `selfChargeTelecomItem` and `ResaleLineService.recharge` CARD both read it, and so does the grid button (`isSelfChargeEligible`).
   - The self-charge now refuses a turned-off line.
@@ -6870,12 +6902,14 @@ Owner decisions 2026-10-19:
 The owner's case: a line held for sale has $15 of credit (it had to be recharged), and the buyer only wants $9. Today there is no single step. A sale plus a Mobile Recharge credit buy-back pays cash out at the buy-back rate, and the manual route takes three unlinked edits that cannot be voided. Spec Kit: `specs/337-give-credit-back/`.
 
 Owner decisions 2026-10-18:
+
 - The price drops by the credit given back × the credit's selling price per $1, which the cashier can change (default: Shop Config, 100,000 LBP).
 - The sender pays the SMS fee, so the buyer keeps exactly what they asked for. The shop line and MTC/Alfa drawer get the credit actually sent.
 - The cost drops by the credit sent × the shop's credit cost rate, so the fee stays in the line's cost. No expense row.
 - One transaction (`LINE_CREDIT_GIVE_BACK`), undone with one Void. Refused once the line is sold or while a newer recharge/give-back exists. Allowed even if the shop line has spent the credit (same as LIRA-309).
 
 **Built 2026-10-18:**
+
 - Core: pure `utils/lineGiveBack.ts` `planLineGiveBack`, shared by the panel and the service. Migration v223 adds `resale_line_give_backs`. `ResaleLineService.giveBack`; `ResaleLineRepository.recordGiveBack` / `reverseGiveBack`, plus one newest-first check across recharges and give-backs; `TransactionRepository._reverseResaleLineGiveBack` (void and refund).
 - Transports: IPC `resale-lines:give-back` (admin, staff, online-only) and REST `POST /api/resale-lines/:productId/give-back`; adapter `giveBackResaleLineCredit`.
 - UI: the "Give credit back" button and panel on Phone Lines → For sale, in English and Arabic.
@@ -6888,6 +6922,7 @@ Owner decisions 2026-10-18:
 - What's new: Highlights card "Give back part of a line's credit before selling it", with a screenshot (rule 30, now required for every new UI).
 
 **Built 2026-10-18 (Spec Kit T001–T041, five parallel lanes plus integration):**
+
 - Core: migration v222 (`checkpoint_differences`, `checkpoint_difference_resolutions`). `createCheckpoint` records each posted correction as a difference and now stores the server's expected figure (the one the correction used). `checkpointResolution.ts` `resolveBackTimedDrawerMovement` runs at the end of every wired flow: a transaction whose time is before a later checkpoint of a drawer it moved gets a `CHECKPOINT_RESOLUTION` offset leg, capped at what is open in that direction. Void mirrors it; refund and item refund skip it. `CheckpointDifferenceRepository` close/reopen books or voids the books-only "Drawer shortage" expense (USD/LBP only), which cannot be voided or re-categorised by hand. A source-scan guard fails any flow passing `transaction_time` without calling the engine.
 - Desktop + web: `closing:get-open-differences-after` (staff see no names), `closing:close-difference`, `closing:reopen-difference` (admin, online only), `open_only` on the timeline read. The web e2e shim is updated.
 - Screens: timeline status pills, sublines and the "Open differences only" filter; details resolution list with Close difference… / Reopen; Close window; a hint under Transaction time on every form that has Set custom time (Over = money in, Short = money out); Expense history locks Drawer shortage rows; Arabic throughout.
@@ -6895,9 +6930,11 @@ Owner decisions 2026-10-18:
 **Not covered (move the drawer as today, in the engine's exclusion list):** session checkout's pooled customer payment (each item's own legs still resolve); drawer top-up, cash-out and wallet exchange; MTC/Alfa (resolving the drawer without its SIM line would break drawer = sum of lines; close by hand). The release note says so.
 
 **Tests (affected files only):** core 34 suites / 283 tests plus 31 related flow suites / 363; electron-app 3 / 39; backend 7 / 63; frontend 23 / 107. Seen failing first, then green: checkpointDifference, CheckpointDifferenceRepository, storedExpected (FR-023), checkpointResolution (worked example: "Expected 1050, Received 1100"), the reversal and flows tables (every flow red), the wiring guard (8 offenders), handlers, backend routes, channelPolicy.complete, timeline/Close/hint/HistoryModal/category/leg-label tests, the Arabic resolution label, staff redaction, the since-last-count netting and the Expenses read of the parent link. Not failing-first (labelled in the agents' reports): some negative and edge cases written after their code, ClosingService.differences, resetTables.guard, the Short hint assertion. Typecheck and lint have 0 errors in our files. Two typecheck errors come from another session's untracked tests (`measureCustomerLegs.test.ts`, `addedChangeReplayShape.test.ts`). Static gates are green: i18n, tenant-scoping, bind-arity, schema-equivalence, transport-parity, release notes.
+
 - Not run: web e2e `lira-web-075` (written and typechecked; owner chose affected jest only), desktop app.
 
 **Follow-ups:**
+
 1. In the shared e2e database, open differences left by earlier specs (lira-web-010, 075) absorb later specs' back-timed money; reset or close them in specs that back-date.
 2. The D1 cash-flow report and Profits "By payment" appear to count today's `CHECKPOINT_ADJUSTMENT` legs (research R11).
 3. MTC/Alfa line-aware resolution.
@@ -6911,6 +6948,7 @@ Owner decisions 2026-10-18:
 The owner's case: a total of 102.90, and the cashier pays out or takes 103.00 because there are no coins. Today a payout is refused with "The payment is more than the total." The cashier then types 102.90, hands out $103 anyway, and the drawer ends the day 10¢ short with no reason. Spec Kit: `specs/334-round-up-overpays/`.
 
 Owner decisions 2026-10-18:
+
 - **Payout (OUT):** accept an overpay of up to $5 / 450,000 LBP and book the difference as the existing automatic "Change rounding" expense. It is books-only, hidden in Transactions by default, voided with the payout, shown on the Expenses page, and lowers net profit while module margins stay unchanged. This applies on every payout screen: OMT/Whish system receive, Binance cash-out, OMT/Whish App receive and "From client" top-up, Exchange, Hold Money pickup (one currency) and credit buy-back. Debts cash-out keeps sending the excess to the client's account.
   - Rejected: using the payout "+" discount (it exists on only 2 screens and is capped at the fee) and taking the difference off the payout's profit (no reason shown, and an OMT receive would show a loss).
 - **Customer pays (IN):** an overpay within the same cap fills in "+ Extra" automatically; the cashier clears it to hand the change back. Waive will be used less, which the owner accepts.
@@ -6928,6 +6966,7 @@ Owner decision: free `wa.me` link with the receipt text pre-filled, the cashier 
 Owner decisions 2026-10-17: POS sales first; after a sale a small strip on the POS screen ("Sale completed — RCP-123 · Send on WhatsApp · Print") stays until the next sale; also from the sale's details window. The unused WhatsApp Cloud API settings stay for now; a follow-up ticket removes them.
 
 **Built 2026-10-17 (tasks T001–T028, T032–T036; T029 written not run; T030/T031 left for the owner):**
+
 - Core: pure `utils/whatsappPhone.ts` `toWhatsAppNumber` (FR-014 table, exported from `browser.ts` + `index.ts`); `WhatsAppService` now uses it (refuses an invalid number before the API). `SalesRepository.getSaleWithCustomer` adds `sale_phone`, `linked_client_phone`, `tender_usd/lbp`, `gift_card_usd`, `on_account_usd` from rows written once at sale time (named SQL fragments, tenant-scoped; session-basket sales read the basket's back-filled `paid_*`). `validators/app.ts` `openExternalUrlSchema` (https + `wa.me`/`api.whatsapp.com` only). Offline policy: `app:open-external` = local.
 - Desktop: `app:open-external` handler (`shell.openExternal`, allow-list, no role — opens a link only), registered in `main.ts`; preload `app.openExternal` + `electron.d.ts`.
 - Frontend: `openExternalUrl` in `backendApi.ts` (desktop IPC, web `window.open` synchronous, null = blocked; no `ipcOrHttp` fallback); one receipt description `buildSaleReceiptData` + `recipientPhoneFor`; `formatReceiptWhatsApp` (phone layout, shortening, provisional cap 2000) + `buildWhatsAppLink`; "Gift card" line on paper; hook `useSendReceiptOnWhatsApp`; `SendOnWhatsAppButton` (inline number field for walk-ins); POS `SaleCompletedStrip` (Send + Print) shown after Complete Sale until the cart gets an item; sale details window: Print now uses the shared description, Send next to it. Shared print helper `printSaleReceipt`.
@@ -6947,6 +6986,7 @@ Owner decisions 2026-10-16: export **every client with account history** (not on
 **Tests:** `debtExcelExport.test.ts` (new feature, not a fix — not failing-first). 15/15 green.
 
 **Re-import (owner decision 2026-10-16, "ok go"):** an export can be imported into ANOTHER shop.
+
 - Export splits rows by SIGN per currency, not by type: a refund/reversal (negative purchase) goes to the paid side as a positive amount, because the import reads only amounts > 0 — otherwise it was dropped and the imported balance was wrong. The page's history tables still split by type (`isPaymentLedgerType`).
 - Export stamps a custom workbook property (`LiraTekAccountsExport = "1"`) and writes the full timestamp (shown dd/mm/yyyy). Only a file with that marker has its dates kept by the import (`exportedRowDate`, rounded to the second because Excel returns times 1 ms off); handwritten sheets still get "yesterday". Real dates also make the core duplicate check (`countIdenticalRawEntries`, matches created_at) work, so importing the same export twice into the new shop doubles nothing.
 - Same shop refused: when the file carries the marker and at least half of its clients with a non-zero balance are found here by phone with the same USD+LBP balance (`looksLikeSameShop`), the import stops with a message. Known limit: a retry after a half-finished import into a new shop can be refused by the same test.
@@ -6989,12 +7029,14 @@ Owner requests: the shop line no longer takes its own row; one phone chip at the
 Notes (owner waived the full Spec Kit cycle): `specs/327-recharge-basket-bills-partner/notes.md`. Builds on LIRA-326.
 
 **Bugs this fixes (LIRA-326 v1 limits):**
+
 - Staged bills were KatshForm-local (`{amount, currency}`, no provider). A bill was lost when the form unmounted, for example on switching to Whish App.
 - A bill was booked under the tab that was active at Pay time: a Katsh bill paid from the iPick tab became an iPick bill.
 - A mixed basket with bills was refused.
 - For Partner was per tab and booked only the active tab's lines.
 
 **Built:**
+
 - **A. Bills.**
   - Bills live in `RechargeBasketContext` as `{id, provider, amount, currency}` (`useBasketBills`). They are priced there by `billPricedLine`, so either form can list and pay them, and they count on their own tab (`useRechargeBasketCounts`).
   - Every path books a bill under its own provider. The walk-in single sale, the Settle-queue refresh and the receipt use `bill.provider`. The session cart already used the tab it was added on.
@@ -7020,6 +7062,7 @@ Notes (owner waived the full Spec Kit cycle): `specs/327-recharge-basket-bills-p
   - Partner sales are reversed one by one by the generic void, which reverses `partner_ledger` and the drawer. They have no pooled payment, so per-sale reversal is safe.
 
 **Tests:**
+
 - Seen failing first:
   - core `RechargeBasketService.test.ts` "bills (LIRA-327)": 6 of 8 failed with "Only iPick, Katsh and Whish App items can be paid in a Mobile Recharge basket.";
   - core `RechargePartnerOrderService.test.ts` (11): failed as "Cannot find module" — a missing-module failure, not a behaviour one;
@@ -7108,12 +7151,12 @@ Found by the LIRA-319 session-basket work (probe, no extra involved): refund one
 
 Spec: `specs/319-extra-charges/spec.md`. The cashier can add a small extra on top of a sale's total ("− Discount / + Extra" switch on the payment box's Discount line). Item price and cost stay unchanged; the extra is stored as its own amount on the transaction, goes into the payment method's drawer like any payment, and Profits shows it as its own category, "Extra charges". Pages: POS, Maintenance, Custom Services, Loto, Recharge / MTC-Alfa, OMT/Whish send, session checkout (once per basket). Owner decisions: discount OR extra on a sale, never both; no extra on balance payments (Debts, Supplier receive, Partner settle) or payouts; a partial item refund gives back that item's share of the extra, by price; void/full refund reverses it; receipt shows "Extra +$X". Plan (2026-10-13): `extra_usd`/`extra_lbp` columns on `transactions` (migration v212), included in the amount, kept out of the profit stamp, reported as an "Extra charges" Profits row. Tasks: 60 in `specs/319-extra-charges/tasks.md` (MVP = POS + Profits + reversals). Next: `/speckit-implement` (or `/speckit-analyze` first).
 
-
 **Built (2026-10-14):** v212 `transactions.extra_usd/extra_lbp` (in the amount, out of the profit stamp) and v213 `sales.extra_usd` (POS server drafts keep their extra); "− Discount | + Extra" switch on the payment box (DiscountLine / MultiPaymentInput); save paths on POS, Maintenance, Custom Services, Loto, MTC/Alfa sales, OMT/Whish send, Katsh, crypto send, app transfer and the session checkout (one `EXTRA_CHARGE` row per basket); server refusals (discount+extra, above the total, partner/payout/RECEIVE/buy-back, session item, wrong currency); Profits "Extra charges" row (counts right away; a refunded share lands on the refund day; basket extras in By Cashier/By Client; fully-paid gate includes the extra); refunds (full, item share, undo, basket share); receipts and Transactions view. T036 (refund-window note) dropped by the owner: the total always includes the extra.
 
 **Tests (2026-10-14):** guards written first per module (most seen failing first; the rest labelled in tasks.md); core 757/757 suites, backend 185/185, frontend 574/574; web e2e 444 passed + lira-web-057 (selector updated for the switch) 8/8; new lira-web-058/059 4/4. lira-143 (IMEI warranty date) failed once on a midnight UTC/Beirut day edge — not this ticket. Typecheck, lint, tenant-scoping, bind-arity, schema-equivalence, release-notes check all clean.
 
 **What users will notice:** on the payment window's Discount line you can switch to "+ Extra" to charge a little more than the price; the item keeps its price, the extra goes in the drawer of the payment method, and Profits shows it as "Extra charges"; receipts show "Extra +$X".
+
 ## LIRA-318: One Discount / Forgive line in the payment box — BUILT, not committed (owner decisions 2026-10-13)
 
 From the "Every way to lower what is owed" artifact (Part 3): forms A (POS/Maintenance order-summary Discount), B (MultiPaymentInput's own Discount) and D (Debts/Partners green "Discount / Forgive" box) are one control in three places; Waive (C) already fed A and D. Owner decisions 2026-10-13: merge them into one line inside the payment box, under "Total Amount"; Debts keeps USD + LBP forgive fields; on Debts and Partners typing a forgive amount NEVER changes the payment entered. Kept separate: Write off (admin, no payment) and the session per-item commission discount.
@@ -7143,7 +7186,7 @@ Question that started it: a client owes $50, buys $14 and hands $30 ($16 meant f
 
 **Owner decisions 2026-10-13:** one change box on every page (artifact "One Change Box", compact v2): row 1 label + change due + "Hand back by" (Cash / OMT / Whish / Binance — a wallet returns the full change); row 2 the $ and LBP fields with $ / LBP / Account (or Keep) buttons; row 3 one line saying where the rest goes. Customer Account removed from the change method list (it duplicated the LIRA-313 switch); the Return change / To account switch removed. With a client picked, change not handed back goes on the client's account instead of being kept as profit, on every customer-pays page whose save books it. Also merged: payout shows only the green "Change kept" row (no second note); Debts shows one Remaining row with the ticked and total figures; wallet fee shows one Grand Total row naming the fee. Kept as is: one currency per payment line.
 
-**Built:** `MultiPaymentInput` compact box (test ids kept: `change-destination-account` = Account button, `return-all-usd`/`-lbp` = $ / LBP; new `change-keep-all`). POS `CheckoutModal` passes `unreturnedChangeTo` and sends CUSTOMER_ACCOUNT OUT legs in `payments` (cash change stays on `change_given_*`). `SalesRepository.processSale`: credit uses `finalClientId` (a client created at checkout from name + phone was refused), and the leg reconciliation now also runs when an account OUT leg is present (before, $15 cash on $10 could book any credit amount). Maintenance: leg schema takes `direction`, `processPayments` splits legs, books account OUT legs as `CREDIT_DEPOSIT` linked to the transaction, refuses any other OUT leg, reconciles them, drops them on a session basket. Pages: Session, Loto, OMT/Whish send, Katsh / Binance / app transfer send, MTC/Alfa sales (not inside a session), Custom Services (saved client only) pass `unreturnedChangeTo`; `PaymentSheet` forwards it; client checks tightened so the Account button only shows when the save will find a client. Not changed: Alfa Gift card grid (never has a client — owner decision if wanted).
+**Built:** `MultiPaymentInput` compact box (test ids kept: `change-destination-account` = Account button, `return-all-usd`/`-lbp` = $ / LBP; new `change-keep-all`). POS `CheckoutModal` passes `unreturnedChangeTo` and sends CUSTOMER*ACCOUNT OUT legs in `payments` (cash change stays on `change_given*\*`). `SalesRepository.processSale`: credit uses `finalClientId`(a client created at checkout from name + phone was refused), and the leg reconciliation now also runs when an account OUT leg is present (before, $15 cash on $10 could book any credit amount). Maintenance: leg schema takes`direction`, `processPayments`splits legs, books account OUT legs as`CREDIT_DEPOSIT`linked to the transaction, refuses any other OUT leg, reconciles them, drops them on a session basket. Pages: Session, Loto, OMT/Whish send, Katsh / Binance / app transfer send, MTC/Alfa sales (not inside a session), Custom Services (saved client only) pass`unreturnedChangeTo`; `PaymentSheet` forwards it; client checks tightened so the Account button only shows when the save will find a client. Not changed: Alfa Gift card grid (never has a client — owner decision if wanted).
 
 **Tests:** `MaintenanceRepository.changeToAccount.test.ts` (6; 4 seen failing first, void-nets-to-0 and session-basket cases not proven failing-first); `SalesRepository.storeCreditFailure.test.ts` +3 (2 seen failing first: $1000 and $2 account legs on a $5 overpay were accepted). Frontend: see commit.
 
@@ -7200,6 +7243,7 @@ The Expense History window was fed `getTodayExpenses()`, so its date filter coul
 Spec: `specs/310-waive-everywhere/spec.md`. Today only POS (and Maintenance through the POS checkout) has a Waive button, for gaps under $1.
 
 **Owner decisions 2026-10-11 (binding):**
+
 1. Waive on every payment page. Screen-only pages (Group A) and pages that need a new saved record (Group B) ship together.
 2. Limit $5 for a USD total, 450,000 LBP for an LBP total. One shared value, checked on screen and on the server.
 3. Where the discount has a ceiling (recharge profit, partner balance, maintenance labour), Waive is hidden if discount + gap would exceed it.
@@ -7226,6 +7270,7 @@ Follows LIRA-304 (`specs/304-debt-item-picking/`, shipped). Today the "Process R
 amount is the whole debt whatever is ticked, and Confirm works with nothing ticked.
 
 **Owner decisions 2026-10-11 (binding):**
+
 1. On open, ALL open items are ticked and the amount is pre-filled with the sum of the ticked items (USD; LBP items
    also shown in USD at the modal's rate).
 2. Ticking or unticking resets the amount to the new ticked sum, even after the cashier typed an amount. Typing an
@@ -7253,6 +7298,7 @@ in. Ticking or unticking changes the amount; a smaller amount shows what each it
 amount ticks the next items by itself; anything beyond the whole debt is kept as account credit.
 
 **Built 2026-10-11 (not yet committed):**
+
 - Core `utils/debtRepaymentAllocation.ts`: inside the ticked items cash-drawer first, then oldest
   (`isCashDrawerItem`, also behind `OpenDebtItem.isPrimary`); targets may carry `auto: true` (paid after
   every cashier tick); new `planRepaymentTargets` (which unticked items an amount reaches; its targets
@@ -7286,6 +7332,7 @@ got the items' sum, not the whole balance; (b) a tick change rebuilt the payment
 (c) an overpay defaulted to account credit, and keeping change meant switching to Cash first.
 
 **Owner answers 2026-10-11 (binding):**
+
 1. Overpay: "if the customer pays 85, and we didn't set $1 in the returned amount, then $1 is account
    credit" — no automatic cash-change line; change NOT entered as returned is account credit; what the
    cashier enters is handed back. Small rounding overpays follow the same rule.
@@ -7301,10 +7348,11 @@ so the amount filled in is the whole balance. Ticking or unticking keeps Cash + 
 the last one changes.
 
 **Built for the answers (2026-10-11, not yet committed):**
+
 - Answer 1 — found: the first cut's `defaultReturnMethod: "CUSTOMER_ACCOUNT"` booked an untouched overpay
   as credit correctly ("Goes to: Account credit $1"), but had no "returned" field; switching to Cash
   seeded the whole change and an under-return became kept PROFIT. Now MPI opt-in `unreturnedChangeTo:
-  "CUSTOMER_ACCOUNT"`: cash return fields start empty, the un-entered rest is one more CUSTOMER_ACCOUNT
+"CUSTOMER_ACCOUNT"`: cash return fields start empty, the un-entered rest is one more CUSTOMER_ACCOUNT
   OUT leg (existing server path), no keep, under-return not a mismatch, a green "… not returned goes to
   the customer's account as credit" line. Debts page uses it and no longer wires `onKeptChange` in
   repay mode (cash-out keeps its payout keep). lira-107 desktop spec rewritten to the new rule (not run —
@@ -7350,6 +7398,7 @@ The web hides a switched-off module's entry points (home grid, sidebar, Dashboar
 switches: Sell, Debts and every Home drawer line always showed.
 
 **Owner decisions 2026-10-11:**
+
 - **D1:** copy the web exactly — all four phone sales (Whish App, OMT App, Katsh, iPick) follow the `ipec_katch`
   ("iPick/Katsh") switch, as the web Recharge tabs do.
 - **D2:** when no sale is on, hide the Sell tab.
@@ -7371,6 +7420,7 @@ comes back by itself once connected.
 half-filled cart). No query persister exists in the app (checked), so nothing is cached between runs.
 
 **Verification:**
+
 - jest: 37/37 (18 new in `moduleGates.test.ts`, each group seen failing first — "Cannot find module" / "is not a
   function"); `tsc` clean over 62 `mobile/src` files.
 - iOS simulator against the live `test` shop (switches flipped through the admin API, then restored — before/after
@@ -7395,18 +7445,18 @@ Simulator: simulated outage → all 5 tabs, Home/Sell covered, Settings usable; 
 
 ## LIRA-306: Offline desktop fallback — web-first with a desktop Plan B — HIGH — IN PROGRESS (built 2026-10-11; owner drill pending)
 
-| Field | Value |
-| --- | --- |
-| **Type** | Big feature (owner request 2026-10-11; redesigned the same day in a live conversation with the owner) |
-| **Priority** | High |
-| **Status** | **IN PROGRESS** — built on the events model (T001–T146); deployed to the web 2026-10-11 (v85); waiting for the desktop release, Windows test and two-PC drill (T149–T152) |
-| **Modules** | core (offline event store, id ranges, replay engine, duplicate detector, review list; v210), backend (device routes, event upload, review routes), electron-app (paired modes, IPC event recorder, working copy, sender), frontend (review list, devices panel, desktop standby/offline screens); docs |
-| **Plan** | `docs/plans/todo_plans/OFFLINE_DESKTOP_FALLBACK_PLAN.md` (D1–D5, 2026-09-27) — D2 revoked by N1 |
-| **Spec** | `specs/306-offline-desktop-fallback/` (replaces the superseded lock-based design committed in a3698788) |
-| **Decisions** | `docs/plans/OVERNIGHT_DECISIONS_2026-10-11.md` §4 (N1–N9 owner; O-new-1… agent) |
+| Field                      | Value                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Type**                   | Big feature (owner request 2026-10-11; redesigned the same day in a live conversation with the owner)                                                                                                                                                                                                                                                                                                                                              |
+| **Priority**               | High                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| **Status**                 | **IN PROGRESS** — built on the events model (T001–T146); deployed to the web 2026-10-11 (v85); waiting for the desktop release, Windows test and two-PC drill (T149–T152)                                                                                                                                                                                                                                                                          |
+| **Modules**                | core (offline event store, id ranges, replay engine, duplicate detector, review list; v210), backend (device routes, event upload, review routes), electron-app (paired modes, IPC event recorder, working copy, sender), frontend (review list, devices panel, desktop standby/offline screens); docs                                                                                                                                             |
+| **Plan**                   | `docs/plans/todo_plans/OFFLINE_DESKTOP_FALLBACK_PLAN.md` (D1–D5, 2026-09-27) — D2 revoked by N1                                                                                                                                                                                                                                                                                                                                                    |
+| **Spec**                   | `specs/306-offline-desktop-fallback/` (replaces the superseded lock-based design committed in a3698788)                                                                                                                                                                                                                                                                                                                                            |
+| **Decisions**              | `docs/plans/OVERNIGHT_DECISIONS_2026-10-11.md` §4 (N1–N9 owner; O-new-1… agent)                                                                                                                                                                                                                                                                                                                                                                    |
 | **What users will notice** | Desktop app: Settings › This PC pairs a PC for offline work; a paired PC opens on a standby screen and can keep working when the internet is down, sending its work when it is back. Web app, admins: an "Offline work" page to review what PCs could not book by themselves (duplicates, drawer counts with both figures, refusals, notes) and a "Paired PCs" tab in Settings (unpair, renumber). Past days can change when a PC sends late work. |
-| **Built (2026-10-11)** | Spec Kit tasks T001–T146 done (`specs/306-offline-desktop-fallback/tasks.md`, evidence per task); migration v210; core replay engine, merge, duplicates, review list; backend device + review routes; desktop recorder, working copy, sender, standby/offline screens; web e2e lira-web-055/056 green. |
-| **Unverified / blocked** | Desktop behaviour runs only in electron jest — unverified until CI and the owner's Windows PCs. Owner steps T148–T152: deploy, desktop release with the same data version, pair two PCs, two-PC drill (runbook in `docs/OPERATIONS.md`). |
+| **Built (2026-10-11)**     | Spec Kit tasks T001–T146 done (`specs/306-offline-desktop-fallback/tasks.md`, evidence per task); migration v210; core replay engine, merge, duplicates, review list; backend device + review routes; desktop recorder, working copy, sender, standby/offline screens; web e2e lira-web-055/056 green.                                                                                                                                             |
+| **Unverified / blocked**   | Desktop behaviour runs only in electron jest — unverified until CI and the owner's Windows PCs. Owner steps T148–T152: deploy, desktop release with the same data version, pair two PCs, two-PC drill (runbook in `docs/OPERATIONS.md`).                                                                                                                                                                                                           |
 
 **Owner answers 2026-10-11:** G0 approved (device key per PC; offline work credited to the real cashier); O-new-3, O-new-4, O-new-6/9 confirmed. See decisions log §4.
 
@@ -7510,13 +7560,13 @@ Settings. An earlier day's totals can change when a PC sends late work. The web 
 
 ## LIRA-305: Syria remittance — send and receive through a partner — MEDIUM — DONE (not deployed) 2026-10-11
 
-| Field | Value |
-| --- | --- |
-| **Type** | Feature finish + money fix (owner request 2026-10-11 overnight batch, item 3; decisions delegated) |
-| **Priority** | Medium |
-| **Status** | **DONE (not deployed)** 2026-10-11 — `/speckit-implement`, 21/21 tasks; local only, the push waits for the owner (G1) |
-| **Modules** | custom_services, partners, profits (core read rule only); docs |
-| **Spec** | `specs/305-syria-remittance/` (spec, plan, research R1–R9, data-model, contract, quickstart, tasks 21) |
+| Field         | Value                                                                                                                                                                                                       |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Type**      | Feature finish + money fix (owner request 2026-10-11 overnight batch, item 3; decisions delegated)                                                                                                          |
+| **Priority**  | Medium                                                                                                                                                                                                      |
+| **Status**    | **DONE (not deployed)** 2026-10-11 — `/speckit-implement`, 21/21 tasks; local only, the push waits for the owner (G1)                                                                                       |
+| **Modules**   | custom_services, partners, profits (core read rule only); docs                                                                                                                                              |
+| **Spec**      | `specs/305-syria-remittance/` (spec, plan, research R1–R9, data-model, contract, quickstart, tasks 21)                                                                                                      |
 | **Decisions** | `docs/plans/OVERNIGHT_DECISIONS_2026-10-11.md` §3, Y1–Y15 (Y14: the parent agent went ahead with Y6 — **owner confirmed keep, 2026-10-11**; Y15: seven test fixtures got their missing real-schema columns) |
 
 ### Summary
@@ -7625,6 +7675,7 @@ The second half of the after-hours use case (LIRA-289): a customer asks for a Ka
 the owner records it from the phone, booked exactly as at the counter.
 
 **Owner decisions 2026-10-10:**
+
 - Catalog items only. Bill payments stay on web/desktop for now.
 - A cart of several items, booked as ONE sale, the same as the web cart (one `SEND`, amounts summed, a note listing the
   items).
@@ -7641,8 +7692,9 @@ customer's debt; no supplier row (prepaid drawdown); profit = price − cost. Ca
 (`mobile_service_items`: `cost_lbp`, `sell_lbp`, category/subcategory/label).
 
 **Plan:**
+
 1. **Core builder (rule 22, one payload shape):** `utils/catalogSale.ts` — `buildCatalogSalePayload({ provider, lines:
-   [{ item, quantity }], paidByMethod, payments, client })` returning `CreateFinancialServicePayload`, plus
+[{ item, quantity }], paidByMethod, payments, client })` returning `CreateFinancialServicePayload`, plus
    `formatCatalogItemName` and the note format moved from the web. Pure, browser-safe. Unit tests.
 2. **Web uses the builder** for the walk-in cart path; Only-Days, split/multi-unit, discount, kept change and
    For-Partner extras stay layered on top in `KatshForm`. The eight `KatshForm.*` suites must pass unchanged.
@@ -7724,7 +7776,6 @@ Spec: `specs/296-warranty-any-item/`. Plan: `docs/plans/done_plans/WARRANTY_ANY_
 **What users will notice (P1):** a Warranty page finds any item sold with a warranty by customer, phone, receipt number, product or serial; sale details show Covered / Expired / Void on every warranty item (with "1 of 3 refunded"); categories have a default warranty and the cashier can change it per item at the till; your warranty terms and receipt header print on receipts; one receipt number per sale; on the web, the POS recent-sales list shows the day you pick.
 
 ### Before P1 (original ticket)
-
 
 Plan: `docs/plans/done_plans/WARRANTY_ANY_ITEM_PLAN.md`.
 
@@ -7855,14 +7906,15 @@ What users will notice: on the web app, shops with several tills stop seeing "Fa
 Measured 2026-10-07 on production: every session on cornertech records `ip_address = 66.241.124.103` (a hosting
 proxy address) while the real client was 185.187.131.199. So `req.ip` behind Vercel → Fly is the proxy, not the shop's
 connection, and EVERY per-IP limiter is shared by ALL shops:
+
 - the failed-login limiter (`AUTH_RATE_LIMIT_MAX`, 5 per 15 min by default) — a few wrong passwords anywhere can lock
   every shop's login for 15 minutes;
 - the sign-up / invite limiters (`SIGNUP_*`, 5 per hour) — LIRA-267 self-serve sign-up is capped globally;
 - the profits-unlock limiter, the anonymous API bucket, and the authenticated flood cap (raised to 10,000/min as a stop-gap in LIRA-282).
-Fix: read the real client address safely (Vercel's forwarded-for header, with the right `trust proxy` hop count, and
-refusing spoofed headers on requests that reach Fly directly), verify on production what each hop adds, then key the
-limiters on it. Check the production values of `AUTH_RATE_LIMIT_MAX` / `SIGNUP_*` first — if they are the defaults,
-this is live now. Do not touch X-Forwarded-Host handling (tenant login depends on it).
+  Fix: read the real client address safely (Vercel's forwarded-for header, with the right `trust proxy` hop count, and
+  refusing spoofed headers on requests that reach Fly directly), verify on production what each hop adds, then key the
+  limiters on it. Check the production values of `AUTH_RATE_LIMIT_MAX` / `SIGNUP_*` first — if they are the defaults,
+  this is live now. Do not touch X-Forwarded-Host handling (tenant login depends on it).
 
 Status 2026-10-08: the `routes` `request.headers` transform from c02b98ef built "Ready" but production
 `/health/client-ip` still said `source:"direct", proxyVerified:false`. Replaced by Vercel Routing Middleware
@@ -7921,7 +7973,6 @@ types in `backendApi.ts` / `ApiAdapter` (rule 21 debt, pre-existing).
 What users will notice: "Category" in Settings → Mobile Services now works, admins can add a new category from the
 Recharge page, and Settings changes show on the Recharge page without a reload.
 
-
 ---
 
 ## LIRA-289: Mobile app — owner records and tracks digital sales from the phone, including after closing — IN PROGRESS (owner decisions 2026-10-08; build started 2026-10-10)
@@ -7932,6 +7983,7 @@ also meant to be the main selling point of the system: "run your shop's digital 
 (web + backend + core, new day-boundary rule) — goes through Spec Kit as `specs/289-…`.
 
 > Owner answers 2026-10-08:
+>
 > - **Scope = flows with no physical hand-over.** In: WHISH_APP / OMT_APP transfers, iPEC/Katsh vouchers, MTC/Alfa
 >   recharge if doable from a phone, maybe Binance. Out: OMT/Whish counter services, exchange, POS, maintenance —
 >   anything that gives out cash or an item.
@@ -7957,12 +8009,14 @@ Build direction: Expo SDK 55 app in `mobile/` (new screens; reuses the existing 
 desktop tenants keep their data on the shop PC (no cloud sync), so they cannot use it until a sync exists.
 
 Open questions for the spec:
+
 - How the closing's expected balance is computed today — "since the last closing" or "this calendar date". This
   decides how much work the between-days window needs.
 - How the next opening shows the after-hours transactions and includes them in the expected wallet balances.
 - Whether MTC/Alfa recharge and Binance are really done from the phone by this customer.
 
 Acceptance criteria (draft):
+
 - From a phone, the owner can record each in-scope transaction with a client and one of the four payment options;
   client, debt and wallet balances are the same as if it were recorded at the counter.
 - A transaction recorded while the shop is open lands in today, exactly like the web app.
@@ -8011,6 +8065,7 @@ sales from their phone, even after closing, and see the sales made since the las
 > even at zero; other currencies appear only when the drawer holds some.
 >
 > **End of 2026-10-10: the first phone version is built (39 of 62 tasks, committed).**
+>
 > - The phone records Whish App / OMT App transfers, on the customer's account or into the Whish / OMT wallet.
 > - It shows customer debts and records repayments into a wallet.
 > - Home shows live balances, the latest transactions and "since the last count" per wallet.
@@ -8039,6 +8094,7 @@ web-maturity track 2026-10-10. Measured today: 39 `any`-typed payload parameters
 still mention `window.api` (some legitimately desktop-only, some comments); no `scripts/check-transport-parity.mjs`.
 
 Scope:
+
 1. `scripts/check-transport-parity.mjs` (wired into `ci.yml` like `check:tenant-scoping`): rule A1 (a `window.api ? … : …`
    gate whose branches build object literals), rule C1 (`window.api?.` / `!window.api` / raw `window.api.` in
    `frontend/src/**` outside a reviewed allowlist with a one-line reason per entry). New unexplained entries fail CI.
@@ -8050,6 +8106,7 @@ Scope:
 > `ElectronApiAdapter.ts` and the ui `ApiAdapter` now come from `z.input` aliases in `packages/core/src/validators/`.
 > What is left is the set of write paths with no core schema: products, currencies, payment methods, sessions,
 > daily-closing update, supplier create, drawer top-up, item costs, voucher images, setup.
+>
 > - Key-set diffs of the desktop and core schemas (rule 23) found two live web-only bugs, now fixed in
 >   `createFinancialServiceSchema`, each proven failing-first:
 >   - `deferPayment` was stripped, so every sibling unit of a multi-unit iPick/Katsh catalog or bills cart booked its
@@ -8068,12 +8125,13 @@ Scope:
 > (reads raw, writes enveloped), now including nested namespaces (`loto.cashPrize.*`, `loto.checkpoint.*`), and refreshes
 > the app's session list after a shim `session.start`/`close` (the web polls sessions every 120s, so a stale open session
 > otherwise swallowed the next spec's transactions). Web bugs found and fixed, each with a failing-first backend test:
+>
 > - `GET /api/suppliers` and `/balances` ignored `includeInactive`, so inactive suppliers/providers never showed on web.
 > - `POST /api/sessions/link-transaction` dropped `profitUsd`/`profitLbp`, so a session-linked exchange saved 0 profit.
 > - `requireRole` refusals now carry `success: false` like IPC (test written after the fix — not proven failing-first).
-> Stale on both transports, brought up to date: 074 test 3 (now guards the RECEIVE OUT-leg refusal), 087 (ISO time),
-> 137/141/158 (settle rows located by `data-testid="settle-row-<id>"`).
-> Left out / open:
+>   Stale on both transports, brought up to date: 074 test 3 (now guards the RECEIVE OUT-leg refusal), 087 (ISO time),
+>   137/141/158 (settle rows located by `data-testid="settle-row-<id>"`).
+>   Left out / open:
 > - lira-135: checkout succeeds on the server but "Checkout Complete" never shows. Likely, from reading the code:
 >   `refreshActiveSessions()` unmounts the modal before `setCheckoutSuccess`. Unconfirmed on desktop.
 > - REST `GET /api/sessions/range`, `/today`, `/today-all` have no admin/staff role check (desktop requires one).
@@ -8115,11 +8173,12 @@ To do: put Loto on the day calendar (`settlesByDay` rule), drop its Pay / Receiv
 What users will notice (when built): Loto gets a Settle Account button with the day calendar, and its Pay / Receive tab goes away.
 
 **Owner decisions 2026-10-29:**
+
 1. History: every ticket and cash prize inside an already-settled checkpoint is marked paid on the calendar automatically; only sales not yet settled show. Balance unchanged.
 2. Settle Loto only on the calendar (Suppliers → Loto → Settle Account). The Loto page keeps its sales/prizes report but loses its settle buttons.
 3. Cash prizes net within their day (like OMT receives against sends).
 4. Pay / Receive tab removed for Loto; the waive (up to 450,000 LBP) stays inside Settle Account.
-Also: no commission at settlement (earned at the sale); the always-empty Loto "Settle" tick list goes. Code map: checkpoint settlement never stamps the ledger rows it settles, so the history step is required before the calendar can show Loto.
+   Also: no commission at settlement (earned at the sale); the always-empty Loto "Settle" tick list goes. Code map: checkpoint settlement never stamps the ledger rows it settles, so the history step is required before the calendar can show Loto.
 
 **Built 2026-10-29:** migration v226 (data-only backfill of settled checkpoints; balance unchanged, proven); `settlesByDay` true for LOTO, no tick list, no settlement commission; checkpoint settle / batch / mark-settled and Pay / Receive refused in the services (both transports); Suppliers page shows Settle Account for Loto with no tabs; the Loto page's settle dialog and the dead `SettlementDrawerIntegration` removed; a voided calendar-paid ticket's share goes on the Loto account (relief planner now covers LOTO / LOTO_CASH_PRIZE link rows). Tests: v226 backfill, gates and the Loto page / Suppliers page guards seen failing first; the core settle / netting / waive / void cases were written after the gate change (not proven failing-first); web e2e lira-web-082 passes and took the What's new screenshot. Open: the Suppliers page sheet has no Waive in its UI (owner decision 2026-10-12, "no Waive on the Suppliers page"), so decision 4's "waive stays" needs the owner's call; a cash prize cannot be back-dated over REST (its schema has no time field).
 
@@ -8167,7 +8226,6 @@ What users will notice: a price change shows on every open recharge screen witho
 
 Follow-ups: the audit row for a mobile item update records no old/new values; decide whether to correct sale #13753's cost.
 
-
 ---
 
 ## LIRA-359: Pay a settle box in the other currency (+ a Total line) — BUILT 2026-10-29 (spec `specs/359-settle-one-payment-box/`)
@@ -8175,6 +8233,7 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 **Found on Cornertech 2026-10-29:** Rayan owed partner RAWAD HMAIDI $8 (a via-partner custom service) and wanted to pay everything in LBP. The $ box only took dollars, so he worked around it with a hand-added credit and an expense, which left the books wrong (fixed by hand on Cornertech the same day).
 
 **Owner decisions 2026-10-29:** first planned as one payment box for both currencies; the owner switched to the simpler design the same day:
+
 - Each settle box keeps paying only its own currency's amount, but offers USD and LBP lines; a line in the other currency is converted at the box rate. The drawer moves in the currency actually paid.
 - Partners and every calendar supplier (product suppliers, Katsh, Whish, Loto) **except the OMT account** (exact USD and LBP; the server refuses a line in the other currency).
 - Extra paid stays as credit in the box's currency; converted amounts round to the cent / whole lira.
@@ -8193,6 +8252,7 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 **Ask (owner 2026-10-29):** tell staff whose insurance is about to expire (sale day + 1 year) so they can call the customer and sell the renewal. Small card in the Dashboard "Credits & Stock" row (list, or a message when empty) plus a notification.
 
 **Owner decisions 2026-10-29:**
+
 - Listed from 7 days before expiry; once expired, stays listed until renewed or marked "Won't renew".
 - Renewal = newer insurance for the same customer (saved client or same phone) AND same insurance type; a refunded/voided renewal does not count.
 - New required "Insurance type" picker on the insurance sale: Compulsory / إلزامي, Third party / ضد الغير, Domestic worker / عاملة منزلية, All risk / شامل, Life / حياة. Older untyped insurances renew by customer only.
@@ -8210,6 +8270,7 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 **Ask (owner 2026-10-29):** "reacall" and "recall" are the same supplier, entered twice. Fix it from the app: when deleting a supplier, offer to merge its products into another supplier, and move its debt too (debt depends on whether products were added as old stock).
 
 **Owner decisions 2026-10-29:**
+
 - A merge moves everything: product labels, stock batches, all ledger rows (debt, payments, credits), settlements, purchases, supplier returns. The duplicate is removed and the balances add up. Old-stock products booked no debt, so for them only the label moves.
 - Changing ONE product's supplier in the product form moves the label only; its debt stays where it was booked.
 - Plain delete is allowed only for a supplier with no products and no ledger history (before, delete left the debt behind, unlinked).
@@ -8229,6 +8290,7 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 **Ask (owner 2026-10-29/30, Cornertech):** Rayan had partner Rawad do a Sejel Adli for his sister and charged her nothing. Services refused price 0 (the 2026-10-07 rule: an empty price means "type it first"), so he booked an expense plus a hand-added partner credit, which split one job across Expenses and Partners.
 
 **Owner decisions 2026-10-30:**
+
 - An explicit "Free — no charge" tick next to the selling price. Price locks at 0, the payment sheet hides. An empty price without the tick still waits for a price.
 - Allowed for via-partner jobs and the shop's own jobs. Not For Partner (the partner would be booked nothing), not a payout.
 - A free job is saved at once, never added to a session basket (nothing to collect).
@@ -8250,6 +8312,7 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 **Ask (owner 2026-10-30, Corner Tech):** "JEQANGJB-382" was typed into a keyboard's supplier field by mistake. The keyboard's label was already cleared, but the supplier stays on the Suppliers page with its $15 purchase and $15 payment (Settled). Not worth tracking, and deleting it would break the two transactions that point at its history, so hide it instead.
 
 **Owner decisions 2026-10-30:**
+
 - Only a supplier settled at $0 USD and 0 LBP can be archived. Debt can never be hidden.
 - Archived suppliers leave the list; "Show archived (N)" at the bottom of the Products tab lists them with an Unarchive button and their full history.
 - Typing an archived supplier's name again (receiving stock, Settings → Suppliers) unarchives the same supplier; no duplicate is created.
@@ -8300,6 +8363,7 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 **Plan:** `specs/365-discount-customer-pays/plan.md` (no migration; Discount given = books-only auto expense; voucher sale amount = what was paid).
 
 **Built 2026-11-01 (US1, OMT/Whish system send):**
+
 - Core: `discount_amount` on the financial schema. The repository lowers what the legs must cover; the fee, commission and supplier ledger are unchanged. One books-only, auto "Discount given" expense is linked to the send and voided by the generic void/refund.
 - Page: the Discount line (the − Discount | + Extra switch) on a walk-in send, capped at $5 / 450,000 LBP; off on a receive, in a session and For a partner. The Expenses page shows the label in en/ar.
 - Tests: proven failing first: core `discountGivenExpense` (4), `FinancialServiceRepository.lira365Discount` (14), frontend `Services.sendDiscount` (18, renamed from `sendNoDiscount`). `Services.sendExtra` updated on purpose.
@@ -8307,6 +8371,7 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 - Still to do: the What's new card with a real screenshot (web e2e). US2 (customer-pays box) and US3 (vouchers) are not started.
 
 **Built 2026-11-01 (US2, the "Customer pays" box):**
+
 - Owner 2026-11-01: one word, "Discount", everywhere. The box shows Total Amount → Discount → After Discount, like the other forms. No Forgive or Waive button there, no Extra switch. "Discount in every IN box": on a walk-in cash-out the Shop pays fee Discount is hidden while Customer pays shows, so the screen has one Discount.
 - UI: `useLinesSection` holds a typed discount (held at `maxForgive`) instead of the Forgive toggle. Lines cover `total − discount`, a single line follows it, and line edits keep it. Still reported as `forgiven`, so `customer_waived_amount` and the WAIVED_SHORTFALL booking are unchanged.
 - Pages: the OMT/Whish App form and Binance (one shared `cryptoFeeDiscount` rule for the form and the payload) send no fee discount on a walk-in cash-out.
@@ -8318,6 +8383,7 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 - (Done since: the What's new card and screenshot, US3 and US4 — see below.)
 
 **Built 2026-11-01 (US3 voucher sale, US4 POS, polish):**
+
 - Core: `discount_amount` on `voucherCreateSchema` (refine from the shared `voucherDiscountRefusal`: cap $5 / 450,000 LBP, below the face value; the repository repeats it for offline replay). `sellVoucher` reconciles against face value − discount, writes the VOUCHER_SALE amount = what was paid, books one books-only auto "Discount given" expense linked to the voucher, and records `details.discount`. `cancelWithRefund` refunds what was paid and voids that expense (`voidLinkedExpenses`). Service and IPC handler forward the key (rule 23); REST passes the parsed body.
 - Found and fixed on the way: voucher sale/cancel details were passed inside `metadata_json`, which `mergeTransactionDetails` drops, so they were never saved. Now the top-level `details` field.
 - Reader audit (T027): no reader assumes the sale amount is the face value; verdicts in tasks.md.
@@ -8326,7 +8392,6 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
   - Proven failing first: core `VoucherRepository.lira365Discount` (9, failed 9/9 on behaviour before the fix) and the Vouchers page cases in `Vouchers.sellCancel` (2 failed before the page change: no Discount line).
   - Not a failing-first guard (pins existing behaviour): `CheckoutModal.lira365NoCap` — POS $30 discount on $300 still accepted.
   - Web e2e `lira-web-087-discount`: OMT send $400 + $15 − $2 (drawer +413, OMT owed +415, $2 expense), exchange 50,000 LBP discount (General LBP +89,450,000, USD −1,000, details.discount), Vouchers page $50 − $2 (drawer +48, voucher worth $50, $2 expense). Green; screenshot `whats-new/1.35.0/discount-line.png`.
-
 
 **What users will notice:** a Discount line on the payment form for OMT/Whish sends and voucher sales, up to $5 / 450,000 LBP; on Exchange and the Whish App, OMT App and Binance cash-outs the Forgive button becomes the same Discount line. A discounted gift card keeps its full value; the discount shows on the Expenses page as "Discount given" and cancelling refunds what was paid.
 
@@ -8518,6 +8583,7 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 **Owner decisions (2026-11-10):** keep a deleted shop's backups for 30 days, then delete them; build after LIRA-377.
 
 **Plan:** one weekly job.
+
 1. Never touch `platform/` or the folder of a shop whose file still exists in `/data/tenants/` (Litestream owns it; deleting its files by hand breaks restores).
 2. Delete `tenants/<id>.db/` in R2 and `/data/tenants/archive/<id>-*.db` when the platform `tenants` row shows the shop deleted more than 30 days ago. The deletion date comes from the platform database, never from file times.
 3. Any other prefix (e.g. `web/liratek/`): report only, never delete automatically.
@@ -8633,3 +8699,17 @@ Needs: a dry-run mode that lists what it would delete; a guard test that a live 
 **Tests (rule 17):** recharge `paymentSheetClientParity` 62 rows (12 real reds first: `found <p>Client is required when using DEBT payment method</p>` ×6, `Expected ArrayContaining ["CASH","CUSTOMER_ACCOUNT"], Received ["CASH"]` ×6); shared `paymentSheetClientParity` 36 rows (builder rows not seen failing — builder is new); `CustomServices.lira387NewClientAccount` 5 (red: alert `Please select a client for debt payment.`), `Services.lira387PickedClient` 6 (red: `clientId` expected 55 received undefined), `Vouchers.lira387ClientProps` 3 (red: method stayed CASH, client-needed box rendered), core `saveAsClientOptOut` +cases (red: `Client is required for CUSTOMER_ACCOUNT cashout`). Updated for the new pick default: `Vouchers.sellCancel`, `lira-web-079`, `lira-web-087`, `lira-web-071` step 1.4. Web e2e green: 071 shop day 59/59 (three runs), 004/009/016/017/079/custom-service-payout 13/13, 087, 095. `lira-web-057` 7/8 — fails before any changed page (header session pill never appears after a REST-started session); pre-existing suspected, rerun pending. Unverified: desktop; duplicate-phone new client on Custom Services probably hits the 409 "already registered"; no REST e2e for the RECEIVE-to-new-account path (core only); Binance send Cash + Account split not run through the real repository. Follow-ups: POS CheckoutModal (+ Maintenance pickup), Loto, Exchange, Hold Money, Session checkout onto the builder; promote `ensureRechargeClient` to `shared/`.
 
 **What users will notice:** a picked client, or a new client with name and phone, can be charged to account the same way on every payment window — MTC/Alfa, Binance, Services, OMT/Whish send and receive, Vouchers — as on POS and Loto; short payments go on the account; no false "Client is required".
+
+## LIRA-388: Refund any transaction — one "Refund" on every row, Void removed — BUILT 2026-11-11 (`specs/388-refund-any-transaction/` plan/tasks/analyze/implement run)
+
+**Asked by:** owner, 2026-11-11, after Corner Tech saw "Can't refund here" on a loto cash prize paid outside a session: "I need to be able to refund any transaction, except some types." On a separate one-click Void/Undo for bookkeeping rows: "I prefer we stick to refund. No void/undo, it's a redundant feature to have." Also: remove the "Void" button on sales (one "Refund", original method preselected); everyone may refund.
+
+**Today:** 31 types are non-reversible; some tooltips point to reversals that exist on other pages (Hold Money, Vouchers, Warranty), one points to a reversal that does not exist (standalone loto prize "from the Loto page"). Cashiers meet Void / Refund / Cancel / Undo for one intent.
+
+**Spec:** 12 structural types stay non-refundable (REFUND, REFUND*UNDO, VOUCHER_CANCEL, HOLD_MONEY_COLLECT_VOID, KEPT_CHANGE, WAIVED_SHORTFALL, EXTRA_CHARGE, BASKET_DISCOUNT, CHECKPOINT, LOTO_SETTLEMENT, CLIENT*\*). 19 become refundable: customer-money rows (standalone LOTO_CASH_PRIZE, CREDIT_CASH_OUT, DEBT_CASH_OUT, CREDIT_CASH_IN, HOLD_MONEY, HOLD_MONEY_COLLECT, VOUCHER_SALE, WARRANTY_COST) open the refund window in the right direction with the original method preselected, page-owned reversals (Hold Money, Vouchers, Warranty) are invoked not duplicated; bookkeeping rows (MTC/ALFA_TOPUP, DRAWER_TOPUP/CASHOUT, PARTNER/ACCOUNT/SUPPLIER_ADJUSTMENT, COUNTERPARTY_DISCOUNT, LOTO_MONTHLY_FEE, CARRIER_LINE_ADJUSTMENT) refund through one confirm naming the opposite entry. Every refund nets to 0 per ledger per currency (rule 20), refused when a later row depends on it, one rule per type in core for both transports. Open questions with recommended answers in spec.md (same reversal as the module pages; confirm text; line hand-edit without stored before-values stays non-refundable).
+
+**Built (Opus agent, 2026-11-11):** one entry point — `transactions:refund` (IPC, REST, offline binding) → `TransactionService.refundTransaction` dispatching on core's one classification `refundPlanOf` (`constants/refundKinds.ts`, leaf, exported from `browser.ts`): generic repository refund (`allowOwnedRefund` lets the 16 owned types past the gate on the refund path only), `HoldMoneyService.voidPickup`, `VoucherService.cancelVoucher`, `WarrantyService.voidClaim`. `NON_REVERSIBLE_TRANSACTION_TYPES` unchanged (raw void still refused); the page's `ACTIONABLE_TYPES` derives from `NON_REFUNDABLE_TRANSACTION_TYPES`. Loto prize: `_reverseLotoCashPrize` + new settled-day refusal (standalone only). Account cash: `_reverseAccountEntryLedger` ('Refund Reversal' per linked CREDIT_USED / Manual Debt), spent-credit refusal per currency, account method refused. Hold drop-off had no reversal anywhere → migration **v232** `hold_money.voided_at/voided_by` (both files, `down()`), refused while a pickup is live. `reversedByIdSql` = the one "reversed" signal. Bookkeeping: DRAWER_TOPUP lot guard widened, LOTO_MONTHLY_FEE `markFeeUnpaid`, SUPPLIER_ADJUSTMENT refused when settled, PARTNER_ADJUSTMENT via `_reversePartnerSettlementLedger(…, owned)` + `partnerNettingBalanceSql` paper-CREDIT fix, COUNTERPARTY_DISCOUNT standalone via `_reverseDebtDiscountTxn` (profit on the compensating row), CARRIER_LINE_ADJUSTMENT writer now stores `credits_before/after` (only those rows refundable). Bug found on the way: `_negateCounterpartyDiscountProfit` picked up the new REFUND row (discount profit −10). Void removed from the row (`data-testid=row-refund`), window preselects original method; refund channel/route opened to staff. Decisions taken unattended (spec.md): counts are 13 structural / 18 refundable; MTC/ALFA_TOPUP stay refused (nothing writes them since August; reversal would break drawer = line credits); same-method refund = REFUND row with void's money (profit on the refund's day, back-timed checkpoint resolution kept); page-owned refunds keep their own reversal row; carrier line refund restores credits only.
+
+**Tests (rule 17):** `lira388.refundAnyTransaction` (35; reds e.g. `LOTO_CASH_PRIZE transactions cannot be voided or refunded`, debt ledger off by the cash-out amount, drop-off not cancelled, `reversed_by_id` null), `refundKinds.test`, `v232.holdMoneyVoided`, `ActionsCell.refundAny` (61, one per type; written after the code), reasons guard, backend `transactions.refundAnyRole.api`, void-vs-untouched-refund characterization (SALE / CUSTOM_SERVICE / RECHARGE identical ledgers). Full core 1038 suites / 9827 passed (125 s); electron handlers 77 suites; backend route suites green; ~20 frontend suites; web e2e `lira-web-099` + 037 + 096 4 passed, `lira-web-071` 59 passed (step 10.1 Void → Refund). Gates: typecheck 61 s, lint 0 errors, i18n / transport-parity / tenant-scoping / bind-arity / schema-equivalence 0. Screenshot `whats-new/1.35.0/refund-any-row.png`; Highlights card + bullets (Transactions, Loto, Accounts, Custom Services/Hold Money, Vouchers, MTC/Alfa, Dashboard, Partners); FEATURE_GUIDE §9 rewritten. Unverified: desktop e2e `lira-145/142/092/133` edited (Void → Refund), not run; drawer top-up with a consumed lot guard untested; no report counts REFUND rows by type alone (grep only). Questions for the owner: old MTC/Alfa customer top-ups stay refused?; `WarrantyService.voidClaim` and Vouchers "Cancel" are admin-only inside the service, so a staff row-refund of those is refused — open to staff?; "Void basket"/"Void checkout" → Refund too?; "Customer pays back" subtitle mentions the account where it is not offered; carrier line refund restore the old expiry too?
+
+**What users will notice:** one "Refund" button on every row of Transactions (no more "Void"), staff included. Loto prizes, account cash, held money, vouchers, drawer moves and partner/supplier/account entries are refunded right from their row; "Can't refund here" only where nothing can be done.

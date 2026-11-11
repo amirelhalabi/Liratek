@@ -294,23 +294,21 @@ test.describe("LIRA-092 — supplier-payment void reversal", () => {
       .filter({ hasText: "13.37" })
       .first();
     await expect(row).toBeVisible({ timeout: 10_000 });
-    const voidBtn = row.getByRole("button", { name: /^Void$/ });
+    // LIRA-388 — the row's one action is "Refund" (the per-row Void is
+    // gone); the window opens with the original method preselected and an
+    // untouched "Confirm Refund" mirrors every leg, as the void did.
+    await expect(row.getByRole("button", { name: /^Void$/ })).toHaveCount(0);
+    const voidBtn = row.getByTestId("row-refund");
     await expect(voidBtn).toBeVisible();
-    // The click fires "Void this transaction? This cannot be undone." —
-    // answer it EXPLICITLY with OK (accept): voiding is this test's purpose.
-    // Owner-confirmed 2026-07-04 after sighting the popup linger in a run;
-    // the .catch tolerates the fixtures' global accept racing us to it.
-    const confirmSeen = new Promise<string>((resolve) => {
-      appPage.once("dialog", (d) => {
-        d.accept().catch(() => {});
-        resolve(d.message());
-      });
-    });
     await voidBtn.click();
-    expect(await confirmSeen).toMatch(/Void this transaction/i);
+    const refundModal = appPage.getByTestId("counterparty-settle-modal");
+    await expect(refundModal).toBeVisible({ timeout: 10_000 });
+    await appPage.getByRole("button", { name: "Confirm Refund" }).click();
+    await expect(refundModal).toBeHidden({ timeout: 10_000 });
 
-    // The void took effect: the txn is VOIDED and the General USD drawer is
-    // back to its pre-transaction level (net delta 0 across create + void).
+    // The refund took effect: the original reads refunded (a REFUND row
+    // links to it) and the General USD drawer is back to its
+    // pre-transaction level (net delta 0 across create + refund).
     // NOTE: omt.addTransaction returns the financial_services row id — the
     // unified transaction is matched via source_id, never by that id directly.
     await expect
@@ -333,6 +331,7 @@ test.describe("LIRA-092 — supplier-payment void reversal", () => {
                 type?: string;
                 status?: string;
                 reverses_id?: number | null;
+                reversed_by_id?: number | null;
               }>;
               // The void writes a same-type reversal row (reverses_id set, newer)
               // for the same source — match the ORIGINAL only.
@@ -343,13 +342,18 @@ test.describe("LIRA-092 — supplier-payment void reversal", () => {
                   !t.reverses_id,
               );
               const after = await w.api.dashboard.getDrawerBalances();
-              return `${txn?.status ?? "missing"}|${(after.generalDrawer.usd - args.before).toFixed(2)}`;
+              const state = !txn
+                ? "missing"
+                : txn.reversed_by_id != null
+                  ? "REFUNDED"
+                  : (txn.status ?? "missing");
+              return `${state}|${(after.generalDrawer.usd - args.before).toFixed(2)}`;
             },
             { fsId: created.id!, before: created.generalUsdBefore },
           ),
         { timeout: 10_000 },
       )
-      .toBe("VOIDED|0.00");
+      .toBe("REFUNDED|0.00");
 
     // The Loto ticket-sale row (matched by its unique ticket_number, not a
     // `/Loto/i` substring — see the comment above `created`) now offers
@@ -361,8 +365,9 @@ test.describe("LIRA-092 — supplier-payment void reversal", () => {
       .locator("tbody tr")
       .filter({ hasText: created.lotoTicketNumber });
     await expect(lotoRow).toBeVisible({ timeout: 10_000 });
+    // LIRA-388 — one action only: Refund, no Void.
     await expect(lotoRow.getByRole("button", { name: /^Void$/ })).toHaveCount(
-      1,
+      0,
     );
     await expect(lotoRow.getByRole("button", { name: /^Refund$/ })).toHaveCount(
       1,

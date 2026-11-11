@@ -2637,8 +2637,14 @@ CREATE TABLE IF NOT EXISTS hold_money (
     collected_by INTEGER REFERENCES users(id),
     collected_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    voided_at DATETIME,
+    voided_by INTEGER REFERENCES users(id)
 );
+-- v232 (LIRA-388): hold_money.voided_at / voided_by are set when the
+-- drop-off is refunded from its Transactions row — the hold leaves the
+-- active list and refuses a pickup. (Comment kept outside the CREATE TABLE:
+-- SQLite's DROP COLUMN re-parses the stored table text.)
 
 CREATE INDEX IF NOT EXISTS idx_hold_money_status ON hold_money(status);
 CREATE INDEX IF NOT EXISTS idx_hold_money_created_at ON hold_money(created_at);
@@ -3372,4 +3378,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (230, 'partner_ledger_reference_index'),
     -- v231 (LIRA-377) adds shop_restores + its two indexes (declared above) and
     -- 'restore_removed' to offline_review_items.kind.
-    (231, 'shop_restores');
+    (231, 'shop_restores'),
+    -- v232 (LIRA-388) adds hold_money.voided_at / voided_by, declared above.
+    (232, 'hold_money_voided');

@@ -27,6 +27,13 @@ import {
 import type { KeptChange } from "../repositories/moneyPosting.js";
 import type { RefundAddedChange } from "../validators/transaction.js";
 import logger from "../utils/logger.js";
+import { refundPlanOf } from "../constants/refundKinds.js";
+import { DatabaseError } from "../utils/errors.js";
+import { getHoldMoneyService } from "./HoldMoneyService.js";
+import { getVoucherService } from "./VoucherService.js";
+import { getWarrantyService } from "./WarrantyService.js";
+import { getUserRepository } from "../repositories/UserRepository.js";
+import { voucherRefundLegSchema } from "../validators/voucher.js";
 
 export class TransactionService {
   private repo: TransactionRepository;
@@ -271,16 +278,112 @@ export class TransactionService {
       /** LIRA-342 — the customer gives money back during the refund,
        *  forwarded verbatim; the repository checks it. */
       addedChange?: RefundAddedChange;
+      /** LIRA-388 — the caller's role, for an owner that checks it itself
+       *  (the warranty claim). Omitted → read from the user record. */
+      actorRole?: string;
     },
   ): number {
     try {
-      return this.repo.refundTransaction(id, userId, opts);
+      return this._refundByOwner(id, userId, opts ?? {});
     } catch (error) {
       logger.error(
         { error, id, userId },
         "TransactionService.refundTransaction error",
       );
       throw error;
+    }
+  }
+
+  /**
+   * LIRA-388 — the ONE refund entry point both transports reach
+   * (`transactions:refund`, `POST /api/transactions/:id/refund`, the offline
+   * binding). Core's single classification (`refundPlanOf`) names who
+   * reverses the row; page-owned reversals are INVOKED, never re-implemented
+   * (rule 14). Returns the reversal row's id; throws on a refusal.
+   */
+  private _refundByOwner(
+    id: number,
+    userId: number,
+    opts: Parameters<TransactionService["refundTransaction"]>[2] & object,
+  ): number {
+    const original = this.repo.findById(id);
+    if (!original) return this.repo.refundTransaction(id, userId, opts);
+    const plan = refundPlanOf(original);
+    const hasLegs = (opts.refundLegs?.length ?? 0) > 0;
+    switch (plan.owner) {
+      case undefined:
+        // kind "none": let the repository give its own refusal (reversal
+        // row, structural type) — one message source.
+        return this.repo.refundTransaction(id, userId, opts);
+      case "generic": {
+        if (plan.kind === "confirm" && hasLegs) {
+          throw new DatabaseError(
+            "This entry is reversed exactly as it was written — choosing a return method is not supported for it",
+            { entityId: id },
+          );
+        }
+        return this.repo.refundTransaction(id, userId, {
+          ...opts,
+          allowOwnedRefund: true,
+        });
+      }
+      case "holdPickup": {
+        const pickup = getHoldMoneyService().getPickupByTransactionId(id);
+        if (!pickup) {
+          throw new DatabaseError("This pickup was not found", {
+            entityId: id,
+          });
+        }
+        const res = getHoldMoneyService().voidPickup(pickup.id, userId);
+        if (!res.success) {
+          throw new DatabaseError(res.error ?? "Could not void the pickup", {
+            entityId: id,
+          });
+        }
+        return res.id ?? id;
+      }
+      case "voucher": {
+        const res = getVoucherService().cancelVoucher(
+          original.source_id,
+          {
+            // The refund window's lines in the Vouchers page's own leg
+            // shape, checked by its own schema (a method a voucher cannot
+            // be paid back with is refused there, not here).
+            payments: hasLegs
+              ? voucherRefundLegSchema.array().parse(
+                  opts.refundLegs!.map((l) => ({
+                    method: l.method,
+                    currency_code: l.currencyCode,
+                    amount: l.amount,
+                  })),
+                )
+              : undefined,
+            exchange_rate: opts.exchangeRate,
+          },
+          userId,
+        );
+        if (!res.success) {
+          throw new DatabaseError(res.error ?? "Could not cancel the voucher", {
+            entityId: id,
+          });
+        }
+        return res.transactionId ?? id;
+      }
+      case "warranty": {
+        const role =
+          opts.actorRole ??
+          (getUserRepository().findById(userId) as { role?: string } | null)
+            ?.role ??
+          "staff";
+        const res = getWarrantyService().voidClaim(
+          { claim_id: original.source_id },
+          { userId, role },
+        );
+        if (!res.success) {
+          throw new DatabaseError(res.error, { entityId: id });
+        }
+        return id;
+      }
     }
   }
 

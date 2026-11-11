@@ -96,6 +96,8 @@ describe("refund kept change — REST forwarding", () => {
       refundUnitExtras: undefined,
       exchangeRate: 89000,
       keptChange: { usd: 0.12, lbp: 0 },
+      // LIRA-388 — the caller's role rides along (warranty owner reads it).
+      actorRole: "admin",
     });
   });
 

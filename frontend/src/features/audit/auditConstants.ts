@@ -5,7 +5,13 @@
 // react-refresh/only-export-components lint rule (which forbids a component
 // file from also exporting non-component values).
 
-import { isAutoRow, type PaidViaDrawer } from "@liratek/core";
+import {
+  isAutoRow,
+  NON_REFUNDABLE_TRANSACTION_TYPES,
+  TRANSACTION_TYPES,
+  type PaidViaDrawer,
+  type TransactionType,
+} from "@liratek/core";
 
 export const ACTION_OPTIONS = [
   "CREATE",
@@ -530,118 +536,20 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
 // ---------------------------------------------------------------------------
 
 /**
- * Types whose rows get Void + Refund buttons in the transactions table.
- * Must stay the exact complement of core's NON_REVERSIBLE_TRANSACTION_TYPES —
- * the backend's _assertReversible is the real gate; this set only controls
- * visibility. The actionGating guard test enforces the partition.
+ * LIRA-388 — types whose rows get the "Refund" button in the transactions
+ * table: every TransactionType except core's NON_REFUNDABLE_TRANSACTION_TYPES
+ * (the structural rows). DERIVED from core's one classification
+ * (`constants/refundKinds.ts`, rule 14) — this page keeps no list of its own.
+ * Row-level exceptions (a carrier-line edit with no recorded values, a
+ * reversal row) are decided by `refundPlanOf` in `actionGating.ts`; the
+ * repository (and, for page-owned rows, the page's own reversal) remains
+ * the authority.
  */
-export const ACTIONABLE_TYPES: ReadonlySet<string> = new Set([
-  "SALE",
-  "FINANCIAL_SERVICE",
-  "EXCHANGE",
-  // Same shape as EXCHANGE — two payment legs + two drawer deltas, no
-  // orphaned side-table state (wallet_exchanges has is_refunded/refunded_at
-  // and is in TransactionRepository's _markSourceRefunded supported list) —
-  // reversible via the generic path, not in NON_REVERSIBLE_TRANSACTION_TYPES.
-  "WALLET_EXCHANGE",
-  // Same reversal shape as WALLET_EXCHANGE — two payment legs + two drawer
-  // deltas, own side table (drawer_transfers, renamed from
-  // system_float_topups — Primary Cash Drawer plan §8.6) with
-  // is_refunded/refunded_at and in TransactionRepository's
-  // _markSourceRefunded supported list — reversible via the generic path,
-  // not in NON_REVERSIBLE_TRANSACTION_TYPES. Renamed from
-  // `SYSTEM_FLOAT_TOPUP` alongside `TRANSACTION_TYPES.DRAWER_TRANSFER`
-  // (plan §8.6) — this is now a generic General <-> primary-cash-drawer
-  // cash transfer, not a provider float top-up.
-  "DRAWER_TRANSFER",
-  "RECHARGE",
-  "CUSTOM_SERVICE",
-  "MAINTENANCE",
-  "EXPENSE",
-  // LIRA-262 — reversible via the generic void/refund (provider leg via
-  // _reversePayments, expense soft-void, inventory restoreExpenseStock).
-  "EXPENSE_INVENTORY",
-  "EXPENSE_KATSH",
-  "EXPENSE_IPICK",
-  "EXPENSE_WHISH_APP",
-  "DEBT_REPAYMENT",
-  "SUPPLIER_PAYMENT",
-  // LIRA-085: PARTNER_SETTLEMENT/PARTNER_PAYMENT/SUPPLIER_SETTLEMENT moved
-  // out of core's NON_REVERSIBLE_TRANSACTION_TYPES — TransactionRepository
-  // now owns their reversal (_reversePartnerSettlementLedger /
-  // _reverseSupplierSettlement). Must stay in lockstep with that set — see
-  // actionGating.guard.test.ts.
-  "PARTNER_SETTLEMENT",
-  "PARTNER_PAYMENT",
-  "SUPPLIER_SETTLEMENT",
-  // Ticket sale (LOTO): reversible until its checkpoint is settled —
-  // TransactionRepository now owns a dedicated guard/reversal pair
-  // (_assertLotoTicketVoidable / _reverseLotoSupplierLedger) that blocks a
-  // settled-checkpoint ticket with a named-settlement error and, for an
-  // unsettled/uncheckpointed ticket, soft-voids the link-mode supplier_ledger
-  // TOP_UP row and delta-adjusts the checkpoint's frozen totals. That
-  // repository guard is the real gate; this entry only controls button
-  // visibility. LOTO_CASH_PRIZE and LOTO_SETTLEMENT stay OUT of scope (no
-  // reversal owner exists for either) — see core's
-  // NON_REVERSIBLE_TRANSACTION_TYPES.
-  "LOTO",
-  // TELECOM_SELF_CHARGE (LIRA-090): a self-charge of a telecom item to the
-  // shop's own carrier line — reversible via the generic path. The generic
-  // _reversePayments unwinds the payment legs; the carrier_line movement log
-  // has its own void hook in TransactionRepository (rules §11/§20). Absent
-  // from NON_REVERSIBLE_TRANSACTION_TYPES per the LIRA-090 handoff spec.
-  "TELECOM_SELF_CHARGE",
-  // LIRA-309 — internal recharge of a line held for sale; reversible via the
-  // generic path plus _reverseResaleLineRecharge (newest first, not once sold).
-  "LINE_RECHARGE",
-  // LIRA-337 — credit given back from a line held for sale; reversible via
-  // the generic path plus _reverseResaleLineGiveBack (newest first, not once sold).
-  "LINE_CREDIT_GIVE_BACK",
-  // TELECOM_CREDIT_BUYBACK (CARRIER_LINES_VALIDITY_PLAN.md Phase 6, D8): a
-  // shop-line credit buy-back — reversible via the generic path (the
-  // generic _reversePayments unwinds the drawer-delta leg and every payout
-  // leg; _reverseCarrierLineMovements unwinds the credits gain). Absent
-  // from core's NON_REVERSIBLE_TRANSACTION_TYPES.
-  "TELECOM_CREDIT_BUYBACK",
-  // LIRA-312 — credits received for a wrong-number card; reversible via the
-  // generic path (_reversePayments + _reverseCarrierLineMovements). Absent
-  // from core's NON_REVERSIBLE_TRANSACTION_TYPES.
-  "WRONG_NUMBER_CREDITS",
-  // SUPPLIER_STOCK_INTAKE_PLAN.md rule 20 — voiding this transaction is the
-  // named reversal owner for the supplier_ledger STOCK_INTAKE row AND the
-  // cost batch it created (TransactionRepository soft-voids the ledger row
-  // and deletes the batch). Reversible so the owner can undo a mistaken
-  // delivery — REST/IPC `_assertReversible` still refuses it once any unit
-  // of the batch has been sold (StockBatchRepository.deleteBatchForVoid
-  // returns false, not this set's visibility gate).
-  "SUPPLIER_STOCK_INTAKE",
-  // LIRA-087 (migration v189) rule 20 — voiding this transaction reuses the
-  // SAME reversal owner as SUPPLIER_STOCK_INTAKE
-  // (TransactionRepository._reverseSupplierStockIntake, type-widened): a
-  // no-op while the recorded debt is still unattached (ledger row just
-  // soft-voids), refused once an attached batch has already sold units.
-  "SUPPLIER_RECORDED_DEBT",
-  // LIRA-192 (OMT open-credit account, §8.7): the OMT App wallet cash-out.
-  // The cashout's wallet leg is written as a real `payments` row (so the
-  // generic `_reversePayments` restores the OMT_App drawer) and the
-  // supplier_ledger row is back-linked via source_ref_table/source_ref_id
-  // (so the existing cascade-void finds and negates it) — core's
-  // TransactionRepository owns proving that nets to 0 (see
-  // TransactionRepository.walletCashoutVoid.test.ts). Deliberately absent
-  // from core's NON_REVERSIBLE_TRANSACTION_TYPES. The actionGating.guard
-  // test enforces this entry stays in lockstep with that set.
-  "WALLET_CASHOUT",
-  // LIRA-194 (2026-09-20): every top-up writer (topUpApp, topUpFromSupplier,
-  // topUpFromPartner, topUpFromClient — iPick/Katsh/OMT App/MTC/Alfa/Whish
-  // App) now posts its drawer leg(s) as real `payments` rows, and the one
-  // link-mode `supplier_ledger` row (topUpFromSupplier) has a dedicated
-  // reversal owner (`TransactionRepository._reverseSupplierLedgerByTransactionLink`).
-  // Moved OUT of core's NON_REVERSIBLE_TRANSACTION_TYPES — see that
-  // constant's own RECHARGE_TOPUP doc comment for the full per-writer
-  // breakdown. The actionGating.guard test enforces this entry stays in
-  // lockstep with that set.
-  "RECHARGE_TOPUP",
-]);
+export const ACTIONABLE_TYPES: ReadonlySet<string> = new Set(
+  (Object.values(TRANSACTION_TYPES) as TransactionType[]).filter(
+    (t) => !NON_REFUNDABLE_TRANSACTION_TYPES.has(t),
+  ),
+);
 
 /** Every FILTER_GROUPS option, flattened — the multi-select Type filter's
  *  full option list, and what `useTransactionRows.ts` matches the operator's

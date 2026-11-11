@@ -80,6 +80,11 @@ export interface HoldMoneyEntity {
   collected_at: string | null;
   created_at: string;
   updated_at: string;
+  /** LIRA-388 (v232) — set when the drop-off was refunded from its
+   *  Transactions row: the hold is cancelled (out of the active list, no
+   *  pickup possible). Null for every live hold. */
+  voided_at: string | null;
+  voided_by: number | null;
   /** DERIVED live (never persisted) — usd_amount/lbp_amount minus the SUM
    *  of this hold's non-voided `hold_money_pickups` rows. A hold with zero
    *  pickups reads its full original amount, so every pre-v183 hold is
@@ -183,6 +188,7 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
     return `
       id, client_name, phone_number, client_id, usd_amount, lbp_amount, status,
       notes, created_by, collected_by, collected_at, created_at, updated_at,
+      voided_at, voided_by,
       (usd_amount - COALESCE((
         SELECT SUM(usd_amount) FROM hold_money_pickups p
         WHERE p.hold_money_id = hold_money.id AND p.is_voided = 0
@@ -435,6 +441,9 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
         const tenantId = getCurrentTenantId();
         const hold = this.getById(data.id);
         if (!hold) throw new Error("Hold not found");
+        if (hold.voided_at) {
+          throw new Error("This hold was refunded — nothing to pick up");
+        }
         if (hold.status !== "held") {
           throw new Error("Hold has already been fully collected");
         }
@@ -972,6 +981,41 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
    * Every pickup event (voided or not) for one hold, newest first — the
    * Active Holds detail view and the void action's source list.
    */
+  /**
+   * LIRA-388 (rule 20) — the drop-off was refunded from its Transactions
+   * row: the hold is cancelled. The refund itself mirrored the drop-off's
+   * payment legs and refused while any pickup was live; this only stamps
+   * the hold so it leaves the active list and refuses a pickup. Runs inside
+   * the refund's db transaction.
+   */
+  markHoldVoided(holdId: number, voidedBy: number): void {
+    this.db
+      .prepare(
+        `UPDATE hold_money SET voided_at = ?, voided_by = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND voided_at IS NULL AND tenant_id = ?`,
+      )
+      .run(requestNow(), voidedBy, holdId, getCurrentTenantId());
+  }
+
+  /** LIRA-388 — the pickup a HOLD_MONEY_COLLECT transaction recorded (the
+   *  Transactions row's refund runs `voidPickup` on it). */
+  getPickupByTransactionId(
+    transactionId: number,
+  ): HoldMoneyPickupEntity | null {
+    return (
+      (this.db
+        .prepare(
+          `SELECT id, hold_money_id, transaction_id, usd_amount, lbp_amount, is_voided,
+                  voided_by, voided_at, created_by, created_at, updated_at
+           FROM hold_money_pickups WHERE transaction_id = ? AND tenant_id = ?
+           LIMIT 1`,
+        )
+        .get(transactionId, getCurrentTenantId()) as
+        | HoldMoneyPickupEntity
+        | undefined) ?? null
+    );
+  }
+
   getPickups(holdMoneyId: number): HoldMoneyPickupEntity[] {
     return this.db
       .prepare(
@@ -990,7 +1034,7 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
   getActiveHolds(): HoldMoneyEntity[] {
     return this.db
       .prepare(
-        `SELECT ${this.getColumns()} FROM hold_money WHERE status = 'held' AND tenant_id = ? ORDER BY created_at DESC`,
+        `SELECT ${this.getColumns()} FROM hold_money WHERE status = 'held' AND voided_at IS NULL AND tenant_id = ? ORDER BY created_at DESC`,
       )
       .all(getCurrentTenantId()) as HoldMoneyEntity[];
   }
@@ -1004,6 +1048,9 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
     if (filter?.status) {
       query += ` AND status = ?`;
       params.push(filter.status);
+      // LIRA-388 — a drop-off refunded from its Transactions row keeps
+      // status 'held' (the CHECK allows no other) but is no longer held.
+      if (filter.status === "held") query += ` AND voided_at IS NULL`;
     }
     query += ` ORDER BY created_at DESC`;
     return this.db.prepare(query).all(...params) as HoldMoneyEntity[];

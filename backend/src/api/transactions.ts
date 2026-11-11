@@ -358,7 +358,8 @@ router.get(
 router.post(
   "/:id/refund",
   requireAuth,
-  requireRole(["admin"]),
+  // LIRA-388 (FR-007): everyone may refund — mirrors transactions:refund.
+  requireRole(["admin", "staff"]),
   async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id);
@@ -480,6 +481,7 @@ router.post(
         exchangeRate,
         keptChange,
         addedChange,
+        actorRole: req.user?.role,
       });
       // Mirrors transactionHandlers.ts's transactions:refund audit
       // (refund/transaction) — reaching here means the refund committed

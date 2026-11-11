@@ -36,6 +36,11 @@
 
 ## ✨ Highlights
 
+### Refund any transaction
+
+Every row on the Transactions page now has one **Refund** button; the separate "Void" is gone. A loto prize paid on the Loto page, an account cash-in or cash-out, held money, a voucher, a drawer top-up or cash-out, and partner, supplier and account entries can all be refunded from their row. Customer money opens the refund window with the original payment already chosen, so giving it back the same way is one click. Bookkeeping entries ask one confirm that names the opposite entry.
+![Refund window titled "Refund — Customer pays back" on a 500,000 LBP loto prize paid outside a session, Cash preselected](whats-new/1.35.0/refund-any-row.png)
+
 ### Pick what the customer is paying for
 
 Settle Debt now opens with nothing ticked. Tick the item the customer is paying for and the amount fills in, in that item's own currency; type a different amount if they pay less or more. The client's purchases list then shows what was paid and what is left on each charge.
@@ -378,6 +383,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 📱 MTC / Alfa
 
+- From now on, a line credits edit can be refunded from Transactions while the line still holds the edited credits. Older edits cannot.
 - MTC and Alfa Credit, Days, Alfa Gift and credit buy-back: typing a new client's name and phone no longer shows "Client is required" once the payment is on Customer Account, and a short payment now goes on that client's account, as on POS.
 - Binance send: a short payment with a client now goes on the client's account.
 - Alfa Gift: the payment window of a direct gift sale now lets you search for a client or add a new one with their phone number, so the gift can go on their account; before, it had only a name box and "Customer Account" was always refused.
@@ -406,6 +412,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 🤝 Partners
 
+- Manual partner and supplier entries and write-offs can be refunded from Transactions with one confirm. A discount given together with a payment or settlement is refunded with that payment.
 - Partners: Settle (by day and by amount) now shows the same Discount line as every other settle screen, up to $5 or 450,000 LBP, whether the partner pays you or you pay the partner. Typing a discount now lowers the amount to pay by itself (owes $500, discount $5 → pay $495). The Waive button is gone from these screens; bigger amounts go through Write off (admins).
 - OMT / Whish: on a "For Partner" receive, the note now says what really happens: no drawer moves, and the shop owes the partner the full amount received (the fee is not taken off). It used to say the drawer is credited and the fee is deducted.
 - Partners: when the partner list can't load on a form ("For Partner"), the message now says why (for example "Too many requests") instead of "[object Object]".
@@ -424,6 +431,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 📒 Accounts
 
+- Cash-in and cash-out on a customer account, and manual account entries, can be refunded from Transactions. Both the drawer and the customer's balance go back. A cash-in whose credit was already spent is refused, showing how much is left.
 - Accounts: Settle Debt now opens with nothing ticked. Tick the item the customer is paying for and the amount fills in; you can still change it: less pays part of that item, more pays the next items. With nothing ticked, the oldest debts are paid first. Amounts stay in the item's own currency ($ or LBP), so paying a lira item no longer touches a dollar sale.
 - Accounts: on a client's purchases list, a charge that was partly paid shows "paid $12.00 · left $8.00", and a fully paid charge shows "Paid".
 - Accounts: on Settle Debt, "Forgive (no cash)" is now the Discount line, up to $5 or 450,000 LBP. Typing it lowers the amount to pay by itself (owes $100, discount $5 → pay $95), also when you typed the payment first. The Waive button is gone; to forgive more, use Write off (admins).
@@ -481,6 +489,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 🛠️ Custom Services
 
+- Hold Money: a drop-off can be refunded from Transactions while nothing has been picked up; the hold then shows "Refunded" and cannot be collected. A pickup refunded from Transactions is the same as "Void pickup".
 - You can now charge a service to a new customer's account by typing their name and phone. The customer is saved for you when you submit.
 - Selling an insurance now asks for its type: Compulsory, Third party, Domestic worker, All risk or Life. The type shows in History.
 - Insurance sales now show as "Insurance" in the Type column of the Transactions page and as "Insurance" on the customer's account. From now on the summary and the account note also name the type, for example "Insurance (Compulsory): Car insurance".
@@ -490,8 +499,17 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 - Hold Money: the payment method now shows Cash straight away when you hold money or return a hold. Before, the list could stay empty for a few seconds.
 - Services: new "Free — no charge" tick next to the selling price. The job saves at price 0 with nothing to collect. If a partner did the job, the partner is still owed the cost and it shows on their account.
 
+## 🎰 Loto
+
+- A cash prize paid outside a customer basket can be refunded from Transactions: the customer pays it back and the prize leaves the prize totals. A prize whose day was already settled with Loto is refused. The loto monthly fee can be refunded from its row too.
+
+## 🏠 Dashboard
+
+- Drawer top-ups and cash-outs can be refunded from Transactions with one confirm.
+
 ## 🧾 Transactions
 
+- The "Void" button is gone: "Refund" does the same thing with the original payment preselected, and staff can refund, not only admins. "Can't refund here" now appears only on rows that really cannot be refunded (counts, reversal rows, basket lines, client audit entries, old MTC/Alfa top-ups), and every explanation points to something you can actually do.
 - Refund item now works on anything in a paid customer session, including loto tickets, loto prizes, transfers, cash-outs, exchanges and repairs, and a basket that paid out a prize no longer blocks refunding its other items. For a prize or cash-out, the customer pays the money back in cash, by wallet or on their account.
 - Audit & Transactions: both tabs now open on today's entries and show 50 at a time. Scroll down and the next 50 load on their own (there is also a "Load more" button). The day filter sits above the table, with Today, Yesterday, This week, This month and All. The Rows box is gone.
 - Transactions: a new Vouchers filter group shows gift card sales, gift card cancellations, and sales paid with a gift card.
@@ -532,6 +550,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 🎁 Vouchers
 
+- Refunding a voucher sale from Transactions cancels the voucher, the same as "Cancel voucher". A redeemed voucher is refused.
 - When you sell a voucher to a client you picked, the payment switches to their account. The false red "Client is required" message is gone, and any unpaid part goes on their account.
 - Vouchers: from now on, selling a gift card takes payment (cash, a wallet, or the customer's account) and puts the money in the drawer. Cancelling an unused gift card refunds the customer: the cash part back from the drawer and the account part taken off their account. Gift cards created before this update were not paid for, so cancelling them refunds nothing.
 - Vouchers: you can now give a discount on a gift card sale, up to $5 or 450,000 LBP. A $50 gift card sold for $48 is still worth $50 when used; the $2 shows on the Expenses page as "Discount given". Cancelling the gift card refunds what the customer paid ($48) and cancels the "Discount given".

@@ -52,6 +52,9 @@ interface HoldMoneyRecord {
    *  has never been partially collected. */
   remaining_usd: number;
   remaining_lbp: number;
+  /** LIRA-388 (v232) — set when the drop-off was refunded from its
+   *  Transactions row: the hold is cancelled (no Collect). */
+  voided_at?: string | null;
 }
 
 /** One pickup EVENT against a hold — migration v183's balance-model row.
@@ -641,7 +644,15 @@ export function HoldMoneySection() {
                     >
                       <History size={13} />
                     </button>
-                    {hold.status === "held" && (
+                    {hold.voided_at && (
+                      <span
+                        data-testid={`hold-refunded-${hold.id}`}
+                        className="px-2 py-1 rounded text-xs bg-rose-900/40 text-rose-300"
+                      >
+                        {t("hold.refunded")}
+                      </span>
+                    )}
+                    {hold.status === "held" && !hold.voided_at && (
                       <button
                         type="button"
                         data-testid={`hold-collect-${hold.id}`}

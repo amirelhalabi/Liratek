@@ -494,6 +494,20 @@ export const STOCK_EXPENSE_CATALOG_PROVIDERS: Readonly<
  *   while leaving the client balance wrong. Reverse via the opposite manual
  *   entry (Add Debt cancels an Add Credit and vice versa) — which also corrects
  *   the till.
+ *
+ * LIRA-388 (2026-11-11) — READ THIS FIRST. This set is the GENERIC path's
+ * gate only: a raw `transactions:void` (and a refund without an owner) is
+ * still refused for every type below. It is NOT what the Transactions page
+ * offers: `constants/refundKinds.ts` (`REFUND_OWNERS`) names a reversal
+ * owner for 16 of these types (loto prize, account cash in/out, hold money,
+ * voucher sale, warranty cost, drawer top-up/cash-out, partner / account /
+ * supplier adjustments, counterparty discount, loto monthly fee, carrier
+ * line edits with recorded values), and the ONE refund entry point
+ * (`TransactionService.refundTransaction`) routes them there. Several of the
+ * per-type notes below ("correct it with an opposite entry", "no owner")
+ * describe the state BEFORE LIRA-388; the owner of each is listed in
+ * specs/388-refund-any-transaction/research.md R4. What the cashier sees as
+ * "Can't refund here" is `NON_REFUNDABLE_TRANSACTION_TYPES` (refundKinds.ts).
  */
 export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
   new Set<TransactionType>([

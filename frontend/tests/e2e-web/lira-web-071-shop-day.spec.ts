@@ -2440,7 +2440,9 @@ test.describe.serial("lira-web-071 Shop Day", () => {
 
   // ══ Part 10 — Reversals ════════════════════════════════════════════════
 
-  test("10.1 void the walk-in sale (Karim, $26)", async () => {
+  // LIRA-388 — the per-row Void is gone: "Refund" with the original method
+  // untouched books the same money (the sale's own legs mirrored).
+  test("10.1 refund the walk-in sale same-method (Karim, $26)", async () => {
     const before = await lastTxnId(day);
     const d0 = await drawers(day);
     await go("/audit", page.getByPlaceholder(/Search summary, client, user/));
@@ -2452,12 +2454,20 @@ test.describe.serial("lira-web-071 Shop Day", () => {
       .locator("tbody tr", { hasText: S.karim })
       // Karim also has a newer Binance send (3.8): pick his SALE row.
       .filter({ hasText: /Sale #\d+/ })
-      .filter({ has: page.getByRole("button", { name: "Void", exact: true }) })
+      .filter({ has: page.getByTestId("row-refund") })
       .first();
-    const res = waitPost(page, `/api/transactions/${ids.walkinSaleTxn}/void`);
-    await row.getByRole("button", { name: "Void", exact: true }).click();
-    expect((await res).body.success).toBeTruthy();
-    expect(day.dialogs.some((d) => /Void this transaction/.test(d))).toBe(true);
+    await expect(
+      row.getByRole("button", { name: "Void", exact: true }),
+    ).toHaveCount(0);
+    const res = waitPost(page, `/api/transactions/${ids.walkinSaleTxn}/refund`);
+    await row.getByTestId("row-refund").click();
+    const modal = page.getByTestId("counterparty-settle-modal");
+    await expect(modal).toBeVisible({ timeout: 15_000 });
+    await page.getByRole("button", { name: "Confirm Refund" }).click();
+    const done = await res;
+    expect(done.body.success, JSON.stringify(done.body)).toBeTruthy();
+    expect(done.request.refundLegs ?? undefined).toBeUndefined();
+    await expect(modal).toBeHidden({ timeout: 15_000 });
     const rev = await findTxn(
       day,
       before,
@@ -2474,13 +2484,13 @@ test.describe.serial("lira-web-071 Shop Day", () => {
       "LBP",
       -(2_400_000 - ids.walkinChangeLbp),
     );
-    // Row tags: VOIDED on the original, ↩ on the reversal.
+    // Row tag: REFUNDED on the original.
     await expect(
       page
         .getByTestId("data-table")
         .locator("tbody tr", { hasText: S.karim })
         .getByTestId("row-badge")
-        .filter({ hasText: "VOIDED" })
+        .filter({ hasText: "REFUNDED" })
         .first(),
     ).toBeVisible();
   });

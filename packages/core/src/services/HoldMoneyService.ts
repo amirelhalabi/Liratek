@@ -77,6 +77,13 @@ export class HoldMoneyService {
     return this.repo.voidPickup(pickupId, voidedBy);
   }
 
+  /** LIRA-388 — the pickup behind a HOLD_MONEY_COLLECT row. */
+  getPickupByTransactionId(
+    transactionId: number,
+  ): HoldMoneyPickupEntity | null {
+    return this.repo.getPickupByTransactionId(transactionId);
+  }
+
   /**
    * Every pickup event for one hold — the Active Holds detail view and the
    * void action's source list.

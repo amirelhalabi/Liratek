@@ -26,6 +26,8 @@
 import {
   WRONG_NUMBER_EXPENSE_CATEGORY,
   isWrongNumberCardSale,
+  refundPlanOf,
+  type RefundPlan,
   type WrongNumberProvider,
 } from "@liratek/core";
 import { ACTIONABLE_TYPES, parseMetaSafe } from "./auditConstants";
@@ -42,6 +44,17 @@ export interface ActionGatingFields {
   /** A SALE with at least one line refunded item by item (core
    *  `getRecent`, shop-day 2026-10-16) — a whole Void/Refund is refused. */
   item_refunded?: boolean;
+  /** LIRA-388 — row-level refund plan input (a carrier-line edit refunds
+   *  only when it recorded its before/after credits). */
+  metadata_json?: string | null;
+}
+
+/** LIRA-388 — core's one refund classification for this row: "window"
+ *  (refund window, with its money direction), "confirm" (one-line confirm
+ *  naming the opposite entry) or "none" ("Can't refund here", with the
+ *  reason key). Never a page-side list (rule 14). */
+export function refundPlanForRow(row: ActionGatingFields): RefundPlan {
+  return refundPlanOf(row);
 }
 
 /**
@@ -55,6 +68,7 @@ export interface ActionGatingFields {
 export function isReversibleRow(row: ActionGatingFields): boolean {
   return (
     ACTIONABLE_TYPES.has(row.type) &&
+    refundPlanOf(row).kind !== "none" &&
     row.status !== "VOIDED" &&
     row.type !== "REFUND" &&
     row.reverses_id == null &&

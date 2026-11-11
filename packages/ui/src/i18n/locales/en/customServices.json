@@ -143,6 +143,7 @@
     "ofTotal": "of {{amount}}",
     "historyTitle": "Pickup history / void a pickup",
     "collect": "Collect",
+    "refunded": "Refunded",
     "pickupHistory": "Pickup history",
     "loadingEllipsis": "Loading…",
     "noPickups": "No pickups recorded yet.",

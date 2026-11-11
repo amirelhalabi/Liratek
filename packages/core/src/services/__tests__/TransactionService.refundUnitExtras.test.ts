@@ -17,6 +17,12 @@ describe("TransactionService.refundTransaction — refundUnitExtras forwarding",
   function buildService() {
     const repo = {
       refundTransaction: jest.fn().mockReturnValue(42),
+      findById: jest.fn().mockReturnValue({
+        id: 1,
+        type: "SALE",
+        reverses_id: null,
+        metadata_json: null,
+      }),
     } as unknown as TransactionRepository;
     const service = new TransactionService(repo);
     return { service, repo };
@@ -39,6 +45,7 @@ describe("TransactionService.refundTransaction — refundUnitExtras forwarding",
     expect(repo.refundTransaction).toHaveBeenCalledWith(1, 7, {
       refundLegs,
       refundUnitExtras,
+      allowOwnedRefund: true,
     });
     expect(result).toBe(42);
   });
@@ -48,7 +55,9 @@ describe("TransactionService.refundTransaction — refundUnitExtras forwarding",
 
     service.refundTransaction(1, 7);
 
-    expect(repo.refundTransaction).toHaveBeenCalledWith(1, 7, undefined);
+    expect(repo.refundTransaction).toHaveBeenCalledWith(1, 7, {
+      allowOwnedRefund: true,
+    });
   });
 
   it("forwards refundLegs alone with refundUnitExtras left undefined", () => {
@@ -61,7 +70,7 @@ describe("TransactionService.refundTransaction — refundUnitExtras forwarding",
 
     expect(repo.refundTransaction).toHaveBeenCalledWith(1, 7, {
       refundLegs,
-      refundUnitExtras: undefined,
+      allowOwnedRefund: true,
     });
   });
 });

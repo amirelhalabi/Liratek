@@ -170,8 +170,10 @@ export function registerTransactionHandlers(): void {
       addedChange?: unknown,
     ) => {
       try {
-        const auth = requireRole(e.sender.id, ["admin"]);
-        if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
+        // LIRA-388 (FR-007): everyone may refund — the ONE refund entry
+        // point for every row type. "Undo refund" keeps its admin gate.
+        const auth = requireRole(e.sender.id, ["admin", "staff"]);
+        if (!auth.ok) throw new Error(auth.error ?? "Access denied");
         // LIRA-306 T041: the five positional arguments are ONE named payload
         // parsed by core's transactionRefundSchema — built from the same
         // component schemas used here before; null still means "not given".
@@ -201,6 +203,7 @@ export function registerTransactionHandlers(): void {
           exchangeRate: rate,
           keptChange: kept,
           addedChange: v.data.addedChange ?? undefined,
+          actorRole: auth.role,
         });
         audit(e.sender.id, {
           action: "refund",

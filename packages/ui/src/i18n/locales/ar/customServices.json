@@ -143,6 +143,7 @@
     "ofTotal": "من {{amount}}",
     "historyTitle": "سجل الاستلام / إلغاء استلام",
     "collect": "استلام",
+    "refunded": "مُسترد",
     "pickupHistory": "سجل الاستلام",
     "loadingEllipsis": "جارٍ التحميل…",
     "noPickups": "لا استلامات بعد.",

@@ -63,6 +63,7 @@ import { CHECKPOINT_ADJUSTMENT_METHOD } from "../constants/checkpointAdjustment.
 // (imported above) typed CARRIER_LINE_ADJUSTMENT, so the manual-edit shows on
 // the Transactions page like every other money-moving flow.
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import { REFUNDABLE_CARRIER_LINE_REASONS } from "../constants/refundKinds.js";
 
 // =============================================================================
 // Entity Types
@@ -406,6 +407,20 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
       );
     }
 
+    // LIRA-388 — an edit records what the line held before and after (the
+    // line is already written when this runs: every refundable call site
+    // updates the line first), so the edit can be refunded from its row
+    // while the line still holds `credits_after`.
+    const recordValues = REFUNDABLE_CARRIER_LINE_REASONS.has(reasonTag);
+    const creditsAfter = recordValues
+      ? ((
+          this.db
+            .prepare(
+              `SELECT credits FROM carrier_lines WHERE id = ? AND tenant_id = ?`,
+            )
+            .get(carrierLineId, tenantId) as { credits: number | null } | undefined
+        )?.credits ?? 0)
+      : null;
     const transactionId = getTransactionRepository().createTransaction({
       type: TRANSACTION_TYPES.CARRIER_LINE_ADJUSTMENT,
       source_table: "carrier_lines",
@@ -423,6 +438,13 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
         drawer_name: drawerName,
         reason: reasonTag,
         is_auto: false,
+        ...(creditsAfter != null
+          ? {
+              credits_before:
+                Math.round((creditsAfter - deltaUsd) * 1e6) / 1e6,
+              credits_after: creditsAfter,
+            }
+          : {}),
       },
     });
 
@@ -442,6 +464,21 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
       delta: deltaUsd,
       tenantId,
     });
+  }
+
+  /**
+   * LIRA-388 (rule 20) — a credits edit refunded from its Transactions row:
+   * the line goes back to the credits it held before the edit. The refund
+   * itself mirrored the edit's drawer leg (so the §0.1 sum invariant holds)
+   * and refused unless the line still held `credits_after`. Runs inside the
+   * refund's db transaction; posts no new adjustment.
+   */
+  restoreCreditsForRefund(lineId: number, creditsBefore: number): void {
+    this.db
+      .prepare(
+        `UPDATE carrier_lines SET credits = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?`,
+      )
+      .run(creditsBefore, lineId, getCurrentTenantId());
   }
 
   /** Active lines for one carrier — the Recharge-tab compact panel. */

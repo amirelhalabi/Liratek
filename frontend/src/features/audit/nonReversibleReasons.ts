@@ -1,100 +1,64 @@
 /**
- * LIRA-079 — plain-language "can't refund here, because…" messages for every
- * transaction type in core's `NON_REVERSIBLE_TRANSACTION_TYPES`
- * (packages/core/src/constants/transactionTypes.ts).
+ * LIRA-079 → LIRA-388 — plain-language "can't refund here, because…" texts
+ * for the rows the Transactions page cannot refund. Since LIRA-388 every
+ * other row has a "Refund" (core's one classification, `refundPlanOf` in
+ * packages/core/src/constants/refundKinds.ts, decides; this file only
+ * words its reasons):
+ *   - the structural types (`NON_REFUNDABLE_TRANSACTION_TYPES`): reversal
+ *     rows, basket-only lines, counts, settlements, client audit entries;
+ *   - two legacy-only types (old MTC/Alfa customer top-ups);
+ *   - a row-level case: a carrier-line edit that recorded no previous
+ *     credits (`carrierLineNoValues`).
  *
- * Owner decision (2026-10-02): keep the safe list as-is — Refund/Void stay
- * available on every generically-reversible type, and the deliberately
- * protected types keep their dedicated reversal path. What was missing is
- * that the Transactions page showed NOTHING for a protected row (just "—"),
- * leaving the operator to guess why the buttons are gone. This file is the
- * single source of truth for that explanation (rule 14) — one message per
- * type, each naming the real correction path, sourced from the rationale
- * already written next to each entry in `NON_REVERSIBLE_TRANSACTION_TYPES`.
+ * Every text names an action that EXISTS (FR-008) —
+ * `nonReversibleReasons.guard.test.ts` pins the key set to core's and
+ * scans for actions that no longer exist ("Void" on a single row, "from the
+ * Loto page" for a prize).
  *
- * Deliberately pure/presentational: reads only `row.type` (already present
- * on both the IPC and REST transaction-row shape), so it needs no backend
- * change and behaves identically on desktop and web (rule 19).
- *
- * Keep this in lockstep with core's `NON_REVERSIBLE_TRANSACTION_TYPES` —
- * `nonReversibleReasons.guard.test.ts` enforces every member has an entry
- * here (and that nothing stale lingers for a type since moved OUT of that
- * set, e.g. RECHARGE_TOPUP/SUPPLIER_SETTLEMENT/PARTNER_SETTLEMENT history).
+ * The page shows the i18n string (`audit.json` → `nonReversible.<key>`);
+ * this English map is its `defaultValue` and the guard's source.
  */
 
 export const NON_REVERSIBLE_REASONS: Readonly<Record<string, string>> = {
-  LOTO_CASH_PRIZE:
-    "Loto cash prizes are reversed only as part of their session basket — void or refund the basket from one of its other rows on this page, or from the Loto page.",
   LOTO_SETTLEMENT:
-    "A settled Loto checkpoint can't be refunded or voided here — correct it with a new checkpoint/settlement from the Loto page.",
+    "A Loto settlement is final — if it was wrong, correct the Loto balance with an opposite Add Credit/Debt entry for Loto on the Suppliers page.",
   REFUND:
     'This row is itself a refund — it can\'t be refunded or voided again. An admin can undo a per-item refund right from this row ("Undo refund"); other refunds have no undo yet.',
   REFUND_UNDO:
     "This row already undoes a refund — it can't be refunded, voided, or undone again.",
-  CREDIT_CASH_OUT:
-    "Correct this from the Debts page with an opposite manual entry — voiding here would return the cash without restoring the client's credit.",
-  CREDIT_CASH_IN:
-    "Correct this from the Debts page with the opposite manual entry (Add Debt cancels Add Credit) — that corrects both the drawer and the client's balance.",
-  DEBT_CASH_OUT:
-    "Correct this from the Debts page with the opposite manual entry (Add Credit cancels Add Debt) — that corrects both the drawer and the client's balance.",
-  // LIRA-339
-  VOUCHER_SALE:
-    "Cancel the voucher from the Vouchers page — that refunds the customer and records the cancellation.",
-  VOUCHER_CANCEL:
-    "A voucher cancel is final — it can't be refunded or voided. Sell a new voucher from the Vouchers page if needed.",
   KEPT_CHANGE:
-    "Nothing to reverse on this row by itself — the kept change stays in the drawer either way. Void or refund the sale this change belongs to instead.",
+    "Nothing to reverse on this row by itself — the kept change stays in the drawer either way. Refund the customer's basket instead; that removes it too.",
   EXTRA_CHARGE:
     "Nothing to reverse on this row by itself — it only records the extra charged at checkout. Void or refund the customer's basket instead; that removes it too.",
   WAIVED_SHORTFALL:
     "Nothing to reverse on this row by itself — it only records the amount waived at checkout. Void or refund the customer's basket instead; that removes it too.",
-  // LIRA-341
   BASKET_DISCOUNT:
     "Nothing to reverse on this row by itself — it only records the discount given at checkout. Void or refund the customer's basket instead; that removes it too.",
-  WARRANTY_COST:
-    "This is the cost of a warranty claim. To undo it, void the claim from the Warranty page — that reverses everything the claim did.",
-  PARTNER_ADJUSTMENT:
-    "Correct this from the Partners page with an opposite Add Credit/Debt entry.",
-  ACCOUNT_ADJUSTMENT:
-    "Correct this from the Accounts page with an opposite Add Credit/Debt entry.",
-  SUPPLIER_ADJUSTMENT:
-    "Correct this from the Suppliers page with an opposite Add Credit/Debt entry.",
-  COUNTERPARTY_DISCOUNT:
-    "Correct this with an opposite discount from the Partners/Suppliers page, not a refund here.",
-  MTC_TOPUP:
-    "Correct this with an opposite manual top-up from the Recharge page.",
-  ALFA_TOPUP:
-    "Correct this with an opposite manual top-up from the Recharge page.",
-  DRAWER_TOPUP: "Correct this with an opposite transfer from the Dashboard.",
-  DRAWER_CASHOUT:
-    "Correct this with an opposite Drawer Top-Up from the Dashboard.",
-  HOLD_MONEY:
-    "Held money is reversed from the Hold Money page (collect or adjust it there), not with a refund here.",
-  HOLD_MONEY_COLLECT:
-    'Undo a pickup from the Hold Money page ("Void pickup"), not with a refund here.',
   HOLD_MONEY_COLLECT_VOID:
     "This row already reverses a Hold Money pickup — it can't be reversed again.",
-  LOTO_MONTHLY_FEE:
-    "Correct this from the Loto monthly-fee page, not with a refund here.",
   CHECKPOINT:
     "Checkpoints are a point-in-time count, not a transaction to undo — correct a bad count with a new checkpoint.",
-  CARRIER_LINE_ADJUSTMENT:
-    "Correct this by editing the carrier line again from the MTC/Alfa page — a hand-edit is a standing correction, not something to reverse.",
   CLIENT_CREATED:
     "This is a client-record audit entry, not a money transaction — there's nothing to refund.",
   CLIENT_UPDATED:
     "This is a client-record audit entry, not a money transaction — there's nothing to refund.",
   CLIENT_DELETED:
     "This is a client-record audit entry, not a money transaction — there's nothing to refund.",
+  VOUCHER_CANCEL:
+    "A voucher cancel is final — it can't be refunded or voided. Sell a new voucher from the Vouchers page if needed.",
+  MTC_TOPUP:
+    "This old customer top-up was recorded before carrier lines were tracked, so its credits can't be taken back automatically — correct the line's credits on the Recharge page.",
+  ALFA_TOPUP:
+    "This old customer top-up was recorded before carrier lines were tracked, so its credits can't be taken back automatically — correct the line's credits on the Recharge page.",
+  carrierLineNoValues:
+    "This line edit did not record the line's previous credits, so it can't be put back automatically — edit the line again on the Recharge page.",
 };
 
 /**
- * The reason a row can't be Refunded/Voided from this page, or `null` when
- * the type isn't one of the protected ones (either it's genuinely
- * reversible, or it's in some other already-handled state — e.g. already
- * voided/refunded — which `isReversibleRow` already distinguishes
- * separately and this function does not attempt to explain).
+ * The reason a row can't be refunded from this page, by core's reason key
+ * (a type, or `carrierLineNoValues`), or `null` when the key has no text
+ * (a reversal row, or a live refundable row).
  */
-export function getNonReversibleReason(type: string): string | null {
-  return NON_REVERSIBLE_REASONS[type] ?? null;
+export function getNonReversibleReason(reasonKey: string): string | null {
+  return NON_REVERSIBLE_REASONS[reasonKey] ?? null;
 }

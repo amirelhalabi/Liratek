@@ -649,7 +649,12 @@ test.describe("LIRA-145 — carrier-line credit usage books a Line_Usage expense
       .filter({ hasText: phone })
       .filter({ hasText: "Line usage:" });
     await expect(tableRow).toHaveCount(1, { timeout: 10_000 });
-    const voidBtn = tableRow.getByRole("button", { name: /^Void$/ });
+    // LIRA-388 — the row's one action is "Refund" (the per-row Void is gone);
+    // with no customer legs it is a plain confirm, mirroring every leg.
+    await expect(tableRow.getByRole("button", { name: /^Void$/ })).toHaveCount(
+      0,
+    );
+    const voidBtn = tableRow.getByTestId("row-refund");
     await expect(voidBtn).toBeVisible();
 
     // Answer the confirm EXPLICITLY (voiding is the point of this test); the
@@ -661,19 +666,21 @@ test.describe("LIRA-145 — carrier-line credit usage books a Line_Usage expense
       });
     });
     await voidBtn.click();
-    expect(await confirmSeen).toMatch(/Void this transaction/i);
+    expect(await confirmSeen).toMatch(/Refund this transaction/i);
 
     await expect
       .poll(
         async () =>
           appPage.evaluate(async (id) => {
             const w = window as unknown as Api;
-            const t = await w.api.transactions.getById(id);
-            return t?.status ?? "missing";
+            const rows = await w.api.transactions.getRecent(300);
+            return rows.some((r) => r.type === "REFUND" && r.reverses_id === id)
+              ? "REFUNDED"
+              : "open";
           }, txnId),
         { timeout: 10_000 },
       )
-      .toBe("VOIDED");
+      .toBe("REFUNDED");
 
     // ── Rule 20: create + void nets to 0 across EVERY ledger touched ─────
     const restored = await snapshot(appPage, lineId);
