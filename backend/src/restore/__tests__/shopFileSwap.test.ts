@@ -268,9 +268,15 @@ describe("createShopFileSwap", () => {
     const candidate = path.join(workDir, "1-12.candidate");
     fs.writeFileSync(candidate, Buffer.alloc(8192, 7));
     const port = createShopFileSwap(deps());
+    // The rejection must be this realm's Error with our own message. Raw
+    // better-sqlite3 errors come from whichever test file first loaded the
+    // shared native addon in this jest worker (`setErrorConstructor` runs
+    // once per process), so `instanceof Error` fails here and a bare
+    // `.rejects.toThrow()` reports "did not throw" — only on CI, where
+    // several real-sqlite suites share a worker.
     await expect(
       port.swap({ tenantId: 1, candidatePath: candidate, beforeCopyDir: beforeDir, stampUtc: STAMP }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/candidate file for shop 1 is not a readable database.*not a database/i);
     expect(events).not.toContain("block:1");
     expect(probe(live(1))).toEqual(["live-1", "live-1b"]);
     expect(pool.isBlocked(1)).toBe(false);

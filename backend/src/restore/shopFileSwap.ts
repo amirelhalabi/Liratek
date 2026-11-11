@@ -61,12 +61,28 @@ function defaultIntegrity(db: Database.Database): string {
   return String(db.pragma("integrity_check", { simple: true }));
 }
 
+/**
+ * `message`/`code` of a thrown value, for logs. pino only serialises an
+ * Error under the `err` key, so `{ error }` logged as `{}` and CI could not
+ * tell what failed.
+ */
+function errorFields(error: unknown): { message: string; code?: string } {
+  if (error && typeof error === "object") {
+    const e = error as { message?: unknown; code?: unknown };
+    return {
+      message: typeof e.message === "string" ? e.message : String(error),
+      ...(typeof e.code === "string" ? { code: e.code } : {}),
+    };
+  }
+  return { message: String(error) };
+}
+
 function closeQuietly(db: Database.Database | null): void {
   if (!db) return;
   try {
     db.close();
   } catch (error) {
-    dbLogger.error({ error }, "shopFileSwap: error closing a connection");
+    dbLogger.error({ error: errorFields(error) }, "shopFileSwap: error closing a connection");
   }
 }
 
@@ -145,10 +161,20 @@ export function createShopFileSwap(deps: ShopFileSwapDeps): ShopFilePort {
 
       // A candidate that cannot be opened or read fails here, before the
       // shop is paused and long before the live file could be touched.
+      // Re-thrown as our own Error: better-sqlite3's SqliteError belongs to
+      // whichever context first loaded the native addon, so callers in
+      // another context cannot rely on `instanceof Error` (jest workers do
+      // exactly that).
       let probe: Database.Database | null = null;
       try {
         probe = deps.openDatabase(candidatePath);
         probe.pragma("schema_version", { simple: true });
+      } catch (error) {
+        const { message, code } = errorFields(error);
+        throw new Error(
+          `shopFileSwap: candidate file for shop ${tenantId} is not a readable database (${code ?? "error"}: ${message})`,
+          { cause: error },
+        );
       } finally {
         closeQuietly(probe);
       }
@@ -182,7 +208,7 @@ export function createShopFileSwap(deps: ShopFileSwapDeps): ShopFilePort {
           }
         } catch (error) {
           dbLogger.error(
-            { tenantId, error },
+            { tenantId, error: errorFields(error) },
             "shopFileSwap: copy failed — putting the before-restore copy back",
           );
           try {
@@ -191,7 +217,7 @@ export function createShopFileSwap(deps: ShopFileSwapDeps): ShopFilePort {
             if (back !== "ok") throw new Error(`integrity after putting back: ${back}`);
           } catch (restoreError) {
             dbLogger.error(
-              { tenantId, error: restoreError, beforeCopyPath },
+              { tenantId, error: errorFields(restoreError), beforeCopyPath },
               "shopFileSwap: putting the before-restore copy back FAILED — shop file needs manual recovery",
             );
           }
