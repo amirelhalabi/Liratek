@@ -80,7 +80,9 @@ describe("refund kept change — REST forwarding", () => {
   });
 
   it("POST /api/transactions/:id/refund forwards keptChange as { usd, lbp }", async () => {
-    const spy = jest.spyOn(txnService, "refundTransaction").mockReturnValue(801);
+    const spy = jest
+      .spyOn(txnService, "refundTransaction")
+      .mockReturnValue(801);
     const keptChange = refundKeptChangeSchema.parse({
       kept_change_usd: 0.12,
       kept_change_lbp: 0,
@@ -96,8 +98,6 @@ describe("refund kept change — REST forwarding", () => {
       refundUnitExtras: undefined,
       exchangeRate: 89000,
       keptChange: { usd: 0.12, lbp: 0 },
-      // LIRA-388 — the caller's role rides along (warranty owner reads it).
-      actorRole: "admin",
     });
   });
 
@@ -124,7 +124,9 @@ describe("refund kept change — REST forwarding", () => {
   });
 
   it("a negative kept amount is refused with the 200 envelope and never reaches the service", async () => {
-    const spy = jest.spyOn(txnService, "refundTransaction").mockReturnValue(801);
+    const spy = jest
+      .spyOn(txnService, "refundTransaction")
+      .mockReturnValue(801);
     const res = await request(buildTransactionsApp())
       .post("/api/transactions/42/refund")
       .set("x-test-role", "admin")

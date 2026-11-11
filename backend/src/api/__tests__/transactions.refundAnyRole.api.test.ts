@@ -68,7 +68,7 @@ describe("LIRA-388 — refund is open to staff", () => {
   beforeEach(() => jest.restoreAllMocks());
 
   it.each(["admin", "staff"])(
-    "%s may refund; the role reaches the service",
+    "%s may refund; the role is NOT taken from the request",
     async (role) => {
       const spy = jest.spyOn(svc, "refundTransaction").mockReturnValue(55);
       const res = await request(app())
@@ -76,11 +76,13 @@ describe("LIRA-388 — refund is open to staff", () => {
         .set("x-test-role", role);
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ success: true, refundId: 55 });
-      expect(spy).toHaveBeenCalledWith(
-        9,
-        7,
-        expect.objectContaining({ actorRole: role }),
-      );
+      // The service derives the actor's role from userId (user row), so
+      // the route passes no actorRole — IPC, REST and the offline binding
+      // send identical arguments (handlerBindingParity T110).
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0][0]).toBe(9);
+      expect(spy.mock.calls[0][1]).toBe(7);
+      expect(spy.mock.calls[0][2]).not.toHaveProperty("actorRole");
     },
   );
 

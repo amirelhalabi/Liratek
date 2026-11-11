@@ -127,7 +127,10 @@ export function registerTransactionHandlers(): void {
       const idV = validatePayload(TransactionVoidSchema, { transactionId: id });
       if (!idV.ok) return { success: false, error: idV.error };
       const userId = auth.userId ?? 1;
-      const reversalId = txnService.voidTransaction(idV.data.transactionId, userId);
+      const reversalId = txnService.voidTransaction(
+        idV.data.transactionId,
+        userId,
+      );
       audit(e.sender.id, {
         action: "void",
         entity_type: "transaction",
@@ -189,7 +192,8 @@ export function registerTransactionHandlers(): void {
         const legs = v.data.refundLegs ?? undefined;
         const unitExtras = v.data.refundUnitExtras ?? undefined;
         const rate = v.data.exchangeRate ?? undefined;
-        const kept: { usd?: number; lbp?: number } | undefined = v.data.keptChange
+        const kept: { usd?: number; lbp?: number } | undefined = v.data
+          .keptChange
           ? {
               usd: v.data.keptChange.kept_change_usd,
               lbp: v.data.keptChange.kept_change_lbp,
@@ -197,14 +201,20 @@ export function registerTransactionHandlers(): void {
           : undefined;
 
         const userId = auth.userId ?? 1;
-        const refundId = txnService.refundTransaction(v.data.transactionId, userId, {
-          refundLegs: legs,
-          refundUnitExtras: unitExtras,
-          exchangeRate: rate,
-          keptChange: kept,
-          addedChange: v.data.addedChange ?? undefined,
-          actorRole: auth.role,
-        });
+        const refundId = txnService.refundTransaction(
+          v.data.transactionId,
+          userId,
+          {
+            refundLegs: legs,
+            refundUnitExtras: unitExtras,
+            exchangeRate: rate,
+            keptChange: kept,
+            addedChange: v.data.addedChange ?? undefined,
+            // LIRA-388: the actor's role is derived server-side from userId
+            // (TransactionService falls back to the user row), so the IPC,
+            // REST and offline bindings pass identical arguments (T110).
+          },
+        );
         audit(e.sender.id, {
           action: "refund",
           entity_type: "transaction",
@@ -273,72 +283,63 @@ export function registerTransactionHandlers(): void {
    * reverse one. Mirrors `transactions:void-checkout-group` immediately
    * above (rule 14).
    */
-  ipcMain.handle(
-    "transactions:void-session-basket",
-    (e, data: unknown) => {
-      try {
-        const auth = requireRole(e.sender.id, ["admin"]);
-        if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
-        const v = validatePayload(SessionBasketReversalSchema, data);
-        if (!v.ok) return { success: false, error: v.error };
-        const userId = auth.userId ?? 1;
-        const result = txnService.voidSessionBasket(v.data.sessionId, userId);
-        audit(e.sender.id, {
-          action: "void",
-          entity_type: "session_basket",
-          entity_id: String(v.data.sessionId),
-          summary: `Voided session basket #${v.data.sessionId} (${result.itemCount} items)`,
-          metadata: {
-            itemCount: result.itemCount,
-            reversedTransactionIds: result.reversedTransactionIds,
-            reversalIds: result.reversalIds,
-          },
-        });
-        return { success: true, ...result };
-      } catch (err) {
-        return {
-          success: false,
-          error: err instanceof Error ? err.message : String(err),
-        };
-      }
-    },
-  );
+  ipcMain.handle("transactions:void-session-basket", (e, data: unknown) => {
+    try {
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
+      const v = validatePayload(SessionBasketReversalSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+      const userId = auth.userId ?? 1;
+      const result = txnService.voidSessionBasket(v.data.sessionId, userId);
+      audit(e.sender.id, {
+        action: "void",
+        entity_type: "session_basket",
+        entity_id: String(v.data.sessionId),
+        summary: `Voided session basket #${v.data.sessionId} (${result.itemCount} items)`,
+        metadata: {
+          itemCount: result.itemCount,
+          reversedTransactionIds: result.reversedTransactionIds,
+          reversalIds: result.reversalIds,
+        },
+      });
+      return { success: true, ...result };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  });
 
   /** Same shape as `transactions:void-session-basket` (rule 14) but keeps
    *  every original item ACTIVE and creates a REFUND row per item. */
-  ipcMain.handle(
-    "transactions:refund-session-basket",
-    (e, data: unknown) => {
-      try {
-        const auth = requireRole(e.sender.id, ["admin"]);
-        if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
-        const v = validatePayload(SessionBasketReversalSchema, data);
-        if (!v.ok) return { success: false, error: v.error };
-        const userId = auth.userId ?? 1;
-        const result = txnService.refundSessionBasket(
-          v.data.sessionId,
-          userId,
-        );
-        audit(e.sender.id, {
-          action: "refund",
-          entity_type: "session_basket",
-          entity_id: String(v.data.sessionId),
-          summary: `Refunded session basket #${v.data.sessionId} (${result.itemCount} items)`,
-          metadata: {
-            itemCount: result.itemCount,
-            reversedTransactionIds: result.reversedTransactionIds,
-            reversalIds: result.reversalIds,
-          },
-        });
-        return { success: true, ...result };
-      } catch (err) {
-        return {
-          success: false,
-          error: err instanceof Error ? err.message : String(err),
-        };
-      }
-    },
-  );
+  ipcMain.handle("transactions:refund-session-basket", (e, data: unknown) => {
+    try {
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
+      const v = validatePayload(SessionBasketReversalSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+      const userId = auth.userId ?? 1;
+      const result = txnService.refundSessionBasket(v.data.sessionId, userId);
+      audit(e.sender.id, {
+        action: "refund",
+        entity_type: "session_basket",
+        entity_id: String(v.data.sessionId),
+        summary: `Refunded session basket #${v.data.sessionId} (${result.itemCount} items)`,
+        metadata: {
+          itemCount: result.itemCount,
+          reversedTransactionIds: result.reversedTransactionIds,
+          reversalIds: result.reversalIds,
+        },
+      });
+      return { success: true, ...result };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  });
 
   /**
    * LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §3/§7) — refund ONE (or,

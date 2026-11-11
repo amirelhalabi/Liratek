@@ -108,8 +108,7 @@ router.get("/recent", requireAuth, async (req, res) => {
         res.status(400).json({
           success: false,
           error:
-            parsedTypeFilters.error.issues[0]?.message ??
-            "Invalid typeFilters",
+            parsedTypeFilters.error.issues[0]?.message ?? "Invalid typeFilters",
         });
         return;
       }
@@ -288,9 +287,14 @@ router.post(
     try {
       // LIRA-306 T041: the same named contract the IPC handler and the
       // offline replay parse (core transactionVoidSchema).
-      const v = transactionVoidSchema.safeParse({ transactionId: Number(req.params.id) });
+      const v = transactionVoidSchema.safeParse({
+        transactionId: Number(req.params.id),
+      });
       if (!v.success) {
-        res.json({ success: false, error: v.error.issues[0]?.message ?? "Invalid transaction id" });
+        res.json({
+          success: false,
+          error: v.error.issues[0]?.message ?? "Invalid transaction id",
+        });
         return;
       }
       const id = v.data.transactionId;
@@ -323,24 +327,20 @@ router.post(
 // shape; the WRITE stays admin-gated on POST /:id/refund below).
 // LIRA-236 — the Transactions-page refund modal's `bookedRate`/
 // `bookedRateSource` default.
-router.get(
-  "/:id/refund-booked-rate",
-  requireAuth,
-  (req: AuthRequest, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      const txnService = getTransactionService();
-      const result = txnService.getRefundBookedRate(id);
-      res.json(result);
-    } catch (error) {
-      logger.error({ error }, "Get refund booked rate error");
-      res.json({
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  },
-);
+router.get("/:id/refund-booked-rate", requireAuth, (req: AuthRequest, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const txnService = getTransactionService();
+    const result = txnService.getRefundBookedRate(id);
+    res.json(result);
+  } catch (error) {
+    logger.error({ error }, "Get refund booked rate error");
+    res.json({
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
 
 // POST /api/transactions/:id/refund
 // LIRA-078: an optional `refundLegs` body field lets the operator choose the
@@ -410,7 +410,9 @@ router.post(
       // exactly like omitting the key.
       let exchangeRate: number | undefined;
       if (req.body?.exchangeRate !== undefined) {
-        const parsed = refundExchangeRateSchema.safeParse(req.body.exchangeRate);
+        const parsed = refundExchangeRateSchema.safeParse(
+          req.body.exchangeRate,
+        );
         if (!parsed.success) {
           const firstError = parsed.error.issues[0];
           // F13 (round-3 review) — rule 19c envelope parity: every other
@@ -481,7 +483,7 @@ router.post(
         exchangeRate,
         keptChange,
         addedChange,
-        actorRole: req.user?.role,
+        // LIRA-388: role derived server-side from userId (see the IPC handler).
       });
       // Mirrors transactionHandlers.ts's transactions:refund audit
       // (refund/transaction) — reaching here means the refund committed

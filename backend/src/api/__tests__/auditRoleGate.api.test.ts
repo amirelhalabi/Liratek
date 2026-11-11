@@ -184,7 +184,9 @@ describe("LIRA-198: audit + transactions REST role gate", () => {
     });
 
     it("admin still passes all three audit reads (not over-tightened)", async () => {
-      jest.spyOn(auditService, "search").mockReturnValue({ rows: [], total: 0 });
+      jest
+        .spyOn(auditService, "search")
+        .mockReturnValue({ rows: [], total: 0 });
       jest.spyOn(auditService, "getRecent").mockReturnValue([]);
       jest.spyOn(auditService, "getByEntity").mockReturnValue([]);
 
@@ -241,16 +243,21 @@ describe("LIRA-198: audit + transactions REST role gate", () => {
       expect(voidSpy).not.toHaveBeenCalled();
     });
 
-    it("POST /api/transactions/:id/refund: staff gets 403, refundTransaction never called", async () => {
-      const refundSpy = jest.spyOn(txnService, "refundTransaction");
+    it("POST /api/transactions/:id/refund: staff is ALLOWED since LIRA-388 (owner 2026-11-11: everyone may refund); refundTransaction is called", async () => {
+      // LIRA-388 reversed the LIRA-198 lock for this one route: the single
+      // "Refund" action is open to admin AND staff. The other transaction
+      // writes in this block keep their staff refusal.
+      const refundSpy = jest
+        .spyOn(txnService, "refundTransaction")
+        .mockReturnValue(9001);
 
       const res = await request(app)
         .post("/api/transactions/1/refund")
         .set("x-test-role", "staff")
         .send({});
 
-      expect(res.status).toBe(403);
-      expect(refundSpy).not.toHaveBeenCalled();
+      expect(res.status).toBe(200);
+      expect(refundSpy).toHaveBeenCalledTimes(1);
     });
 
     it("POST /api/transactions/checkout-group/:groupId/void: staff gets 403, voidCheckoutGroup never called", async () => {
