@@ -526,6 +526,12 @@ function webApiShimBody(): void {
           "/api/transactions/cash-flow-by-date" + qs({ from, to }),
         )
       ).cashFlow ?? [],
+    // LIRA-389 — the Summary view; enveloped `{ success, data }` on both.
+    "transactions.summary": async ([payload]) =>
+      rest(
+        "GET",
+        "/api/transactions/summary" + qs({ payload: JSON.stringify(payload) }),
+      ),
     // Enveloped — IPC returns { success, ticket } / { success, reportData },
     // and the REST routes answer the identical top-level shape.
     "loto.get": async ([id]) => rest("GET", `/api/loto/${id}`),

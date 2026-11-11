@@ -2177,12 +2177,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     }
 
     // LIRA-389 — Summary drill-down (product / category of a sale line).
-    // Uncorrelated IN, evaluated once per query.
+    // Uncorrelated IN, evaluated once per query; `+si.tenant_id` keeps
+    // SQLite on the product_id index, never the all-rows tenant index.
     if (filters?.sale_product_id != null) {
       conditions.push(
         `(t.type = 'SALE' AND t.source_table = 'sales' AND t.source_id IN (
            SELECT si.sale_id FROM sale_items si
-            WHERE si.tenant_id = ? AND si.product_id = ?))`,
+            WHERE +si.tenant_id = ? AND si.product_id = ?))`,
       );
       params.push(tenantId, filters.sale_product_id);
     }
@@ -2192,7 +2193,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
            SELECT si.sale_id FROM sale_items si
              LEFT JOIN products p ON p.id = si.product_id AND p.tenant_id = ?
              LEFT JOIN product_categories pc ON pc.id = p.category_id AND pc.tenant_id = ?
-            WHERE si.tenant_id = ? AND ${
+            WHERE +si.tenant_id = ? AND ${
               filters.sale_category === null
                 ? `${PRODUCT_CATEGORY_KEY_SQL} IS NULL`
                 : `${PRODUCT_CATEGORY_KEY_SQL} = ?`

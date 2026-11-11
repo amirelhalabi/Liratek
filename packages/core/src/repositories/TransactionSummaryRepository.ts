@@ -9,7 +9,11 @@
  *    refunded in July nets in June's summary).
  *
  * Reporting repository (rule 13): SQL only, no grouping. Every statement
- * carries a literal `tenant_id = ?` (check:tenant-scoping). Id lists are read
+ * carries a literal `tenant_id = ?` (check:tenant-scoping), written
+ * `+tenant_id` so SQLite never picks the tenant_id index: in a per-tenant
+ * database file that index matches every row, while `reverses_id`,
+ * `(source_table, source_id)` and `sale_items.sale_id` are selective
+ * (EXPLAIN QUERY PLAN checked 2026-11-11). Id lists are read
  * in chunks so a large range never exceeds SQLite's bound-parameter ceiling.
  */
 import { BaseRepository } from "./BaseRepository.js";
@@ -84,7 +88,7 @@ export class TransactionSummaryRepository extends BaseRepository<{
              FROM sale_items si
              LEFT JOIN products p ON p.id = si.product_id AND p.tenant_id = ?
              LEFT JOIN product_categories pc ON pc.id = p.category_id AND pc.tenant_id = ?
-            WHERE si.tenant_id = ? AND si.sale_id IN (${placeholders})
+            WHERE +si.tenant_id = ? AND si.sale_id IN (${placeholders})
             ORDER BY si.sale_id, si.id`,
           tenantId,
           tenantId,
@@ -122,7 +126,7 @@ export class TransactionSummaryRepository extends BaseRepository<{
       out.push(
         ...this.query<SummaryReversalRow>(
           `SELECT ${cols} FROM transactions
-            WHERE tenant_id = ? AND status = 'ACTIVE'
+            WHERE +tenant_id = ? AND status = 'ACTIVE'
               AND reverses_id IN (${placeholders})`,
           tenantId,
           ...ids,
@@ -134,7 +138,7 @@ export class TransactionSummaryRepository extends BaseRepository<{
       out.push(
         ...this.query<SummaryReversalRow>(
           `SELECT ${cols} FROM transactions
-            WHERE tenant_id = ? AND status = 'ACTIVE'
+            WHERE +tenant_id = ? AND status = 'ACTIVE'
               AND type IN ('REFUND', 'REFUND_UNDO') AND reverses_id IS NULL
               AND source_table = 'sales' AND source_id IN (${placeholders})`,
           tenantId,
@@ -147,7 +151,7 @@ export class TransactionSummaryRepository extends BaseRepository<{
       out.push(
         ...this.query<SummaryReversalRow>(
           `SELECT ${cols} FROM transactions
-            WHERE tenant_id = ? AND status = 'ACTIVE'
+            WHERE +tenant_id = ? AND status = 'ACTIVE'
               AND type = 'VOUCHER_CANCEL' AND reverses_id IS NULL
               AND source_table = 'vouchers' AND source_id IN (${placeholders})`,
           tenantId,

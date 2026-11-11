@@ -61,8 +61,8 @@ description: "Task list — LIRA-389 Summary view on Audit & Transactions"
 
 - [X] T024 Web e2e `frontend/tests/e2e-web/lira-web-100-transactions-summary.spec.ts`: seed through REST (products, POS sales incl. a refund, OMT send/receive), Summary by Product and by Service type vs list counts (identity + deltas, rule 15), row click count, export the "Summary by Product" sheet; screenshot `frontend/public/whats-new/1.35.0/transactions-summary.png`; run `node scripts/run-e2e.mjs web view=off --min=1 lira-web-100 lira-web-018 lira-web-037`
 - [X] T025 SC-004: time one 12-month summary on the seeded web DB; only if > 3 s apply the R2 fallback (skip leg attachment when no Cash-only option) and re-measure
-- [ ] T026 Gates: core build + sync, `yarn typecheck`, `yarn lint`, `yarn check:i18n`, `yarn check:transport-parity`, `yarn check:tenant-scoping`, `yarn check:bind-arity`, full core suite `--maxWorkers=2`, affected frontend/backend suites, whole electron-app suite, `handlerBindingParity.test.ts`, `auditRoleGate.api.test.ts`; restore any rewritten `frontend/public/whats-new/**/*.png` not ours
-- [ ] T027 Report proposed release-note bullet + What's new card + FEATURE_GUIDE paragraph (files not edited)
+- [X] T026 Gates: core build + sync, `yarn typecheck`, `yarn lint`, `yarn check:i18n`, `yarn check:transport-parity`, `yarn check:tenant-scoping`, `yarn check:bind-arity`, full core suite `--maxWorkers=2`, affected frontend/backend suites, whole electron-app suite, `handlerBindingParity.test.ts`, `auditRoleGate.api.test.ts`; restore any rewritten `frontend/public/whats-new/**/*.png` not ours
+- [X] T027 Report proposed release-note bullet + What's new card + FEATURE_GUIDE paragraph (files not edited)
 
 ## Dependencies
 

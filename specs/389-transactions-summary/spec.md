@@ -185,6 +185,10 @@ Further decisions, with the reason (details in `research.md`):
     their badge (as in User Story 1's independent test); with it on, the counts are equal.
 12. **Row cap.** The summary reads at most 100,000 transactions per request and says so on
     screen when the range holds more.
+13. **Checkpoints are counted, never volume.** A drawer checkpoint's amount is the count's
+    over/short, not money a customer paid; it counts under "Drawers" with "—" volume.
+14. **Signed rows are summed as stored.** Partner settlements / payments and line
+    adjustments keep their sign, so their volume can be negative (net).
 
 ### Questions for the owner
 
@@ -193,4 +197,7 @@ Further decisions, with the reason (details in `research.md`):
 2. Do you want an LBP volume for products (sale value converted at the sale's rate), or is
    "USD only" right since prices are in USD?
 3. Should "Group by Product" with other types selected say how many non-sale transactions
-   were left out, or is the empty-of-products silence fine?
+   were left out? (Today it shows the note "Only sales have products, so only sales are
+   counted here.")
+4. Partner settlements and line adjustments can show a negative volume (net of both
+   directions). Keep it, or show them count-only like checkpoints?
