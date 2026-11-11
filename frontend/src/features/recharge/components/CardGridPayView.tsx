@@ -1,10 +1,27 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { formatNumber } from "@liratek/ui/i18n/format";
 import { CheckCircle, CreditCard, Info } from "lucide-react";
 import { PaymentNoteField, type PaymentLine } from "@liratek/ui";
 import { maxRechargeDiscount } from "@liratek/core";
-import { PaymentSheet, type PaymentSheetItem } from "./PaymentSheet";
+import {
+  PaymentSheet,
+  type PaymentSheetItem,
+  type PaymentSheetProps,
+} from "./PaymentSheet";
+
+/** The picked client's rules on the payment window, as the caller derives
+ *  them (TelecomForm's `clientSheetProps` — shared with its Credit/Days
+ *  sheet so both stay identical). */
+export type CardGridClientSheetProps = Pick<
+  PaymentSheetProps,
+  | "hasClient"
+  | "autoDebtRemainder"
+  | "requiresClientForDebt"
+  | "unreturnedChangeTo"
+  | "paymentInputKey"
+  | "initialPaymentMethod"
+>;
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import {
@@ -75,6 +92,14 @@ interface CardGridPayViewProps {
   onExtraChange?: (extra: number) => void;
   clientName: string;
   onClientNameChange: (value: string) => void;
+  /** Replaces the plain "Client name (optional)" box with the caller's own
+   *  client picker (search + pick a registered client + new-client phone).
+   *  Pass it together with `clientSheetProps` so picking a client switches
+   *  the payment to the customer's account, as on the Credit/Days sheet. */
+  clientField?: ReactNode;
+  /** The picked client's rules (account, debt remainder, change to
+   *  account), forwarded to the PaymentSheet as-is. */
+  clientSheetProps?: CardGridClientSheetProps;
   transactionTime: string | undefined;
   onTransactionTimeChange: (time: string | undefined) => void;
   /** LIRA-366: the optional Note box under the payment box. Shown only when
@@ -118,6 +143,8 @@ export function CardGridPayView({
   onExtraChange,
   clientName,
   onClientNameChange,
+  clientField,
+  clientSheetProps,
   transactionTime,
   onTransactionTimeChange,
   typedNote = "",
@@ -293,6 +320,7 @@ export function CardGridPayView({
         {...(onKeptChange ? { onKeptChange } : {})}
         onDiscountChange={onDiscountChange}
         {...(onExtraChange ? { onExtraChange } : {})}
+        {...clientSheetProps}
         summary={[
           ...(selected && selected.valueUsd !== undefined
             ? [{ label: t("cardGrid.valueLabel"), value: `$${selected.valueUsd}` }]
@@ -304,13 +332,15 @@ export function CardGridPayView({
           },
         ]}
       >
-        <input
-          type="text"
-          value={clientName}
-          onChange={(e) => onClientNameChange(e.target.value)}
-          placeholder={t("common.clientNameOptional")}
-          className={`w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none ${theme.inputFocus}`}
-        />
+        {clientField ?? (
+          <input
+            type="text"
+            value={clientName}
+            onChange={(e) => onClientNameChange(e.target.value)}
+            placeholder={t("common.clientNameOptional")}
+            className={`w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none ${theme.inputFocus}`}
+          />
+        )}
         <TransactionTimeOverride
           value={transactionTime}
           onChange={onTransactionTimeChange}

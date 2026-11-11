@@ -1173,7 +1173,7 @@ test.describe.serial("lira-web-071 Shop Day", () => {
     const before = await lastTxnId(day);
     await page.getByText("7 GB", { exact: true }).click();
     await page.getByRole("button", { name: "Pay", exact: true }).click();
-    await page.getByPlaceholder("Client name (optional)").fill(S.maya);
+    await page.getByPlaceholder("Search client by name...").fill(S.maya);
     await page.getByTestId("discount-mode-discount").click();
     await page.getByLabel("Discount", { exact: true }).fill("50000");
     await payMethod(page, 0).selectOption("CASH");
