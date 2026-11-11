@@ -24,6 +24,16 @@ import {
 } from "@testing-library/react";
 
 jest.mock("@liratek/core", () => ({
+  // LIRA-380: the real basket-line rule (the page's basket builder reads it).
+  ...(() => {
+    const line = jest.requireActual(
+      "../../../../../../../packages/core/src/utils/sessionExchangeLine",
+    );
+    return {
+      EXCHANGE_CART_CHANNEL: line.EXCHANGE_CART_CHANNEL,
+      sessionExchangeCartAmount: line.sessionExchangeCartAmount,
+    };
+  })(),
   TAKE_USD: -1,
   // LIRA-321: the page reads the forgive cap for the "Customer pays" section.
   SHORTFALL_MAX: { USD: 5, LBP: 450_000 },
@@ -158,9 +168,11 @@ jest.mock("@/contexts/CurrencyContext", () => ({
 }));
 
 const mockLinkTransaction = jest.fn();
+const mockAddToCart = jest.fn().mockResolvedValue(true);
 const mockSessionContext = {
   activeSession: null,
   linkTransaction: mockLinkTransaction,
+  addToCart: mockAddToCart,
 };
 jest.mock("@/features/sessions/context/SessionContext", () => ({
   useSession: () => mockSessionContext,
@@ -287,20 +299,34 @@ describe("Exchange page — lot-tracked loss confirm (Q10) + 10% guard bypass", 
     );
   });
 
-  it("uses the server-authoritative realizedProfitUsd for session.linkTransaction when present", async () => {
+  // LIRA-380 (rule 24 rewrite): this used to prove the page stamped the
+  // server's realizedProfitUsd on `session.linkTransaction`. In a session the
+  // page no longer books or links — the checkout books the exchange and
+  // stamps its realised margin (core SessionCheckoutService.exchangeLine
+  // test, USD → EUR). Guard: the loss is still confirmed first, then the
+  // line goes to the basket; the old book-and-link path is NOT taken.
+  it("in a session a loss is confirmed first, then the exchange goes to the basket — never booked or linked by the page (LIRA-380)", async () => {
     mockSessionContext.activeSession = { id: 1 } as any;
+    mockAddToCart.mockClear();
     try {
-      const btn = await renderAndType();
+      render(<Exchange />);
+      await waitFor(() => expect(mockGetRates).toHaveBeenCalled());
+      fireEvent.change(screen.getByTestId("amount-in"), {
+        target: { value: "100" },
+      });
+      const btn = await screen.findByRole("button", {
+        name: /Add to basket/i,
+      });
       await waitFor(() => expect(mockPreview).toHaveBeenCalled());
-      await confirmFromWindow(btn);
+      await waitFor(() => expect(btn).not.toBeDisabled());
+      fireEvent.click(btn);
       await screen.findByText(/Confirm Loss/i);
+      expect(mockAddToCart).not.toHaveBeenCalled();
       fireEvent.click(screen.getByTestId("confirm-modal-confirm-btn"));
 
-      await waitFor(() => expect(mockLinkTransaction).toHaveBeenCalled());
-      const payload = mockLinkTransaction.mock.calls[0][0];
-      // Server returned realizedProfitUsd: -25 — must win over the client's
-      // huge (amountIn * 0.5) local spread estimate.
-      expect(payload.profitUsd).toBe(-25);
+      await waitFor(() => expect(mockAddToCart).toHaveBeenCalledTimes(1));
+      expect(mockAddExchangeTransaction).not.toHaveBeenCalled();
+      expect(mockLinkTransaction).not.toHaveBeenCalled();
     } finally {
       mockSessionContext.activeSession = null;
     }

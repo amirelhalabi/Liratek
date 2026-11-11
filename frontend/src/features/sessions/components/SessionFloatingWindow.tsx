@@ -194,7 +194,15 @@ export function SessionPopupPanel({ onCheckout }: { onCheckout: () => void }) {
                             <span className="text-xs">
                               {getModuleIcon(item.module)}
                             </span>
-                            <span className="text-sm text-slate-200 truncate">
+                            {/* LIRA-380: an exchange line wraps so its own
+                                rate ("@ 89,500") always shows. */}
+                            <span
+                              className={`text-sm text-slate-200 ${
+                                item.module === "exchange"
+                                  ? "break-words"
+                                  : "truncate"
+                              }`}
+                            >
                               {item.label}
                             </span>
                           </div>
@@ -470,6 +478,7 @@ function getModuleIcon(module: string): string {
     loto_prize: "🏆",
     custom_service: "⚙️",
     maintenance: "🔧",
+    exchange: "💱",
   };
   return iconMap[module] || "📄";
 }

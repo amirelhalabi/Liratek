@@ -48,6 +48,7 @@ import {
   isLotTrackedCurrency,
   type CurrencyRate,
   type CurrencyExchangeResult,
+  type ExchangeSubmitPayload,
 } from "@liratek/core";
 import { CURRENCY_NAMES, getCurrencySymbol } from "@/utils/liveExchangeRates";
 import {
@@ -64,6 +65,7 @@ import {
   exchangeUnitUsd,
   isUsdOrLbp,
 } from "@/features/exchange/utils/exchangeUnitUsd";
+import { exchangeBasketLine } from "@/features/exchange/utils/exchangeBasketLine";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -356,7 +358,7 @@ export default function Exchange() {
   const api = useApi();
   const { t } = useTranslation("exchange");
   const { t: tc } = useTranslation("common");
-  const { activeSession, linkTransaction } = useSession();
+  const { activeSession, addToCart } = useSession();
   const { activeCurrencies: currencies, getDecimals } = useCurrencyContext();
 
   const [transactions, setTransactions] = useState<ExchangeTx[]>([]);
@@ -811,7 +813,14 @@ export default function Exchange() {
   // LIRA-369 (owner 2026-11-01): EVERY walk-in exchange confirms through the
   // payment window, whatever the currencies. Only partner mode (no walk-in
   // customer) keeps the direct one-click submit.
-  const canSplitPayout = !forPartner;
+  // LIRA-380 (owner 2026-11-11): with a customer session open, the exchange
+  // is a basket line — Confirm adds it and nothing is booked until the
+  // session's checkout. No payment window: the basket's one payment pays it,
+  // so the window's exchange-only controls (Discount, account, keep change,
+  // round-up, added change) never show. For Partner is already hidden in a
+  // session (useForPartnerOffInSession).
+  const inBasket = !!activeSession && !forPartner;
+  const canSplitPayout = !forPartner && !inBasket;
   // A payout in a currency other than USD/LBP ("native"): Cash in that
   // currency + Customer account only, no keep / round-up / added change and
   // no USD↔LBP tender rate (the schema refuses them there).
@@ -1312,7 +1321,8 @@ export default function Exchange() {
 
       setIsSubmitting(true);
       setIsSubmittingPartner(forPartner);
-      const result = await api.addExchangeTransaction({
+      // ONE payload (rule 22) — the mode decides only where it goes.
+      const payload: ExchangeSubmitPayload = {
         fromCurrency,
         toCurrency,
         amountIn: inp,
@@ -1411,42 +1421,10 @@ export default function Exchange() {
                 : {}),
             }
           : {}),
-      });
+      };
 
-      if (result.success) {
-        // LIRA-081: a for-partner exchange has no walk-in customer — never
-        // link it into the active session basket (mirrors every other FOR_%
-        // form, which bypasses the session entirely in partner mode).
-        if (activeSession && result.id && !forPartner) {
-          try {
-            await linkTransaction({
-              transactionType: "exchange",
-              transactionId: result.id,
-              amountUsd:
-                fromCurrency === "USD" ? inp : toCurrency === "USD" ? out : 0,
-              amountLbp:
-                fromCurrency === "LBP" ? inp : toCurrency === "LBP" ? out : 0,
-              // FEATURE_GUIDE §10/§11 — the session stamp MUST equal what the
-              // transaction actually booked. `bookedProfitUsd` is the
-              // server-authoritative final `transactions.profit_usd`
-              // (always present on success — ExchangeService/ExchangeRepository),
-              // so it wins first. `realizedProfitUsd` (present only when a
-              // lot-tracked toCurrency leg consumed lot(s)) is kept as a
-              // fallback for older/partial responses. The client's own
-              // pre-submit total is the LAST resort — for an acquire-only
-              // cross (fromIsLotTracked buy leg) it double-counts the
-              // deferred leg1 profit the server zeroes, e.g. stamping $6.63
-              // while the transaction actually booked $0.63.
-              profitUsd:
-                result.bookedProfitUsd ??
-                result.realizedProfitUsd ??
-                effectiveResult.totalProfitUsd,
-            });
-          } catch (err) {
-            logger.error("Failed to link exchange to session:", err);
-          }
-        }
-        appEvents.emit("notification:show", t("toast.processed"), "success");
+      // Clears the form after a save (walk-in) or a basket add (session).
+      const resetForm = () => {
         setAmountIn(0);
         setAmountOut("");
         setLastEditedSide("in");
@@ -1467,6 +1445,31 @@ export default function Exchange() {
         setPayoutAddedChange(null);
         setPayoutTenderRate(undefined);
         setLossConfirmLines(undefined);
+      };
+
+      // LIRA-380: in a customer session the exchange waits in the basket —
+      // nothing is booked, no drawer moves, no lot is consumed until the
+      // session's checkout books it with the basket's one payment. The old
+      // book-now-then-link path (lira-094) is gone. A refused line keeps
+      // the form as it is (addToCart has told the cashier why).
+      if (inBasket) {
+        const added = await addToCart(exchangeBasketLine(payload));
+        if (added) {
+          appEvents.emit(
+            "notification:show",
+            t("toast.addedToBasket"),
+            "success",
+          );
+          resetForm();
+        }
+        return;
+      }
+
+      const result = await api.addExchangeTransaction(payload);
+
+      if (result.success) {
+        appEvents.emit("notification:show", t("toast.processed"), "success");
+        resetForm();
         loadHistory();
       } else {
         alert(t("errors.withReason", { error: result.error }));
@@ -2309,7 +2312,9 @@ export default function Exchange() {
               >
                 {forPartner
                   ? t("submit.partner")
-                  : canSplitPayout
+                  : inBasket
+                    ? t("submit.addToBasket")
+                    : canSplitPayout
                     ? t("submit.payout")
                     : t("submit.confirm")}
               </button>

@@ -39,7 +39,10 @@ export type CartModule =
   | "loto_ticket"
   | "loto_prize"
   | "custom_service"
-  | "maintenance";
+  | "maintenance"
+  // LIRA-380 — an exchange waiting in the basket (two customer sides, read
+  // through `sessionExchangeLineSides`, @liratek/core).
+  | "exchange";
 
 export interface DrawerOp {
   /** Drawer name: 'MTC' | 'Alfa' | 'OMT_App' | 'Binance' | 'General' | 'Loto' | etc. */

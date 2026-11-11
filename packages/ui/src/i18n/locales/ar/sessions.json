@@ -117,7 +117,8 @@
     "loto_ticket": "بطاقة Loto",
     "loto_prize": "جائزة Loto",
     "custom_service": "خدمة خاصة",
-    "maintenance": "تصليح"
+    "maintenance": "تصليح",
+    "exchange": "تصريف عملة"
   },
   "checkout": {
     "errorNoSession": "لا جلسة مفتوحة",

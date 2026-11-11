@@ -14,7 +14,11 @@ import { subscribeToInvalidation } from "@/api/realtime";
 import { POLL_MS, isTabVisible } from "@/api/pollingCadence";
 import type { CartItem, CartTotals } from "../types/cart";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
-import { sessionBasketCustomerAmount } from "@liratek/core";
+import {
+  isExchangeBasketLine,
+  sessionBasketCustomerAmount,
+  sessionExchangeLineLink,
+} from "@liratek/core";
 
 const ADD_TO_BASKET_FAILED = "Could not add this item to the basket.";
 
@@ -63,7 +67,9 @@ interface SessionContextValue {
 
   // Cart state
   cartItems: CartItem[];
-  addToCart: (item: Omit<CartItem, "id">) => void;
+  /** Resolves true once the line is saved; false when it was refused (the
+   *  cashier has been told why) or there is no session. */
+  addToCart: (item: Omit<CartItem, "id">) => Promise<boolean>;
   removeFromCart: (itemId: string) => void;
   clearCart: () => void;
   getCartTotals: () => CartTotals;
@@ -207,8 +213,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   };
 
   const addToCart = useCallback(
-    async (item: Omit<CartItem, "id">) => {
-      if (!activeSession) return;
+    async (item: Omit<CartItem, "id">): Promise<boolean> => {
+      if (!activeSession) return false;
       const newItem: CartItem = withCustomerAmount({
         ...item,
         id: crypto.randomUUID(),
@@ -234,18 +240,19 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         if (!result?.success) {
           logger.error("Server refused cart item:", result?.error);
           alert(getApiErrorMessage(result, ADD_TO_BASKET_FAILED));
-          return;
+          return false;
         }
       } catch (err) {
         logger.error("Failed to persist cart item:", err);
         alert(getApiErrorMessage(err, ADD_TO_BASKET_FAILED));
-        return;
+        return false;
       }
 
       setCartItems((prev) => [...prev, newItem]);
       logger.info(
         `Added item to cart: ${item.module} - ${item.label} (session ${sessionId})`,
       );
+      return true;
     },
     [activeSession],
   );
@@ -282,6 +289,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const getCartTotals = useCallback((): CartTotals => {
     return cartItems.reduce(
       (totals, item) => {
+        // LIRA-380: an exchange line nets its two customer sides (given +,
+        // received −) per currency — the ONE shared rule (@liratek/core).
+        if (isExchangeBasketLine(item)) {
+          const link = sessionExchangeLineLink(item.formData);
+          totals.usd += link.amountUsd;
+          totals.lbp += link.amountLbp;
+          return totals;
+        }
         if (item.currency === "USD") totals.usd += item.amount;
         else if (item.currency === "LBP") totals.lbp += item.amount;
         else if (item.currency === "USDT") totals.usdt += item.amount;

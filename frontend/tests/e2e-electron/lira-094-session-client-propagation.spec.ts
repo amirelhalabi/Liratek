@@ -15,8 +15,8 @@
  * item · Whish/OMT App transfer SEND+RECEIVE · Binance SEND+cashout · POS
  * sale · maintenance · OMT system SEND+RECEIVE (primary) · WHISH system
  * SEND+RECEIVE (secondary, via a seeded partner — production shape).
- * Plus: Exchange (no basket branch — it executes immediately and LINKS to the
- * session, so the sweep still covers it).
+ * Plus: Exchange — since LIRA-380 a basket line like the rest (line 25),
+ * booked at checkout, so the sweep covers it.
  *
  * Excluded by design: Expenses (shop expense, no client). Alfa Gift's
  * STANDALONE flow stays clientless (owner-accepted: no client UI there) —
@@ -627,79 +627,40 @@ test.describe("LIRA-094 — session client propagation (full matrix)", () => {
     await expectCartCount(appPage, 24);
   });
 
-  test("exchange links to the session (no basket branch — executes directly)", async ({
+  // LIRA-380 (rule 24 rewrite): this used to replicate the page's old
+  // book-now-then-`session.linkTransaction` path. In a session the exchange
+  // is now a basket line like every other module: "Add to basket" on the
+  // real Exchange page adds line 25, nothing is booked until checkout, and
+  // the sweep below proves the checkout stamps the session client on it.
+  // EDITED, NOT RUN (no Electron on this Mac); the same page steps pass on
+  // the web in lira-web-097.
+  test("exchange is a basket line (LIRA-380) — added, not booked", async ({
     appPage,
   }) => {
-    // Exchange has no basket branch: the page executes the transaction and
-    // calls session.linkTransaction (Exchange/index.tsx session block). The
-    // calculator's rate/profit gating is UI-heavy, so this replicates the
-    // page's exact two IPC calls — clientName comes from the session autofill
-    // exactly as the form fills it.
-    const linked = await appPage.evaluate(
-      async (args: { name: string; sid: number }) => {
-        const w = window as unknown as Api & {
-          api: {
-            exchange: {
-              addTransaction: (d: Record<string, unknown>) => Promise<{
-                success?: boolean;
-                id?: number;
-                error?: string;
-              }>;
-            };
-            session: {
-              linkTransaction: (d: Record<string, unknown>) => Promise<unknown>;
-            };
-          };
-        };
-        const res = await w.api.exchange.addTransaction({
-          fromCurrency: "USD",
-          toCurrency: "LBP",
-          amountIn: 10,
-          amountOut: 890_000,
-          leg1Rate: 89_000,
-          leg1MarketRate: 89_000,
-          leg1ProfitUsd: 0,
-          totalProfitUsd: 0,
-          clientName: args.name,
-        });
-        let linkResult: unknown = null;
-        if (res?.success && res.id) {
-          linkResult = await w.api.session.linkTransaction({
-            transactionType: "exchange",
-            transactionId: res.id,
-            amountUsd: 10,
-            amountLbp: 0,
-            profitUsd: 0,
-          });
-        }
-        return {
-          ok: res?.success === true,
-          error: res?.error ?? null,
-          link: JSON.stringify(linkResult),
-        };
-      },
-      { name: CLIENT_NAME, sid: sessionId },
-    );
-    expect(linked.error).toBeNull();
-    expect(linked.ok).toBe(true);
-    expect(linked.link).toContain('"linked":true');
-    // Linked transaction appears for the session (asserted in the sweep).
-    await expect
-      .poll(
-        async () =>
-          appPage.evaluate(async (sid) => {
-            const w = window as unknown as Api;
-            const rows = await w.api.transactions.getRecent(100);
-            return rows.some(
-              (t) => t.session_id === sid && t.type === "EXCHANGE",
-            );
-          }, sessionId),
-        { timeout: 10_000 },
-      )
-      .toBe(true);
+    await navigateTo(appPage, "/exchange");
+    const amountIn = appPage
+      .locator("label", { hasText: "You Receive" })
+      .locator("xpath=following-sibling::div[1]//input");
+    await expect(amountIn).toBeVisible({ timeout: 10_000 });
+    // The page opens on USD → LBP.
+    await amountIn.fill("10");
+    await appPage.getByTestId("exchange-direct-rate-input").fill("89000");
+    // The old path's payment window is gone in a session.
+    await expect(
+      appPage.getByRole("button", { name: /Proceed to Payout/i }),
+    ).toHaveCount(0);
+    await appPage.getByRole("button", { name: /Add to basket/i }).click();
+    await expectCartCount(appPage, 25);
+    // Nothing booked yet for this session.
+    const booked = await appPage.evaluate(async (sid) => {
+      const w = window as unknown as Api;
+      const rows = await w.api.transactions.getRecent(100);
+      return rows.some((t) => t.session_id === sid && t.type === "EXCHANGE");
+    }, sessionId);
+    expect(booked).toBe(false);
   });
 
-  test("checkout the 24-item basket via the SessionCheckoutModal", async ({
+  test("checkout the 25-item basket via the SessionCheckoutModal", async ({
     appPage,
   }) => {
     await appPage
@@ -709,7 +670,7 @@ test.describe("LIRA-094 — session client propagation (full matrix)", () => {
       .click();
     await appPage
       .locator("button")
-      .filter({ hasText: /Checkout \(24 items\)/ })
+      .filter({ hasText: /Checkout \(25 items\)/ })
       .click();
 
     const confirm = appPage.getByRole("button", { name: /Confirm Checkout/i });
@@ -748,7 +709,8 @@ test.describe("LIRA-094 — session client propagation (full matrix)", () => {
       { sid: sessionId },
     );
 
-    // 24 basket flows + the linked exchange (some flows may write >1 row).
+    // 24 basket flows + the exchange basket line (LIRA-380; some flows may
+    // write >1 row).
     expect(rows.length).toBeGreaterThanOrEqual(25);
 
     const offenders = rows

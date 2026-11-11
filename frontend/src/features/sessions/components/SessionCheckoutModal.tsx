@@ -87,6 +87,7 @@ function moduleLabel(module: string, t: TFunction<"sessions">): string {
     loto_prize: t("module.loto_prize"),
     custom_service: t("module.custom_service"),
     maintenance: t("module.maintenance"),
+    exchange: t("module.exchange"),
   };
   return labels[module] || module;
 }
@@ -474,14 +475,19 @@ export function SessionCheckoutModal({
     systemPayoutLbp,
     systemChargeUsd,
     systemChargeLbp,
+    exchangePayoutUsd,
+    exchangePayoutLbp,
   } = useMemo(() => splitBasketCashSides(cartItems), [cartItems]);
 
   // General-drawer-eligible payout (loto prize, wallet/Binance cash-out) —
   // excludes OMT/Whish SYSTEM payouts, which always keep their own box and
   // are never netted below (owner decision #11-A,
   // OWNER_NOTES_REMAINING_BUILD.md, 2026-09-24).
-  const generalPayoutUsd = payoutUsd - systemPayoutUsd;
-  const generalPayoutLbp = payoutLbp - systemPayoutLbp;
+  // LIRA-380: an exchange's payout is excluded too — it is never netted
+  // (the checkout rate must not re-price the exchange) and always leaves as
+  // its own gross General leg below.
+  const generalPayoutUsd = payoutUsd - systemPayoutUsd - exchangePayoutUsd;
+  const generalPayoutLbp = payoutLbp - systemPayoutLbp - exchangePayoutLbp;
 
   // General-drawer-eligible NETTING BASE (fix-round finding #3, 2026-09-24):
   // excludes any OMT/Whish SYSTEM charge (a SEND item, or a SYSTEM RECEIVE's
@@ -824,6 +830,28 @@ export function SessionCheckoutModal({
         payoutOrigin: "SYSTEM",
       });
     }
+    // LIRA-380: an exchange's payout — the agreed amount, gross, never
+    // netted against the charge — routed 100% to General.
+    if (exchangePayoutUsd > 0) {
+      legs.push({
+        method: resolvedPayoutMethodUsd,
+        currency_code: "USD",
+        amount: exchangePayoutUsd,
+        direction: "OUT",
+        kind: "PAYOUT",
+        payoutOrigin: "GENERAL",
+      });
+    }
+    if (exchangePayoutLbp > 0) {
+      legs.push({
+        method: resolvedPayoutMethodLbp,
+        currency_code: "LBP",
+        amount: exchangePayoutLbp,
+        direction: "OUT",
+        kind: "PAYOUT",
+        payoutOrigin: "GENERAL",
+      });
+    }
     const generalPayoutLegUsd =
       resolvedPayoutMethodUsd === "CASH" ? excessPayoutUsd : generalPayoutUsd;
     const generalPayoutLegLbp =
@@ -854,6 +882,8 @@ export function SessionCheckoutModal({
     collectReturnLines,
     systemPayoutUsd,
     systemPayoutLbp,
+    exchangePayoutUsd,
+    exchangePayoutLbp,
     generalPayoutUsd,
     generalPayoutLbp,
     excessPayoutUsd,

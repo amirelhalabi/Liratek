@@ -105,6 +105,9 @@ describe("splitBasketCashSides", () => {
       // the real implementation, which always returns all 8 keys.
       systemChargeUsd: 0,
       systemChargeLbp: 0,
+      // LIRA-380: the exchange lines' never-netted payout.
+      exchangePayoutUsd: 0,
+      exchangePayoutLbp: 0,
     });
   });
 });

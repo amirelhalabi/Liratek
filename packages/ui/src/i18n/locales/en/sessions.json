@@ -117,7 +117,8 @@
     "loto_ticket": "Loto Ticket",
     "loto_prize": "Loto Prize",
     "custom_service": "Custom Service",
-    "maintenance": "Maintenance"
+    "maintenance": "Maintenance",
+    "exchange": "Exchange"
   },
   "checkout": {
     "errorNoSession": "No active session",

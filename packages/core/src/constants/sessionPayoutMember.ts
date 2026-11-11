@@ -73,5 +73,10 @@ export function isSessionPayoutMember(
   if (member.type === TRANSACTION_TYPES.WAIVED_SHORTFALL) return false;
   // LIRA-341: the basket discount sibling is amount 0 too — never a payout.
   if (member.type === TRANSACTION_TYPES.BASKET_DISCOUNT) return false;
+  // LIRA-380/381: an exchange basket line always has a negative side (its
+  // link row stores +given / −received) but is a two-sided swap, never a
+  // payout netted against other items (it posts its own gross leg). Its
+  // item refund is the exact mirror of both sides.
+  if (member.type === TRANSACTION_TYPES.EXCHANGE) return false;
   return (member.amount_usd ?? 0) < 0 || (member.amount_lbp ?? 0) < 0;
 }

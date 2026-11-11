@@ -242,6 +242,19 @@ export interface CreateExchangeData {
    *  put on the account in a currency other than USD/LBP into the fixed USD
    *  credited to the client. */
   payout_account_usd_rate?: number;
+  /**
+   * LIRA-380 — a customer-session basket line replayed at checkout: the
+   * basket's one pooled payment owns the customer's USD/LBP money, so this
+   * exchange books no payment line of its own for those sides (a side in
+   * another currency keeps its own CASH line in General). Injected
+   * server-side by `SessionCheckoutService`, never accepted on the wire
+   * (neither exchange schema has it), like every other module's
+   * `deferPayment`.
+   */
+  deferPayment?: boolean;
+  /** LIRA-380 — the session whose basket paid for this exchange (details +
+   *  payment snapshot). Server-injected with `deferPayment`. */
+  paid_in_session?: number;
 }
 
 /** LIRA-369 — one converted account amount, as at saving time. */
@@ -402,6 +415,8 @@ export function buildExchangeDetails(
       : {}),
     // LIRA-366: the note the cashier typed.
     ...(data.typedNote?.trim() ? { note: data.typedNote.trim() } : {}),
+    // LIRA-380: the session basket that paid for it.
+    ...(data.paid_in_session ? { paid_in_session: data.paid_in_session } : {}),
     ...(data.partnerMode === "FOR" && data.partnerId
       ? {
           partner: {
@@ -539,6 +554,11 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
           );
         }
       }
+
+      // LIRA-380 — a session-basket line: refuse, before any write, every
+      // field that would make the exchange take or pay money of its own.
+      const deferred = data.deferPayment === true;
+      if (deferred) this._assertDeferredShape(data);
 
       // LIRA-336 — change the customer adds (money above amountIn in the
       // customer's lines), verified first: the round-up and kept change
@@ -815,7 +835,11 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       // lines (or the single CASH lump of amountOut), and the verified kept
       // change. Same predicates as the bookings below. A partner exchange
       // takes nothing from a customer, but its payout is real.
-      const exchangeSnapshot = buildPaymentSnapshot({
+      // LIRA-380: a basket line's money is the session's — the snapshot
+      // names the session, as every other basket item's does.
+      const exchangeSnapshot = deferred
+        ? buildPaymentSnapshot({ sessionId: data.paid_in_session })
+        : buildPaymentSnapshot({
         // `payments` are the payout lines (OUT); the customer's lines go
         // in `customerPayments` (IN).
         flow: "PAYOUT",
@@ -986,7 +1010,9 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
             transactionTime: data.transaction_time,
           });
         }
-      } else if (!isForPartner) {
+      } else if (!isForPartner && !(deferred && isAccountCurrency(data.fromCurrency))) {
+        // LIRA-380: a basket line's USD/LBP side is collected by the
+        // basket's pooled payment — only another currency posts here.
         const fromDelta = Math.abs(data.amountIn);
         insertPaymentRow(this.db, {
           transactionId: txnId,
@@ -1125,6 +1151,9 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
             tenantId,
           });
         }
+      } else if (deferred && isAccountCurrency(data.toCurrency)) {
+        // LIRA-380: a basket line's USD/LBP payout is the basket's own
+        // PAYOUT leg (SessionPaymentService) — nothing posts here.
       } else {
         // No structured legs (legacy/scripted callers, partner mode, exotic
         // target currencies): the single-lump fallback, unchanged.
@@ -1228,6 +1257,40 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
           : {}),
       };
     })();
+  }
+
+  /**
+   * LIRA-380 — a session-basket exchange takes and pays no money of its own
+   * (the basket's pooled payment does), so every walk-in-only money field is
+   * refused before any write. A hand-built cart line could otherwise post
+   * its own legs on top of the basket's and move the drawer twice.
+   */
+  private _assertDeferredShape(data: CreateExchangeData): void {
+    const offending: string[] = [];
+    if ((data.payments ?? []).length > 0) offending.push("payments");
+    if ((data.customerPayments ?? []).length > 0)
+      offending.push("customerPayments");
+    const numeric: Array<keyof CreateExchangeData> = [
+      "customer_waived_amount",
+      "kept_change_usd",
+      "kept_change_lbp",
+      "rounding_given_usd",
+      "rounding_given_lbp",
+      "added_change_usd",
+      "added_change_lbp",
+      "tender_exchange_rate",
+      "customer_account_usd_rate",
+      "payout_account_usd_rate",
+    ];
+    for (const key of numeric) {
+      if (data[key] !== undefined && data[key] !== null) offending.push(key);
+    }
+    if (data.partnerMode || data.partnerId) offending.push("partnerMode");
+    if (offending.length > 0) {
+      throw new Error(
+        `An exchange in a customer basket is paid with the basket's payment. (Exchange basket line: ${offending.join(", ")} not allowed)`,
+      );
+    }
   }
 
   /**

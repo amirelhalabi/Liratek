@@ -1160,9 +1160,18 @@ LIRA-305 decisions Y1–Y14). The old "Syria provider on the OMT/Whish page" pla
     wallet method is never netted, whichever module it came from.
 - The operator-edited exchange rate in Session Checkout is stamped on **every**
   basket-created transaction, including custom-service and loto paths
-  (lira-session-exchange-rate).
-- Exchange has no basket branch: it executes immediately and links via
-  `session.linkTransaction` (lira-094).
+  (lira-session-exchange-rate) — except an exchange line, which keeps its own
+  rate (owner 2026-11-11, LIRA-380).
+- **Exchange is a basket line** (LIRA-380, `ipc_channel` `exchange:add-transaction`;
+  before, it executed immediately and linked via `session.linkTransaction`,
+  lira-094 — old linked rows stay as they are). Checkout replays it in
+  deferred mode at its OWN rates. The customer's given side is a charge and
+  the received side is a gross General PAYOUT leg, never netted
+  (`utils/sessionExchangeLine.ts`, one rule for the modal and the server).
+  The session link stores both sides (+given / −received); the profit is the
+  booked, lot-adjusted margin. A side in a currency other than USD/LBP is
+  posted by the exchange itself at checkout. Guards:
+  `SessionCheckoutService.exchangeLine.test.ts`, `lira-web-097`.
 - **Whole-basket void/refund** (owner decision #11-C, LIRA-201c, 2026-09-24).
   A session-linked row's pooled customer money can never be reversed alone —
   `TransactionRepository._assertReversible` hard-refuses a bare void/refund

@@ -237,9 +237,11 @@ jest.mock("@/contexts/CurrencyContext", () => ({
 const mockSessionContext: {
   activeSession: { id: number; customer_name: string } | null;
   linkTransaction: jest.Mock;
+  addToCart: jest.Mock;
 } = {
   activeSession: null,
   linkTransaction: jest.fn(),
+  addToCart: jest.fn().mockResolvedValue(true),
 };
 jest.mock("@/features/sessions/context/SessionContext", () => ({
   useSession: () => mockSessionContext,
@@ -399,12 +401,23 @@ describe("Exchange page — customer adds change (LIRA-336)", () => {
     expect(cf!.allowAddedChange).toBeFalsy();
   });
 
-  it("inside a customer session: no added change (FR-010)", async () => {
+  // LIRA-380 (rule 24 rewrite): inside a session the exchange is a basket
+  // line, so the payment window — where "customer adds change" lives — is
+  // never opened at all (stronger than FR-010's "no added change").
+  it("inside a customer session: no payment window, so no added change (FR-010, LIRA-380)", async () => {
     mockSessionContext.activeSession = { id: 5, customer_name: "Rami" };
-    await renderWithAmount();
-    await openSheet();
-    expect(sheetCounterFlow()).toBeDefined();
-    expect(sheetCounterFlow()!.allowAddedChange).toBeFalsy();
+    try {
+      await renderWithAmount();
+      expect(
+        screen.queryByRole("button", { name: /Proceed to Payout/i }),
+      ).toBeNull();
+      expect(
+        await screen.findByRole("button", { name: /Add to basket/i }),
+      ).toBeInTheDocument();
+      expect(sheetCounterFlow()).toBeUndefined();
+    } finally {
+      mockSessionContext.activeSession = null;
+    }
   });
 
   it("REAL sheet: typing $101 in Customer pays raises Shop pays to 8,989,000 and sends added_change_lbp 89,000", async () => {

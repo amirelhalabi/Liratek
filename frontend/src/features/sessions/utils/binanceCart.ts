@@ -1,6 +1,8 @@
 import { allocatePayments, type Money, type RateTable } from "@liratek/ui";
 import {
+  isExchangeBasketLine,
   sessionBasketCustomerAmount,
+  sessionExchangeLineSides,
   sessionPooledReceiveFee,
 } from "@liratek/core";
 import type { CartItem, CartModule } from "../types/cart";
@@ -80,7 +82,7 @@ export function binanceCashSide(
 export function splitBasketCashSides(
   items: Array<
     Pick<CartItem, "module" | "amount" | "currency"> &
-      Partial<Pick<CartItem, "formData">>
+      Partial<Pick<CartItem, "formData" | "ipcChannel">>
   >,
 ): {
   chargeUsd: number;
@@ -114,6 +116,15 @@ export function splitBasketCashSides(
    */
   systemChargeUsd: number;
   systemChargeLbp: number;
+  /**
+   * LIRA-380 — subset of payoutUsd/payoutLbp coming from an EXCHANGE line
+   * (what the customer receives). NEVER netted against the charge: netting
+   * converts across currencies at the checkout's editable rate, which would
+   * let the session rate re-price the exchange (owner 2026-11-11). It goes
+   * out as its own gross General PAYOUT leg, whatever the payout method.
+   */
+  exchangePayoutUsd: number;
+  exchangePayoutLbp: number;
 } {
   let chargeUsd = 0,
     chargeLbp = 0,
@@ -122,8 +133,27 @@ export function splitBasketCashSides(
     systemPayoutUsd = 0,
     systemPayoutLbp = 0,
     systemChargeUsd = 0,
-    systemChargeLbp = 0;
+    systemChargeLbp = 0,
+    exchangePayoutUsd = 0,
+    exchangePayoutLbp = 0;
   for (const item of items) {
+    // LIRA-380: an exchange line has TWO customer sides — the ONE shared
+    // rule (@liratek/core) reads them: what the customer gives is a charge,
+    // what they receive a (never-netted) payout, each in its own currency.
+    if (isExchangeBasketLine(item)) {
+      const { charge, payout } = sessionExchangeLineSides(item.formData);
+      if (charge?.currency === "USD") chargeUsd += charge.amount;
+      if (charge?.currency === "LBP") chargeLbp += charge.amount;
+      if (payout?.currency === "USD") {
+        payoutUsd += payout.amount;
+        exchangePayoutUsd += payout.amount;
+      }
+      if (payout?.currency === "LBP") {
+        payoutLbp += payout.amount;
+        exchangePayoutLbp += payout.amount;
+      }
+      continue;
+    }
     const binance = binanceCashSide(item);
     // A For-Partner item is the partner's obligation, booked by the item
     // itself — it adds nothing to what the walk-in pays or is paid (one
@@ -193,6 +223,8 @@ export function splitBasketCashSides(
     systemPayoutLbp,
     systemChargeUsd,
     systemChargeLbp,
+    exchangePayoutUsd,
+    exchangePayoutLbp,
   };
 }
 

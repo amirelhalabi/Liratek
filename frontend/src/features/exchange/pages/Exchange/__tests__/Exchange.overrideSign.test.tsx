@@ -50,6 +50,16 @@ function marketRateToUsdPerUnitMock(rate: number, isStronger: 1 | -1): number {
 }
 
 jest.mock("@liratek/core", () => ({
+  // LIRA-380: the real basket-line rule (the page's basket builder reads it).
+  ...(() => {
+    const line = jest.requireActual(
+      "../../../../../../../packages/core/src/utils/sessionExchangeLine",
+    );
+    return {
+      EXCHANGE_CART_CHANNEL: line.EXCHANGE_CART_CHANNEL,
+      sessionExchangeCartAmount: line.sessionExchangeCartAmount,
+    };
+  })(),
   TAKE_USD: -1,
   // LIRA-321: the page reads the forgive cap for the "Customer pays" section.
   SHORTFALL_MAX: { USD: 5, LBP: 450_000 },
@@ -238,9 +248,11 @@ jest.mock("@/contexts/CurrencyContext", () => ({
 }));
 
 const mockLinkTransaction = jest.fn();
+const mockAddToCart = jest.fn().mockResolvedValue(true);
 const mockSessionContext = {
   activeSession: null as { id: number } | null,
   linkTransaction: mockLinkTransaction,
+  addToCart: mockAddToCart,
 };
 jest.mock("@/features/sessions/context/SessionContext", () => ({
   useSession: () => mockSessionContext,
@@ -416,44 +428,42 @@ describe("Exchange page — signed rate-override profit (no Math.abs)", () => {
     expect(deferredEl.className).toMatch(/text-red-400/);
   });
 
-  it("session stamp: prefers bookedProfitUsd over both realizedProfitUsd and the client's pre-lot total", async () => {
-    mockAddExchangeTransaction.mockResolvedValue({
-      success: true,
-      id: 42,
-      bookedProfitUsd: 0.63,
-      // A third, distinct value (never 0.63, never ~6.63) so a regressed
-      // `realizedProfitUsd ?? bookedProfitUsd` precedence — checking
-      // realizedProfitUsd FIRST — is caught: it would stamp 99, not 0.63.
-      realizedProfitUsd: 99,
-    });
+  // LIRA-380 (rule 24 rewrite): this used to prove the page stamped the
+  // server's bookedProfitUsd on `session.linkTransaction` after booking. In a
+  // session the page no longer books or links — the exchange is a basket
+  // line, and the checkout stamps the booked margin itself (core
+  // SessionCheckoutService.exchangeLine.test.ts). Guard: the old path is NOT
+  // taken, and the overridden rate travels on the basket line.
+  it("in a session the overridden exchange goes to the basket — never booked or linked by the page (LIRA-380)", async () => {
     mockSessionContext.activeSession = { id: 1 };
+    try {
+      render(<Exchange />);
+      await waitFor(() => expect(mockGetRates).toHaveBeenCalled());
+      switchFromToEur();
 
-    render(<Exchange />);
-    await waitFor(() => expect(mockGetRates).toHaveBeenCalled());
-    switchFromToEur();
+      fireEvent.change(screen.getByTestId("amount-in"), {
+        target: { value: "100" },
+      });
+      const rateInput1 = await screen.findByTestId(
+        "exchange-cross-rate-input-1",
+      );
+      fireEvent.change(rateInput1, { target: { value: "1.12" } });
 
-    fireEvent.change(screen.getByTestId("amount-in"), {
-      target: { value: "100" },
-    });
-    const rateInput1 = await screen.findByTestId("exchange-cross-rate-input-1");
-    fireEvent.change(rateInput1, { target: { value: "1.12" } });
+      expect(
+        screen.queryByRole("button", { name: /Proceed to Payout/i }),
+      ).toBeNull();
+      const btn = await screen.findByRole("button", {
+        name: /Add to basket/i,
+      });
+      await waitFor(() => expect(btn).not.toBeDisabled());
+      fireEvent.click(btn);
 
-    const btn = await screen.findByRole("button", {
-      name: /Proceed to Payout/i,
-    });
-    await waitFor(() => expect(btn).not.toBeDisabled());
-    fireEvent.click(btn);
-    fireEvent.click(await screen.findByTestId("stub-confirm"));
-
-    await waitFor(() => expect(mockLinkTransaction).toHaveBeenCalled());
-    const payload = mockLinkTransaction.mock.calls[0][0] as Record<
-      string,
-      unknown
-    >;
-    // Server's bookedProfitUsd (0.63) must win over BOTH realizedProfitUsd
-    // (99, mocked above) and the client's pre-lot leg1+leg2 total (~6.63,
-    // effectiveResult.totalProfitUsd) — either wrong precedence stamps a
-    // different, distinguishable number.
-    expect(payload.profitUsd).toBe(0.63);
+      await waitFor(() => expect(mockAddToCart).toHaveBeenCalledTimes(1));
+      expect(mockAddExchangeTransaction).not.toHaveBeenCalled();
+      expect(mockLinkTransaction).not.toHaveBeenCalled();
+      expect(mockAddToCart.mock.calls[0][0].formData.leg1Rate).toBe(1.12);
+    } finally {
+      mockSessionContext.activeSession = null;
+    }
   });
 });

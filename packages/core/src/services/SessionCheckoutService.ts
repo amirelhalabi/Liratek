@@ -24,6 +24,13 @@ import { getFinancialService } from "./FinancialService.js";
 import { getLotoService } from "./LotoService.js";
 import { getCustomServiceService } from "./CustomServiceService.js";
 import { getMaintenanceService } from "./MaintenanceService.js";
+import { getExchangeService } from "./ExchangeService.js";
+import { exchangeSubmitSchema } from "../validators/exchange.js";
+import {
+  EXCHANGE_CART_CHANNEL,
+  isExchangeBasketLine,
+  sessionExchangeLineLink,
+} from "../utils/sessionExchangeLine.js";
 import {
   getSessionPaymentService,
   hasKeptChangeClaim,
@@ -143,6 +150,9 @@ export interface ProcessedItem {
   sourceId: number;
   sourceTable: string;
   transactionType: string;
+  /** LIRA-380 — the margin the item actually booked (USD), when the module
+   *  reports it (an exchange: lot-adjusted). Wins over the cart's estimate. */
+  bookedProfitUsd?: number;
 }
 
 export interface CheckoutResult {
@@ -197,6 +207,9 @@ function injectSessionCustomerPhone(
 ): void {
   if (channel === "recharge:process" || channel === "recharge:create") {
     if (!formData.clientPhone) formData.clientPhone = phone;
+  } else if (channel === EXCHANGE_CART_CHANNEL) {
+    // LIRA-380: the exchange keeps the customer's phone in `clientPhone`.
+    if (!formData.clientPhone) formData.clientPhone = phone;
   } else if (
     channel === "financial:create" ||
     channel === "omt:add-transaction"
@@ -250,6 +263,43 @@ export function processCartItem(
   }
 
   switch (item.ipcChannel) {
+    // LIRA-380 — an exchange basket line. Re-validated through the same
+    // schema both Exchange transports use (the cart line is opaque on the
+    // wire), then booked in deferred mode: its own rates and amounts — the
+    // checkout's rate is deliberately NOT injected (owner 2026-11-11: "The
+    // rate of the session should not affect the rate of the exchange
+    // transaction") — and no money of its own for its USD/LBP sides.
+    case EXCHANGE_CART_CHANNEL: {
+      const parsed = exchangeSubmitSchema.safeParse({
+        ...item.formData,
+        ...(data.transaction_time
+          ? { transaction_time: data.transaction_time }
+          : {}),
+      });
+      if (!parsed.success) {
+        throw new Error(
+          parsed.error.issues.map((i) => i.message).join("; ") ||
+            "Invalid exchange line",
+        );
+      }
+      const result = getExchangeService().addDirectTransaction({
+        ...parsed.data,
+        deferPayment: true,
+        ...(sessionId ? { paid_in_session: sessionId } : {}),
+      });
+      if (!result.success || !result.id) {
+        throw new Error(result.error || "Failed to book the exchange");
+      }
+      return {
+        sourceId: result.id,
+        sourceTable: "exchange_transactions",
+        transactionType: "exchange",
+        ...(result.bookedProfitUsd !== undefined
+          ? { bookedProfitUsd: result.bookedProfitUsd }
+          : {}),
+      };
+    }
+
     case "sales:create":
     case "sales:process": {
       const salesService = getSalesService();
@@ -861,6 +911,13 @@ export class SessionCheckoutService {
             // obligation is the partner's and is booked by the item itself
             // (one shared rule with the checkout modal, rule 14).
             const customerAmount = sessionBasketCustomerAmount(item);
+            // LIRA-380: an exchange line's two-sided amounts and booked
+            // margin, set below, used for the checkout totals.
+            let exchangeTotals: {
+              amountUsd: number;
+              amountLbp: number;
+            } | null = null;
+            let itemProfit: { usd: number; lbp: number } | null = null;
 
             if (isBatch) {
               const batchResults = processBatchCartItem(
@@ -942,6 +999,12 @@ export class SessionCheckoutService {
 
               let itemProfitUsd = 0;
               let itemProfitLbp = 0;
+              // LIRA-380: an exchange line links BOTH customer sides
+              // (given +, received −, the one shared rule) and the margin
+              // it actually booked, in USD.
+              const exchangeLink = isExchangeBasketLine(item)
+                ? sessionExchangeLineLink(item.formData)
+                : null;
               const comm =
                 Number(item.formData.commission) ||
                 Number(item.formData.totalProfitUsd) ||
@@ -951,7 +1014,11 @@ export class SessionCheckoutService {
                 Number(item.formData.profitLbp) ||
                 Number(item.formData.commissionLbp) ||
                 0;
-              if (item.currency === "LBP") {
+              if (exchangeLink) {
+                itemProfitUsd = result.bookedProfitUsd ?? comm;
+                itemProfitLbp = 0;
+                itemProfit = { usd: itemProfitUsd, lbp: 0 };
+              } else if (item.currency === "LBP") {
                 itemProfitLbp = comm || commLbp;
               } else {
                 itemProfitUsd = comm;
@@ -973,13 +1040,22 @@ export class SessionCheckoutService {
                 // (rule 14). A strict `=== "USD"` check made a USDT item's
                 // real (negative, netted) value invisible to every
                 // sign-based payout reader — it was stamped 0/0 instead.
-                item.currency !== "LBP" ? customerAmount : 0,
-                item.currency === "LBP" ? customerAmount : 0,
+                exchangeLink
+                  ? exchangeLink.amountUsd
+                  : item.currency !== "LBP"
+                    ? customerAmount
+                    : 0,
+                exchangeLink
+                  ? exchangeLink.amountLbp
+                  : item.currency === "LBP"
+                    ? customerAmount
+                    : 0,
                 itemProfitUsd,
                 itemProfitLbp,
                 unifiedId,
                 checkoutStamp,
               );
+              if (exchangeLink) exchangeTotals = exchangeLink;
 
               itemResults.push({
                 cartItemId: item.id,
@@ -989,10 +1065,20 @@ export class SessionCheckoutService {
               });
             }
 
-            if (item.currency === "LBP") checkoutTotalLbp += customerAmount;
-            else checkoutTotalUsd += customerAmount;
+            if (exchangeTotals) {
+              checkoutTotalUsd += exchangeTotals.amountUsd;
+              checkoutTotalLbp += exchangeTotals.amountLbp;
+            } else if (item.currency === "LBP") {
+              checkoutTotalLbp += customerAmount;
+            } else checkoutTotalUsd += customerAmount;
 
-            if (item.formData._batch && Array.isArray(item.formData.items)) {
+            if (itemProfit) {
+              checkoutProfitUsd += itemProfit.usd;
+              checkoutProfitLbp += itemProfit.lbp;
+            } else if (
+              item.formData._batch &&
+              Array.isArray(item.formData.items)
+            ) {
               for (const sub of item.formData.items as Array<
                 Record<string, unknown>
               >) {
