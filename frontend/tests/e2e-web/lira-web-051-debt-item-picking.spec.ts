@@ -14,10 +14,14 @@
  *    name, never by position).
  *
  * LIRA-308 (owner decisions 2026-10-11) — the second test drives the real
- * Process Repayment modal: every item opens ticked with the amount filled
- * in, a tick change resets the amount, nothing ticked disables Confirm,
- * and an amount above the ticked sum ticks the OMT send by itself (cash
- * drawer first) — which then lands in the OMT cash drawer.
+ * Process Repayment modal: a tick change resets the amount, and an amount
+ * above the ticked sum ticks the OMT send by itself (cash drawer first) —
+ * which then lands in the OMT cash drawer.
+ *
+ * LIRA-383 (owner 2026-11-11, reverses LIRA-308 decisions 1 and 3) — the
+ * modal opens with NOTHING ticked and the whole due filled in; nothing
+ * ticked is a valid payment (oldest first), so Confirm stays enabled; a
+ * typed amount after ticking is kept (less = partial on the ticked item).
  */
 import type { Page } from "@playwright/test";
 import { test, expect, loginAsAdmin, BACKEND_URL } from "./fixtures";
@@ -195,7 +199,7 @@ test("basket on account → tick the OMT send → $50 lands in the OMT cash draw
   ).toContainText("{$50 OMT Cash Drawer}");
 });
 
-test("LIRA-308: ticks and amount stay in step in the real repayment modal", async ({
+test("LIRA-308 + LIRA-383: opens unticked; ticks fill the amount, a typed amount stays", async ({
   page,
 }) => {
   await loginAsAdmin(page);
@@ -234,28 +238,46 @@ test("LIRA-308: ticks and amount stay in step in the real repayment modal", asyn
   const amount = page.locator('[data-testid^="payment-amount-"]').first();
   const confirm = page.getByRole("button", { name: /^Confirm Payment$/ });
 
-  // Decision 1: everything ticked, amount = $110.
-  await expect(omtBox).toBeChecked();
-  await expect(svcBox).toBeChecked();
+  // LIRA-383: nothing ticked on open, the whole due ($110) filled in,
+  // Confirm enabled (oldest first), the hint says so.
+  await expect(omtBox).not.toBeChecked();
+  await expect(svcBox).not.toBeChecked();
   await expect(amount).toHaveValue("110");
+  await expect(confirm).toBeEnabled();
+  await expect(page.getByTestId("debt-item-picker-hint")).toContainText(
+    "the oldest items are paid first",
+  );
 
-  // Decision 2: unticking resets the amount; so does ticking after typing.
-  await svcBox.uncheck();
+  // What's new (rule 30): the real modal with one item ticked and a
+  // smaller amount typed — "pays $40 · leaves $61" on the ticked send.
+  await omtBox.check();
   await expect(amount).toHaveValue("101");
   await amount.fill("40");
   await expect(omtBox).toBeChecked(); // typing never unticks
+  await expect(svcBox).not.toBeChecked();
+  await expect(page.getByTestId(`debt-item-member-${omt.id}`)).toContainText(
+    "pays $40 · leaves $61",
+  );
+  await expect(amount).toHaveValue("40"); // the typed amount is kept
+  await page.mouse.move(1, 1);
+  const modal = page
+    .locator('[role="dialog"]')
+    .filter({ hasText: "Process Repayment" })
+    .first();
+  await ((await modal.count()) ? modal : page).screenshot({
+    path: "public/whats-new/1.35.0/repay-pick-items.png",
+  });
+
+  // LIRA-308 decision 2: a tick change re-fills the amount, even a typed one.
   await svcBox.check();
   await expect(amount).toHaveValue("110");
-
-  // Decision 3: nothing ticked → Confirm disabled with the hint.
   await omtBox.uncheck();
-  await svcBox.uncheck();
-  await expect(confirm).toBeDisabled();
-  await expect(page.getByText("Tick what this payment is for")).toBeVisible();
-
-  // Decision 5: tick the $9 service, pay $60 → the OMT send ticks itself.
-  await svcBox.check();
   await expect(amount).toHaveValue("9");
+
+  // Decision 5: only the $9 service ticked, pay $60 → the OMT send ticks
+  // itself.
+  await expect(svcBox).toBeChecked();
+  await expect(omtBox).not.toBeChecked();
   await amount.fill("60");
   await expect(omtBox).toBeChecked();
   await expect(page.getByTestId(`debt-item-member-${omt.id}`)).toContainText(
@@ -349,12 +371,12 @@ test("LIRA-308 owner answers: earlier balance as its own ticked line; unreturned
   const earlierRow = page.getByTestId(`debt-item-balance-${earlier.id}`);
   const amount = page.locator('[data-testid^="payment-amount-"]').first();
   await expect(earlierRow).toContainText("Earlier balance (no items)");
-  await expect(earlierRow.locator("input")).toBeChecked();
-  // Everything ticked = the whole balance.
+  // LIRA-383: nothing ticked on open; the amount is the whole balance.
+  await expect(earlierRow.locator("input")).not.toBeChecked();
   await expect(amount).toHaveValue("130");
-  await earlierRow.locator("input").uncheck();
-  await expect(amount).toHaveValue("110");
   await earlierRow.locator("input").check();
+  await expect(amount).toHaveValue("20");
+  await earlierRow.locator("input").uncheck();
   await expect(amount).toHaveValue("130");
 
   // Answer 1: $131 paid, nothing returned → $1 account credit. LIRA-313

@@ -204,6 +204,18 @@ export interface MultiPaymentInputProps {
    *  with no line left, one line (the first line's method and currency)
    *  is created. Ignored on mount. */
   fillKey?: string | number;
+  /** LIRA-383 (owner 2026-11-11) — opt-in (the Debts repayment sheet): on
+   *  a `fillKey` change the lines follow `fillTotals`' OWN currencies — a
+   *  line in a currency the fill no longer has is removed, a currency the
+   *  fill gained gets a line (the first line's method), and each
+   *  currency's last line absorbs that currency's fill (never converted
+   *  from another currency). So ticking only an LBP item on a client who
+   *  also owes USD seeds one LBP line, instead of the default rule turning
+   *  it into a USD line that pays the unticked USD item. When only some
+   *  currencies' fill changed (a discount in one currency), the others
+   *  keep their lines (LIRA-372). Default false: every other screen keeps
+   *  the owner-answer-3 rule. */
+  fillLinesFollowCurrencies?: boolean;
   /** The change-return method selected when an overpay first appears
    *  (default "CASH"). LIRA-308 decision 6: the Debts repayment sheet
    *  passes "CUSTOMER_ACCOUNT" so an amount above the whole debt becomes
@@ -827,6 +839,7 @@ export default function MultiPaymentInput({
   initialLines,
   fillTotals,
   fillKey,
+  fillLinesFollowCurrencies = false,
   defaultReturnMethod,
   returnCurrencyFollowsTender = false,
   unreturnedChangeTo,
@@ -1462,6 +1475,80 @@ export default function MultiPaymentInput({
     if (!fillTotals) return;
     const prevFill = prevFillTotalsRef.current;
     singleAmountTouchedRef.current = false;
+    // LIRA-383 — opt-in: the lines follow the fill's own currencies (see
+    // the `fillLinesFollowCurrencies` prop).
+    if (fillLinesFollowCurrencies) {
+      const sumOf = (list: Money[] | undefined, c: string) =>
+        (list ?? [])
+          .filter((t) => t.currency === c)
+          .reduce((acc, t) => acc + t.amount, 0);
+      const fillCcys = [
+        ...new Set(
+          fillTotals.filter((t) => t.amount > 0).map((t) => t.currency),
+        ),
+      ];
+      if (fillCcys.length > 0) {
+        const allCcys = [
+          ...new Set([
+            ...(prevFill ?? []).map((t) => t.currency),
+            ...fillTotals.map((t) => t.currency),
+          ]),
+        ];
+        const anyChanged =
+          prevFill !== undefined &&
+          allCcys.some(
+            (c) => Math.abs(sumOf(prevFill, c) - sumOf(fillTotals, c)) >= 1e-9,
+          );
+        let work = paymentLines.filter((l) =>
+          fillCcys.includes(l.currencyCode),
+        );
+        for (const c of fillCcys) {
+          const fill = sumOf(fillTotals, c);
+          const has = work.some((l) => l.currencyCode === c);
+          if (!has) {
+            work = [
+              ...work,
+              {
+                id: crypto.randomUUID(),
+                method: paymentLines[0]?.method ?? initialMethod ?? "CASH",
+                currencyCode: c,
+                amount: fill,
+              },
+            ];
+            continue;
+          }
+          // A discount moved another currency only: keep these lines.
+          if (
+            anyChanged &&
+            prevFill !== undefined &&
+            Math.abs(sumOf(prevFill, c) - fill) < 1e-9
+          ) {
+            continue;
+          }
+          // The last line of this currency absorbs this currency's fill;
+          // one that would drop to zero or below is removed.
+          for (;;) {
+            const idx = work.map((l) => l.currencyCode).lastIndexOf(c);
+            if (idx === -1) break;
+            const others = work
+              .filter((l, i) => i !== idx && l.currencyCode === c)
+              .reduce((acc, l) => acc + Math.max(0, l.amount || 0), 0);
+            const amount = fill - others;
+            if (amount > 1e-9) {
+              work = work.map((l, i) => (i === idx ? { ...l, amount } : l));
+              break;
+            }
+            work = work.filter((_, i) => i !== idx);
+          }
+        }
+        if (work.length > 0) {
+          setIsSplitMode(work.length > 1);
+          setPaymentLines(work);
+          onChange(work);
+          return;
+        }
+      }
+    }
     // LIRA-372 (owner 2026-11-05, option B: "the discount always wins") —
     // a `perCurrencyTotals` box settles each currency on its own, so the
     // LAST line OF EACH CURRENCY whose fill total changed is re-filled to

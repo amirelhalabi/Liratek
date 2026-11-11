@@ -6,10 +6,13 @@
  * REAL repayment modal and payment sheet (MultiPaymentInput), so the amount
  * box the cashier types into is the one under test.
  *
- *  1. on open every item is ticked and the amount is their sum;
+ *  1. (LIRA-383, owner 2026-11-11 — reverses LIRA-308 decision 1) on open
+ *     NOTHING is ticked and the amount is the whole due; ticking every item
+ *     fills it to their sum. Most cases below tick everything first
+ *     (`tickAll`) to keep their LIRA-308 premise;
  *  2. a tick change resets the amount (even a typed one); typing never
  *     unticks;
- *  3. nothing ticked → Confirm disabled + "Tick what this payment is for";
+ *  3. (LIRA-383) nothing ticked → Confirm stays enabled (oldest first);
  *  4. a smaller amount → cash drawer first, then oldest, each line showing
  *     "pays $X · leaves $Y";
  *  5. a bigger amount ticks the next items by itself (cash drawer first,
@@ -244,17 +247,25 @@ const typeAmount = (value: string, i = 0) =>
   fireEvent.change(amountInputs()[i], { target: { value } });
 const confirm = () => screen.getByText("Confirm Payment") as HTMLButtonElement;
 const sent = () => addRepaymentSchema.parse(mockAddRepayment.mock.calls[0][0]);
+// LIRA-383 — nothing is ticked on open; tick every listed item.
+async function tickAll(items: Array<{ kind: string; id: number }>) {
+  for (const it of items) fireEvent.click(box(it));
+  await waitFor(() => expect(items.every((it) => box(it).checked)).toBe(true));
+}
 
-it("1 — on open every item is ticked and the amount is their sum", async () => {
+it("1 — on open nothing is ticked (LIRA-383); ticking every item fills the amount to their sum", async () => {
   await openSettle();
-  await waitFor(() => expect(box(SALE).checked).toBe(true));
-  expect(box(LOTO).checked).toBe(true);
-  expect(box(OMT).checked).toBe(true);
+  await waitFor(() => expect(amountValue()).toBe("135"));
+  expect(box(SALE).checked).toBe(false);
+  expect(box(LOTO).checked).toBe(false);
+  expect(box(OMT).checked).toBe(false);
+  await tickAll([SALE, LOTO, OMT]);
   await waitFor(() => expect(amountValue()).toBe("135"));
 });
 
 it("2 — a tick change resets the amount, even a typed one; typing never unticks", async () => {
   await openSettle();
+  await tickAll([SALE, LOTO, OMT]);
   await waitFor(() => expect(amountValue()).toBe("135"));
   fireEvent.click(box(LOTO));
   await waitFor(() => expect(amountValue()).toBe("115"));
@@ -266,20 +277,23 @@ it("2 — a tick change resets the amount, even a typed one; typing never untick
   await waitFor(() => expect(amountValue()).toBe("135"));
 });
 
-it("3 — nothing ticked: Confirm disabled with the hint", async () => {
+it("3 — nothing ticked (LIRA-383): Confirm stays enabled, the hint says oldest first", async () => {
   await openSettle();
-  await waitFor(() => expect(box(SALE).checked).toBe(true));
+  await tickAll([SALE, LOTO, OMT]);
   fireEvent.click(box(SALE));
   fireEvent.click(box(LOTO));
   fireEvent.click(box(OMT));
-  await waitFor(() => expect(confirm().disabled).toBe(true));
-  expect(screen.getByText("Tick what this payment is for")).toBeTruthy();
-  fireEvent.click(box(LOTO));
-  await waitFor(() => expect(confirm().disabled).toBe(false));
+  await waitFor(() => expect(box(OMT).checked).toBe(false));
+  expect(confirm().disabled).toBe(false);
+  expect(
+    screen.getByTestId("debt-item-picker-hint").textContent,
+  ).toContain("the oldest items are paid first");
+  expect(screen.queryByText("Tick what this payment is for")).toBeNull();
 });
 
 it("4 — a smaller amount pays the cash-drawer item first, then oldest; each line shows pays/leaves", async () => {
   await openSettle();
+  await tickAll([SALE, LOTO, OMT]);
   await waitFor(() => expect(amountValue()).toBe("135"));
   typeAmount("110");
   await waitFor(() =>
@@ -299,6 +313,7 @@ it("4 — a smaller amount pays the cash-drawer item first, then oldest; each li
 
 it("5 — a bigger amount ticks the next items itself (cash drawer first) and sends them as auto targets", async () => {
   await openSettle();
+  await tickAll([SALE, LOTO, OMT]);
   await waitFor(() => expect(amountValue()).toBe("135"));
   fireEvent.click(box(SALE));
   fireEvent.click(box(OMT));
@@ -320,6 +335,7 @@ it("5 — a bigger amount ticks the next items itself (cash drawer first) and se
 
 it("6 — above the whole debt: Account credit in Goes to, sent as a Customer Account change leg", async () => {
   await openSettle();
+  await tickAll([SALE, LOTO, OMT]);
   await waitFor(() => expect(amountValue()).toBe("135"));
   typeAmount("151");
   // LIRA-313 (owner decision 2026-10-12): the $16 starts handed back ("Return change")
@@ -369,23 +385,43 @@ it("7 + 9 — LBP items show both currencies; an LBP debt fills and pays in LBP"
   await openSettle();
   expect(row(LBP_LOTO).textContent).toContain("890,000 LBP");
   expect(row(LBP_LOTO).textContent).toContain("$10");
-  // One line per currency: $14 and 890,000 LBP.
+  // LIRA-383 — nothing ticked: the whole due, one line per currency.
   await waitFor(() => expect(amountInputs()).toHaveLength(2));
   expect(amountValue(0)).toBe("14");
   expect(amountValue(1)).toBe("890000");
-  typeAmount("500000", 1);
+  // Tick both: one line per currency, $14 and 890,000 LBP (LIRA-383 —
+  // the lines follow the ticked items' own currencies).
+  await tickAll([SALE, LBP_LOTO]);
+  await waitFor(() => expect(amountInputs()).toHaveLength(2));
+  const lbpIdx = amountInputs().findIndex(
+    (x) => x.value.replace(/,/g, "") === "890000",
+  );
+  expect(lbpIdx).toBeGreaterThanOrEqual(0);
+  expect(amountValue(lbpIdx === 0 ? 1 : 0)).toBe("14");
+  typeAmount("500000", lbpIdx);
   await waitFor(() =>
     expect(row(LBP_LOTO).textContent).toContain(
       "pays 500,000 LBP · leaves 390,000 LBP",
     ),
   );
   expect(row(SALE).textContent).toContain("pays $14 · leaves $0");
+  fireEvent.click(confirm());
+  await waitFor(() => expect(mockAddRepayment).toHaveBeenCalledTimes(1));
+  expect(sent().amountLBP).toBeCloseTo(500_000, 0);
+  expect(sent().amountUSD).toBeCloseTo(14, 2);
+  expect(sent().targets).toEqual(
+    expect.arrayContaining([
+      { kind: "sale", id: 5 },
+      { kind: "charge", id: 14 },
+    ]),
+  );
 });
 
 // LIRA-372 (owner 2026-11-05, rule 24 rewrite) — the discount now MOVES the
 // payment (option B: payment = ticked − discount, typed or not).
 it("8 — a discount is applied with the payment to the ticked items; the payment drops by it", async () => {
   await openSettle();
+  await tickAll([SALE, LOTO, OMT]);
   await waitFor(() => expect(amountValue()).toBe("135"));
   fireEvent.click(box(SALE));
   fireEvent.click(box(OMT));
@@ -407,6 +443,7 @@ it("8 — a discount is applied with the payment to the ticked items; the paymen
 
 it("8b — with a discount typed, a tick change refills to the ticked sum minus the discount (LIRA-372)", async () => {
   await openSettle();
+  await tickAll([SALE, LOTO, OMT]);
   await waitFor(() => expect(amountValue()).toBe("135"));
   fireEvent.click(box(SALE));
   fireEvent.click(box(OMT));
@@ -467,6 +504,7 @@ it("6 + 9 — no itemised debt, LBP overpay: LBP account credit, shown in Goes t
 
 it("answer 1 — $10 over, $4 typed as returned: $4 cash back, $6 account credit, nothing kept as profit", async () => {
   await openSettle();
+  await tickAll([SALE, LOTO, OMT]);
   await waitFor(() => expect(amountValue()).toBe("135"));
   typeAmount("145");
   // LIRA-313 (owner decision 2026-10-12): the returned-amount field now
@@ -525,10 +563,11 @@ const EARLIER = {
   primaryDrawer: null,
 };
 
-it("answer 2 — the earlier-balance line is ticked on open (amount = whole balance) and paid as the oldest", async () => {
+it("answer 2 — the earlier-balance line, once ticked (LIRA-383: nothing on open), fills the whole balance and is paid as the oldest", async () => {
   setDebt([EARLIER, LOTO], 50, 0);
   await openSettle();
-  await waitFor(() => expect(box(EARLIER).checked).toBe(true));
+  expect(box(EARLIER).checked).toBe(false);
+  await tickAll([EARLIER, LOTO]);
   expect(row(EARLIER).textContent).toContain("Earlier balance (no items)");
   await waitFor(() => expect(amountValue()).toBe("50"));
   typeAmount("40");

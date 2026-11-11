@@ -455,12 +455,19 @@ on screen = "waived" in code).
 - POS partial payment books a debt row only when `client_id` is present and the
   shortfall exceeds **$0.05** (SalesRepository).
 - Debt repayment uses the smart-rounding algorithm (see README → Business Logic).
-- **Repayment modal — ticks and amount in step (LIRA-308, owner decisions 2026-10-11):** every
-  open item opens ticked; the amount fills to the ticked sum minus any discount, capped at the
-  ledger due (MultiPaymentInput `fillTotals`, while `totals` stays the whole due so a bigger amount
-  is a payment, not change); a tick change resets the amount (`fillKey`), typing never unticks;
-  nothing ticked disables Confirm (only when items are listed — a Manual-Debt-only client has no
-  picker and stays payable). **Owner answers 2026-10-11 (binding):**
+- **Repayment modal — ticks and amount in step (LIRA-308, owner decisions 2026-10-11; reopened
+  LIRA-383, owner 2026-11-11):** **nothing is ticked on open** (reverses LIRA-308 decision 1 — a
+  cashier who clicked one item to pay it was unticking it and paying the others); with nothing
+  ticked the amount fills to the whole due and is paid sales-first then oldest (no `targets`);
+  ticking fills the amount to the ticked sum minus any discount, capped at the ledger due
+  (MultiPaymentInput `fillTotals`, while `totals` stays the whole due so a bigger amount is a
+  payment, not change); a tick change resets the amount (`fillKey`), typing never unticks and a
+  typed amount is never clamped ("the freedom of amounts is very important"); **lines follow the
+  ticked currencies** (`fillLinesFollowCurrencies`, Debts only): ticking only an LBP item seeds one
+  LBP line, never a USD line converted at the rate, so the USD sale is not auto-paid; nothing
+  ticked is a valid payment — only the LIRA-318 forgive rule disables Confirm. The client's
+  purchases list shows "paid X · left Y" / "Paid" per charge from `findOpenDebtItems` figures
+  (`debtRowPaidState.ts`). Guards: `Debts.lira383OpenUnticked`, `lira-web-051`. **Owner answers 2026-10-11 (binding):**
   (1) **Unreturned change is account credit, never profit.** An amount above the whole due is
   change; the cashier types what is handed back (the return fields start EMPTY) and whatever is
   NOT entered becomes the customer's account credit (MPI `unreturnedChangeTo: "CUSTOMER_ACCOUNT"`

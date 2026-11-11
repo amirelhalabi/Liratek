@@ -25,7 +25,7 @@
     "title": "Open debt — what is this payment for?",
     "clear": "Clear",
     "sessionBasket": "Session #{{id}} basket",
-    "tickHint": "Tick what this payment is for",
+    "tickHint": "Tick an item to pay it first. With nothing ticked, the oldest items are paid first.",
     "orderHint": "A smaller amount pays the cash-drawer items first, then the oldest."
   },
   "sessionModal": {
@@ -201,6 +201,8 @@
     "viewTransaction": "View Transaction Details",
     "viewBasket": "View Basket Items",
     "stillOpen": "Still open:",
+    "paidInFull": "Paid",
+    "paidLeft": "paid {{paid}} · left {{left}}",
     "totalDebited": "Total Debited",
     "totalCharged": "Total Charged",
     "totalOwed": "Total Owed",

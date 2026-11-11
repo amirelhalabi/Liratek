@@ -222,10 +222,13 @@ async function openSettle() {
   await screen.findByTestId("debt-item-picker");
 }
 
-const untick = async (testId: string) => {
+// LIRA-383 (owner 2026-11-11) — nothing is ticked on open; "only X
+// ticked" is reached by ticking X.
+const tick = async (testId: string) => {
   const box = screen.getByTestId(testId).querySelector("input")!;
-  await waitFor(() => expect(box.checked).toBe(true));
+  expect(box.checked).toBe(false);
   fireEvent.click(box);
+  await waitFor(() => expect(box.checked).toBe(true));
 };
 
 async function submitted() {
@@ -250,8 +253,7 @@ it("shows the choice, OMT selected, when cash pays an OMT transfer", async () =>
 
 it("is hidden when only a non-transfer item is paid", async () => {
   await openSettle();
-  await untick("debt-item-member-3");
-  await untick("debt-item-charge-2");
+  await tick("debt-item-member-4");
   fireEvent.click(screen.getByText("Cash 9"));
   await waitFor(() =>
     expect(screen.queryByTestId("cash-drawer-choice")).toBeNull(),

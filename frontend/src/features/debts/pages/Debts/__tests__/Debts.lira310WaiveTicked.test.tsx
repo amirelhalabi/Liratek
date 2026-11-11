@@ -213,8 +213,9 @@ async function openWithLotoTicked() {
   fireEvent.click(await screen.findByText("Settle Debt"));
   await screen.findByTestId("debt-item-picker");
   await waitFor(() => expect(amountValue()).toBe("34"));
-  // Untick the sale: the amount fills to the ticked Loto ticket.
-  fireEvent.click(box(SALE));
+  // LIRA-383 — nothing is ticked on open: tick the Loto ticket; the
+  // amount fills to it.
+  fireEvent.click(box(LOTO));
   await waitFor(() => expect(amountValue()).toBe("20"));
   expect(box(LOTO).checked).toBe(true);
   expect(box(SALE).checked).toBe(false);
@@ -247,7 +248,8 @@ it("ticked items fully paid: no Waive for the unticked remainder", async () => {
   fireEvent.click(await screen.findByText("Settle Debt"));
   await screen.findByTestId("debt-item-picker");
   await waitFor(() => expect(amountValue()).toBe("21"));
-  fireEvent.click(box(SALE));
+  // LIRA-383 — nothing ticked on open: tick only the Loto ticket.
+  fireEvent.click(box(LOTO));
   await waitFor(() => expect(amountValue()).toBe("20"));
   // $1 of the whole debt is left, but none of it is ticked.
   expect(screen.getByTestId("remaining-row")).toBeInTheDocument();

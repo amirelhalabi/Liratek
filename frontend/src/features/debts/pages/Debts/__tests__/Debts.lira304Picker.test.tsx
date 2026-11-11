@@ -238,26 +238,25 @@ it("Goes to: full $151 cash → OMT Cash Drawer $142 · General $9", async () =>
   expect(goes.textContent).toContain("$9");
 });
 
-// LIRA-308 (owner decisions 2026-10-11): every item opens TICKED, so
-// "only X ticked" is reached by unticking the others (was: tick X).
-const untick = async (testId: string) => {
+// LIRA-383 (owner 2026-11-11, reverses LIRA-308 decision 1): nothing is
+// ticked on open, so "only X ticked" is reached by ticking X.
+const tick = async (testId: string) => {
   const box = screen.getByTestId(testId).querySelector("input")!;
-  await waitFor(() => expect(box.checked).toBe(true));
+  expect(box.checked).toBe(false);
   fireEvent.click(box);
+  await waitFor(() => expect(box.checked).toBe(true));
 };
 
 it("Goes to is hidden when only a non-transfer item is ticked and paid", async () => {
   await openSettle();
-  await untick("debt-item-member-3");
-  await untick("debt-item-charge-2");
+  await tick("debt-item-member-4");
   fireEvent.click(screen.getByText("Cash 9"));
   await waitFor(() => expect(screen.queryByTestId("repay-goes-to")).toBeNull());
 });
 
 it("ticking the basket's OMT send sends it as a target and routes the $50", async () => {
   await openSettle();
-  await untick("debt-item-member-4");
-  await untick("debt-item-charge-2");
+  await tick("debt-item-member-3");
   fireEvent.click(screen.getByText("Cash 50"));
   expect((await screen.findByTestId("repay-goes-to")).textContent).toContain("$50");
   fireEvent.click(screen.getByText("Confirm Payment"));

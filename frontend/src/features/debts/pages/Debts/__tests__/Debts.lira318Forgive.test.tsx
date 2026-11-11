@@ -268,9 +268,18 @@ async function openWithItems() {
   await screen.findByTestId("debt-item-picker");
   await waitFor(() => expect(amountValue()).toBe("50"));
 }
+// LIRA-383 — nothing is ticked on open; the cases below start from
+// everything ticked (the LIRA-318 premise) and untick B.
+async function openWithAllTicked() {
+  await openWithItems();
+  fireEvent.click(box(A));
+  fireEvent.click(box(B));
+  await waitFor(() => expect(box(B).checked).toBe(true));
+  await waitFor(() => expect(amountValue()).toBe("50"));
+}
 
 it("A $30 ticked, B $20 unticked, discount 5: the payment drops to 25, B stays unticked", async () => {
-  await openWithItems();
+  await openWithAllTicked();
   fireEvent.click(box(B));
   await waitFor(() => expect(amountValue()).toBe("30"));
   fireEvent.change(forgiveUsd(), { target: { value: "5" } });
@@ -280,7 +289,7 @@ it("A $30 ticked, B $20 unticked, discount 5: the payment drops to 25, B stays u
 });
 
 it("A ticked, discount 5, payment edited back to 30 afterwards: Confirm blocked with the hint", async () => {
-  await openWithItems();
+  await openWithAllTicked();
   fireEvent.click(box(B));
   await waitFor(() => expect(amountValue()).toBe("30"));
   fireEvent.change(forgiveUsd(), { target: { value: "5" } });

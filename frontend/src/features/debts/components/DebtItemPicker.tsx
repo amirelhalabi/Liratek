@@ -173,7 +173,7 @@ export default function DebtItemPicker({
       {nothingTicked ? (
         <p
           data-testid="debt-item-picker-hint"
-          className="text-[11px] text-amber-400 mt-1"
+          className="text-[11px] text-slate-400 mt-1"
         >
           {t("picker.tickHint")}
         </p>

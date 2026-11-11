@@ -75,6 +75,7 @@ import {
   statementFilename,
 } from "../../utils/clientStatementTemplate";
 import DebtDayCalendar from "../../components/DebtDayCalendar";
+import { debtRowPaidState } from "../../utils/debtRowPaidState";
 import {
   allocateRepayment,
   repaymentRoutesToSystemDrawer,
@@ -756,12 +757,10 @@ export default function Debts() {
       .then((items) => {
         if (cancelled) return;
         setRepayOpenItems(items);
-        // LIRA-308 decision 1 — everything is ticked on open, and the
-        // amount fills to their sum. No fill-key bump here: the sheet's own
-        // auto-fill picks the new sum up unless the cashier already typed
-        // an amount or split the payment while the items were loading
-        // (a slow load must not wipe what they entered).
-        setRepayTargets(items.map((it) => ({ kind: it.kind, id: it.id })));
+        // LIRA-383 (owner 2026-11-11, reverses LIRA-308 decision 1) —
+        // nothing is ticked on open (the effect cleared the ticks above):
+        // the amount stays the whole due, paid oldest first, until the
+        // cashier ticks what this payment is for.
       })
       .catch((error) => {
         logger.error("Failed to load open debt items", { error });
@@ -776,19 +775,31 @@ export default function Debts() {
   // line on the Purchases list can show what is still open on each of its
   // items. Reloaded whenever the history reloads (after a repayment).
   const [clientOpenItems, setClientOpenItems] = useState<OpenDebtItem[]>([]);
+  // LIRA-383 — which client `clientOpenItems` was loaded for (null while
+  // loading or after a failed load): the paid / left badges on the history
+  // only show for that client, so a row is never called "Paid" from an
+  // empty or another client's list.
+  const [clientOpenItemsFor, setClientOpenItemsFor] = useState<number | null>(
+    null,
+  );
   useEffect(() => {
     if (repayClientId == null) {
       setClientOpenItems([]);
+      setClientOpenItemsFor(null);
       return;
     }
     let cancelled = false;
     apiRef.current
       .getOpenDebtItems(repayClientId)
       .then((items) => {
-        if (!cancelled) setClientOpenItems(items);
+        if (cancelled) return;
+        setClientOpenItems(items);
+        setClientOpenItemsFor(repayClientId);
       })
       .catch(() => {
-        if (!cancelled) setClientOpenItems([]);
+        if (cancelled) return;
+        setClientOpenItems([]);
+        setClientOpenItemsFor(null);
       });
     return () => {
       cancelled = true;
@@ -855,6 +866,10 @@ export default function Debts() {
   // ONE allocation the server posts with (`planRepaymentTargets` →
   // `allocateRepayment`).
   const repayHasPicker = repayMode === "repay" && repayOpenItems.length > 0;
+  // LIRA-383 — the ticks drive the fill / forgive cap only when something
+  // IS ticked; with nothing ticked the box behaves exactly as a debt with
+  // no item list (whole due, oldest first) — one fill, not a second one.
+  const repayUsesTicks = repayHasPicker && repayTargets.length > 0;
   const repayTickedItems = repayOpenItems.filter((it) =>
     repayTargets.some((t) => t.kind === it.kind && t.id === it.id),
   );
@@ -899,7 +914,7 @@ export default function Debts() {
     ].filter((t) => t.amount > 0);
   // What the ticks cover BEFORE the discount — the cap the plan below
   // measures the reduction (payment + discount + credit) against.
-  const repayGrossFillTotals = repayHasPicker
+  const repayGrossFillTotals = repayUsesTicks
     ? repayTickedTotals(
         repayTickedUsd - repayCreditUseUsd,
         repayTickedLbp - repayCreditUseLbp,
@@ -912,7 +927,7 @@ export default function Debts() {
   // NET of the discount, and `repayDiscountFillKey` re-fills it whenever the
   // discount changes, even over a payment typed by hand. (`fillTotals` beats
   // `discountMovesPayment` in MPI's prefill, so it must be net itself.)
-  const repayFillTotals: Money[] = repayHasPicker
+  const repayFillTotals: Money[] = repayUsesTicks
     ? repayTickedTotals(
         repayTickedUsd - repayCreditUseUsd - repayAppliedDiscountUsd,
         repayTickedLbp - repayCreditUseLbp - repayAppliedDiscountLbp,
@@ -928,7 +943,7 @@ export default function Debts() {
           : []),
       ];
   const repayDiscountFillKey = `${repayFillKey}|discount:${repayAppliedDiscountUsd}:${repayAppliedDiscountLbp}`;
-  const repayWaiveTotals = repayHasPicker
+  const repayWaiveTotals = repayUsesTicks
     ? repayTickedTotals(
         repayTickedUsd - repayAppliedDiscountUsd,
         repayTickedLbp - repayAppliedDiscountLbp,
@@ -961,10 +976,10 @@ export default function Debts() {
   const repayForgiveApplied =
     repayMode === "repay" &&
     (repayAppliedDiscountUsd > 0.004 || repayAppliedDiscountLbp > 0.5);
-  const repayForgiveCapUsd = repayHasPicker
+  const repayForgiveCapUsd = repayUsesTicks
     ? (repayWaiveTotals?.find((t) => t.currency === "USD")?.amount ?? 0)
     : repayRemainingDueUsd;
-  const repayForgiveCapLbp = repayHasPicker
+  const repayForgiveCapLbp = repayUsesTicks
     ? (repayWaiveTotals?.find((t) => t.currency === "LBP")?.amount ?? 0)
     : repayRemainingDueLbp;
   const repayForgiveBlocked = (() => {
@@ -2516,6 +2531,54 @@ export default function Debts() {
                                         </button>
                                       ) : null}
                                     </div>
+                                    {(() => {
+                                      // LIRA-383 — paid / left per charge.
+                                      const paid = debtRowPaidState(
+                                        item,
+                                        isRefunded || rowState !== "normal",
+                                        clientOpenItemsFor != null &&
+                                          clientOpenItemsFor ===
+                                            selectedClient?.id
+                                          ? clientOpenItems
+                                          : null,
+                                      );
+                                      if (!paid) return null;
+                                      const mix = (usd: number, lbp: number) =>
+                                        [
+                                          usd > 0.004 || lbp <= 0.5
+                                            ? `$${usd.toFixed(2)}`
+                                            : "",
+                                          lbp > 0.5
+                                            ? `${formatNumber(Math.round(lbp))} LBP`
+                                            : "",
+                                        ]
+                                          .filter(Boolean)
+                                          .join(" + ");
+                                      return paid.state === "paid" ? (
+                                        <span
+                                          data-testid={`debt-row-paid-${item.id}`}
+                                          className="inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-400"
+                                        >
+                                          {t("history.paidInFull")}
+                                        </span>
+                                      ) : (
+                                        <span
+                                          data-testid={`debt-row-paid-${item.id}`}
+                                          className="text-[11px] text-slate-400"
+                                        >
+                                          {t("history.paidLeft", {
+                                            paid: mix(
+                                              paid.paidUsd,
+                                              paid.paidLbp,
+                                            ),
+                                            left: mix(
+                                              paid.leftUsd,
+                                              paid.leftLbp,
+                                            ),
+                                          })}
+                                        </span>
+                                      );
+                                    })()}
                                     {item.session_id &&
                                       item.transaction_type ===
                                         "Session Debt" &&
@@ -2984,13 +3047,10 @@ export default function Debts() {
                 ? t("repay.confirmCashOut")
                 : t("repay.confirmPayment")
             }
-            // LIRA-308 decision 3 — nothing ticked, nothing to confirm.
-            // LIRA-318 — or a forgive on top of a payment that already
-            // covers what is ticked / due.
-            confirmDisabled={
-              (repayHasPicker && repayTargets.length === 0) ||
-              repayForgiveBlocked
-            }
+            // LIRA-383 (owner 2026-11-11) — nothing ticked is a valid
+            // payment (oldest first), so only LIRA-318 blocks: a forgive on
+            // top of a payment that already covers what is ticked / due.
+            confirmDisabled={repayForgiveBlocked}
             beforeContent={
               repayHasPicker ? (
                 <div className="space-y-3">
@@ -3124,6 +3184,9 @@ export default function Debts() {
                     // when the discount changes, even over a typed amount.
                     fillTotals: repayFillTotals,
                     fillKey: repayDiscountFillKey,
+                    // LIRA-383 — the lines follow the ticked items' own
+                    // currencies (an LBP tick seeds an LBP line).
+                    fillLinesFollowCurrencies: true,
                     ...(repayWaiveTotals
                       ? { waiveTotals: repayWaiveTotals }
                       : {}),
