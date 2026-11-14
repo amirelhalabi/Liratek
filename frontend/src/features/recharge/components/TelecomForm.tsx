@@ -154,8 +154,11 @@ interface TelecomFormProps {
   setTelecomPrice: (val: string) => void;
   phoneNumber: string;
   setPhoneNumber: (val: string) => void;
-  paidBy: string;
-  setPaidBy: (val: string) => void;
+  /** Unused (LIRA-391): the page derives the method from the lines with
+   *  `lumpMethodOf`. Kept optional so existing callers still compile. */
+  paidBy?: string;
+  /** Unused (LIRA-391) — see `paidBy`. */
+  setPaidBy?: (val: string) => void;
   methods: { code: string; label: string }[];
   showClientSearch: boolean;
   setShowClientSearch: (val: boolean) => void;
@@ -288,7 +291,7 @@ export function TelecomForm({
   phoneNumber,
   setPhoneNumber,
   paidBy: _paidBy,
-  setPaidBy,
+  setPaidBy: _setPaidBy,
   methods,
   showClientSearch,
   setShowClientSearch,
@@ -492,6 +495,7 @@ export function TelecomForm({
 
   // Required for API compatibility but not used in this component
   void _paidBy;
+  void _setPaidBy;
   void clientName;
   void setClientName;
   // Gift price/value/cost are derived into giftItems and written via their
@@ -598,9 +602,9 @@ export function TelecomForm({
     onTransactionTimeChange?.(time);
   };
 
+  // LIRA-391: the page derives the method from ALL the lines.
   const handleCardPaymentChange = (lines: PaymentLine[]) => {
     setPaymentLines(lines);
-    if (lines.length === 1) setPaidBy(lines[0].method);
   };
 
   // Client picker for the payment windows: search by name or phone, pick a
@@ -1441,12 +1445,7 @@ export function TelecomForm({
                           .feeUsd * exchangeRate
                       : 0,
                   )}
-                  onPaymentChange={(lines) => {
-                    setPaymentLines(lines);
-                    if (lines.length === 1) {
-                      setPaidBy(lines[0].method);
-                    }
-                  }}
+                  onPaymentChange={setPaymentLines}
                   onDiscountChange={handleDiscountChange}
                   // Buy-back is a payout (owner decisions 2026-10-07): the
                   // shop hands the customer money, so no change (OUT) legs

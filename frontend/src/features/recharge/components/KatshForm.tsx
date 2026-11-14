@@ -43,7 +43,7 @@ import {
   buildCatalogSalePayload,
   catalogCartTotals,
 } from "@liratek/core";
-import { toCamelLegs } from "@/utils/paymentUtils";
+import { toCamelLegs, lumpMethodOf } from "@/utils/paymentUtils";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
@@ -716,8 +716,10 @@ function KatshFormInner({
     }
   }, [clientId, clientName, clientPhone, initialPaymentMethod]);
 
-  const [paymentMethod, setPaymentMethod] = useState("CASH");
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
+  // LIRA-391: derived from ALL the current lines (never remembered from a
+  // one-line sheet, which went stale once a second line was added).
+  const paymentMethod = lumpMethodOf(paymentLines) ?? "CASH";
   const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
   // T3 keep-change: kept change → profit stamp on the legs-carrying txn.
   const [keptChange, setKeptChange] = useState<{
@@ -2348,12 +2350,7 @@ function KatshFormInner({
           : {})}
         // Client rules (account, shortfall → debt, change → account).
         {...sheetClient}
-        onPaymentChange={(lines) => {
-          setPaymentLines(lines);
-          if (lines.length === 1) {
-            setPaymentMethod(lines[0].method);
-          }
-        }}
+        onPaymentChange={setPaymentLines}
         onReturnChange={setReturnLegs}
         // Handing back less change than due keeps the rest as profit (sent
         // as kept_change_* on the same payload) — automatic since the owner

@@ -925,7 +925,7 @@ describe("FinancialServiceRepository — app-wallet RECEIVE split payout (owner-
     ).toBe(0);
   });
 
-  it("CUSTOMER_ACCOUNT cashout books the store credit in the SERVICE currency, never the first leg's currency", () => {
+  it("CUSTOMER_ACCOUNT cashout with an account leg books the credit in the LEG's currency, never an LBP magnitude as dollars (LIRA-391: legs route)", () => {
     // rule 17: proven failing-first 2026-07-30 — pre-fix a USD-denominated
     // account leg made cashCurrency 'USD' and the credit booked
     // amountUsd = 20,000,000 (an LBP magnitude as dollars).
@@ -944,12 +944,17 @@ describe("FinancialServiceRepository — app-wallet RECEIVE split payout (owner-
       ],
     });
 
+    // LIRA-391 (FR-1): with a payout leg sent, the legs route the money —
+    // the account leg is credited in ITS OWN currency, like every other
+    // payout leg ($222.22, not an LBP magnitude booked as dollars, which was
+    // the 2026-07-30 bug). Before LIRA-391 the stale `cashoutMethod` skipped
+    // the legs and credited the payout's 20,000,000 LBP instead.
     expect(mockAddCredit).toHaveBeenCalledTimes(1);
     expect(mockAddCredit).toHaveBeenCalledWith(
       expect.objectContaining({
         clientId: 1,
-        amountUsd: 0,
-        amountLbp: 20_000_000,
+        amountUsd: 222.22,
+        amountLbp: 0,
       }),
     );
     // No drawer moved for an on-account payout.

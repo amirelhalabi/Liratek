@@ -39,7 +39,7 @@ import {
   SHORTFALL_MAX,
   transferFeePaidBy,
 } from "@liratek/core";
-import { toCamelLegs } from "@/utils/paymentUtils";
+import { toCamelLegs, lumpMethodOf } from "@/utils/paymentUtils";
 import { WalletExchangePanel } from "./WalletExchangePanel";
 
 type ServiceType = "SEND" | "RECEIVE";
@@ -139,7 +139,14 @@ function OmtWhishAppTransferFormInner({
   const changeLegs = serviceType === "RECEIVE" ? [] : returnLegs;
   const useStructuredPayments =
     paymentLines.length > 0 || changeLegs.length > 0;
-  const [paidByMethod, setPaidByMethod] = useState("CASH");
+  // LIRA-391: the payout's / payment's single method, derived from ALL the
+  // current lines — undefined for a split of different methods. It used to
+  // be state set only while the sheet had ONE line, so a seeded Customer
+  // Account line followed by a Cash line still sent
+  // `cashoutMethod: "CUSTOMER_ACCOUNT"` and the whole payout went to the
+  // account.
+  const lumpMethod = lumpMethodOf(paymentLines);
+  const paidByMethod = lumpMethod ?? "CASH";
   // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase D: the RECEIVE fee-on-top
   // "who pays the fee" choice — replaces the old bare `includingFees`
   // checkbox with a three-way pick (owner decision Q7, 2026-08-06):
@@ -163,10 +170,11 @@ function OmtWhishAppTransferFormInner({
   // independent of `paymentLines` (the shop's payout) — never merged into it.
   const [customerLines, setCustomerLines] = useState<PaymentLine[]>([]);
   // Bug 6 (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §2): how the shop pays the
-  // customer out on a RECEIVE — synced from the single payout line's method
-  // (mirrors Services/index.tsx) so a non-cash payout no longer silently
-  // hits the General drawer via the repository's no-legs fallback.
-  const [cashoutMethod, setCashoutMethod] = useState("CASH");
+  // customer out on a RECEIVE. LIRA-391: derived from the lines — the kind
+  // of payout for the gates below (a mixed split reads as cash, as the
+  // server reads it), sent as `cashoutMethod` only when every line shares
+  // one method.
+  const cashoutMethod = lumpMethod ?? "CASH";
   const [manualFee, setManualFee] = useState("");
   const [discount, setDiscount] = useState(0);
   // LIRA-319 — the sheet's "+ Extra" (in the transfer currency) on a walk-in
@@ -479,7 +487,6 @@ function OmtWhishAppTransferFormInner({
       setFeeMode("SENDER");
       setCustomerLines([]);
       setCustomerSectionState(null);
-      setCashoutMethod("CASH");
       // LIRA-248: same reset as the non-session completion path below — a
       // session basket add is also "a completed transaction" for this form.
       setEffectiveRate(undefined);
@@ -534,10 +541,11 @@ function OmtWhishAppTransferFormInner({
                   : {}),
               }
             : {}),
-          // RECEIVE only: how the shop pays the customer out (Bug 6).
-          ...(serviceType === "RECEIVE"
+          // RECEIVE only: how the shop pays the customer out (Bug 6) —
+          // only when every payout line shares one method (LIRA-391).
+          ...(serviceType === "RECEIVE" && lumpMethod
             ? {
-                cashoutMethod: cashoutMethod as
+                cashoutMethod: lumpMethod as
                   | "CASH"
                   | "CUSTOMER_ACCOUNT"
                   | "OMT"
@@ -622,8 +630,7 @@ function OmtWhishAppTransferFormInner({
         setFeeMode("SENDER");
         setCustomerLines([]);
         setCustomerSectionState(null);
-        setCashoutMethod("CASH");
-        setTransactionTime(undefined);
+          setTransactionTime(undefined);
         // LIRA-248: an operator-edited sheet rate must not carry over to the
         // next, unrelated transaction — reset to undefined so the next
         // submit falls back to the live shop rate (`exchangeRate`) via
@@ -1449,18 +1456,7 @@ function OmtWhishAppTransferFormInner({
           // Client rules (account, SEND shortfall → debt, SEND change →
           // account) from the shared builder.
           {...sheetClient}
-          onPaymentChange={(lines) => {
-            setPaymentLines(lines);
-            if (lines.length === 1) {
-              setPaidByMethod(lines[0].method);
-              // Bug 6: sync the cashout method from the single payout line
-              // so a non-cash RECEIVE payout reaches the repository instead
-              // of silently falling back to the General drawer.
-              if (serviceType === "RECEIVE") {
-                setCashoutMethod(lines[0].method);
-              }
-            }
-          }}
+          onPaymentChange={setPaymentLines}
           // RECEIVE is a payout: no change legs, a small shortfall is kept
           // as profit (FinancialServiceRepository verifies it).
           {...(serviceType === "RECEIVE"

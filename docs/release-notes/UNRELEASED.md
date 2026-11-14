@@ -389,6 +389,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 📱 MTC / Alfa
 
+- Paying out a cash-out in several ways (part to the customer's account, part cash or wallet) now books each part where it belongs; before, the whole amount went to the account.
 - From now on, a line credits edit can be refunded from Transactions while the line still holds the edited credits. Older edits cannot.
 - MTC and Alfa Credit, Days, Alfa Gift and credit buy-back: typing a new client's name and phone no longer shows "Client is required" once the payment is on Customer Account, and a short payment now goes on that client's account, as on POS.
 - Binance send: a short payment with a client now goes on the client's account.

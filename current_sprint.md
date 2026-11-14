@@ -8774,3 +8774,13 @@ Needs: a dry-run mode that lists what it would delete; a guard test that a live 
 **Tests (rule 17):** proven failing first — core `omtSmsSettlement` LIRA-392 block (4 cases: `gapOwed` undefined / commission 0.29), core `lira370OwedShares` "SMS −225.50 with nothing ticked" rewritten + new "shop pays SMS 776.21 on 776.50" (both threw `no commission type is ticked`), frontend `AccountSettleSheet.merged` LIRA-378 block last case rewritten + "ticking All types turns the gap back into commission" (`Unable to find … sms-gap-owed-usd`). Neighbours green: core 10 suites / 95 tests (lira370 Sms/Variants/Baseline/OwedShares, lira372 SettleAccountDiscount, lira373 refund, allocation, validators), frontend suppliers components 10 suites / 131 tests. `check:i18n` 0 findings. Typecheck / lint: see session log. Web e2e not re-run (no spec asserted the removed line). Desktop unverified (shared IPC channel; no desktop e2e on this Mac).
 
 **What users will notice:** on Suppliers → OMT → Settle Account with "No commission" ticked, an SMS amount that differs from the amount owed no longer switches Settle off; the difference stays owed to OMT (or as OMT's credit) and the sheet says so next to the SMS amount.
+
+## LIRA-391: Split payout books the whole payout to the customer's account — BUILT 2026-11-14, not committed (spec: `specs/391-split-payout-flag/spec.md`)
+
+**Asked by:** owner, 2026-11-13, Corner Tech row #17877: Binance cash-out 533.06 USDT, fee $5 deducted, paid out as $200 Customer Account + $328.06 Whish Wallet. Booked: account credit −528.06, no Whish leg.
+
+**Cause (reproduced on the test tenant 2026-11-14, #16902 wrong / #16905 right):** the page remembers the sheet's method only while it has ONE line (the seeded Customer Account line) and sends that stale `cashoutMethod` next to the split legs; core trusts the flag before the legs and lumps the whole payout to the account, skipping the per-leg loop and reconcile. Same shape on the OMT App / Whish App cash-out.
+
+**Owner decisions:** fix core AND pages, both cash-out forms, sweep every flow with a lump method flag (core: `FinancialServiceRepository` ×4, `LotoTicketRepository` ×4, `RechargePartnerOrderService` ×1; pages: 7 files with `lines.length === 1` setters); Corner Tech row already refunded (#17881), re-entered after deploy; Whish Wallet leg keeps debiting `Whish_App` with no provider fee.
+
+**What users will notice:** paying out a cash-out in several ways (part to the customer's account, part cash or wallet) now books each part where it belongs; before, the whole amount went to the account.

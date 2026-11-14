@@ -60,3 +60,61 @@ export function derivePaidByLabel(
   if (legs.length === 1) return legs[0].method;
   return fallback;
 }
+
+// ─── LIRA-391 — lump method flags vs payment legs ───────────────────────────
+//
+// A payout page used to remember "the" method from a one-line sheet and send
+// it as `cashoutMethod` NEXT TO split `payments[]`. Core branched on the flag
+// before the legs, so "$200 to the account + $328.06 Whish" credited the whole
+// $528.06 to the account and never booked the Whish leg. These are the ONE
+// definition (rule 14) of how a lump flag and the legs relate.
+
+/** Minimal leg shape for the lump-flag helpers. */
+interface MethodLeg {
+  method: string;
+  amount: number;
+}
+
+/** Does the caller send at least one leg with money on it? Zero-amount legs
+ *  do not count (a page that sends one empty line keeps the flag path). */
+export function hasPostingLegs(
+  legs: ReadonlyArray<MethodLeg> | undefined | null,
+): boolean {
+  return !!legs && legs.some((l) => Math.abs(l.amount) > 0);
+}
+
+/**
+ * ROUTING: the lump method flag, only when there are no posting legs.
+ * Legs present ⇒ `undefined`: every leg is booked by its own method through
+ * the per-leg path (which reconciles the legs), even when every leg is
+ * CUSTOMER_ACCOUNT. A flag that disagrees with the legs is ignored, never
+ * refused — every shipped page sent the stale flag. Callers pass IN legs.
+ */
+export function lumpFlagWhenNoLegs<T extends string>(
+  flag: T | undefined | null,
+  legs: ReadonlyArray<MethodLeg> | undefined | null,
+): T | undefined {
+  if (hasPostingLegs(legs)) return undefined;
+  return flag ?? undefined;
+}
+
+/** What `payoutMethodOf` returns for legs that do not share one method. */
+export const MIXED_PAYOUT_METHOD = "MIXED";
+
+/**
+ * ELIGIBILITY: what kind of payout this is, for the rules that ask (kept
+ * change, round-up, added change, the legacy fee method, "does it touch the
+ * customer's account"). Legs present ⇒ the method every posting leg shares,
+ * else `MIXED_PAYOUT_METHOD`; no legs ⇒ the flag. Never a routing input —
+ * money is routed by `lumpFlagWhenNoLegs`.
+ */
+export function payoutMethodOf(
+  flag: string | undefined | null,
+  legs: ReadonlyArray<MethodLeg> | undefined | null,
+): string | undefined {
+  if (!hasPostingLegs(legs)) return flag ?? undefined;
+  const methods = new Set(
+    legs!.filter((l) => Math.abs(l.amount) > 0).map((l) => l.method),
+  );
+  return methods.size === 1 ? [...methods][0] : MIXED_PAYOUT_METHOD;
+}

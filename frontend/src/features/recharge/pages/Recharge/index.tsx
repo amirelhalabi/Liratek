@@ -32,7 +32,11 @@ import { useRechargeBasketCounts } from "../../context/RechargeBasketContext";
 import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
 import type { PaymentLine, CarrierLineEntity } from "@liratek/ui";
 import { isSameLebanesePhone } from "@liratek/core";
-import { toCamelLegs, derivePaidByMethod } from "@/utils/paymentUtils";
+import {
+  toCamelLegs,
+  derivePaidByMethod,
+  lumpMethodOf,
+} from "@/utils/paymentUtils";
 import {
   useMobileServiceItems,
   type ProviderKey,
@@ -199,7 +203,6 @@ export default function MobileRecharge() {
     ? { carrier_line_id: selectedCarrierLineId }
     : {};
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [paidBy, setPaidBy] = useState("CASH");
   const [showClientSearch, setShowClientSearch] = useState(false);
   const [telecomClientId, setTelecomClientId] = useState<number | null>(null);
   const [telecomClientName, setTelecomClientName] = useState("");
@@ -217,6 +220,9 @@ export default function MobileRecharge() {
   const [giftPriceLbp, setGiftPriceLbp] = useState("");
   const [giftCostLbp, setGiftCostLbp] = useState("");
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
+  // LIRA-391: the telecom sale's single method, derived from ALL the current
+  // lines (the zero-line fallback of `derivePaidByMethod`).
+  const paidBy = lumpMethodOf(paymentLines) ?? "CASH";
   const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
   // T3 keep-change (telecom flow): kept change → recharge profit stamp.
   // `payout` records which mode reported it (credit buy-back = payout): the
@@ -447,7 +453,12 @@ export default function MobileRecharge() {
     lbp: number;
     payout: boolean;
   } | null>(null);
-  const [cryptoPaidBy, setCryptoPaidBy] = useState("CASH");
+  // LIRA-391: the payout's single method, derived from ALL the current
+  // lines (undefined for a split of different methods). Used to be state set
+  // only while the sheet had ONE line, so a seeded Customer Account line
+  // followed by a Whish line still read CUSTOMER_ACCOUNT and the whole
+  // payout went to the account.
+  const cryptoLumpMethod = lumpMethodOf(cryptoPaymentLines);
   // LIRA-334: a Binance cash-out rounds up only where it keeps change — a
   // walk-in (no session: the basket pays out) cash payout (not credited to
   // the customer's account, which is credited in full). Gates both the
@@ -455,7 +466,7 @@ export default function MobileRecharge() {
   const cryptoRoundUpApplies =
     cryptoType === "RECEIVE" &&
     !activeSession &&
-    cryptoPaidBy !== "CUSTOMER_ACCOUNT";
+    cryptoLumpMethod !== "CUSTOMER_ACCOUNT";
   // LIRA-336 — change the customer adds on a Binance cash-out: the same
   // walk-in cash payout as the round-up (`cryptoRoundUpApplies`). Reported
   // in the payout currency; `payout` is the stale guard.
@@ -619,7 +630,7 @@ export default function MobileRecharge() {
     // selection (e.g. mode C's fee-collected-separately toggle + its
     // counter-flow fee legs, a stale payment/return leg, or a stale
     // client attribution) doesn't survive a provider-tab switch or a
-    // SEND<->RECEIVE flip mid-edit. `cryptoType`/`cryptoPaidBy`/
+    // SEND<->RECEIVE flip mid-edit. `cryptoType`/
     // `cryptoTenderRate` are deliberately NOT reset here — the submit
     // paths leave them alone too, so they're intentionally sticky.
     setCryptoAmount("");
@@ -1755,10 +1766,7 @@ export default function MobileRecharge() {
         : {}),
     };
     const isSplitPayment = cryptoPaymentLines.length > 1;
-    const paidByMethod =
-      cryptoPaymentLines.length === 1
-        ? cryptoPaymentLines[0].method
-        : cryptoPaidBy;
+    const paidByMethod = cryptoLumpMethod ?? "CASH";
 
     // S1 — never gate legs on split: forward the full leg set whenever ANY
     // payment line exists. Gating on isSplitPayment alone silently dropped a
@@ -1773,9 +1781,10 @@ export default function MobileRecharge() {
     const useCryptoStructuredPayments =
       cryptoPaymentLines.length > 0 || cryptoChangeLegs.length > 0;
 
-    // Derive cashout method from payment lines: if DEBT is used, it means Customer Account
+    // LIRA-391: the account flag only when EVERY payout line is on the
+    // account; a split sends no flag (the legs say where each part goes).
     const derivedCashoutMethod =
-      paidByMethod === "CUSTOMER_ACCOUNT" ? "CUSTOMER_ACCOUNT" : "CASH";
+      cryptoLumpMethod === "CUSTOMER_ACCOUNT" ? "CUSTOMER_ACCOUNT" : "CASH";
 
     // LIRA-321 (US4): the cash-out's "Customer pays" lines. CryptoForm shows
     // that section on every walk-in cash-out (never in a session — the
@@ -2038,7 +2047,7 @@ export default function MobileRecharge() {
     cryptoAddedChange,
     cryptoDiscount,
     cryptoExtra,
-    cryptoPaidBy,
+    cryptoLumpMethod,
     cryptoTenderRate,
     exchangeRate,
     cryptoTransactionTime,
@@ -2325,8 +2334,6 @@ export default function MobileRecharge() {
             setTelecomPrice={setTelecomPrice}
             phoneNumber={phoneNumber}
             setPhoneNumber={setPhoneNumber}
-            paidBy={paidBy}
-            setPaidBy={setPaidBy}
             methods={methods}
             showClientSearch={showClientSearch}
             setShowClientSearch={setShowClientSearch}
@@ -2582,7 +2589,7 @@ export default function MobileRecharge() {
             // not inside a session (the basket pays out) and not when it is
             // credited to the customer's account (credited in full).
             {...(cryptoType === "RECEIVE" &&
-            (!!activeSession || cryptoPaidBy === "CUSTOMER_ACCOUNT")
+            (!!activeSession || cryptoLumpMethod === "CUSTOMER_ACCOUNT")
               ? {}
               : {
                   onKeptChange: (k: { usd: number; lbp: number } | null) =>
@@ -2638,12 +2645,7 @@ export default function MobileRecharge() {
                   )
                 : methods
             }
-            onPaymentLinesChange={(lines) => {
-              setCryptoPaymentLines(lines);
-              if (lines.length === 1) {
-                setCryptoPaidBy(lines[0].method);
-              }
-            }}
+            onPaymentLinesChange={setCryptoPaymentLines}
             onReturnChange={setCryptoReturnLegs}
             onDiscountChange={setCryptoDiscount}
             onExtraChange={setCryptoExtra}

@@ -1491,6 +1491,11 @@ Copy this into your task when building any flow that moves money:
    repository (§4.1) — never hand-roll it.
    Payout screen with a money-in side: send it as `customerPayments[]` (never with
    `feePayments`) and book it with `bookCustomerLegs` (§4.3) — never a lump inflow.
+   Lump method flags (`cashoutMethod`, `paidByMethod`, …) never route money when legs
+   are sent: read the method in the repository through `lumpFlagWhenNoLegs` /
+   `payoutMethodOf` (`utils/paymentLegs.ts`), and on the page through
+   `lumpMethodOf(lines)` — never state set only while the sheet has one line
+   (LIRA-391: a stale account flag credited a whole split payout to the account).
 5. **Drawers** (§7): correct drawer per leg, per currency; app-wallet rule if a wallet
    is involved.
 6. **Client propagation** (§6): UI → IPC → handler → repo → `createTransaction({client_id})`;

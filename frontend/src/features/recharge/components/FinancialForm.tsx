@@ -49,7 +49,11 @@ import { providerBrandOf } from "../types";
 import { HistoryModal } from "./HistoryModal";
 import { useSellRate } from "@/hooks/useSellRate";
 import logger from "@/utils/logger";
-import { toCamelLegs, derivePaidByMethod } from "@/utils/paymentUtils";
+import {
+  toCamelLegs,
+  derivePaidByMethod,
+  lumpMethodOf,
+} from "@/utils/paymentUtils";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import {
@@ -234,7 +238,9 @@ export function FinancialForm({
   // wrong the moment the operator edits the field.
   const [effectiveRate, setEffectiveRate] = useState<number | undefined>();
 
-  const [paymentMethod, setPaymentMethod] = useState("CASH");
+  // LIRA-391: derived from ALL the current lines (never remembered from a
+  // one-line sheet, which went stale once a second line was added).
+  const paymentMethod = lumpMethodOf(paymentLines) ?? "CASH";
   const [localSubmitting, setLocalSubmitting] = useState(false);
   const [showPaymentSheet, setShowPaymentSheet] = useState(false);
   const { buyRate, sellRate } = useSellRate();
@@ -647,10 +653,8 @@ export function FinancialForm({
 
     const cartItems = Array.from(cart.values());
     // CARRIER_LINES_VALIDITY_PLAN.md Phase 7: derive straight from the pay
-    // sheet's CURRENT legs, not the `paymentMethod` state alone — that state
-    // is only ever written from `onPaymentChange`'s `lines.length === 1`
-    // self-heal, so deriving here (rather than trusting the state to have
-    // tracked every change) matches the sheet on every render.
+    // sheet's CURRENT legs (LIRA-391: `paymentMethod` is itself derived from
+    // them by `lumpMethodOf`, the zero-line fallback here).
     const finalPaymentMethod = derivePaidByMethod(paymentLines, paymentMethod);
     // S1 — never gate legs on split (or voucher): forward the full leg set
     // (IN tender + OUT change) whenever ANY payment line exists. Gating on
@@ -1589,12 +1593,7 @@ export function FinancialForm({
           (serviceType || "SEND") === "SEND"
             ? { onExtraChange: setExtraCharge }
             : {})}
-          onPaymentChange={(lines) => {
-            setPaymentLines(lines);
-            if (lines.length === 1) {
-              setPaymentMethod(lines[0].method);
-            }
-          }}
+          onPaymentChange={setPaymentLines}
         >
           <div className="space-y-2">
             <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">

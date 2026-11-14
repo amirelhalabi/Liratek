@@ -127,8 +127,29 @@ export function derivePaidByMethod(
   fallback: string = "CASH",
 ): string {
   if (lines.length > 1) return "MULTI";
-  if (lines.length === 1) return lines[0].method;
-  return fallback;
+  return lumpMethodOf(lines) ?? fallback;
+}
+
+/**
+ * LIRA-391 — the ONE derivation of a page's lump payment method (the single
+ * `cashoutMethod` / `paidByMethod` / `paidBy` a page sends next to its legs):
+ * the method when there is at least one line and every line shares it, else
+ * `undefined` (a split of different methods has no single method).
+ *
+ * Always derive it from the CURRENT lines at the point of use. Never keep it
+ * in state set only when `lines.length === 1`: that setter stops firing once
+ * a second line is added, and the stale method used to travel next to the
+ * split legs — "$200 account + $328.06 Whish" on a Binance cash-out credited
+ * the whole $528.06 to the account. A jest guard
+ * (`__tests__/lumpMethodSetter.guard.test.ts`) refuses the old shape anywhere
+ * else in `src`.
+ */
+export function lumpMethodOf(
+  lines: ReadonlyArray<{ method: string }>,
+): string | undefined {
+  if (lines.length === 0) return undefined;
+  const first = lines[0].method;
+  return lines.every((l) => l.method === first) ? first : undefined;
 }
 
 /**

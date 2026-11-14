@@ -585,17 +585,19 @@ describe("Services page — customer adds change on an OMT/Whish system RECEIVE 
     expect(mockSeen.onAddedChange).toBeUndefined();
   });
 
-  it("split payout after a single account line: still no section (the stale account cashout would be refused)", async () => {
+  it("split Cash + Whish after a single account line: the section comes back (LIRA-391 — no stale account cashout any more)", async () => {
     await renderPage();
     fireEvent.click(directionButton("OMT", "↓"));
     await waitFor(() => expect(mockSeen.payer).toBe("payout"));
     fireEvent.click(screen.getByTestId("mpi-payout-account"));
     await waitFor(() => expect(mockSeen.counterFlow).toBeUndefined());
-    // The split leaves the single-line cashout at CUSTOMER_ACCOUNT and the
-    // server branches on it — so added change stays off (conservative).
+    // Before LIRA-391 the split left the remembered cashout at
+    // CUSTOMER_ACCOUNT (and the server branched on it), so this test pinned
+    // the section OFF. The method is now derived from ALL the lines: a split
+    // with no account line is a cash/wallet payout, so added change applies.
     fireEvent.click(screen.getByTestId("mpi-payout-split-cash-whish"));
-    await waitFor(() => expect(mockSeen.counterFlow).toBeUndefined());
-    expect(mockSeen.onAddedChange).toBeUndefined();
+    await waitFor(() => expect(mockSeen.counterFlow?.optional).toBe(true));
+    expect(typeof mockSeen.onAddedChange).toBe("function");
   });
 
   it("split payout with an account line (after a single cash line): no section", async () => {

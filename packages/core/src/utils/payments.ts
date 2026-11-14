@@ -288,7 +288,11 @@ export function resolveServiceCashDrawer(
 // rule 29); re-exported here so every existing import is unchanged.
 export {
   derivePaidByLabel,
+  hasPostingLegs,
   isReturnLeg,
+  lumpFlagWhenNoLegs,
+  MIXED_PAYOUT_METHOD,
   partitionLegs,
+  payoutMethodOf,
   type PaymentDirection,
 } from "./paymentLegs.js";

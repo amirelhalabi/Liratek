@@ -39,7 +39,7 @@ import {
   type PaymentLine,
   type LinesSectionState,
 } from "@liratek/ui";
-import { toCamelLegs } from "@/utils/paymentUtils";
+import { toCamelLegs, lumpMethodOf } from "@/utils/paymentUtils";
 import { StatsCards } from "../../components/StatsCards";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import {
@@ -309,8 +309,9 @@ export default function Services() {
 
   // Form State
   const [provider, setProvider] = useState<Provider>("OMT");
-  const [paidByMethod, setPaidByMethod] = useState("CASH");
-  const [cashoutMethod, setCashoutMethod] = useState("CASH");
+  // LIRA-391: the method used before any payment line exists (the
+  // provider's default); once lines exist the method is derived from them.
+  const [defaultPaidByMethod, setDefaultPaidByMethod] = useState("CASH");
   const [serviceType, setServiceType] = useState<ServiceType>("SEND");
   const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
   const [amount, setAmount] = useState<string>("");
@@ -404,6 +405,17 @@ export default function Services() {
 
   // Payment lines (MultiPaymentInput manages single/split internally)
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
+  // LIRA-391: the single method of ALL the current lines (undefined for a
+  // split of different methods). These used to be state set only while the
+  // box had ONE line, so after a split `cashoutMethod` could still read
+  // CUSTOMER_ACCOUNT next to the split legs and the whole payout went to
+  // the account.
+  const lumpMethod = lumpMethodOf(paymentLines);
+  const paidByMethod = lumpMethod ?? defaultPaidByMethod;
+  // The payout's kind for the gates below (a mixed split reads as cash, as
+  // the server reads it); sent as `cashoutMethod` only when every line
+  // shares one method.
+  const cashoutMethod = lumpMethod ?? "CASH";
   const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
   // Kept change (owner decisions 2026-10-06/2026-10-07 — automatic, no
   // button), booked as profit by FinancialServiceRepository:
@@ -464,12 +476,7 @@ export default function Services() {
   // box at all) and never into the customer's account (FR-009: the account
   // is credited in full, there is no cash to make change with). Its own gate,
   // not `roundUpApplies`: round-up and kept change stay cash-only.
-  // The account test reads the payout LINES when the payout is split:
-  // `cashoutMethod` only follows a single line, so on a split it still holds
-  // whatever the last single line was.
-  // `cashoutMethod` only follows a SINGLE payout line, so after a split it
-  // can still read CUSTOMER_ACCOUNT — and the server branches on it. Either
-  // signal is enough to keep added change off (conservative: no payload the
+  // Any account line keeps added change off (conservative: no payload the
   // server would refuse or book to the account).
   const payoutHasAccountLine =
     cashoutMethod === "CUSTOMER_ACCOUNT" ||
@@ -786,7 +793,7 @@ export default function Services() {
       if (!partnerExists && provider === partnerSystem) {
         const baseSystem = partnerSystem === "WHISH" ? "OMT" : "WHISH";
         setProvider(baseSystem);
-        setPaidByMethod(PROVIDER_DEFAULT_METHOD[baseSystem]);
+        setDefaultPaidByMethod(PROVIDER_DEFAULT_METHOD[baseSystem]);
       }
 
       // Build owed map by provider
@@ -1047,7 +1054,6 @@ export default function Services() {
         setSelectedPartnerId(null);
         setForPartner(false);
         setForPartnerId(null);
-        setCashoutMethod("CASH");
         setTransactionTime(undefined);
         loadData();
         resetSaveAsClient();
@@ -1574,9 +1580,10 @@ export default function Services() {
         ...(forPartner && forPartnerId
           ? { partnerId: forPartnerId, partnerMode: "FOR" as const }
           : {}),
-        ...(serviceType === "RECEIVE"
+        // LIRA-391: only when every payout line shares one method.
+        ...(serviceType === "RECEIVE" && lumpMethod
           ? {
-              cashoutMethod: cashoutMethod as
+              cashoutMethod: lumpMethod as
                 | "CASH"
                 | "CUSTOMER_ACCOUNT"
                 | "OMT"
@@ -1697,7 +1704,6 @@ export default function Services() {
         setSelectedPartnerId(null);
         setForPartner(false);
         setForPartnerId(null);
-        setCashoutMethod("CASH");
         setIsSubmitting(false);
         resetSaveAsClient();
         return;
@@ -1736,6 +1742,7 @@ export default function Services() {
     binanceSupplier,
     isSplitPayment,
     paymentLines,
+    lumpMethod,
     returnLegs,
     keptChange,
     keptChangeApplies,
@@ -1884,11 +1891,10 @@ export default function Services() {
                         setProvider(prov);
                         setServiceType(type);
                         setPaymentInitialMethod(undefined);
-                        setPaidByMethod(
+                        setDefaultPaidByMethod(
                           PROVIDER_DEFAULT_METHOD[prov] || "CASH",
                         );
                         setCurrency("USD");
-                        setCashoutMethod("CASH");
                         // A2: the other party's fields are hidden per mode —
                         // clear them so stale values never reach the payload.
                         if (type === "SEND") {
@@ -2828,18 +2834,7 @@ export default function Services() {
                     ]}
                     currency={currency}
                     totalAmountCurrency={currency}
-                    onChange={(lines) => {
-                      setPaymentLines(lines);
-                      // Sync paidByMethod from single-payment line for legacy logic
-                      if (lines.length === 1) {
-                        setPaidByMethod(lines[0].method);
-                        // For RECEIVE, sync cashout method
-                        if (serviceType === "RECEIVE") {
-                          const m = lines[0].method;
-                          setCashoutMethod(m);
-                        }
-                      }
-                    }}
+                    onChange={setPaymentLines}
                     // LIRA-387: the shared client rules. SEND is a sale (a
                     // shortfall goes on the sender's account; change not
                     // handed back can too, outside a session). RECEIVE is a

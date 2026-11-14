@@ -45,7 +45,10 @@ import {
   paymentMethodToDrawerName,
   isDrawerAffectingMethod,
   isNonCashDrawerMethod,
+  lumpFlagWhenNoLegs,
+  MIXED_PAYOUT_METHOD,
   partitionLegs,
+  payoutMethodOf,
   resolveServiceCashDrawer,
   type ServiceCashDrawerContext,
   type BaseSystem,
@@ -1636,8 +1639,13 @@ export function chargesCustomerAccount(
   >,
 ): boolean {
   const isAccount = (l: { method: string }) => l.method === "CUSTOMER_ACCOUNT";
+  // LIRA-391: the single `cashoutMethod` counts only when no payout leg was
+  // sent — with legs, the legs say whether the account is touched.
   return (
-    data.cashoutMethod === "CUSTOMER_ACCOUNT" ||
+    lumpFlagWhenNoLegs(
+      data.cashoutMethod,
+      partitionLegs(data.payments).inLegs,
+    ) === "CUSTOMER_ACCOUNT" ||
     (data.payments ?? []).some(isAccount) ||
     (data.feePayments ?? []).some(isAccount) ||
     (data.customerPayments ?? []).some(isAccount)
@@ -3032,8 +3040,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           resolvedPrimaryClientId = this.findOrCreateClientByPhone({
             name: primaryName,
             phone: primaryPhone,
-            create:
-              data.saveAsClient !== false || chargesCustomerAccount(data),
+            create: data.saveAsClient !== false || chargesCustomerAccount(data),
             notes: "Auto-created from OMT/WHISH service",
             tenantId,
           });
@@ -3448,6 +3455,25 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         data.payments = inPayments;
       }
 
+      // LIRA-391 — a page may send a STALE single `cashoutMethod` next to
+      // split payout legs (it remembered the method from a one-line sheet).
+      // Two readings, one definition each (utils/paymentLegs.ts, rule 14):
+      //   - ROUTING (`routedCashout`): the flag routes money only when no
+      //     payout leg was sent; with legs, every branch below takes its
+      //     per-leg path (reconciled, each leg booked by its own method).
+      //   - ELIGIBILITY (`payoutKind`): what kind of payout this is, for the
+      //     kept-change / round-up / added-change refusals and the legacy fee
+      //     method — read from the legs when there are any (the method they
+      //     all share; a mixed split reads as a cash payout, whose leg-level
+      //     checks then decide), else from the flag.
+      const routedCashout =
+        lumpFlagWhenNoLegs(data.cashoutMethod, inPayments) ?? "CASH";
+      const sharedPayoutMethod = payoutMethodOf(data.cashoutMethod, inPayments);
+      const payoutKind =
+        !sharedPayoutMethod || sharedPayoutMethod === MIXED_PAYOUT_METHOD
+          ? "CASH"
+          : sharedPayoutMethod;
+
       // ── RECEIVE is a payout (owner decisions 2026-10-07, FEATURE_GUIDE
       // §4.1 "Kept change") ─────────────────────────────────────────────────
       // The shop hands the customer money, so there is no change to hand
@@ -3492,7 +3518,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         receiveKeptClaim.usd > 0 || receiveKeptClaim.lbp > 0;
       let receiveKeptVerified = false;
       if (receiveKeptClaimed) {
-        const receiveCashout = data.cashoutMethod || "CASH";
+        const receiveCashout = payoutKind;
         const isSystemReceive =
           data.provider === "OMT" || data.provider === "WHISH";
         const isWalletReceive =
@@ -3566,7 +3592,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         verified: null,
       };
       if (roundingClaimed) {
-        const cashout = data.cashoutMethod || "CASH";
+        const cashout = payoutKind;
         const isSystemReceive =
           data.provider === "OMT" || data.provider === "WHISH";
         const isWalletReceive =
@@ -3640,7 +3666,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         verified: null,
       };
       if (addedClaimed) {
-        const cashout = data.cashoutMethod || "CASH";
+        const cashout = payoutKind;
         const isSystemReceive =
           data.provider === "OMT" || data.provider === "WHISH";
         const isWalletReceive =
@@ -4812,7 +4838,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               fee,
               feeCollectedSeparately: isFeeCollectedSeparately,
             });
-            const cashoutMethod = data.cashoutMethod || "CASH";
+            // LIRA-391: legs present ⇒ "CASH" here means "the per-leg path".
+            const cashoutMethod = routedCashout;
 
             // Mode C fee-collection legs: the customer hands the fee over
             // the counter via operator-chosen legs, booked with the SAME
@@ -5443,7 +5470,17 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           const payoutAmount = receiveFeeIncluded
             ? Math.max(0, receiveAmount - receiveFeeAmt)
             : receiveAmount;
-          const cashoutMethod = data.cashoutMethod || "CASH";
+          // LIRA-391: legs present ⇒ "CASH" here means "the per-leg path"
+          // (`postPayoutLegs` books each leg from its own drawer). Only OMT /
+          // WHISH have that path: other providers (BOB, OTHER — no screen
+          // sends them, REST can) keep the flag, unchanged, or an account
+          // payout would lose its credit.
+          const cashoutMethod = useSystemDrawerFlow
+            ? routedCashout
+            : data.cashoutMethod || "CASH";
+          const receivePayoutKind = useSystemDrawerFlow
+            ? payoutKind
+            : cashoutMethod;
 
           // LIRA-336 — change the customer adds, verified BEFORE any leg of
           // this branch is written (the up-front block refused every shape
@@ -5550,10 +5587,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               // tender ("CASH" or the wallet cashoutMethod) instead of the
               // retired "FEE" literal (owner decision #9) — the note is the
               // discriminator, not the method string.
+              // LIRA-391: the payout's kind, read from the legs when sent.
               const feeMethod =
-                cashoutMethod === "CASH" || cashoutMethod === "CUSTOMER_ACCOUNT"
+                receivePayoutKind === "CASH" ||
+                receivePayoutKind === "CUSTOMER_ACCOUNT"
                   ? "CASH"
-                  : cashoutMethod;
+                  : receivePayoutKind;
               const feeDrawer = resolveServiceCashDrawer(
                 feeMethod,
                 cashDrawerCtx,
