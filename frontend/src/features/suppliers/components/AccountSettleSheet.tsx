@@ -19,7 +19,6 @@ import {
   deriveSmsCommission,
   expectedSmsFigure,
   outstandingEstimate,
-  smsNeedsTickedTypes,
   type SmsDerivation,
   daySelectionRowKey,
   isSettleStaleMessage,
@@ -149,9 +148,10 @@ type SmsFigures = PerCurrency<{
   derived: SmsDerivation;
   /** Commission of unticked types' transfers left owed by OMT. */
   staysOwed: number;
-  /** LIRA-378 — nothing ticked, yet the SMS implies commission: Settle is
-   *  blocked until the cashier ticks the types the SMS includes. */
-  needsTypes: boolean;
+  /** LIRA-392 — nothing ticked: the gap below what is owed is not
+   *  commission; it stays owed to OMT (shop pays: the last transfer stays
+   *  part-open; OMT pays: its extra is OMT credit). */
+  gapOwed: number;
 }>;
 
 /** The credit box's text for an amount: "8.70" / "450000". */
@@ -691,14 +691,19 @@ export function AccountSettleSheet({
             (r.omt_service_type ?? "UNSPECIFIED") as OmtCoveredType,
           ),
       );
-      const derived = deriveSmsCommission({ ...fig, sms: value, currency: c });
+      const derived = deriveSmsCommission({
+        ...fig,
+        sms: value,
+        currency: c,
+        coveredTypes,
+      });
       out[c] = {
         expected: fig.expected,
         expectedCommission: fig.expectedCommission,
         owedShares: fig.owedSharesIncluded,
         sms: value,
         derived,
-        needsTypes: smsNeedsTickedTypes(coveredTypes, derived.commission, c),
+        gapOwed: derived.gapOwed,
         staysOwed: roundMoney(
           unticked.reduce((t, r) => t + outstandingEstimate(r, c), 0),
           c,
@@ -1007,9 +1012,6 @@ export function AccountSettleSheet({
     }
     return null;
   })();
-  // LIRA-378 — the same rule the server refuses on (smsNeedsTickedTypes).
-  const smsNeedsTypes =
-    sms !== null && SETTLE_CURRENCIES.some((c) => sms[c].needsTypes);
   const confirmDisabled =
     submitting ||
     !unsettledQuery.isSuccess ||
@@ -1017,7 +1019,6 @@ export function AccountSettleSheet({
     includedSections.length === 0 ||
     hasCommissionProblem ||
     creditTooHigh ||
-    smsNeedsTypes ||
     discountProblem !== null;
 
   /**
@@ -2411,14 +2412,22 @@ function CurrencySection({
                     })}
                   </p>
                 )}
-                {f.needsTypes && (
+                {/* LIRA-392 — nothing ticked: the gap is not commission; it
+                    stays owed to OMT until a later settlement. */}
+                {f.gapOwed > SETTLE_EPS[s.currency] && (
                   <p
-                    className="text-amber-400 text-xs font-semibold"
-                    data-testid={`supplier-account-settle-sms-needs-types-${lc}`}
+                    className="text-xs text-indigo-300"
+                    data-testid={`supplier-account-settle-sms-gap-owed-${lc}`}
                   >
-                    {t("accountSettle.sms.needsTypes", {
-                      amount: formatMoney(d.commission, s.currency),
-                    })}
+                    {t(
+                      s.direction === "PAY"
+                        ? "accountSettle.sms.gapStaysOwed"
+                        : "accountSettle.sms.gapOnAccount",
+                      {
+                        name: accountName,
+                        amount: formatMoney(f.gapOwed, s.currency),
+                      },
+                    )}
                   </p>
                 )}
                 {d.omtAsksMore ? (

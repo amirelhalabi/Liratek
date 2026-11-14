@@ -300,14 +300,32 @@ describe("LIRA-370 — owed shares, OMT asks more, undo", () => {
       ]);
     });
 
-    // An SMS that still implies commission contradicts "nothing ticked":
-    // the cashier must say which types it includes (smsNeedsTickedTypes).
-    it("SMS −225.50 with nothing ticked is refused — the $2.00 is commission, so a type must be ticked; nothing written", () => {
-      const start = snapshot();
-      expect(() =>
-        settle({ direction: "COLLECT", money: 225.5, sms: -225.5, covered: [] }),
-      ).toThrow(/no commission type is ticked/);
-      expect(snapshot()).toEqual(start);
+    // LIRA-392 (owner 2026-11-14): with nothing ticked the gap between the
+    // SMS and what is owed is NEVER commission — OMT is not paying any yet.
+    // The gap stays on OMT's side of the account: here OMT paid $2.00 more
+    // than we show, so OMT holds a $2.00 credit with us; the commission is
+    // settled when a later SMS includes it. (Was: refused, LIRA-378.)
+    it("SMS −225.50 with nothing ticked: no commission, every transfer closes, the $2.00 is OMT credit, all $6.20 stays owed", () => {
+      const before = drawerTotals(db);
+      settle({ direction: "COLLECT", money: 225.5, sms: -225.5, covered: [] });
+      expect(r2(drawerTotals(db).usd - before.usd)).toBe(225.5);
+      expect(r2(profitTotals(db).usd)).toBe(0);
+      expect(balance()).toBe(2);
+      expect(queue().filter((r) => r.row_scope !== "ACCOUNT")).toHaveLength(0);
+      expect(sharesTotal()).toBe(6.2);
+    });
+
+  });
+  describe("nothing ticked, shop pays (LIRA-392)", () => {
+    it("SMS 776.21 on 776.50: no commission, pays 776.21, $0.29 stays owed to OMT, all $4.20 stays owed by OMT", () => {
+      seedTestShopOmt(db, acc, false);
+      const before = drawerTotals(db);
+      settle({ direction: "PAY", money: 776.21, sms: 776.21, covered: [] });
+      expect(r2(drawerTotals(db).usd - before.usd)).toBe(-776.21);
+      expect(r2(profitTotals(db).usd)).toBe(0);
+      expect(owed()).toBe(0.29);
+      expect(sharesTotal()).toBe(4.2);
     });
   });
+
 });

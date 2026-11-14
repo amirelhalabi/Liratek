@@ -170,7 +170,8 @@
       "staysOwed": "{{amount}} of commission on other types stays owed by {{name}}.",
       "includes": "This SMS includes: {{types}}",
       "includesNone": "This SMS includes no commission — {{name}} still owes it. Tick the types it includes if it does.",
-      "needsTypes": "This SMS amount includes {{amount}} of commission, but no type is ticked. Tick the types the SMS includes before settling.",
+      "gapStaysOwed": "{{amount}} below what is owed is not commission (nothing ticked): it stays owed to {{name}} and settles next time.",
+      "gapOnAccount": "{{amount}} more than what is owed is not commission (nothing ticked): it stays on {{name}}'s account as {{name}}'s credit.",
       "owedShares": "Commission {{name}} still owes you: {{amount}} ({{types}})",
       "discount": "Discount: {{amount}}"
     },

@@ -8763,3 +8763,14 @@ Needs: a dry-run mode that lists what it would delete; a guard test that a live 
 
 **What users will notice:** on the Profits page, By Module › MTC / Alfa › Show transactions, the Detail column reads "Days 180 days", "Credits $6", "Voucher $10" instead of "180 credit".
 
+## LIRA-392: OMT Settle Account — "No commission" never reads a gap as commission — BUILT 2026-11-14 (not committed)
+
+**Asked by:** owner, 2026-11-14 (a shop's settle of Nov 10–12: OMT's SMS said $5,572.81, the sheet owed $5,573.10, "No commission" ticked; Settle stayed off with "This SMS amount includes $0.29 of commission, but no type is ticked"). Owner: "OMT is not paying us the commission yet, so this should be postponed… for now we should be able to settle without getting paid for commission."
+
+**Owner decision (2026-11-14):** the gap stays owed to OMT (option A), not a discount: shop pays → the last transfer stays part-open ($0.29 owed to OMT) and settles next time; OMT pays → its extra is OMT credit on the account. Commission of every transfer stays owed by OMT until a later SMS includes it.
+
+**Built:** `deriveSmsCommission` (`utils/omtSmsSettlement.ts`, the ONE formula) takes `coveredTypes`; with `[]` the commission is 0 whatever the figure and the gap is the new `gapOwed` (`lessThanExpected`/`shortOfExpected` are 0 too). `smsNeedsTickedTypes` (LIRA-378) is removed on both sides: the server no longer refuses, the sheet no longer disables Settle; the allocator already leaves the remainder on the last transfer (PAY) or books the extra as OMT credit (COLLECT). Sheet: new indigo line `sms.gapStaysOwed` / `sms.gapOnAccount` (by direction) replaces the amber `needsTypes` line (test id `supplier-account-settle-sms-gap-owed-<ccy>`). en + ar strings. A ticked type (or All types) keeps the LIRA-370 behaviour (gap = commission).
+
+**Tests (rule 17):** proven failing first — core `omtSmsSettlement` LIRA-392 block (4 cases: `gapOwed` undefined / commission 0.29), core `lira370OwedShares` "SMS −225.50 with nothing ticked" rewritten + new "shop pays SMS 776.21 on 776.50" (both threw `no commission type is ticked`), frontend `AccountSettleSheet.merged` LIRA-378 block last case rewritten + "ticking All types turns the gap back into commission" (`Unable to find … sms-gap-owed-usd`). Neighbours green: core 10 suites / 95 tests (lira370 Sms/Variants/Baseline/OwedShares, lira372 SettleAccountDiscount, lira373 refund, allocation, validators), frontend suppliers components 10 suites / 131 tests. `check:i18n` 0 findings. Typecheck / lint: see session log. Web e2e not re-run (no spec asserted the removed line). Desktop unverified (shared IPC channel; no desktop e2e on this Mac).
+
+**What users will notice:** on Suppliers → OMT → Settle Account with "No commission" ticked, an SMS amount that differs from the amount owed no longer switches Settle off; the difference stays owed to OMT (or as OMT's credit) and the sheet says so next to the SMS amount.

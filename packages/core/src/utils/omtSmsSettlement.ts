@@ -24,6 +24,14 @@
  * is not negative commission: commission is 0 and `omtAsksMore` is set, the
  * caller warns and keeps the difference on OMT's account (owner 2026-11-03).
  *
+ * LIRA-392 (owner 2026-11-14) — nothing ticked (`coveredTypes: []`) means
+ * OMT pays NO commission in this SMS, whatever the figure: the commission is
+ * 0 and the gap (owed − SMS, when positive) is `gapOwed` — it stays on OMT's
+ * side of the account (shop pays: the last transfer stays part-open and is
+ * owed to OMT; OMT pays: the extra is OMT's credit) and the transfers'
+ * commission is settled when a later SMS includes it. Replaces LIRA-378's
+ * "tick the types" refusal.
+ *
  * All arithmetic runs in integer minor units (USD cents, whole LBP).
  *
  * PURE and a LEAF (rule 29): reachable from `browser.ts`, so it imports
@@ -82,6 +90,9 @@ export interface SmsDerivation {
   omtAsksMore: boolean;
   /** How much worse (0 unless `omtAsksMore`). */
   difference: number;
+  /** LIRA-392 — nothing ticked: the gap below what is owed, which is NOT
+   *  commission and stays owed to OMT (0 when some type is ticked). */
+  gapOwed: number;
 }
 
 const FACTOR: Record<SmsCurrency, number> = { USD: 100, LBP: 1 };
@@ -157,47 +168,41 @@ export function expectedSmsFigure(args: {
   };
 }
 
-/**
- * LIRA-378 (owner 2026-11-09) — nothing ticked says "this SMS includes no
- * commission"; an SMS figure that still implies commission contradicts it,
- * so the cashier must tick the types it includes. The sheet blocks Settle
- * and the server refuses on this ONE rule (rule 14). `undefined` (all
- * types, the other screens) is never blocked.
- */
-export function smsNeedsTickedTypes(
+/** LIRA-378 — nothing ticked says "this SMS includes no commission".
+ *  `undefined` (all types, the other screens) never does. */
+export function smsIncludesNoCommission(
   coveredTypes: readonly OmtCoveredType[] | undefined,
-  commission: number,
-  currency: SmsCurrency,
 ): boolean {
-  return (
-    coveredTypes !== undefined &&
-    coveredTypes.length === 0 &&
-    toMinor(commission, currency) > 0
-  );
+  return coveredTypes !== undefined && coveredTypes.length === 0;
 }
 
-/** The commission an SMS figure implies, split into expected and extra. */
+/** The commission an SMS figure implies, split into expected and extra.
+ *  With nothing ticked (LIRA-392) it is 0 and the gap is `gapOwed`. */
 export function deriveSmsCommission(args: {
   owed: number;
   expectedCommission: number;
   owedSharesIncluded: number;
   sms: number;
   currency: SmsCurrency;
+  coveredTypes?: readonly OmtCoveredType[] | undefined;
 }): SmsDerivation {
   const c = args.currency;
   const raw = toMinor(args.owed, c) - toMinor(args.sms, c);
   const expectedTotal =
     toMinor(args.expectedCommission, c) + toMinor(args.owedSharesIncluded, c);
-  const commission = Math.max(0, raw);
+  const noCommission = smsIncludesNoCommission(args.coveredTypes);
+  const commission = noCommission ? 0 : Math.max(0, raw);
+  const gapOwed = noCommission ? Math.max(0, raw) : 0;
   const expectedPart = Math.min(commission, expectedTotal);
   return {
     commission: fromMinor(commission, c),
     expectedPart: fromMinor(expectedPart, c),
     extraPart: fromMinor(commission - expectedPart, c),
-    lessThanExpected: commission < expectedTotal,
-    shortOfExpected: fromMinor(expectedTotal - expectedPart, c),
+    lessThanExpected: !noCommission && commission < expectedTotal,
+    shortOfExpected: noCommission ? 0 : fromMinor(expectedTotal - expectedPart, c),
     omtAsksMore: raw < 0,
     difference: fromMinor(Math.max(0, -raw), c),
+    gapOwed: fromMinor(gapOwed, c),
   };
 }
 

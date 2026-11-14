@@ -88,7 +88,6 @@ import {
   outstandingEstimate,
   owedSharesCollected,
   smsCommissionWeight,
-  smsNeedsTickedTypes,
   tickedOwedShares,
 } from "../utils/omtSmsSettlement.js";
 import {
@@ -8311,19 +8310,12 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         owedSharesIncluded: fig.owedSharesIncluded,
         sms: section.sms_amount,
         currency,
+        // LIRA-378 / LIRA-392 — nothing ticked = no commission, whatever
+        // the figure; the gap stays owed to OMT (the allocator leaves the
+        // last transfer part-open, or books OMT's extra as its credit).
+        coveredTypes,
       });
       smsExpected = fig.expectedCommission + fig.owedSharesIncluded;
-      // LIRA-378 — nothing ticked = no commission; an SMS that still
-      // implies some needs its types ticked (the sheet blocks on the same
-      // rule).
-      if (smsNeedsTickedTypes(coveredTypes, sms.commission, currency)) {
-        throw new DatabaseError(
-          `The SMS amount implies ${fmt(sms.commission)} of commission but no ` +
-            "commission type is ticked. Tick the types this SMS includes. " +
-            `(Account settlement: ${label} SMS ${section.sms_amount} with ` +
-            "covered_omt_service_types [])",
-        );
-      }
       if (
         section.commission !== undefined &&
         Math.abs(section.commission - sms.commission) > eps

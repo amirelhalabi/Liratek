@@ -775,35 +775,53 @@ describe("AccountSettleSheet.lira378NoCommission (LIRA-378)", () => {
       expect(statuses.every((s) => s === "closes")).toBe(true);
     });
 
-    it("a typed SMS below the gross with nothing ticked blocks Settle: the $6.50 is commission, so a type must be ticked", async () => {
+    // LIRA-392 (owner 2026-11-14): with nothing ticked the gap is never
+    // commission — OMT is not paying any yet — so Settle stays ON. The
+    // $6.50 stays owed to OMT (the last transfer stays part-open) and the
+    // commission is settled when a later SMS includes it. Replaces the
+    // LIRA-378 block ("Tick the types the SMS includes"). RULE 17 — run
+    // before the sheet change: submit was disabled, commission read $6.50
+    // and the gap line did not exist.
+    it("a typed SMS below the gross with nothing ticked: commission $0.00, the $6.50 stays owed to OMT, Settle stays on", async () => {
       renderSheet(PAY_ROWS);
       await screen.findByTestId("supplier-account-settle-section-usd");
       await act(async () => {
         fireEvent.change(smsInput(), { target: { value: "770" } });
       });
-      await waitFor(() => expect(commissionLine()).toContain("$6.50"));
-      expect(
-        screen.getByTestId("supplier-account-settle-sms-needs-types-usd")
-          .textContent,
-      ).toContain("$6.50");
-      expect(
-        screen.getByTestId("supplier-account-settle-submit"),
-      ).toBeDisabled();
-      expect(mockSettleSupplierAccount).not.toHaveBeenCalled();
-      // Ticking the types the SMS includes unblocks it. (A new choice re-opens
-      // the box at its expected figure, as it always did, so 770 is retyped.)
-      await tickAllCoveredTypes(SP);
       await waitFor(() =>
         expect(
-          screen.queryByTestId("supplier-account-settle-sms-needs-types-usd"),
-        ).toBeNull(),
+          screen.getByTestId("supplier-account-settle-sms-gap-owed-usd")
+            .textContent,
+        ).toContain("$6.50"),
       );
+      expect(commissionLine()).toContain("$0.00");
+      expect(
+        screen.queryByTestId("supplier-account-settle-sms-needs-types-usd"),
+      ).toBeNull();
+      expect(
+        screen.getByTestId("supplier-account-settle-sms-stays-owed-usd")
+          .textContent,
+      ).toContain("$4.20");
+      expect(
+        screen.getByTestId("supplier-account-settle-submit"),
+      ).not.toBeDisabled();
+      const parsed = await submitAndParse();
+      expect(parsed.covered_omt_service_types).toEqual([]);
+      expect(parsed.per_currency?.USD?.sms_amount).toBe(770);
+      expect(parsed.per_currency?.USD?.commission).toBe(0);
+    });
+
+    it("ticking All types turns the same gap back into commission: $6.50, no gap line", async () => {
+      renderSheet(PAY_ROWS);
+      await screen.findByTestId("supplier-account-settle-section-usd");
+      await tickAllCoveredTypes(SP);
+      await waitFor(() => expect(smsInput().value).toBe("772.30"));
       await act(async () => {
         fireEvent.change(smsInput(), { target: { value: "770" } });
       });
       await waitFor(() => expect(commissionLine()).toContain("$6.50"));
       expect(
-        screen.queryByTestId("supplier-account-settle-sms-needs-types-usd"),
+        screen.queryByTestId("supplier-account-settle-sms-gap-owed-usd"),
       ).toBeNull();
       const parsed = await submitAndParse();
       expect(parsed.covered_omt_service_types).toHaveLength(9);

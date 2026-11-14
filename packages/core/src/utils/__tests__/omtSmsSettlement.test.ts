@@ -167,6 +167,7 @@ describe("deriveSmsCommission", () => {
       commission: 14.2,
       expectedPart: 4.2,
       extraPart: 10,
+      gapOwed: 0,
       lessThanExpected: false,
       shortOfExpected: 0,
       omtAsksMore: false,
@@ -282,5 +283,81 @@ describe("shared SMS helpers (server + sheet, rule 14)", () => {
     expect(owedSharesCollected(ticked, 1.3, "USD")).toEqual({ collected: ticked, split: 0.1 });
     expect(owedSharesCollected(ticked, 0.9, "USD")).toEqual({ collected: [ticked[0]], split: 0.7 });
     expect(owedSharesCollected(ticked, 0.1, "USD")).toEqual({ collected: [], split: 0.1 });
+  });
+});
+
+// LIRA-392 (owner 2026-11-14): nothing ticked = OMT pays no commission in
+// this SMS, whatever the figure. The gap is not commission: it stays on
+// OMT's side of the account (shop pays: left owed to OMT; OMT pays: OMT
+// credit). RULE 17 — run before the change: `gapOwed` was undefined and
+// commission read 0.29.
+describe("nothing ticked (covered_omt_service_types: []) — LIRA-392", () => {
+  it("shop pays: SMS 5572.81 on 5573.10 → commission 0, gapOwed 0.29", () => {
+    const d = deriveSmsCommission({
+      owed: 5573.1,
+      expectedCommission: 4.08,
+      owedSharesIncluded: 0,
+      sms: 5572.81,
+      currency: "USD",
+      coveredTypes: [],
+    });
+    expect(d.commission).toBe(0);
+    expect(d.expectedPart).toBe(0);
+    expect(d.extraPart).toBe(0);
+    expect(d.lessThanExpected).toBe(false);
+    expect(d.shortOfExpected).toBe(0);
+    expect(d.gapOwed).toBe(0.29);
+    expect(d.omtAsksMore).toBe(false);
+  });
+
+  it("OMT pays: SMS −225.50 on −223.50 → commission 0, gapOwed 2.00", () => {
+    const d = deriveSmsCommission({
+      owed: -223.5,
+      expectedCommission: 6.2,
+      owedSharesIncluded: 0,
+      sms: -225.5,
+      currency: "USD",
+      coveredTypes: [],
+    });
+    expect(d.commission).toBe(0);
+    expect(d.gapOwed).toBe(2);
+    expect(d.omtAsksMore).toBe(false);
+  });
+
+  it("OMT asks more with nothing ticked keeps the LIRA-370 warning: gapOwed 0", () => {
+    const d = deriveSmsCommission({
+      owed: 776.5,
+      expectedCommission: 4.2,
+      owedSharesIncluded: 0,
+      sms: 790,
+      currency: "USD",
+      coveredTypes: [],
+    });
+    expect(d.commission).toBe(0);
+    expect(d.gapOwed).toBe(0);
+    expect(d.omtAsksMore).toBe(true);
+    expect(d.difference).toBe(13.5);
+  });
+
+  it("a ticked type (or all types) keeps the gap as commission: gapOwed 0", () => {
+    const d = deriveSmsCommission({
+      owed: 776.5,
+      expectedCommission: 4.2,
+      owedSharesIncluded: 0,
+      sms: 770,
+      currency: "USD",
+      coveredTypes: ["WESTERN_UNION"],
+    });
+    expect(d.commission).toBe(6.5);
+    expect(d.gapOwed).toBe(0);
+    const all = deriveSmsCommission({
+      owed: 776.5,
+      expectedCommission: 4.2,
+      owedSharesIncluded: 0,
+      sms: 770,
+      currency: "USD",
+    });
+    expect(all.commission).toBe(6.5);
+    expect(all.gapOwed).toBe(0);
   });
 });
