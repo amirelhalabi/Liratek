@@ -392,7 +392,12 @@ function describeRechargeAmount(
   return `$${amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 }
 
-function rechargeDetailLabel(
+/**
+ * The ONE recharge detail label (rule 14): Recharge page notes, the unified
+ * transaction summary AND the Profits page drill-down (ProfitService
+ * buildRechargeModuleDetail) all read it. "Days 180 days", "Credits $6".
+ */
+export function rechargeDetailLabel(
   type: RechargeData["type"],
   amount: number,
 ): string {

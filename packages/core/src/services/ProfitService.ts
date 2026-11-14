@@ -33,6 +33,7 @@ import {
   type RateRepository,
 } from "../repositories/RateRepository.js";
 import { formatMoneyAmount } from "../utils/formatMoney.js";
+import { rechargeDetailLabel } from "../repositories/RechargeRepository.js";
 import {
   hasModuleDetailSupport,
   OTHER_EXPENSES_MODULE_KEY,
@@ -2268,7 +2269,7 @@ export class ProfitService {
         source: "recharge",
         date: r.created_at,
         counterpart: r.client_name || r.phone_number || "Walk-in",
-        detail: `${r.amount} credit`,
+        detail: rechargeDetailLabel(r.recharge_type, r.amount),
         amount_usd: isUsd ? r.price : 0,
         amount_lbp: isUsd ? 0 : r.price,
         cost_usd: isUsd ? r.cost : 0,

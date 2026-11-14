@@ -173,6 +173,7 @@ function createSchema(db: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id INTEGER DEFAULT 1,
       carrier TEXT NOT NULL,
+      recharge_type TEXT NOT NULL DEFAULT 'CREDIT_TRANSFER',
       currency_code TEXT NOT NULL DEFAULT 'USD',
       amount REAL NOT NULL DEFAULT 0,
       price REAL NOT NULL DEFAULT 0,

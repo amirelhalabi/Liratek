@@ -8748,3 +8748,18 @@ Needs: a dry-run mode that lists what it would delete; a guard test that a live 
 **Not changed:** the Sessions page basket profit stamp (reads the stamp, like every module's own stamp, ungated); the Deferred card does not yet list held extras (no "Unpaid extras" line) — open follow-up if the owner wants to see what is waiting.
 
 **What users will notice:** Profits page: an extra charge put on a customer's account no longer counts as profit until the customer pays it; it appears once the balance is settled (a basket's extra together with that basket). Accounts: from now on, paying a sale that had an extra on the account marks it paid in full, and its profit and extra then show on the Profits page.
+
+## LIRA-391: Profits drill-down labels every recharge as "credit" — BUILT 2026-11-14
+
+**Asked by:** owner, 2026-11-14 (Cornertech): "under mtc recharges in profits by module page: what does this mean 'walk in 180 credits'?"
+
+**Before:** Profits › By Module › MTC › Show transactions built its Detail text as `${amount} credit` for every recharge type. For a DAYS recharge `amount` is a day count, so Cornertech recharge #395 ("MTC Days 180 days", 1,500,000 LBP, profit 1,041,000 LBP, no phone saved) read "Walk-in · 180 credit". Money was correct; only the label lied.
+
+**Built:** `getRechargeDetail` selects `recharges.recharge_type`; `buildRechargeModuleDetail` reuses `RechargeRepository`'s exported `rechargeDetailLabel` (the same label the Recharge page notes and the Transactions summary use — rule 14) instead of a second string builder.
+
+**Tests:** `ProfitService.rechargeDetailLabel.test.ts` (real schema; DAYS, CREDIT_TRANSFER, VOUCHER, TOP_UP, ALFA_GIFT, SHOP_LINE_USE) — seen failing first ("6 credit", "10 credit"). Reconciliation fixture gained the `recharge_type` column.
+
+**Not changed:** "Walk-in" still means no client and no phone number on the recharge — that is how the Days tab saved it.
+
+**What users will notice:** on the Profits page, By Module › MTC / Alfa › Show transactions, the Detail column reads "Days 180 days", "Credits $6", "Voucher $10" instead of "180 credit".
+

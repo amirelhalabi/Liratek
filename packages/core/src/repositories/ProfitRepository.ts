@@ -27,6 +27,7 @@ import type Database from "better-sqlite3";
 import { binancePaidLegSql } from "../utils/payments.js";
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import type { RechargeData } from "./RechargeRepository.js";
 import {
   INTERNAL_LEG_METHODS,
   PROVIDER_STOCK_DRAWERS,
@@ -355,6 +356,10 @@ export interface RechargeDetailRow {
   phone_number: string | null;
   client_name: string | null;
   currency_code: string;
+  /** `recharges.recharge_type` — decides what `amount` denominates (a DAY
+   *  COUNT for DAYS, a dollar face value otherwise); the drill-down's Detail
+   *  column labels it through `rechargeDetailLabel` (rule 14). */
+  recharge_type: RechargeData["type"];
   amount: number;
   price: number;
   cost: number;
@@ -6648,6 +6653,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           r.phone_number AS phone_number,
           r.client_name AS client_name,
           r.currency_code AS currency_code,
+          r.recharge_type AS recharge_type,
           r.amount AS amount,
           r.price AS price,
           r.cost AS cost,

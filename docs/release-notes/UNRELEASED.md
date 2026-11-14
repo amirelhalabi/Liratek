@@ -484,6 +484,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 📊 Profits page
 
+- By Module › MTC / Alfa › Show transactions: the Detail column now names what was sold the same way the Recharge page does — "Days 180 days", "Credits $6", "Voucher $10", "Gift $5". Before, every line read "… credit", so a 180-day validity sale showed as "180 credit".
 - An extra charge put on a customer's account no longer counts as profit until the customer pays it. It stays out of Overview, By Module › Extra charges, By Date, By Cashier and By Client while the account is open, and appears once the balance is settled — a basket's extra is released together with that basket. This also applies to extras already on account today: they come back as soon as they are paid.
 - Profits › By Module now shows each module's expenses next to its profit (USD and LBP), with an "Other expenses" row for everything not tied to one module (shop costs, bills, line usage, drawer shortages). The TOTAL row adds them up and the net line below is unchanged. Click any expense figure to see the expenses behind it.
 - Dashboard: profit is no longer shown there, for any user. The "Net profit — last 30 days" tile and the trend chart's Profit view are gone; the chart shows product and telecom sales. Profit stays on the Profits page.
