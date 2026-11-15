@@ -8256,6 +8256,7 @@ Follow-ups: the audit row for a mobile item update records no old/new values; de
 - Listed from 7 days before expiry; once expired, stays listed until renewed or marked "Won't renew".
 - Renewal = newer insurance for the same customer (saved client or same phone) AND same insurance type; a refunded/voided renewal does not count.
 - New required "Insurance type" picker on the insurance sale: Compulsory / إلزامي, Third party / ضد الغير, Domestic worker / عاملة منزلية, All risk / شامل, Life / حياة. Older untyped insurances renew by customer only.
+- **2026-11-15 (owner):** added "Compulsory + Third party" / إلزامي + ضد الغير. One policy covering both, so it renews an older Compulsory or Third party sale; a single-cover sale does not renew the combined one. No migration: `insurance_type` is free TEXT, the list is the Zod enum in `utils/insuranceRenewal.ts`. Core guard tests proven failing first (2 of 3 failed on the old rule).
 - Everyone with Dashboard access; no money figures.
 - Bell: one summary line per day ("Insurance: 3 expire this week, 12 expired").
 - "Won't renew" button on the card.

@@ -1574,8 +1574,9 @@ CREATE TABLE IF NOT EXISTS custom_services (
     -- fresh install has no pre-existing rows to backfill.
     work_status TEXT NOT NULL DEFAULT 'Received',
     -- v227 (LIRA-360): insurance renewal reminders. insurance_type is one of
-    -- COMPULSORY / THIRD_PARTY / DOMESTIC_WORKER / ALL_RISK / LIFE (checked
-    -- by createCustomServiceSchema), NULL for every other category.
+    -- COMPULSORY / THIRD_PARTY / COMPULSORY_THIRD_PARTY / DOMESTIC_WORKER /
+    -- ALL_RISK / LIFE (checked by createCustomServiceSchema, the list lives in
+    -- utils/insuranceRenewal.ts), NULL for every other category.
     -- renewal_dismissed_* = the "Won't renew" mark.
     insurance_type TEXT DEFAULT NULL,
     renewal_dismissed_at TEXT DEFAULT NULL,

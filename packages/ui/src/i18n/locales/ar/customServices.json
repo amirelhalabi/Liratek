@@ -35,6 +35,7 @@
   "insuranceType": {
     "COMPULSORY": "إلزامي",
     "THIRD_PARTY": "ضد الغير",
+    "COMPULSORY_THIRD_PARTY": "إلزامي + ضد الغير",
     "DOMESTIC_WORKER": "عاملة منزلية",
     "ALL_RISK": "شامل",
     "LIFE": "حياة"

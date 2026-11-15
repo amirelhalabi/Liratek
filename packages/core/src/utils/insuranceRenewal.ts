@@ -23,6 +23,7 @@ export const INSURANCE_CATEGORY = "insurance";
 export const INSURANCE_TYPES = [
   "COMPULSORY",
   "THIRD_PARTY",
+  "COMPULSORY_THIRD_PARTY",
   "DOMESTIC_WORKER",
   "ALL_RISK",
   "LIFE",
@@ -35,6 +36,7 @@ export type InsuranceType = (typeof INSURANCE_TYPES)[number];
 export const INSURANCE_TYPE_LABELS: Record<InsuranceType, string> = {
   COMPULSORY: "Compulsory",
   THIRD_PARTY: "Third party",
+  COMPULSORY_THIRD_PARTY: "Compulsory + Third party",
   DOMESTIC_WORKER: "Domestic worker",
   ALL_RISK: "All risk",
   LIFE: "Life",
@@ -97,6 +99,26 @@ function isLater(
   return later.id > than.id;
 }
 
+/**
+ * What a sale of `type` covers. "Compulsory + Third party" is one policy that
+ * covers both (owner 2026-11-15), so it renews an older Compulsory or Third
+ * party sale; a single-cover sale does not renew the combined one.
+ */
+function coveredTypes(type: InsuranceType): readonly InsuranceType[] {
+  return type === "COMPULSORY_THIRD_PARTY"
+    ? ["COMPULSORY", "THIRD_PARTY", "COMPULSORY_THIRD_PARTY"]
+    : [type];
+}
+
+function sameCover(
+  old: InsuranceRenewalCandidate,
+  other: InsuranceRenewalCandidate,
+): boolean {
+  if (old.insurance_type === null) return true;
+  if (other.insurance_type === null) return false;
+  return coveredTypes(other.insurance_type).includes(old.insurance_type);
+}
+
 function isRenewedBy(
   old: InsuranceRenewalCandidate,
   other: InsuranceRenewalCandidate,
@@ -105,8 +127,7 @@ function isRenewedBy(
     other.id !== old.id &&
     isLater(other, old) &&
     sameCustomer(old, other) &&
-    (old.insurance_type === null ||
-      other.insurance_type === old.insurance_type)
+    sameCover(old, other)
   );
 }
 

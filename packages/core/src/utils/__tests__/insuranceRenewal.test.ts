@@ -103,6 +103,32 @@ describe("selectInsuranceRenewals — renewal", () => {
     ).toEqual([old.id]);
   });
 
+  it("Compulsory + Third party renews an older Compulsory", () => {
+    const old = row({ insurance_type: "COMPULSORY" });
+    const both = row({
+      insurance_type: "COMPULSORY_THIRD_PARTY",
+      sale_day: "2026-10-25",
+    });
+    expect(selectInsuranceRenewals([old, both], TODAY)).toEqual([]);
+  });
+
+  it("Compulsory + Third party renews an older Third party", () => {
+    const old = row({ insurance_type: "THIRD_PARTY" });
+    const both = row({
+      insurance_type: "COMPULSORY_THIRD_PARTY",
+      sale_day: "2026-10-25",
+    });
+    expect(selectInsuranceRenewals([old, both], TODAY)).toEqual([]);
+  });
+
+  it("Compulsory alone does not renew an older Compulsory + Third party", () => {
+    const old = row({ insurance_type: "COMPULSORY_THIRD_PARTY" });
+    const one = row({ insurance_type: "COMPULSORY", sale_day: "2026-10-25" });
+    expect(
+      selectInsuranceRenewals([old, one], TODAY).map((r) => r.id),
+    ).toEqual([old.id]);
+  });
+
   it("an untyped older sale is renewed by any type", () => {
     const old = row({ insurance_type: null });
     const life = row({ insurance_type: "LIFE", sale_day: "2026-10-25" });

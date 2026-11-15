@@ -35,6 +35,7 @@
   "insuranceType": {
     "COMPULSORY": "Compulsory",
     "THIRD_PARTY": "Third party",
+    "COMPULSORY_THIRD_PARTY": "Compulsory + Third party",
     "DOMESTIC_WORKER": "Domestic worker",
     "ALL_RISK": "All risk",
     "LIFE": "Life"
