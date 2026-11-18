@@ -226,7 +226,7 @@
   },
   "byUser": {
     "loadFailed": "Failed to load profit by cashier",
-    "caption": "Excludes counterparty discounts — not attributable to a single cashier. Transactions is the count Avg Profit/Txn divides by — refunds and supplier settlements are not counted separately."
+    "caption": "Counterparty discounts count for the cashier who recorded them. Transactions is the count Avg Profit/Txn divides by — refunds and supplier settlements are not counted separately."
   },
   "byClient": {
     "loadFailed": "Failed to load profit by client",

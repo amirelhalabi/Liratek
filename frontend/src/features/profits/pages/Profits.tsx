@@ -4658,9 +4658,10 @@ export default function Profits() {
                     (ExchangeRepository.createTransaction stamps a real
                     user_id on every exchange row — see ProfitRepository
                     .getByUser's own doc comment), so the caption no longer
-                    claims it is excluded. Counterparty (debt/supplier/
-                    partner-ledger) discounts stay excluded — a discount's
-                    "who earned this" is genuinely three-way ambiguous. */}
+                    claims it is excluded. LIRA-395: counterparty (debt/
+                    supplier/partner-ledger) discounts are now credited to
+                    the cashier who booked them, so By Cashier sums to the
+                    Overview's gross profit. */}
                 <p className="px-4 pt-3 text-xs text-slate-500">
                   {t("byUser.caption")}
                 </p>

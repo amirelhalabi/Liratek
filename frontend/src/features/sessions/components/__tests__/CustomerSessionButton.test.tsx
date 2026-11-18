@@ -15,6 +15,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useSyncExternalStore } from "react";
 import { CustomerSessionButton } from "../CustomerSessionButton";
 import { type CartItem } from "../../types/cart";
+import { isAnonymousSessionName } from "@liratek/core";
 
 interface MockSessionState {
   activeSession: {
@@ -115,7 +116,14 @@ const mockCheckout = jest.fn(async () => ({ success: true, itemCount: 1 }));
 
 // Stable identity across renders (rule 25).
 const mockApi = {
-  session: { checkout: mockCheckout },
+  session: {
+    checkout: mockCheckout,
+    // LIRA-393 — the Walk-In row reads today's basket names to pick a number.
+    getTodaySessions: jest.fn(async () => ({
+      success: true,
+      sessions: [] as Array<{ customer_name?: string }>,
+    })),
+  },
   getAllSettings: jest.fn(async () => []),
   getClients: jest.fn(async () => []),
 };
@@ -382,5 +390,54 @@ describe("CustomerSessionButton.hoverPanel", () => {
         screen.getByRole("button", { name: /Confirm Checkout/i }),
       ).toBeTruthy();
     });
+  });
+});
+
+describe("CustomerSessionButton.walkInName (LIRA-393)", () => {
+  beforeAll(resetBetweenFiles);
+
+  /**
+   * The Walk-In row names the basket automatically. Profits folds such
+   * baskets into "Walk-in" by matching the name with the core matcher, so
+   * the generator and the matcher must agree: every name the button makes
+   * is accepted by `isAnonymousSessionName`, and a basket the cashier
+   * renamed is not.
+   */
+  async function clickWalkIn(todayNames: string[]): Promise<void> {
+    (
+      mockApi.session.getTodaySessions as unknown as jest.Mock
+    ).mockImplementation(async () => ({
+      success: true,
+      sessions: todayNames.map((customer_name) => ({ customer_name })),
+    }));
+    (mockNoop as unknown as jest.Mock).mockClear();
+    render(<CustomerSessionButton />);
+    fireEvent.click(
+      screen.getByRole("button", { name: /switch or start a session/i }),
+    );
+    const hint = await screen.findByText(/auto-named/i);
+    await act(async () => {
+      fireEvent.click(hint.closest("button")!);
+    });
+  }
+
+  function startedName(): string {
+    const call = (mockNoop as unknown as jest.Mock).mock.calls.find(
+      (c) => c[0] && typeof c[0] === "object" && "customer_name" in c[0],
+    );
+    expect(call).toBeDefined();
+    return (call![0] as { customer_name: string }).customer_name;
+  }
+
+  it("picks the first free number and the core matcher accepts it", async () => {
+    await clickWalkIn(["Client1", "Client3", "Rami"]);
+    const name = startedName();
+    expect(name).toBe("Client2");
+    expect(isAnonymousSessionName(name)).toBe(true);
+  });
+
+  it("a renamed basket is not matched — it keeps its own By Client row", () => {
+    expect(isAnonymousSessionName("Rami")).toBe(false);
+    expect(isAnonymousSessionName("Client 2")).toBe(false);
   });
 });

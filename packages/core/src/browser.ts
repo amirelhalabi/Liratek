@@ -132,6 +132,9 @@ export * from "./constants/systemFloatDrawers.js";
 // LIRA-371 — cash-drawer choice (SYSTEM | GENERAL), its refusal text and the
 // supplier applicability predicate. Pure leaf, no imports (rule 29).
 export * from "./constants/cashDrawerChoice.js";
+// LIRA-393 — the automatic basket name (Client<N>): generator + matchers.
+// Pure leaf, no imports, in BOTH entry points (rule 29).
+export * from "./constants/anonymousSessionName.js";
 
 // Which module owns which drawer, and which drawers no module may hide
 // (rule 14: this was four divergent copies, two of them gating whether

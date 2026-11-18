@@ -23,10 +23,50 @@ function createSchema(db: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, type TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'ACTIVE',
       source_table TEXT NOT NULL, source_id INTEGER NOT NULL, user_id INTEGER, amount_usd REAL DEFAULT 0, amount_lbp REAL DEFAULT 0,
       profit_usd REAL DEFAULT 0, profit_lbp REAL DEFAULT 0, extra_usd REAL NOT NULL DEFAULT 0, extra_lbp REAL NOT NULL DEFAULT 0, client_id INTEGER, client_name TEXT, client_phone TEXT,
-      reverses_id INTEGER, summary TEXT, created_at TEXT
+      reverses_id INTEGER, summary TEXT, metadata_json TEXT, created_at TEXT
     );
     -- LIRA-385: the expense→module mapping resolves a recharge's carrier.
-    CREATE TABLE recharges (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, carrier TEXT);
+    -- LIRA-395: the Kept Change drill-down now walks every module's detail
+    -- query (recharges, loto, exchange), so this fixture carries the same
+    -- table shapes as ProfitRepository.moduleDetailReconciliation.test.ts.
+    CREATE TABLE recharges (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      carrier TEXT NOT NULL,
+      recharge_type TEXT NOT NULL DEFAULT 'CREDIT_TRANSFER',
+      currency_code TEXT NOT NULL DEFAULT 'USD',
+      amount REAL NOT NULL DEFAULT 0,
+      price REAL NOT NULL DEFAULT 0,
+      cost REAL NOT NULL DEFAULT 0,
+      phone_number TEXT,
+      client_name TEXT,
+      is_refunded INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE loto_tickets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      ticket_number TEXT,
+      sale_amount REAL NOT NULL DEFAULT 0,
+      client_name TEXT,
+      is_refunded INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE exchange_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      from_currency TEXT,
+      to_currency TEXT,
+      amount_in REAL NOT NULL DEFAULT 0,
+      amount_out REAL NOT NULL DEFAULT 0,
+      leg1_profit_usd REAL DEFAULT 0,
+      leg2_profit_usd REAL DEFAULT 0,
+      client_name TEXT,
+      is_refunded INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
     CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, username TEXT, created_at TEXT, updated_at TEXT);
     CREATE TABLE clients (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, full_name TEXT, phone_number TEXT, created_at TEXT, updated_at TEXT);
     CREATE TABLE financial_services (

@@ -59,7 +59,10 @@ import {
   getPartnerRepository,
   type CreateLedgerEntryData,
 } from "./PartnerRepository.js";
-import { getTransactionRepository } from "./TransactionRepository.js";
+import {
+  CREDIT_RETURN_LEG_METHOD,
+  getTransactionRepository,
+} from "./TransactionRepository.js";
 import type { SplitCheckoutItem } from "../utils/splitCheckoutItems.js";
 import { resolveBackTimedDrawerMovement } from "./checkpointResolution.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
@@ -3793,7 +3796,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
           insertPayment.run(
             txnId,
-            "CREDIT_RETURN",
+            CREDIT_RETURN_LEG_METHOD, // rule 14 — LIRA-396 reads this marker
             creditDrawer,
             "USD",
             credits,

@@ -1,0 +1,6 @@
+# Research — LIRA-393
+
+- **Where to fold.** Decision: outermost `GROUP BY` of `getByClient`. Rationale: every inner arm (reattributed settlement commission, kept change, pending legacy commission, orphan `NOT EXISTS`, extra charges) matches its source rows on the group's raw name key; renaming the key inside would make `ft.client_name='Client2'` stop matching and silently drop money. Alternative rejected: wrapping `CLIENT_NAME_KEY`.
+- **SQL matcher.** Decision: `x GLOB 'Client[0-9]*' AND substr(x, 7) NOT GLOB '*[^0-9]*'`. Rationale: SQLite in better-sqlite3 has no REGEXP; `LIKE` is case-insensitive (`client7` would fold). GLOB is case-sensitive. Generated from the TS prefix constant; no bind params.
+- **Drill-down rows carry no `client_id`.** Decision: `counterpartLabel(name, phone, clientId?)` folds when `clientId` is null/undefined. Rationale: plumbing the id through every detail query means editing queries owned by 394/396. Consequence (accepted, logged): a real client literally named `Client<N>` reads "Walk-in" in drill-downs (none exists today).
+- **Auto-name + phone.** Decision: the auto-name is treated as absent, so the existing order `name || phone || "Walk-in"` applies (phone shows if any).

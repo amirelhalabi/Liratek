@@ -993,6 +993,8 @@ describe("ProfitRepository — empty By Cashier / By Client rows are hidden", ()
     db.close();
   });
 
+  // LIRA-393: typed basket names — an automatic `Client<N>` name now folds
+  // into Walk-in, which would hide what this block guards (an empty NAMED row).
   function seedVoidedBasketKeptChange(): void {
     // bob's voided basket kept change + its void reversal (profit 0).
     const voidedId = Number(
@@ -1000,28 +1002,28 @@ describe("ProfitRepository — empty By Cashier / By Client rows are hidden", ()
         .prepare(
           `INSERT INTO transactions
             (tenant_id, type, status, source_table, source_id, user_id, profit_usd, profit_lbp, client_name, created_at)
-           VALUES (1, 'KEPT_CHANGE', 'VOIDED', 'customer_sessions', 1, 2, 0.4, 0, 'Client1', ?)`,
+           VALUES (1, 'KEPT_CHANGE', 'VOIDED', 'customer_sessions', 1, 2, 0.4, 0, 'Bob basket', ?)`,
         )
         .run(IN_RANGE).lastInsertRowid,
     );
     db.prepare(
       `INSERT INTO transactions
         (tenant_id, type, status, source_table, source_id, user_id, profit_usd, profit_lbp, client_name, reverses_id, created_at)
-       VALUES (1, 'KEPT_CHANGE', 'ACTIVE', 'customer_sessions', 1, 2, 0, 0, 'Client1', ?, ?)`,
+       VALUES (1, 'KEPT_CHANGE', 'ACTIVE', 'customer_sessions', 1, 2, 0, 0, 'Bob basket', ?, ?)`,
     ).run(voidedId, IN_RANGE);
     // alice's live kept change — the control, must still show.
     db.prepare(
       `INSERT INTO transactions
         (tenant_id, type, status, source_table, source_id, user_id, profit_usd, profit_lbp, client_name, created_at)
-       VALUES (1, 'KEPT_CHANGE', 'ACTIVE', 'customer_sessions', 2, 1, 0.25, 0, 'Client2', ?)`,
+       VALUES (1, 'KEPT_CHANGE', 'ACTIVE', 'customer_sessions', 2, 1, 0.25, 0, 'Alice basket', ?)`,
     ).run(IN_RANGE);
   }
 
   it("getByClient: no $0 / 0-transaction row for the voided session's client; the live one stays", () => {
     seedVoidedBasketKeptChange();
     const rows = runWithTenant(1, () => repo.getByClient(FROM, TO, 30));
-    expect(rows.map((r) => r.client_name)).not.toContain("Client1");
-    const live = rows.find((r) => r.client_name === "Client2");
+    expect(rows.map((r) => r.client_name)).not.toContain("Bob basket");
+    const live = rows.find((r) => r.client_name === "Alice basket");
     expect(live).toBeDefined();
     expect(live!.profit_usd).toBeCloseTo(0.25, 6);
   });

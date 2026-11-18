@@ -29,6 +29,7 @@ import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import type { RechargeData } from "./RechargeRepository.js";
 import {
+  CREDIT_RETURN_LEG_METHOD,
   INTERNAL_LEG_METHODS,
   PROVIDER_STOCK_DRAWERS,
   sessionBasketNotReversedSql,
@@ -54,6 +55,8 @@ import { saleItemRefundOriginalIdSql } from "./saleRefundOriginalFragment.js";
 import {
   extraChargeProfit,
   saleNetExtraUsdEquiv,
+  salePaidUsdEquiv,
+  saleOwedUsdEquiv as saleOwedUsdEquivFragment,
 } from "./saleExtraFragment.js";
 export { extraChargeProfit };
 import {
@@ -70,6 +73,7 @@ import {
 } from "./sessionDebtCoverage.js";
 import { getDatabase } from "../db/connection.js";
 import { COMMISSION_PROVIDERS_SQL_LIST } from "../constants/commissionProviders.js";
+import { isAnonymousSessionNameSql } from "../constants/anonymousSessionName.js";
 import { REFUND_KEPT_CHANGE_META } from "../validators/transaction.js";
 import { MOBILE_SERVICE_PROVIDERS_SQL_LIST } from "../constants/mobileServiceProviders.js";
 import {
@@ -328,14 +332,20 @@ export interface SaleDetailRow {
   total_amount_usd: number;
   paid_usd: number;
   paid_lbp: number;
-  /** PROF-DD-FIX (review round) — `sales.final_amount_usd` (post-discount)
-   *  and the SAME "paid, USD + LBP-at-snapshot-rate" figure
-   *  {@link saleFullyPaid} gates on ({@link saleTotalPaidUsdEquiv}). The
-   *  service's "Customer still owes" reason is built from these two, never
-   *  from `total_amount_usd`/`paid_usd` above (pre-discount / USD-only —
-   *  kept for back-compat, not for this text). */
+  /** `sales.final_amount_usd` (post-discount, extra EXCLUDED). */
   final_amount_usd: number;
-  paid_total_usd: number;
+  /** LIRA-394 — the "paid $X of $Y" figures, from the ONE display pair
+   *  {@link salePaidUsdEquiv} (gross, extra included) and
+   *  {@link saleOwedUsdEquiv} (final + net extra). Replaces `paid_total_usd`
+   *  (= {@link saleTotalPaidUsdEquiv}, paid − extra: a recognition input that
+   *  read "paid $-2.00 of $18.00" when shown). Never `total_amount_usd` /
+   *  `paid_usd` above (pre-discount / USD-only — PROF-DD-FIX M4). */
+  paid_usd_equiv: number;
+  owed_usd_equiv: number;
+  /** LIRA-394 — 1 for a row from the `status = 'refunded'` arm
+   *  ({@link ProfitRepository.getSalesDetail}'s M1 merge), 0 otherwise. Its
+   *  `items_summary` then lists the original (all refunded) lines. */
+  refunded_arm: 0 | 1;
 }
 
 /**
@@ -552,6 +562,9 @@ export interface LotoDetailRow {
   created_at: string;
   client_name: string | null;
   ticket_number: string | null;
+  /** LIRA-396 — the ticket's transaction summary (Detail fallback when no
+   *  ticket number was saved). */
+  summary: string | null;
   revenue_lbp: number;
   profit_lbp: number;
   kept_change_usd: number;
@@ -582,6 +595,10 @@ export interface ExchangeDetailRow {
   to_currency: string | null;
   amount_usd: number;
   profit_usd: number;
+  /** LIRA-395 — the payout keep-change ({@link exchangeKeptProfitUsd}),
+   *  unweighted; NOT inside `profit_usd`. Read by the Kept Change drill-down,
+   *  weighted the same way as the margin. */
+  kept_change_usd: number;
   has_partner_obligation: 0 | 1;
   partner_coverage_ratio: number;
   /** LIRA-369 US5 — 1 while an 'Exchange Debt' for this exchange is still
@@ -878,6 +895,27 @@ export interface TopupBuybackProfitRow {
  */
 export function saleTotalPaidUsdEquiv(alias: string): string {
   return `(${alias}.paid_usd + COALESCE(${alias}.paid_lbp, 0) / COALESCE(NULLIF(${alias}.exchange_rate_snapshot, 0), 1) - ${saleExtraUsdEquiv(alias)})`;
+}
+
+/**
+ * LIRA-394 (rule 14) — the ONE pair of figures any Profits text shows for
+ * "paid $X of $Y" on a sale, in the customer's terms:
+ *  - {@link salePaidUsdEquiv}: what the customer actually paid, USD + LBP at
+ *    the sale's snapshot rate, extra INCLUDED (gross);
+ *  - {@link saleOwedUsdEquiv}: what the sale asks of the customer,
+ *    `final_amount_usd` + its NET extra (refunded share removed).
+ * {@link saleTotalPaidUsdEquiv} (paid − extra, compared to the extra-free
+ * `final_amount_usd`) stays the RECOGNITION input only — shown to a person it
+ * read "paid $-2.00 of $18.00" on an $18 + $2 sale on the account (Cornertech
+ * #565). Defined ONCE in the leaf `saleExtraFragment.ts`;
+ * `DebtRepository._loadAllocationItems` reads the same pair from there.
+ */
+export { salePaidUsdEquiv };
+
+/** See {@link salePaidUsdEquiv} — the leaf pair with this file's
+ *  `salesExtraSupported()` schema probe applied. */
+export function saleOwedUsdEquiv(alias: string): string {
+  return saleOwedUsdEquivFragment(alias, salesExtraSupported());
 }
 
 /**
@@ -1664,6 +1702,50 @@ function fsRevenue(alias: string): string {
 }
 
 /**
+ * LIRA-396 — the ONE set of transactions that returned telecom credits to
+ * the shop ("Only Days": a Katsh/iPick alfa/mtc card sold for its days,
+ * the credits coming back to the shop's line). The writer-owned marker is
+ * the `CREDIT_RETURN` payment leg (`FinancialServiceRepository
+ * .processTelecomCreditReturn`, every such row since LIRA-090) — never the
+ * free-text " [Only Days]" note suffix. A derived table, joined ONCE: the
+ * `payments` table has no `transaction_id` index, so a per-row EXISTS would
+ * scan it per row. Binds ONE `?` (tenant id).
+ */
+export const ONLY_DAYS_TXN_IDS_SQL = `SELECT DISTINCT p.transaction_id AS transaction_id
+          FROM payments p
+          WHERE p.method = '${CREDIT_RETURN_LEG_METHOD}' AND p.tenant_id = ?`;
+
+/**
+ * LIRA-396 — a financial-service row's Detail label in the Profits
+ * drill-down: the module's own wording (the unified transaction's summary,
+ * built by `buildFinancialServiceSummary`), falling back to the service
+ * type for a legacy row written before summaries existed.
+ */
+function fsDetailLabel(summary: string, alias: string): string {
+  return `COALESCE(NULLIF(TRIM(${summary}), ''), ${alias}.service_type)`;
+}
+
+/**
+ * LIRA-396 (spec D1) — the cost a Profits drill-down shows for a
+ * financial-service row. For an Only Days row the stored `cost` is the
+ * GROSS card (what the provider drawer paid — Suppliers history, FIFO and
+ * settle coverage read it that way, so it is never rewritten), while the
+ * stamped profit already nets the returned credits back in
+ * (`commission = price − cost + credits × R`). Its cost here is therefore
+ * revenue − profit, so price − cost = profit on the row; every other row
+ * keeps its stored cost. `isOnlyDays` is a SQL boolean (e.g. the
+ * {@link ONLY_DAYS_TXN_IDS_SQL} join hit), `profit` the row's own profit
+ * expression in the same currency.
+ */
+export function fsDrilldownCost(
+  alias: string,
+  isOnlyDays: string,
+  profit: string,
+): string {
+  return `CASE WHEN ${isOnlyDays} THEN (${fsRevenue(alias)}) - (${profit}) ELSE ${alias}.cost END`;
+}
+
+/**
  * Rule 14 — the ONE definition of "this row's own `commission` column is the
  * settled truth" (legacy EMBEDDED, D3 cutover: `commission_model = 0`).
  *
@@ -1917,6 +1999,21 @@ export function hasExchangeTransactionsTable(db: Database.Database): boolean {
   const row = db
     .prepare(
       `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'exchange_transactions'`,
+    )
+    .get();
+  return !!row;
+}
+
+/**
+ * LIRA-396 — same schema-drift probe for `payments` (the Only Days marker,
+ * {@link ONLY_DAYS_TXN_IDS_SQL}). Module scope, not a private method: the
+ * recognition drift guard cannot see `private` methods and would attribute
+ * this `.prepare()` to whichever method precedes it.
+ */
+export function hasPaymentsTable(db: Database.Database): boolean {
+  const row = db
+    .prepare(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'payments'`,
     )
     .get();
   return !!row;
@@ -5539,12 +5636,13 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     fromDt: string,
     toDt: string,
   ): MobileCurrencyRow[] {
+    const od = this._onlyDaysMarker();
     return this.db
       .prepare(
         `SELECT
           fs.currency AS currency,
           COALESCE(SUM(fs.price * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS revenue,
-          COALESCE(SUM(fs.cost * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS cost,
+          COALESCE(SUM((${fsDrilldownCost("fs", od.isOnlyDays, ownCurrencyProfit("fs.currency"))}) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS cost,
           COALESCE(SUM((${ownCurrencyProfit("fs.currency")}) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS profit,
           -- LO-R4 (round 3, rule 14) — kept change via the SAME shared
           -- otherCurrencyKeptChangeUsd/Lbp fragments every other query in
@@ -5562,6 +5660,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           SUM(CASE WHEN (${partnerCoverageRatio("financial_services", "fs.id")}) > 0 THEN 1 ELSE 0 END) AS count
         FROM financial_services fs
         JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
+        ${od.join}
         WHERE fs.provider IN (${MOBILE_PROVIDERS})
           AND t.status = 'ACTIVE'
           AND ${notRefunded("fs")}
@@ -5578,6 +5677,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         ])}`,
       )
       .all(
+        ...od.params,
         fromDt,
         toDt,
         getCurrentTenantId(),
@@ -6244,7 +6344,14 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         GROUP BY sca.provider`
       : "";
 
-    const params: (string | number)[] = [fromDt, toDt, tenantId, tenantId];
+    const od = this._onlyDaysMarker();
+    const params: (string | number)[] = [
+      ...od.params,
+      fromDt,
+      toDt,
+      tenantId,
+      tenantId,
+    ];
     if (hasAllocations) params.push(tenantId, fromDt, toDt);
 
     return this.db
@@ -6273,8 +6380,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- PA-2.9: real BILL-flow cost (fs.cost; 0 for a plain
             -- SEND/RECEIVE) — was hard-coded 0 at the ProfitService layer
             -- while revenue = price.
-            COALESCE(SUM(CASE WHEN ${cur} = 'USD' THEN fs.cost * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS cost_usd,
-            COALESCE(SUM(CASE WHEN ${cur} = 'LBP' THEN fs.cost * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS cost_lbp,
+            COALESCE(SUM(CASE WHEN ${cur} = 'USD' THEN (${fsDrilldownCost("fs", od.isOnlyDays, `t.profit_usd + ${unstampedUsdtCommission("fs", cm)}`)}) * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS cost_usd,
+            COALESCE(SUM(CASE WHEN ${cur} = 'LBP' THEN (${fsDrilldownCost("fs", od.isOnlyDays, "t.profit_lbp")}) * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS cost_lbp,
             COALESCE(SUM(CASE WHEN ${cur} = 'USD' THEN (t.profit_usd + ${unstampedUsdtCommission("fs", cm)}) * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS profit_usd,
             COALESCE(SUM(CASE WHEN ${cur} = 'LBP' THEN t.profit_lbp * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS profit_lbp,
             -- LO-V1/PA-3.1 — kept change stamped in the OTHER currency (see
@@ -6298,6 +6405,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             SUM(CASE WHEN ${cur} IN ('USD', 'LBP') AND (${partnerCoverageRatio("financial_services", "fs.id")}) > 0 THEN 1 ELSE 0 END) AS count
           FROM financial_services fs
           JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
+          ${od.join}
           -- PA-2.8/LO-V2: a mobile-services provider (iPick/Katsh/BOB)
           -- recognises unconditionally, the SAME way getMobileServicesByCurrency
           -- (the Overview's own mobile-services query) already does; a
@@ -6470,7 +6578,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             s.paid_usd AS paid_usd,
             s.paid_lbp AS paid_lbp,
             s.final_amount_usd AS final_amount_usd,
-            (${saleTotalPaidUsdEquiv("s")}) AS paid_total_usd
+            (${salePaidUsdEquiv("s")}) AS paid_usd_equiv,
+            (${saleOwedUsdEquiv("s")}) AS owed_usd_equiv,
+            0 AS refunded_arm
           FROM sale_items si
           JOIN sales s ON si.sale_id = s.id
           LEFT JOIN clients c ON c.id = s.client_id AND c.tenant_id = ?
@@ -6541,7 +6651,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           s.paid_usd AS paid_usd,
           s.paid_lbp AS paid_lbp,
           s.final_amount_usd AS final_amount_usd,
-          (${saleTotalPaidUsdEquiv("s")}) AS paid_total_usd
+          (${salePaidUsdEquiv("s")}) AS paid_usd_equiv,
+          (${saleOwedUsdEquiv("s")}) AS owed_usd_equiv,
+          0 AS refunded_arm
         FROM sale_net sn
         JOIN sales s ON s.id = sn.sale_id
         LEFT JOIN clients c ON c.id = s.client_id AND c.tenant_id = ?
@@ -6566,24 +6678,43 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * weight/profit are the SAME shapes {@link getCompletedSalesDetailNet}
    * uses, so a for-partner or not-yet-fully-paid refunded sale still gets a
    * correct `reason` from the service instead of silently reading as
-   * "counted" or "excluded" for the wrong reason. Restricted to sales with
-   * at least one ACTIVE SALE/REFUND row (an EXISTS gate) so a `'refunded'`
-   * sale with a genuinely zero net contribution doesn't clutter the
-   * drill-down with an all-zero row nobody asked to see.
+   * "counted" or "excluded" for the wrong reason.
+   *
+   * LIRA-394 — only a sale with a NONZERO residual (`profit_usd` or
+   * `profit_lbp` from {@link salePlusRefundProfitSubquery}, which already
+   * nets the refund's kept change out — that counts on the refund's own day)
+   * is listed: that residual is the only thing this arm exists to surface,
+   * and a zero one contributes nothing to the module row, so dropping it
+   * keeps "Σ counted = module row" exact. Before, every refunded sale with an
+   * ACTIVE SALE/REFUND row was listed — fully refunded sales as 0/0/0 noise
+   * and, when they had been on the account, under "not counted" as
+   * "Customer still owes — paid $265.00 of $1135.00." (Cornertech #557). The
+   * filter reads the selected residual columns (below, after the query), so
+   * the residual sub-query is not pasted twice and the binds are unchanged.
+   * A listed row names its original (all refunded) lines in `items_summary`.
    */
   private getRefundedSalesDetail(
     fromDt: string,
     toDt: string,
     tenantId: number,
   ): SaleDetailRow[] {
-    return this.db
-      .prepare(
-        `SELECT
+    // LIRA-394 — no local variable here on purpose: the recognition guard
+    // (profitRecognition.guard.test.ts) keys this query's exclusion by the
+    // nearest preceding variable name.
+    return (
+      this.db
+        .prepare(
+          `SELECT
           s.id AS sale_id,
           s.created_at AS created_at,
           c.full_name AS client_name,
           c.phone_number AS client_phone,
-          NULL AS items_summary,
+          (
+            SELECT GROUP_CONCAT(p.name || ' x' || si2.quantity, ', ')
+            FROM sale_items si2
+            JOIN products p ON p.id = si2.product_id AND p.tenant_id = s.tenant_id
+            WHERE si2.sale_id = s.id AND si2.tenant_id = s.tenant_id
+          ) AS items_summary,
           0 AS revenue_usd,
           0 AS cost_usd,
           (${saleRecognitionWeight("s")}) AS weight,
@@ -6597,7 +6728,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           s.paid_usd AS paid_usd,
           s.paid_lbp AS paid_lbp,
           s.final_amount_usd AS final_amount_usd,
-          (${saleTotalPaidUsdEquiv("s")}) AS paid_total_usd
+          (${salePaidUsdEquiv("s")}) AS paid_usd_equiv,
+          (${saleOwedUsdEquiv("s")}) AS owed_usd_equiv,
+          1 AS refunded_arm
         FROM sales s
         LEFT JOIN clients c ON c.id = s.client_id AND c.tenant_id = ?
         WHERE s.status = 'refunded'
@@ -6610,16 +6743,21 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               AND t2.tenant_id = ?
           )
         ORDER BY s.created_at DESC, s.id DESC`,
-      )
-      .all(
-        tenantId,
-        tenantId,
-        tenantId,
-        fromDt,
-        toDt,
-        tenantId,
-        tenantId,
-      ) as SaleDetailRow[];
+        )
+        .all(
+          tenantId,
+          tenantId,
+          tenantId,
+          fromDt,
+          toDt,
+          tenantId,
+          tenantId,
+        ) as SaleDetailRow[]
+    ).filter(
+      // LIRA-394 — nothing left to count, nothing to list (see the doc
+      // comment). 1e-6 keeps "Σ counted = module row" exact to 6 places.
+      (r) => Math.abs(r.profit_usd) > 1e-6 || Math.abs(r.profit_lbp) > 1e-6,
+    );
   }
 
   /**
@@ -6698,6 +6836,31 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
   }
 
   /**
+   * LIRA-396 — the ONE way a Profits query recognises an Only Days row (a
+   * `CREDIT_RETURN` payment leg, {@link ONLY_DAYS_TXN_IDS_SQL}) so its cost
+   * reads net ({@link fsDrilldownCost}). Shared by the FS drill-down, the
+   * per-provider By Module row and the Overview's mobile-services cost — one
+   * marker, one bind (rule 14). A hand-rolled fixture with no `payments`
+   * table keeps the stored cost (schema-drift degrade). `join` goes right
+   * after the `transactions t` join; `params` go FIRST in the bind list,
+   * before the WHERE binds (the join precedes the WHERE in the SQL text and
+   * the SELECT list carries no `?`).
+   */
+  private _onlyDaysMarker(): {
+    isOnlyDays: string;
+    join: string;
+    params: number[];
+  } {
+    if (!hasPaymentsTable(this.db))
+      return { isOnlyDays: "0", join: "", params: [] };
+    return {
+      isOnlyDays: "odx.transaction_id IS NOT NULL",
+      join: `LEFT JOIN (${ONLY_DAYS_TXN_IDS_SQL}) odx ON odx.transaction_id = t.id`,
+      params: [getCurrentTenantId()],
+    };
+  }
+
+  /**
    * LIRA-233 (#14 slice 3) — per-row drill-down under a
    * `FINANCIAL_SERVICE_<provider>` By Module row. Combines a "transfer" arm
    * (one row per `financial_services` row for this provider) and a
@@ -6717,6 +6880,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * too would double-list them (owner's explicit "do not count it twice"
    * instruction, same one {@link getSupplierCommissionTotals} documents).
    */
+
   getFinancialServiceDetail(
     provider: string,
     fromDt: string,
@@ -6730,6 +6894,13 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     // tracked-currency check counts it) and its profit adds the fee the
     // USDT stamp leaves out — the SAME fragments as By Module/Overview.
     const cur = fsReportingCurrency("fs");
+    // LIRA-396 — Only Days rows (a CREDIT_RETURN leg) show their net cost,
+    // via ONE scan of `payments` joined once. A hand-rolled fixture with no
+    // `payments` table keeps the stored cost (schema-drift degrade).
+    const od = this._onlyDaysMarker();
+    const isOnlyDays = od.isOnlyDays;
+    const onlyDaysJoin = od.join;
+    const profitUsd = `t.profit_usd + ${unstampedUsdtCommission("fs", hasCommissionModel)}`;
 
     const transferRows = this.db
       .prepare(
@@ -6739,13 +6910,13 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           fs.created_at AS created_at,
           fs.client_name AS counterpart_name,
           fs.phone_number AS counterpart_phone,
-          fs.service_type AS detail,
+          ${fsDetailLabel("t.summary", "fs")} AS detail,
           ${cur} AS currency_code,
           CASE WHEN ${cur} = 'USD' THEN (${fsRevenue("fs")}) ELSE 0 END AS amount_usd,
           CASE WHEN ${cur} = 'LBP' THEN (${fsRevenue("fs")}) ELSE 0 END AS amount_lbp,
-          CASE WHEN ${cur} = 'USD' THEN fs.cost ELSE 0 END AS cost_usd,
-          CASE WHEN ${cur} = 'LBP' THEN fs.cost ELSE 0 END AS cost_lbp,
-          CASE WHEN ${cur} = 'USD' THEN t.profit_usd + ${unstampedUsdtCommission("fs", hasCommissionModel)} ELSE 0 END AS profit_usd,
+          CASE WHEN ${cur} = 'USD' THEN ${fsDrilldownCost("fs", isOnlyDays, profitUsd)} ELSE 0 END AS cost_usd,
+          CASE WHEN ${cur} = 'LBP' THEN ${fsDrilldownCost("fs", isOnlyDays, "t.profit_lbp")} ELSE 0 END AS cost_lbp,
+          CASE WHEN ${cur} = 'USD' THEN ${profitUsd} ELSE 0 END AS profit_usd,
           CASE WHEN ${cur} = 'LBP' THEN t.profit_lbp ELSE 0 END AS profit_lbp,
           CASE WHEN ${fsProviderRowRecognized("fs", hasCommissionModel)} THEN 1 ELSE 0 END AS recognized,
           CASE WHEN ${fsProviderKnown("fs")} THEN 1 ELSE 0 END AS provider_known,
@@ -6759,6 +6930,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           CASE WHEN ${notDebtPending("t.id")} THEN 0 ELSE 1 END AS debt_pending
         FROM financial_services fs
         JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
+        ${onlyDaysJoin}
         WHERE fs.provider = ?
           AND t.status = 'ACTIVE'
           AND ${notRefunded("fs")}
@@ -6767,6 +6939,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         ORDER BY fs.created_at DESC, fs.id DESC`,
       )
       .all(
+        ...od.params,
         provider,
         fromDt,
         toDt,
@@ -6784,7 +6957,13 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           sca.created_at AS created_at,
           fs.client_name AS counterpart_name,
           fs.phone_number AS counterpart_phone,
-          fs.service_type AS detail,
+          ${fsDetailLabel(
+            `(SELECT fst.summary FROM transactions fst
+               WHERE fst.source_table = 'financial_services' AND fst.source_id = fs.id
+                 AND fst.type = 'FINANCIAL_SERVICE' AND +fst.tenant_id = fs.tenant_id
+               ORDER BY fst.id LIMIT 1)`,
+            "fs",
+          )} AS detail,
           NULL AS currency_code,
           0 AS amount_usd,
           0 AS amount_lbp,
@@ -6834,7 +7013,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           cs.created_at AS created_at,
           cs.client_name AS client_name,
           cs.phone_number AS phone_number,
-          cs.description AS description,
+          -- LIRA-396: never a blank Detail — the service's own summary,
+          -- else its id.
+          COALESCE(NULLIF(TRIM(cs.description), ''), NULLIF(TRIM(t.summary), ''), 'Custom service #' || cs.id) AS description,
           cs.price_usd AS revenue_usd,
           cs.price_lbp AS revenue_lbp,
           cs.cost_usd AS cost_usd,
@@ -6870,7 +7051,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           m.id AS id,
           t.created_at AS created_at,
           m.client_name AS client_name,
-          m.device_name AS device_name,
+          -- LIRA-396: never a blank Detail — the job's own summary (it
+          -- carries the device and issue), else its id.
+          COALESCE(NULLIF(TRIM(m.device_name), ''), NULLIF(TRIM(t.summary), ''), 'Repair job #' || m.id) AS device_name,
           m.final_amount_usd AS revenue_usd,
           m.final_amount_lbp AS revenue_lbp,
           (${maintenanceCostUsd("m")}) AS cost_usd,
@@ -6906,6 +7089,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           lt.created_at AS created_at,
           lt.client_name AS client_name,
           lt.ticket_number AS ticket_number,
+          t.summary AS summary,
           lt.sale_amount AS revenue_lbp,
           COALESCE(t.profit_lbp, 0) AS profit_lbp,
           COALESCE(t.profit_usd, 0) AS kept_change_usd,
@@ -6948,6 +7132,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           et.to_currency AS to_currency,
           (${usdRevenue}) AS amount_usd,
           (${EXCHANGE_LEG_PROFIT}) AS profit_usd,
+          (${exchangeKeptProfitUsd("et")}) AS kept_change_usd,
           CASE WHEN ${hasPartnerObligation("exchange_transactions", "et.id")} THEN 1 ELSE 0 END AS has_partner_obligation,
           (${partnerCoverageRatio("exchange_transactions", "et.id")}) AS partner_coverage_ratio,
           CASE WHEN ${exchangeNotDebtPending("et")} THEN 0 ELSE 1 END AS debt_pending
@@ -7196,8 +7381,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         `SELECT
           t.id AS id,
           t.created_at AS created_at,
-          r.client_name AS counterpart_name,
-          r.phone_number AS counterpart_phone,
+          -- LIRA-396: a client top-up names its client on the transaction
+          -- (RechargeRepository.topUpFromClient), not on the recharges row.
+          COALESCE(NULLIF(TRIM(r.client_name), ''), t.client_name) AS counterpart_name,
+          COALESCE(NULLIF(TRIM(r.phone_number), ''), t.client_phone) AS counterpart_phone,
           t.type AS txn_type,
           t.profit_usd AS profit_usd,
           t.profit_lbp AS profit_lbp,
@@ -8578,10 +8765,11 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * per-row CASE never iterates, deliberately NOT folded into
    * {@link PROFIT_TXN_TYPES} since that shared constant also feeds
    * `getDeferredProfit`, owned by a different lane). Counterparty
-   * (debt/supplier/partner-ledger) discounts are DELIBERATELY NOT added — a
-   * discount's "who earned this" is genuinely three-way ambiguous
-   * (client/supplier/partner ledger, not a single cashier) — the UI captions
-   * this as excluded rather than guessing.
+   * (debt/supplier/partner-ledger) discounts were left out here until
+   * LIRA-395 (2026-11-18), which made By Cashier's total disagree with the
+   * Overview by exactly the Discounts line; they are now credited to the
+   * cashier who booked the discount row (its own `user_id`, its own day —
+   * the same rows By Date sums), via the counterparty-discount UNION branch.
    *
    * LCC-V3 (Round 2 adversarial review) — exchange profit was ALSO left out
    * here originally, captioned "not attributable to a single cashier". That
@@ -8927,6 +9115,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       fromDt,
       toDt, // LIRA-319 extra branch — dateRange(extraChargeDay(xc))
       tenantId, // LIRA-319 extra branch — xc.tenant_id
+    );
+    params.push(
+      tenantId, // LIRA-395 counterparty-discount branch — LEFT JOIN users cdu
+      fromDt,
+      toDt, // LIRA-395 counterparty-discount branch — dateRange(cd.created_at)
+      tenantId, // LIRA-395 counterparty-discount branch — cd.tenant_id
     );
 
     return this.db
@@ -9297,6 +9491,33 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND ${dateRange(extraChargeDay("xc"))}
           AND +xc.tenant_id = ?
         GROUP BY xc.user_id
+        UNION ALL
+
+        -- LIRA-395 — counterparty discounts (debt/supplier/partner discounts
+        -- and write-offs): the SAME rows as getCounterpartyDiscountTotals and
+        -- getByDate's daily_discounts (counterpartyDiscountSource, ACTIVE,
+        -- the row's own day — rule 14), credited to the cashier who booked
+        -- the row. A parent's reversal writes a NEW negated discount row, so
+        -- it lands on the reversing cashier on the reversal's day, exactly as
+        -- By Date has it. Profit only, never revenue.
+        SELECT
+          cd.user_id AS user_id,
+          COALESCE(cdu.username, 'Unknown') AS username,
+          0 AS revenue_usd,
+          0 AS revenue_lbp,
+          COALESCE(SUM(cd.profit_usd), 0) AS profit_usd,
+          COALESCE(SUM(cd.profit_lbp), 0) AS profit_lbp,
+          0 AS transaction_count,
+          COUNT(*) AS recognized_transaction_count,
+          0 AS pending_profit_usd,
+          0 AS pending_profit_lbp
+        FROM transactions cd
+        LEFT JOIN users cdu ON cdu.id = cd.user_id AND cdu.tenant_id = ?
+        WHERE cd.status = 'ACTIVE'
+          AND ${counterpartyDiscountSource("cd")}
+          AND ${dateRange("cd.created_at")}
+          AND +cd.tenant_id = ?
+        GROUP BY cd.user_id
         ) GROUP BY user_id
       ) WHERE NOT ${PROFIT_ATTRIBUTION_ROW_IS_EMPTY}
         ORDER BY profit_usd DESC`,
@@ -9360,9 +9581,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * {@link keptChangeProfitForKey} — see `getByUser`'s own doc comment for
    * the shared mechanism, not repeated here. Exchange profit and
    * counterparty (debt/supplier/partner-ledger) discounts are DELIBERATELY
-   * NOT added for the reason documented there: exchange rows carry no
-   * `client_id`, and a discount's "who earned this" is genuinely three-way
-   * ambiguous — the UI captions both as excluded.
+   * NOT added here: exchange rows carry no `client_id`, and a discount row
+   * belongs to a client, supplier or partner ledger, not reliably to one
+   * client — the UI captions both as excluded. (By Cashier DOES add the
+   * discounts since LIRA-395 — a discount row has a reliable `user_id`.)
    *
    * LCC-V1 (Round 2 adversarial review) — unlike `getByUser` (one NULL/
    * no-actor output group), `getByClient` has MANY distinct walk-in groups
@@ -9473,6 +9695,15 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     // so without this fallback a refunded walk-in sale split into two
     // groups instead of netting to zero in one.
     const CLIENT_NAME_KEY = "COALESCE(t.client_name, orig.client_name, '')";
+    // LIRA-393 — an automatic basket name (`Client<N>`, no client id) is
+    // part of Walk-in. Folded ONLY here, at the outermost GROUP BY: every
+    // inner arm (settlement commission, kept change, pending commission,
+    // orphan rows, extra charges) still matches its source rows on the raw
+    // stored name, so each basket's money is computed exactly as before and
+    // the outer merge just sums those groups into the Walk-in row. Applies
+    // only to `client_id IS NULL` rows — a real client named Client2 keeps
+    // its own row by id. No bind parameters (see PARAM-COUNT INVARIANT).
+    const OUTER_WALK_IN_NAME = `CASE WHEN ${isAnonymousSessionNameSql("client_name")} THEN 'Walk-in' ELSE COALESCE(NULLIF(client_name, ''), 'Walk-in') END`;
     // LCC-V1 (Round 2): getByClient has MANY walk-in groups (one per
     // distinct name, plus the unnamed one), all sharing `client_id IS
     // NULL` — a bare `ft.client_id IS t.client_id` (NULL IS NULL) matched
@@ -9716,7 +9947,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         -- A walk-in's key is its name, '' and NULL both reading 'Walk-in'.
         SELECT
           client_id,
-          MAX(client_name) AS client_name,
+          MAX(CASE WHEN client_id IS NULL THEN ${OUTER_WALK_IN_NAME} ELSE client_name END) AS client_name,
           MAX(client_phone) AS client_phone,
           SUM(revenue_usd) AS revenue_usd,
           SUM(revenue_lbp) AS revenue_lbp,
@@ -10036,7 +10267,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         GROUP BY CASE WHEN xc.client_id IS NOT NULL THEN xc.client_id END,
                  CASE WHEN xc.client_id IS NULL THEN ${keptChangeAttributedClientName("xc")} END
         ) GROUP BY CASE WHEN client_id IS NOT NULL THEN client_id END,
-                   CASE WHEN client_id IS NULL THEN COALESCE(NULLIF(client_name, ''), 'Walk-in') END
+                   CASE WHEN client_id IS NULL THEN ${OUTER_WALK_IN_NAME} END
       ) WHERE NOT ${PROFIT_ATTRIBUTION_ROW_IS_EMPTY}
         ORDER BY profit_usd DESC
         LIMIT ?`,

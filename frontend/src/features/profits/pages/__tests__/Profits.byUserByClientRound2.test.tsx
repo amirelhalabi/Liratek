@@ -77,9 +77,15 @@ describe("Profits — By Cashier tab, Round 2 (LCC-V3 caption)", () => {
     fireEvent.click(screen.getByRole("button", { name: /by cashier/i }));
     await waitFor(() => expect(mockGetProfitByUser).toHaveBeenCalledTimes(1));
 
+    // LIRA-395: By Cashier now counts counterparty discounts for the cashier
+    // who recorded them, so the caption must say so and must not claim an
+    // exclusion of either kind.
     expect(
-      await screen.findByText(/excludes counterparty discounts/i),
+      await screen.findByText(/counterparty discounts count for the cashier/i),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/excludes counterparty discounts/i),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByText(/excludes exchange profit/i),
     ).not.toBeInTheDocument();

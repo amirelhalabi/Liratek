@@ -122,6 +122,28 @@ and informational in `api:verify`.
 
 ---
 
+## Profits audit (LIRA-397)
+
+Checks one shop's Profits page against itself over the web API: every
+drill-down adds up to its By Module row, By Module / By Date / By User /
+Summary show one total, price − cost = profit per row, reasons and details
+are readable, no `ClientN` counterparts, every not-counted row says why.
+Read-only. Exit 1 on any FAIL.
+
+**When:** after every deploy that touches `ProfitRepository` / `ProfitService`,
+and when a shop reports a wrong Profits figure.
+
+```bash
+LIRATEK_PASSWORD=… LIRATEK_PROFITS_PASSWORD=… \
+  yarn profits:audit --host <slug>.liratek.shop --user admin --from 2026-09-01 --to 2026-11-16
+# --json (machine-readable) · --module SALE (one module) · --strict-zero-rows
+```
+
+Passwords come only from those two env vars — never on the command line,
+never printed. **Sequential only — never run two audits at once**: the server's
+SQLite calls are synchronous and parallel Profits reads have caused outages.
+The script itself waits ≥ 300 ms between calls.
+
 ## Email (live since 2026-10-07)
 
 `mail@liratek.shop` on Spacemail; app sends over SMTP (`mail.spacemail.com:465`); MX/SPF/DKIM/DMARC records live in **Cloudflare** (not Spaceship — Spaceship's DNS page is inactive by design). New domain ⇒ early mail may land in Spam (reputation, not config). **Pending: LIRA-277** — around 2026-10-21, if invites reach the Inbox, change `_dmarc` from `p=none` to `p=quarantine` (`current_sprint.md` has the exact record).

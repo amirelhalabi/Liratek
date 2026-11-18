@@ -5,16 +5,18 @@
  * When a cashier hands over $101 against $101.12 owed and keeps $0.12, the
  * kept cents are NOT exchange margin. The owner wants them on the Profits
  * page's "Kept change (other)" line — the Overview "Other / Kept Change"
- * card's `summary.kept_change` row, and the additive `kept_change_usd` on the
- * By Module EXCHANGE row (the same convention recharges/financial services
- * use for their kept change) — while the Exchange row shows only the pure
+ * card's `summary.kept_change` row, and (LIRA-395) the By Module Kept
+ * Change row, which now carries every module's off-currency kept change
+ * inside its own profit — while the Exchange row shows only the pure
  * exchange margin. The period TOTAL must not move, on any tab.
  *
  * Contract pinned here (real create_db.sql schema, real writer, real
  * ProfitService/ProfitRepository read surfaces):
  *   - Overview: exchange.profit_usd = margin; kept_change.usd includes 0.12;
  *     gross = margin + 0.12;
- *   - By Module: EXCHANGE row profit_usd = margin, kept_change_usd = 0.12;
+ *   - By Module: EXCHANGE row profit_usd = margin; the 0.12 sits on the
+ *     KEPT_CHANGE row's profit_usd (LIRA-395 — was an additive
+ *     kept_change_usd side figure on the EXCHANGE row);
  *   - By Date and By Cashier totals = margin + 0.12 (unchanged);
  *   - EXCHANGE drill-down rows sum to the margin only;
  *   - a lot-tracked acquire leg (Q8 zeroes leg1) still yields kept 0.12 on
@@ -120,7 +122,10 @@ function snapshot(): Snapshot {
     keptLine: summary.kept_change.usd,
     gross: summary.totals.gross_profit_usd,
     byModuleExchangeProfit: ex?.profit_usd ?? 0,
-    byModuleExchangeKept: ex?.kept_change_usd ?? 0,
+    // LIRA-395 — the kept cents are booked on the Kept Change row (inside
+    // its profit), no longer as a side figure on the EXCHANGE row.
+    byModuleExchangeKept:
+      modules.find((m) => m.module === "KEPT_CHANGE")?.profit_usd ?? 0,
     byModuleTotal,
     byDateTotal,
     byUserTotal,

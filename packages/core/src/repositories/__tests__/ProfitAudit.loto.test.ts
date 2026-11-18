@@ -226,8 +226,13 @@ describe("Lead 4 (measured) — kept USD change on a loto ticket", () => {
     expect(summary.loto.kept_change_usd).toBeCloseTo(0.4444, 6);
     expect(summary.totals.gross_profit_usd).toBeCloseTo(0.4444, 6);
 
-    const row = ps.getByModule(today, today).find((r) => r.module === "LOTO");
-    expect(row?.kept_change_usd).toBeCloseTo(0.4444, 6);
+    // LIRA-395 — the loto row's off-currency kept change is booked on the
+    // Kept Change row (inside its profit), no longer as a side figure on
+    // the LOTO row.
+    const modules = ps.getByModule(today, today);
+    const row = modules.find((r) => r.module === "KEPT_CHANGE");
+    expect(row?.profit_usd).toBeCloseTo(0.4444, 6);
+    expect(modules.find((r) => r.module === "LOTO")?.kept_change_usd).toBeUndefined();
 
     const admin = ps.getByUser(today, today).find((u) => u.user_id === 1);
     expect(admin?.profit_usd).toBeCloseTo(0.4444, 6);

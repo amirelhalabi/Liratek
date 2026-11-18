@@ -8785,3 +8785,53 @@ Needs: a dry-run mode that lists what it would delete; a guard test that a live 
 **Owner decisions:** fix core AND pages, both cash-out forms, sweep every flow with a lump method flag (core: `FinancialServiceRepository` ×4, `LotoTicketRepository` ×4, `RechargePartnerOrderService` ×1; pages: 7 files with `lines.length === 1` setters); Corner Tech row already refunded (#17881), re-entered after deploy; Whish Wallet leg keeps debiting `Whish_App` with no provider fee.
 
 **What users will notice:** paying out a cash-out in several ways (part to the customer's account, part cash or wallet) now books each part where it belongs; before, the whole amount went to the account.
+
+## LIRA-393: Profits — anonymous baskets count as Walk-in — BUILT 2026-11-18
+
+**Asked by:** owner, Cornertech Profits audit 2026-11-16 ("Client2, Client10, Client7… as real customers").
+**Before:** the Sessions page names an unnamed basket `Client<N>`; Profits › By Client grouped those names as customers (11 rows, $400+ of profit; "Client2" = 40 transactions from unrelated walk-ins), and every drill-down showed "Client4 · SEND".
+**Decision:** fold in reporting only; Sessions and Transactions pages keep the basket label; a real client with an id keeps its own row even if named Client<N>.
+**Built:** one core definition of the pattern (`constants/anonymousSessionName.ts`: generator, JS matcher, SQL matcher, `counterpartLabel`), used by the Sessions page generator, `getByClient` (outer GROUP BY only) and every drill-down counterpart.
+**Tests:** `ProfitService.anonymousBasketWalkIn` (failing-first: Walk-in $1 vs $6, "Client7" row, "Client3" counterpart), `anonymousSessionName` (JS ↔ SQL agreement), `CustomerSessionButton` walk-in block; laneLCC fixture renamed to typed names.
+**Not changed:** stored data; Sessions/Transactions pages; Pending tab.
+**What users will notice:** on Profits › By Client, auto-named baskets are part of Walk-in and drill-downs show "Walk-in" for them; the total is the same.
+
+## LIRA-394: Profits — Sale drill-down stops listing refunded sales as owing; paid/owed include the extra — BUILT 2026-11-18
+
+**Asked by:** owner, Cornertech Profits audit 2026-11-16.
+**Before:** 11 fully refunded sales listed as $0 rows with no detail; 4 refunded on-account sales read "Customer still owes — paid $265.00 of $1135.00" (#557); an $18 + $2-extra sale on account read "paid $-2.00 of $18.00" (#565).
+**Decision:** display only, recognition unchanged. A refunded sale is listed only while it still carries leftover profit, as "Refunded: <items>" with a "Refunded — " reason and no owed figure. Paid and owed come from ONE fragment pair (`salePaidUsdEquiv` gross of the extra, `saleOwedUsdEquiv` = final + net extra) in the leaf `saleExtraFragment.ts`, read by both Profits and `DebtRepository._loadAllocationItems`.
+**Tests:** `ProfitService.saleDrilldownRefundedAndExtra` (9, real writers; 6 seen failing first). Reconciliation, extra-charge hold, recognition guard green.
+**Not changed:** recognition weights (`saleTotalPaidUsdEquiv`).
+**Open question:** recognition order on a sale with an extra — today's weight treats paid money as covering the extra first; repayment allocation covers the sale first. Which should profit follow?
+**What users will notice:** on Profits › Sales › Show transactions, refunded sales never say "customer still owes", empty refunded rows are gone, and a sale with an extra on account reads "paid $0.00 of $20.00".
+
+## LIRA-395: Profits — one total across Summary, By Module, By Date, By User — BUILT 2026-11-18
+
+**Asked by:** owner, Cornertech Profits audit 2026-11-16 (three totals for one period).
+**Before:** By Module was 28.30 USD / 125,500 LBP short of the Overview (off-currency kept change on recharges, transfers, loto and exchange sat in side fields outside `profit_*`; the page's TOTAL added it back, the API sums did not); By Cashier was 11.15 USD / 475,500 LBP high (`getByUser` never read counterparty discounts).
+**Decision:** Overview gross is the reference. Module kept change moves into the Kept Change row with a per-transaction drill-down; By Cashier credits a discount to the cashier who booked it, on its own day. By Client stays a top-N list.
+**Built:** `ProfitService.getByModule` fold + `moduleKeptChangeDetailRows`; `getByUser` counterparty-discount branch (same `counterpartyDiscountSource` fragment); `getExchangeDetail.kept_change_usd`; By Cashier caption (en/ar); FEATURE_GUIDE §10 mapping.
+**Tests:** `ProfitService.allViewsOneTotal` (failing-first: By Module 6.31 ≠ 6.87 USD, 117,250 ≠ 127,250 LBP; By User 8.87 ≠ 6.87); `ProfitAudit.loto` and `exchangeKeptChangeLine` premise updated; `creditCashOutKeptChange` fixture extended to the detail tables the new helper walks.
+**Not changed:** By Client; Overview figures; the page's TOTAL still adds `kept_change_*` fields that are now always 0 (dead code, cleanup follow-up).
+**What users will notice:** every Profits tab shows the same total; Kept Change row includes change kept on recharges/transfers/loto/exchange; By Cashier includes discounts.
+
+## LIRA-396: Profits details — Only Days cost, clear wording, no empty rows — BUILT 2026-11-18
+
+**Asked by:** owner, Cornertech Profits audit 2026-11-16 (follow-up to LIRA-391).
+**Before:** Katsh "Only Days" rows showed the whole card as cost (price 2,500,000 / cost 7,620,030 / profit 744,970, FS #2220); details read "SEND"/"RECEIVE"; loto rows all "Loto ticket"; some repair/custom rows blank; Kept change listed 286 "$0" repayments; client top-ups listed 51 "Walk-in · 0" rows.
+**Decision:** keep the stored card cost (the Suppliers pages and the Katsh drawer rely on it; no migration) and show the Only Days cost as price − stamped profit on the Profits page, via ONE marker (the `CREDIT_RETURN` payment leg, `_onlyDaysMarker`) shared by the drill-down, the per-provider By Module row and the Overview's mobile-services cost. Detail text reuses the transaction summary with fallbacks. $0 rows hidden; totals unchanged.
+**Tests:** `ProfitService.lira396DrilldownLabelsCost` (12, failing-first incl. By Module cost 2,295,021 ≠ 1,275,021); reconciliation updated (56/56); create + refund of an Only Days sale nets to 0 on every ledger.
+**Not changed:** stored cost, commission, drawers, supplier ledger, carrier lines; the Loto ticket number is still not saved (separate ticket).
+**What users will notice:** Profits › Mobile Services rows and details read price − cost = profit for Only Days sales (past ones too); clear descriptions instead of "SEND" or blanks; no $0 kept-change or top-up rows; client top-ups show the client's name.
+
+## LIRA-397: Profits audit script — BUILT 2026-11-18
+
+**Asked by:** owner, 2026-11-16 ("a strategy to catch similar issues … check all the examples for Cornertech").
+**Before:** the audit that found LIRA-391/393–396 was hand-run Python against the REST API.
+**Decision:** a repeatable read-only script, 10 checks as pure functions, secrets from env only, requests strictly one at a time ≥ 300 ms after the previous response (parallel profits calls have caused outages); spec D1–D11.
+**Built:** `yarn profits:audit` (`scripts/profits-audit.mjs` + `scripts/lib/profitsAuditChecks.mjs`), `--json`, `--module`, `--strict-zero-rows`, `--save-input`/`--input` offline replay; `docs/OPERATIONS.md` "Profits audit".
+**Tests:** `scripts/__tests__/profitsAuditChecks.test.mjs` (27: synthetic fixture + mock-server end-to-end — sequential, gap, bearer, no secret leak), in `yarn test:scripts` (104). One live Cornertech run (31 requests, 37 s) reproduced all six 2026-11-16 findings.
+**Not changed:** any app code.
+**What users will notice:** nothing — tooling. Run it on Cornertech after this batch deploys; expected: every check PASS except INFO lines.
+

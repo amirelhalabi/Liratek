@@ -1233,7 +1233,8 @@ describe("Profits drill-down (LIRA-233, #14 slice 3) — FINANCIAL_SERVICE_<prov
     expect(partial!.counted_profit_usd).toBeCloseTo(3, 6);
 
     const allocationRow = detail.counted.find((r) =>
-      r.detail?.includes("settlement allocation"),
+      // LIRA-396: "<transfer summary> — commission at settlement".
+      r.detail?.includes("commission at settlement"),
     );
     expect(allocationRow).toBeDefined();
     expect(allocationRow!.profit_usd).toBeCloseTo(8, 6);
@@ -2173,7 +2174,7 @@ describe("Profits drill-down (LIRA-233, #14 slice 3 review round) — count pari
     db.close();
   });
 
-  it("KEPT_CHANGE: a REFUND reversal is counted (labeled as a reversal); only the $0 repayment is not_counted; Σ(counted) equals the displayed total exactly", () => {
+  it("KEPT_CHANGE: a REFUND reversal is counted (labeled as a reversal); the $0 repayment is not listed (LIRA-396); Σ(counted) equals the displayed total exactly", () => {
     // A: nonzero DEBT_REPAYMENT — a real count event.
     db.prepare(
       `INSERT INTO transactions (tenant_id, type, status, source_table, source_id, profit_usd, profit_lbp, created_at)
@@ -2213,7 +2214,8 @@ describe("Profits drill-down (LIRA-233, #14 slice 3 review round) — count pari
     // wins over Count parity).
     expect(totals.count).toBe(2); // A and C only, by DEFINITION of "event"
     expect(detail.counted).toHaveLength(3); // A, C, D — every nonzero row
-    expect(detail.not_counted).toHaveLength(1); // B only — the genuine $0 row
+    // LIRA-396: B (the genuine $0 row) is no longer listed at all.
+    expect(detail.not_counted).toHaveLength(0);
     const reversalRow = detail.counted.find((r) => r.profit_usd === -1);
     expect(reversalRow).toBeDefined();
     expect(reversalRow!.detail).toBe("Kept-change reversal");
@@ -2474,7 +2476,10 @@ describe("Profits drill-down — KEPT_CHANGE hides void reversals; $0 reason nam
     expect(totals.profit_usd).toBeCloseTo(0.25, 6);
   });
 
-  it("a $0 non-repayment kept-change row's reason does not call it a repayment; a $0 repayment's still does", () => {
+  // LIRA-396 rewrote this test: it used to check the wording of the reason
+  // on a $0 row. Since LIRA-396 a $0 row (repayment or other entry) is not
+  // listed at all, so it now guards that neither one appears.
+  it("a $0 kept-change row and a $0 repayment are not listed at all (LIRA-396)", () => {
     db.prepare(
       `INSERT INTO transactions (tenant_id, type, status, source_table, source_id, profit_usd, profit_lbp, created_at)
        VALUES (1, 'KEPT_CHANGE', 'ACTIVE', 'customer_sessions', 3, 0, 0, '2026-09-12 10:00:00')`,
@@ -2486,14 +2491,8 @@ describe("Profits drill-down — KEPT_CHANGE hides void reversals; $0 reason nam
     const detail = runWithTenant(1, () =>
       service.getModuleDetail("KEPT_CHANGE", "2026-09-01", "2026-09-30"),
     );
-    expect(detail.not_counted).toHaveLength(2);
-    const kept = detail.not_counted.find((r) => r.detail === "Kept change");
-    const repay = detail.not_counted.find(
-      (r) => r.detail === "Debt repayment kept change",
-    );
-    expect(kept).toBeDefined();
-    expect(kept!.reason).not.toMatch(/repayment/i);
-    expect(kept!.reason).toMatch(/rounds to \$0/);
-    expect(repay!.reason).toMatch(/repayment/i);
+    expect(detail.not_counted).toHaveLength(0);
+    expect(detail.counted).toHaveLength(0);
+    expect(detail.counted_total_profit_usd).toBe(0);
   });
 });

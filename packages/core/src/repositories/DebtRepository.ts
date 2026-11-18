@@ -43,7 +43,11 @@ import {
   type DebtMonthRows,
 } from "../utils/debtSettleDays.js";
 import { localDayExpr } from "./reportingTimeFragments.js";
-import { saleNetExtraUsdEquiv } from "./saleExtraFragment.js";
+import {
+  saleNetExtraUsdEquiv,
+  saleOwedUsdEquiv,
+  salePaidUsdEquiv,
+} from "./saleExtraFragment.js";
 import { coverBasketMember } from "./basketMemberCoverage.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import {
@@ -1589,8 +1593,8 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     // `sales.paid_usd` never covered the extra — the sale's margin and its
     // extra stayed held on the Profits page forever.
     const hasExtra = this._hasColumn("transactions", "extra_usd");
-    const saleOwedSql = `(s.final_amount_usd + ${saleNetExtraUsdEquiv("s", hasExtra)})`;
-    const salePaidSql = `(s.paid_usd + COALESCE(s.paid_lbp, 0) / COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1))`;
+    const saleOwedSql = saleOwedUsdEquiv("s", hasExtra);
+    const salePaidSql = salePaidUsdEquiv("s");
     const saleOpenSql = `${salePaidSql} < ${saleOwedSql} - 0.05`;
     // Range mode: a closed sale is a debt item only if it went on the
     // account — otherwise every cash purchase would paint a settled day.

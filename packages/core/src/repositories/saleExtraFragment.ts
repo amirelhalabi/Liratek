@@ -57,3 +57,23 @@ export function saleNetExtraUsdEquiv(
                      WHERE sxt.source_table = 'sales' AND sxt.source_id = ${alias}.id
                        AND +sxt.tenant_id = ${alias}.tenant_id), 0)`;
 }
+
+/**
+ * LIRA-394 (rule 14) — the ONE pair of figures any reader shows or compares
+ * for "paid $X of $Y" on a sale, in the customer's terms. Lives in this leaf
+ * so `DebtRepository._loadAllocationItems` (what a repayment may cover) and
+ * `ProfitRepository` (what the Profits drill-down says) read the SAME text.
+ *  - {@link salePaidUsdEquiv}: what the customer actually paid — USD + LBP at
+ *    the sale's snapshot rate, extra INCLUDED (gross).
+ *  - {@link saleOwedUsdEquiv}: what the sale asks of the customer —
+ *    `final_amount_usd` + its NET extra ({@link saleNetExtraUsdEquiv}).
+ */
+export function salePaidUsdEquiv(alias: string): string {
+  return `(${alias}.paid_usd + COALESCE(${alias}.paid_lbp, 0) / COALESCE(NULLIF(${alias}.exchange_rate_snapshot, 0), 1))`;
+}
+
+/** See {@link salePaidUsdEquiv}. `supported` = the `transactions.extra_usd`
+ *  column exists (schema-drift fixtures without it owe `final_amount_usd`). */
+export function saleOwedUsdEquiv(alias: string, supported: boolean): string {
+  return `(${alias}.final_amount_usd + ${saleNetExtraUsdEquiv(alias, supported)})`;
+}

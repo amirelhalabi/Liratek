@@ -15,6 +15,7 @@ import { SessionPopupPanel } from "./SessionFloatingWindow";
 import { SessionCheckoutModal } from "./SessionCheckoutModal";
 import { useSession } from "../context/SessionContext";
 import { useApi, appEvents } from "@liratek/ui";
+import { nextAnonymousSessionName } from "@liratek/core";
 import { arePhoneNumbersEqual } from "@/utils/phoneNumber";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import logger from "@/utils/logger";
@@ -253,7 +254,9 @@ export function CustomerSessionButton({
   const handleWalkInClick = async () => {
     setShowDropdown(false);
     try {
-      // Generate "Client1", "Client2", ... based on today's existing walk-in sessions
+      // Name it "Client1", "Client2", ... — the first number not used by one
+      // of today's baskets. The name pattern lives in @liratek/core so
+      // Profits can recognise it and count these baskets as Walk-in (LIRA-393).
       const todayResult = await api.session.getTodaySessions();
       const todayNames: string[] =
         todayResult.success && todayResult.sessions
@@ -262,13 +265,9 @@ export function CustomerSessionButton({
               .filter(Boolean)
           : [];
 
-      let counter = 1;
       // i18n-exempt: stored walk-in customer name (data value), matched against today's sessions
-      while (todayNames.includes(`Client${counter}`)) {
-        counter++;
-      }
-
-      await startSession({ customer_name: `Client${counter}` }); // i18n-exempt: stored walk-in customer name (data value)
+      const customerName = nextAnonymousSessionName(todayNames);
+      await startSession({ customer_name: customerName });
     } catch (err: any) {
       logger.error("Failed to start walk-in session:", err);
       appEvents.emit(

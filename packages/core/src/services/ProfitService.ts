@@ -38,6 +38,7 @@ import {
   hasModuleDetailSupport,
   OTHER_EXPENSES_MODULE_KEY,
 } from "../constants/profitModuleDetailSupport.js";
+import { counterpartLabel } from "../constants/anonymousSessionName.js";
 import logger from "../utils/logger.js";
 
 /**
@@ -225,8 +226,12 @@ export interface ProfitByModule {
    * 2026-10-06 — `ProfitRepository.exchangeKeptProfitUsd`) — `undefined`
    * elsewhere, never a fabricated 0. Additive: NOT
    * already folded into `profit_usd`/`profit_lbp` above, which keep meaning
-   * "this row's own margin". A caller building a Revenue − Cost = Profit
-   * breakdown that must reconcile to gross should add these in.
+   * "this row's own margin".
+   * LIRA-395 (2026-11-18): `getByModule` NO LONGER SETS these — that money
+   * is booked inside the KEPT_CHANGE row's own `profit_*` (drill-down:
+   * `buildKeptChangeModuleDetail`), so Σ `profit_*` alone equals the
+   * Overview's gross. Kept optional on the type for older callers; always
+   * `undefined` now.
    */
   kept_change_usd?: number;
   kept_change_lbp?: number;
@@ -288,7 +293,8 @@ export interface ProfitByModule {
 export interface ProfitModuleDetailRow {
   id: number;
   date: string;
-  /** Client name/phone, or "Walk-in" when neither is on file. */
+  /** Client name/phone, or "Walk-in" when neither is on file. An automatic
+   *  basket name (`Client<N>`) counts as no name (LIRA-393, `counterpartLabel`). */
   counterpart: string;
   /** SALE: comma-joined item list. RECHARGE: the credit amount sold.
    *  `null` only on a schema-drift-degraded SALE fixture with no product
@@ -1450,9 +1456,20 @@ export class ProfitService {
         });
       }
 
+      // LIRA-395 — off-currency kept change stamped on FINANCIAL_SERVICE_*/
+      // RECHARGE_*/LOTO/EXCHANGE rows (the Overview's `kept_change` card,
+      // already inside its gross profit). It used to ride on each module
+      // row as an ADDITIVE `kept_change_*` side figure, outside every
+      // `profit_*`, so Σ By Module profit fell short of the Overview by
+      // exactly this amount. Collected here and booked into the Kept Change
+      // row's own profit below (drill-down: buildKeptChangeModuleDetail).
+      const moduleKeptChange = { usd: 0, lbp: 0 };
+
       // Financial services by provider — settled only.
       const finRows = this.repo.getFinancialSettledByProvider(fromDt, toDt);
       for (const row of finRows) {
+        moduleKeptChange.usd += row.kept_change_usd;
+        moduleKeptChange.lbp += row.kept_change_lbp;
         results.push({
           module: `FINANCIAL_SERVICE_${row.provider}`,
           // PA-4.12: human label for the raw provider code.
@@ -1466,10 +1483,6 @@ export class ProfitService {
           cost_lbp: row.cost_lbp,
           profit_usd: row.profit_usd,
           profit_lbp: row.profit_lbp,
-          // LO-V1/PA-3.1 — off-currency kept change (see
-          // ProfitRepository.getFinancialSettledByProvider's own comment).
-          kept_change_usd: row.kept_change_usd,
-          kept_change_lbp: row.kept_change_lbp,
           count: row.count,
         });
       }
@@ -1493,6 +1506,8 @@ export class ProfitService {
       // Recharges by carrier.
       const rechargeRows = this.repo.getRechargesByCarrier(fromDt, toDt);
       for (const row of rechargeRows) {
+        moduleKeptChange.usd += row.kept_change_usd;
+        moduleKeptChange.lbp += row.kept_change_lbp;
         results.push({
           module: `RECHARGE_${row.carrier}`,
           label: byModuleLabel(`RECHARGE_${row.carrier}`),
@@ -1502,10 +1517,6 @@ export class ProfitService {
           cost_lbp: row.cost_lbp,
           profit_usd: row.profit_usd,
           profit_lbp: row.profit_lbp,
-          // LO-V1/PA-3.1 — off-currency kept change (see
-          // ProfitRepository.getRechargesByCarrier's own comment).
-          kept_change_usd: row.kept_change_usd,
-          kept_change_lbp: row.kept_change_lbp,
           count: row.count,
         });
       }
@@ -1545,6 +1556,7 @@ export class ProfitService {
       // (The ticket face passes through to the loto provider; only the
       // commission is the shop's margin — same convention as the FS rows above.)
       const lotoRow = this.repo.getLotoTotals(fromDt, toDt);
+      moduleKeptChange.usd += lotoRow.kept_change_usd;
       if (lotoRow.count > 0) {
         results.push({
           module: "LOTO",
@@ -1555,9 +1567,6 @@ export class ProfitService {
           cost_lbp: 0,
           profit_usd: 0,
           profit_lbp: lotoRow.profit_lbp,
-          // LO-V1/PA-3.1 — USD-side kept change (see
-          // ProfitRepository.getLotoTotals's own comment).
-          kept_change_usd: lotoRow.kept_change_usd,
           count: lotoRow.count,
         });
       }
@@ -1592,6 +1601,7 @@ export class ProfitService {
 
       // Exchange (v30+: sum leg profits)
       const exchangeRow = this.repo.getExchangeTotals(fromDt, toDt);
+      moduleKeptChange.usd += exchangeRow.kept_change_usd;
       if (exchangeRow.count > 0) {
         results.push({
           module: "EXCHANGE",
@@ -1602,11 +1612,9 @@ export class ProfitService {
           cost_lbp: 0,
           profit_usd: exchangeRow.profit_usd,
           profit_lbp: 0,
-          // Payout keep-change (owner decision 2026-10-06) — additive, NOT
-          // inside profit_usd (the exchange margin), same convention as the
-          // RECHARGE_*/FINANCIAL_SERVICE_* rows' kept_change_usd.
-          kept_change_usd: exchangeRow.kept_change_usd,
-          kept_change_lbp: 0,
+          // Payout keep-change (owner decision 2026-10-06) stays OUT of
+          // profit_usd (the exchange margin); LIRA-395 books it on the Kept
+          // Change row below.
           count: exchangeRow.count,
         });
       }
@@ -1632,9 +1640,16 @@ export class ProfitService {
       // same profit-only kind, on the refund's own day (2026-10-07).
       const debtKept = this.repo.getDebtRepaymentProfit(fromDt, toDt);
       const refundKept = this.repo.getRefundKeptChangeProfit(fromDt, toDt);
+      // LIRA-395 — plus the modules' off-currency kept change collected
+      // above, so this row carries the Overview's whole Kept Change card
+      // (and debt-repayment kept change) inside its own profit. `count`
+      // stays the debt/refund event count: a module's kept change is part
+      // of that module's transaction, not a separate event.
       const keptChange = {
-        profit_usd: debtKept.profit_usd + refundKept.profit_usd,
-        profit_lbp: debtKept.profit_lbp + refundKept.profit_lbp,
+        profit_usd:
+          debtKept.profit_usd + refundKept.profit_usd + moduleKeptChange.usd,
+        profit_lbp:
+          debtKept.profit_lbp + refundKept.profit_lbp + moduleKeptChange.lbp,
         count: debtKept.count + refundKept.count,
       };
       if (keptChange.profit_usd !== 0 || keptChange.profit_lbp !== 0) {
@@ -2125,7 +2140,7 @@ export class ProfitService {
       const isNone = weight <= 0.0005;
       const countedProfitUsdRow = r.profit_usd * weight;
       const countedProfitLbpRow = r.profit_lbp * weight;
-      const counterpart = r.client_name || r.client_phone || "Walk-in";
+      const counterpart = counterpartLabel(r.client_name, r.client_phone);
       // PROF-DD-FIX (review round, M4) — was `paid $${r.paid_usd} of
       // $${r.total_amount_usd}`: pre-discount total and USD-only paid, while
       // the weight/recognition gate itself ({@link saleFullyPaid}) compares
@@ -2133,20 +2148,39 @@ export class ProfitService {
       // converted at the sale's snapshot rate. A sale discounted to $90 and
       // paid entirely in LBP used to read "paid $0.00 of $100.00" — now
       // reads the SAME two figures the gate itself used to decide "not full".
+      // LIRA-394 — the figures are the customer's: paid gross of the extra,
+      // of final + extra (`paid_usd_equiv` / `owed_usd_equiv`, ONE fragment
+      // pair). The recognition input (paid − extra vs final) read "paid
+      // $-2.00 of $18.00" on an $18 + $2 sale on the account.
+      // A refunded-arm row says "Refunded — " and never an owed figure: its
+      // `final_amount_usd` is the pre-refund total and the Debts page holds
+      // nothing open for a refunded sale (it read "Customer still owes —
+      // paid $265.00 of $1135.00." on Cornertech #557).
+      const refunded = r.refunded_arm === 1;
+      const partnerReason = isNone
+        ? "Partner has not settled this sale yet."
+        : `Partner has settled ${Math.round(r.partner_coverage_ratio * 100)}% of this sale so far.`;
       const reason = isFull
         ? null
-        : r.has_partner_obligation
-          ? isNone
-            ? "Partner has not settled this sale yet."
-            : `Partner has settled ${Math.round(r.partner_coverage_ratio * 100)}% of this sale so far.`
-          : `Customer still owes — paid $${r.paid_total_usd.toFixed(2)} of $${r.final_amount_usd.toFixed(2)}.`;
+        : refunded
+          ? r.has_partner_obligation
+            ? `Refunded — ${partnerReason}`
+            : "Refunded — not counted: the sale was not paid in full."
+          : r.has_partner_obligation
+            ? partnerReason
+            : `Customer still owes — paid $${r.paid_usd_equiv.toFixed(2)} of $${r.owed_usd_equiv.toFixed(2)}.`;
+      const detail = refunded
+        ? r.items_summary
+          ? `Refunded: ${r.items_summary}`
+          : "Refunded sale"
+        : r.items_summary;
 
       const row: ProfitModuleDetailRow = {
         id: r.sale_id,
         source: "sale",
         date: r.created_at,
         counterpart,
-        detail: r.items_summary,
+        detail,
         amount_usd: r.revenue_usd,
         amount_lbp: 0,
         cost_usd: r.cost_usd,
@@ -2268,7 +2302,7 @@ export class ProfitService {
         id: r.recharge_id,
         source: "recharge",
         date: r.created_at,
-        counterpart: r.client_name || r.phone_number || "Walk-in",
+        counterpart: counterpartLabel(r.client_name, r.phone_number),
         detail: rechargeDetailLabel(r.recharge_type, r.amount),
         amount_usd: isUsd ? r.price : 0,
         amount_lbp: isUsd ? 0 : r.price,
@@ -2369,8 +2403,10 @@ export class ProfitService {
       const isNone = weight <= 0.0005;
       const countedProfitUsdRow = r.profit_usd * weight;
       const countedProfitLbpRow = r.profit_lbp * weight;
-      const counterpart =
-        r.counterpart_name || r.counterpart_phone || "Walk-in";
+      const counterpart = counterpartLabel(
+        r.counterpart_name,
+        r.counterpart_phone,
+      );
       const reason = isFull
         ? null
         : isThirdCurrency
@@ -2388,7 +2424,7 @@ export class ProfitService {
                 : null;
       const detail =
         r.source === "settlement_allocation"
-          ? `${r.detail ?? "Transfer"} (settlement allocation)`
+          ? `${r.detail ?? "Transfer"} — commission at settlement`
           : r.detail;
 
       // finding 5 — off-currency kept change, same note LOTO/RECHARGE show.
@@ -2492,7 +2528,7 @@ export class ProfitService {
       const isNone = weight <= 0.0005;
       const countedProfitUsdRow = r.profit_usd * weight;
       const countedProfitLbpRow = r.profit_lbp * weight;
-      const counterpart = r.client_name || r.phone_number || "Walk-in";
+      const counterpart = counterpartLabel(r.client_name, r.phone_number);
       const reason = isFull
         ? null
         : r.debt_pending
@@ -2566,7 +2602,7 @@ export class ProfitService {
       const weight = r.debt_pending ? 0 : 1;
       const countedProfitUsdRow = r.profit_usd * weight;
       const countedProfitLbpRow = r.profit_lbp * weight;
-      const counterpart = r.client_name || "Walk-in";
+      const counterpart = counterpartLabel(r.client_name);
       const reason =
         weight === 1
           ? null
@@ -2643,7 +2679,7 @@ export class ProfitService {
       // Always 0 — see this method's own doc comment.
       const countedProfitUsdRow = 0;
       const countedProfitLbpRow = r.profit_lbp * weight;
-      const counterpart = r.client_name || "Walk-in";
+      const counterpart = counterpartLabel(r.client_name);
       const reason = isFull
         ? null
         : r.debt_pending
@@ -2663,7 +2699,10 @@ export class ProfitService {
         source: "loto",
         date: r.created_at,
         counterpart,
-        detail: r.ticket_number ? `Ticket ${r.ticket_number}` : "Loto ticket",
+        // LIRA-396: no ticket number saved → the ticket's own summary.
+        detail: r.ticket_number
+          ? `Ticket ${r.ticket_number}`
+          : r.summary || "Loto ticket",
         amount_usd: 0,
         amount_lbp: r.revenue_lbp,
         cost_usd: 0,
@@ -2725,7 +2764,7 @@ export class ProfitService {
       // EXCHANGE is USD-only (matches getExchangeTotals — no LBP profit
       // column of its own).
       const countedProfitLbpRow = 0;
-      const counterpart = r.client_name || "Walk-in";
+      const counterpart = counterpartLabel(r.client_name);
       const reason = isFull
         ? null
         : r.debt_pending
@@ -2807,7 +2846,7 @@ export class ProfitService {
       const weight = isKnownCurrency ? 1 : 0;
       const countedProfitUsdRow = feeUsd * weight;
       const countedProfitLbpRow = feeLbp * weight;
-      const counterpart = r.client_name || r.phone_number || "Walk-in";
+      const counterpart = counterpartLabel(r.client_name, r.phone_number);
       const reason = isKnownCurrency ? null : untrackedCurrencyReason("fee");
 
       const row: ProfitModuleDetailRow = {
@@ -2893,8 +2932,14 @@ export class ProfitService {
     let countedProfitLbp = 0;
 
     for (const r of rows) {
-      const counterpart =
-        r.counterpart_name || r.counterpart_phone || "Walk-in";
+      // LIRA-396 — a row with no kept change (0 in both currencies) has
+      // nothing to show: not listed. It never counted, so Σ(counted) still
+      // equals the By Module row.
+      if (r.profit_usd === 0 && r.profit_lbp === 0) continue;
+      const counterpart = counterpartLabel(
+        r.counterpart_name,
+        r.counterpart_phone,
+      );
       const detail =
         r.txn_type === "REFUND"
           ? "Kept-change reversal"
@@ -2949,6 +2994,19 @@ export class ProfitService {
       }
     }
 
+    // LIRA-395 — the modules' off-currency kept change, now inside this
+    // row's profit (getByModule): one row per transaction, weighted as its
+    // own module row weights it, so Σ(counted) still equals the row.
+    for (const row of this.moduleKeptChangeDetailRows(fromDt, toDt)) {
+      if (row.counted_pct > 0) {
+        counted.push(row);
+        countedProfitUsd += row.counted_profit_usd;
+        countedProfitLbp += row.counted_profit_lbp;
+      } else {
+        notCounted.push(row);
+      }
+    }
+
     return {
       module: "KEPT_CHANGE",
       counted,
@@ -2956,6 +3014,134 @@ export class ProfitService {
       counted_total_profit_usd: countedProfitUsd,
       counted_total_profit_lbp: countedProfitLbp,
     };
+  }
+
+  /**
+   * LIRA-395 — the Kept Change drill-down's rows for the off-currency kept
+   * change stamped on FINANCIAL_SERVICE / RECHARGE / LOTO / EXCHANGE
+   * transactions ({@link getByModule} books it on the Kept Change row).
+   * Assembly only (rule 13): reads the SAME per-module detail queries that
+   * feed those modules' own drill-downs (each already exposes the row's
+   * unweighted `kept_change_*`), weighted exactly as that module's totals
+   * query weights it — `debt_pending ? 0 : partner_coverage_ratio`, and for
+   * a transfer also 0 when it is a third currency or not yet recognised
+   * (`fsProviderRowRecognized`). Only the providers/carriers whose totals
+   * row carries kept change are read.
+   */
+  private moduleKeptChangeDetailRows(
+    fromDt: string,
+    toDt: string,
+  ): ProfitModuleDetailRow[] {
+    const out: ProfitModuleDetailRow[] = [];
+    const push = (p: {
+      id: number;
+      source: string;
+      date: string;
+      counterpart: string;
+      detail: string;
+      keptUsd: number;
+      keptLbp: number;
+      weight: number;
+    }): void => {
+      if (p.keptUsd === 0 && p.keptLbp === 0) return;
+      const isFull = p.weight >= 0.9995;
+      out.push({
+        id: p.id,
+        source: p.source,
+        date: p.date,
+        counterpart: p.counterpart,
+        detail: p.detail,
+        amount_usd: 0,
+        amount_lbp: 0,
+        cost_usd: 0,
+        cost_lbp: 0,
+        profit_usd: p.keptUsd,
+        profit_lbp: p.keptLbp,
+        counted_pct: Math.round(p.weight * 1000) / 10,
+        counted_profit_usd: p.keptUsd * p.weight,
+        counted_profit_lbp: p.keptLbp * p.weight,
+        reason: isFull
+          ? null
+          : "Counted the way its transaction is counted (see that module's row).",
+        fee_note: null,
+      });
+    };
+    const moduleWeight = (r: {
+      debt_pending: 0 | 1;
+      partner_coverage_ratio: number;
+    }): number => (r.debt_pending ? 0 : r.partner_coverage_ratio);
+
+    for (const p of this.repo.getFinancialSettledByProvider(fromDt, toDt)) {
+      if (p.kept_change_usd === 0 && p.kept_change_lbp === 0) continue;
+      for (const r of this.repo.getFinancialServiceDetail(
+        p.provider,
+        fromDt,
+        toDt,
+      )) {
+        if (r.source !== "transfer") continue;
+        const weight =
+          !isTrackedCurrency(r.currency_code) || r.recognized === 0
+            ? 0
+            : moduleWeight(r);
+        push({
+          id: r.id,
+          source: "financial_service_transfer",
+          date: r.created_at,
+          counterpart: counterpartLabel(
+            r.counterpart_name,
+            r.counterpart_phone,
+          ),
+          detail: `${byModuleLabel(`FINANCIAL_SERVICE_${p.provider}`)} kept change`,
+          keptUsd: r.kept_change_usd,
+          keptLbp: r.kept_change_lbp,
+          weight,
+        });
+      }
+    }
+    for (const c of this.repo.getRechargesByCarrier(fromDt, toDt)) {
+      if (c.kept_change_usd === 0 && c.kept_change_lbp === 0) continue;
+      for (const r of this.repo.getRechargeDetail(c.carrier, fromDt, toDt)) {
+        push({
+          id: r.recharge_id,
+          source: "recharge",
+          date: r.created_at,
+          counterpart: counterpartLabel(r.client_name, r.phone_number),
+          detail: `${byModuleLabel(`RECHARGE_${c.carrier}`)} kept change`,
+          keptUsd: r.kept_change_usd,
+          keptLbp: r.kept_change_lbp,
+          weight: moduleWeight(r),
+        });
+      }
+    }
+    if (this.repo.getLotoTotals(fromDt, toDt).kept_change_usd !== 0) {
+      for (const r of this.repo.getLotoDetail(fromDt, toDt)) {
+        push({
+          id: r.id,
+          source: "loto",
+          date: r.created_at,
+          counterpart: counterpartLabel(r.client_name),
+          detail: "Loto ticket kept change",
+          keptUsd: r.kept_change_usd,
+          keptLbp: 0,
+          weight: moduleWeight(r),
+        });
+      }
+    }
+    if (this.repo.getExchangeTotals(fromDt, toDt).kept_change_usd !== 0) {
+      for (const r of this.repo.getExchangeDetail(fromDt, toDt)) {
+        push({
+          id: r.id,
+          source: "exchange",
+          date: r.created_at,
+          counterpart: counterpartLabel(r.client_name),
+          detail: "Exchange payout kept change",
+          keptUsd: r.kept_change_usd,
+          keptLbp: 0,
+          weight: moduleWeight(r),
+        });
+      }
+    }
+    return out;
   }
 
   /**
@@ -2977,7 +3163,7 @@ export class ProfitService {
         id: r.id,
         source: "session_discount",
         date: r.created_at,
-        counterpart: r.counterpart_name || r.counterpart_phone || "Walk-in",
+        counterpart: counterpartLabel(r.counterpart_name, r.counterpart_phone),
         detail:
           r.txn_type === "REFUND"
             ? "Discount reversed (basket refunded)"
@@ -3037,7 +3223,7 @@ export class ProfitService {
         id: r.id,
         source: "waived",
         date: r.created_at,
-        counterpart: r.counterpart_name || r.counterpart_phone || "Walk-in",
+        counterpart: counterpartLabel(r.counterpart_name, r.counterpart_phone),
         detail:
           r.txn_type === "REFUND"
             ? "Waive reversed (basket refunded)"
@@ -3091,8 +3277,10 @@ export class ProfitService {
     let countedProfitLbp = 0;
 
     for (const r of rows) {
-      const counterpart =
-        r.counterpart_name || r.counterpart_phone || "Walk-in";
+      const counterpart = counterpartLabel(
+        r.counterpart_name,
+        r.counterpart_phone,
+      );
       const row: ProfitModuleDetailRow = {
         id: r.id,
         source: "counterparty_discount",
@@ -3160,8 +3348,10 @@ export class ProfitService {
     let countedProfitLbp = 0;
 
     for (const r of rows) {
-      const counterpart =
-        r.counterpart_name || r.counterpart_phone || "Walk-in";
+      const counterpart = counterpartLabel(
+        r.counterpart_name,
+        r.counterpart_phone,
+      );
       const isRealMoney = r.profit_usd !== 0 || r.profit_lbp !== 0;
       const reason = isRealMoney
         ? null
@@ -3227,14 +3417,21 @@ export class ProfitService {
     let countedProfitLbp = 0;
 
     for (const r of rows) {
+      // LIRA-396 — a top-up / buyback with no fee (0 profit in both
+      // currencies; this drill-down shows no amount) has nothing to show:
+      // not listed. It contributes 0 either way, so Σ(counted) still equals
+      // the By Module row.
+      if (r.profit_usd === 0 && r.profit_lbp === 0) continue;
       const partnerRatio = r.partner_coverage_ratio ?? 1;
       const weight = r.debt_pending ? 0 : partnerRatio;
       const isFull = weight >= 0.9995;
       const isNone = weight <= 0.0005;
       const countedProfitUsdRow = r.profit_usd * weight;
       const countedProfitLbpRow = r.profit_lbp * weight;
-      const counterpart =
-        r.counterpart_name || r.counterpart_phone || "Walk-in";
+      const counterpart = counterpartLabel(
+        r.counterpart_name,
+        r.counterpart_phone,
+      );
       const reason = isFull
         ? null
         : r.debt_pending
@@ -3305,7 +3502,7 @@ export class ProfitService {
         id: r.id,
         source: "warranty",
         date: r.created_at,
-        counterpart: r.counterpart_name || r.counterpart_phone || "Walk-in",
+        counterpart: counterpartLabel(r.counterpart_name, r.counterpart_phone),
         detail: r.txn_type,
         amount_usd: 0,
         amount_lbp: 0,
@@ -3355,7 +3552,7 @@ export class ProfitService {
         id: r.id,
         source: "wrong_number",
         date: r.created_at,
-        counterpart: r.counterpart_name || r.counterpart_phone || "Walk-in",
+        counterpart: counterpartLabel(r.counterpart_name, r.counterpart_phone),
         detail: r.txn_type,
         amount_usd: 0,
         amount_lbp: 0,
@@ -3404,7 +3601,7 @@ export class ProfitService {
         id: r.id,
         source: "extra_charge",
         date: r.created_at,
-        counterpart: r.counterpart_name || r.counterpart_phone || "Walk-in",
+        counterpart: counterpartLabel(r.counterpart_name, r.counterpart_phone),
         detail: r.txn_type,
         amount_usd: r.profit_usd,
         amount_lbp: r.profit_lbp,

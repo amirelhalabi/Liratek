@@ -139,6 +139,9 @@ export * from "./utils/lineStatus.js";
 export * from "./utils/lineGiveBack.js";
 // LIRA-338 — which providers' cards can be charged to the shop's own lines.
 export * from "./constants/lineChargeProviders.js";
+// LIRA-393 — the automatic basket name (Client<N>): generator + matchers.
+// Pure leaf, no imports, in BOTH entry points (rule 29).
+export * from "./constants/anonymousSessionName.js";
 export * from "./utils/insuranceFulfillment.js";
 export * from "./utils/insuranceRenewal.js";
 export * from "./utils/customServiceWorkStatus.js";
