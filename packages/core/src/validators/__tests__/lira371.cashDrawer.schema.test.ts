@@ -80,6 +80,27 @@ describe("LIRA-371 cash drawer choice schema keys", () => {
     expect(r.success && r.data.cash_drawer).toBe("GENERAL");
   });
 
+  // LIRA-399 — the drawer travels on the cash leg itself.
+  it("a payment leg keeps cash_drawer (settle account, settle, cashflow)", () => {
+    const leg = { method: "CASH", currency_code: "USD", amount: 10, cash_drawer: "GENERAL" };
+    const acct = supplierSettleAccountSchema.parse({
+      account_supplier_id: 1,
+      per_currency: { USD: { direction: "PAY", payments: [leg] } },
+      expected_owed: { usd: 10, lbp: 0 },
+    });
+    expect(acct.per_currency?.USD?.payments[0]?.cash_drawer).toBe("GENERAL");
+    const settle = supplierSettleSchema.parse({
+      supplier_id: 1,
+      financial_service_ids: [1],
+      amount_usd: 10,
+      amount_lbp: 0,
+      commission_usd: 0,
+      commission_lbp: 0,
+      payments: [leg],
+    });
+    expect(settle.payments?.[0]?.cash_drawer).toBe("GENERAL");
+  });
+
   it("refuses other values", () => {
     for (const bad of ["OMT_System", "general", "OMT"]) {
       expect(

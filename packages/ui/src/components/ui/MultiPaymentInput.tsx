@@ -341,10 +341,6 @@ export interface MultiPaymentInputProps {
    *  "Client will owe". Replaces "Remaining (Debt)" and also shows at 0
    *  (not when overpaid — the change box covers that). Customer payer only. */
   owedLabel?: string;
-  /** LIRA-398 — a page-owned row rendered in the summary, under the Paid /
-   *  owed lines and above the Return / Change box (e.g. the OMT settle
-   *  sheet's "Comes from" cash-drawer choice). The page owns its value. */
-  footerRow?: ReactNode;
   /** Custom label for the header (defaults to "Payment") */
   label?: string;
   /** Label of the summary's total-of-lines figure (defaults to "Paid").
@@ -864,7 +860,6 @@ export default function MultiPaymentInput({
   afterDiscountLabel: afterDiscountLabelProp,
   discountMovesPayment = true,
   owedLabel,
-  footerRow,
   smartSplitOverpay = false,
   cashOnlyReturn = false,
   autoDebtRemainder = false,
@@ -4242,12 +4237,6 @@ export default function MultiPaymentInput({
               components={LTR_SLOT}
             />
           </p>
-        )}
-
-        {footerRow && (
-          <div data-testid="payment-footer-row" className="px-2 pt-1">
-            {footerRow}
-          </div>
         )}
 
         {/* Return / Change (overpaid). One compact box on every page (owner

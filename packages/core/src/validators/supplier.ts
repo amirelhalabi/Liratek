@@ -100,6 +100,12 @@ const supplierPaymentLegSchema = z.object({
   currency_code: z.string().min(1),
   amount: z.number().positive(),
   direction: z.enum(["IN", "OUT"]).optional(),
+  // LIRA-399 (owner 2026-11-18) — the drawer is chosen ON the cash line:
+  // GENERAL keeps THIS leg's cash in / out of General instead of the system
+  // cash drawer. Only meaningful on a General-bound cash leg of the
+  // main-system supplier; refused elsewhere. Wins over the settlement-level
+  // `cash_drawer` (kept for older clients).
+  cash_drawer: cashDrawerChoiceSchema.optional(),
 });
 
 /**

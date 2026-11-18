@@ -428,6 +428,49 @@ describe("T019 — supplier settle drawer choice", () => {
     });
   });
 
+  // LIRA-399 (owner 2026-11-18, option A): the drawer is chosen ON the cash
+  // line — each leg carries its own `cash_drawer`; no settlement-level key.
+  // RULE 17 — run before the change: both legs left OMT_System (the leg key
+  // was ignored), General stayed 0.
+  it("(k) per-leg: $400 cash from General + $372.30 cash from the OMT drawer, no settlement-level key", () => {
+    seed772();
+    const d0 = drawers();
+    settle(
+      {
+        USD: {
+          direction: "PAY",
+          payments: [
+            { ...cash("USD", 400), cash_drawer: "GENERAL" },
+            cash("USD", 372.3),
+          ],
+        },
+      },
+      undefined,
+    );
+    expect(delta(d0, drawers())).toEqual({
+      "General|USD": -400,
+      "OMT_System|USD": -372.3,
+    });
+  });
+
+  it("(l) per-leg GENERAL on a wallet leg is refused (the choice is cash only)", () => {
+    seed772();
+    expect(() =>
+      settle(
+        {
+          USD: {
+            direction: "PAY",
+            payments: [
+              cash("USD", 400),
+              { method: "WHISH", currency_code: "USD", amount: 372.3, cash_drawer: "GENERAL" },
+            ],
+          },
+        },
+        undefined,
+      ),
+    ).toThrow(/drawer choice only applies/);
+  });
+
   it("(i) the resolver default is untouched: OMT cash → OMT_System without the choice", () => {
     // FinancialService SEND/RECEIVE build their ctx without `cashDrawer`.
     expect(resolveServiceCashDrawer("CASH", { provider: "OMT", baseSystem: "OMT" })).toBe(

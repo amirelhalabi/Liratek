@@ -31,7 +31,6 @@ import {
   settleLegsNetIn,
   settleLegsTotalByCurrency,
   splitBoxLinesAcrossCurrencies,
-  systemCashDrawerChoiceApplies,
   type AccountSettleAllocResult,
   type DaySelectionsResult,
   type OmtCoveredType,
@@ -42,10 +41,9 @@ import { useSellRate } from "@/hooks/useSellRate";
 import { localDay } from "@/shared/utils/localDay";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import {
-  CashDrawerChoice,
-  type CashDrawerChoiceValue,
-} from "@/shared/components/CashDrawerChoice";
-import { isGeneralCash } from "@/shared/utils/isGeneralCash";
+  legFromMethodCode,
+  withCashDrawerMethods,
+} from "@/shared/utils/cashDrawerMethod";
 import {
   countOpenSettleTransactions,
   SettleCalendar,
@@ -364,6 +362,7 @@ export function AccountSettleSheet({
   systemCashDrawer = null,
 }: AccountSettleSheetProps) {
   const { t } = useTranslation("suppliers");
+  const { t: tPayment } = useTranslation("payment");
   const { t: tc } = useTranslation("common");
   const fmt = useFormat();
   const { methods } = usePaymentMethods();
@@ -634,7 +633,6 @@ export function AccountSettleSheet({
   const [note, setNote] = useState("");
   // LIRA-371 — "OMT Cash Drawer | General"; SYSTEM each time the sheet opens
   // (the page mounts the sheet per open).
-  const [cashDrawer, setCashDrawer] = useState<CashDrawerChoiceValue>("SYSTEM");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1019,42 +1017,23 @@ export function AccountSettleSheet({
     ];
     return parts.length > 0 ? parts.join(" + ") : null;
   })();
-  // LIRA-371 — the choice applies when some leg (IN or change) is General
-  // cash on the main-system supplier: the SAME predicate the server checks
-  // (systemCashDrawerChoiceApplies), with the Debts screen's cash test.
-  const systemBase = systemCashDrawer === "Whish_System" ? "WHISH" : "OMT";
-  const cashChoiceApplies = (legs: ReadonlyArray<{ method: string }>) =>
-    systemCashDrawer !== null &&
-    systemCashDrawerChoiceApplies({
-      provider: systemBase,
-      baseSystem: systemBase,
-      legs,
-      isGeneralCash: (m) => isGeneralCash(m, methods),
-    });
-  const showCashDrawerChoice = cashChoiceApplies(
-    includedSections.flatMap((s) => [
-      ...linesByCurrency[s.currency].filter((l) => l.amount > 0),
-      ...returnLegsByCurrency[s.currency].filter((l) => l.amount > 0),
-    ]),
+  // LIRA-399 (owner 2026-11-18, option A) — on the main-system supplier the
+  // Cash entry of the method list is split in two, drawer named: "Cash ·
+  // OMT Cash Drawer" (CASH) and "Cash · General" (CASH_GENERAL). Each line
+  // chooses its own drawer; the leg carries it (`legFromMethodCode`).
+  const paymentMethodOptions = useMemo(
+    () =>
+      systemCashDrawer === null
+        ? methods
+        : withCashDrawerMethods(methods, {
+            system:
+              systemCashDrawer === "Whish_System"
+                ? tPayment("cashDrawerChoice.whish")
+                : tPayment("cashDrawerChoice.omt"),
+            general: tPayment("cashDrawerChoice.general"),
+          }),
+    [methods, systemCashDrawer, tPayment],
   );
-  // "Goes to" when the shop only collects; "Comes from" when it pays.
-  const cashDrawerDirection: "IN" | "OUT" = includedSections.every(
-    (s) => s.direction === "COLLECT",
-  )
-    ? "IN"
-    : "OUT";
-  // LIRA-398 (owner 2026-11-18) — the choice lives INSIDE the payment box
-  // (it is about the legs), under the Paid line of the main box, else of
-  // the first side box.
-  const cashDrawerRow =
-    showCashDrawerChoice && systemCashDrawer !== null ? (
-      <CashDrawerChoice
-        value={cashDrawer}
-        onChange={setCashDrawer}
-        systemDrawer={systemCashDrawer}
-        direction={cashDrawerDirection}
-      />
-    ) : null;
   const hasCommissionProblem = includedSections.some(
     (s) => s.commissionProblem !== null,
   );
@@ -1131,13 +1110,6 @@ export function AccountSettleSheet({
       discountReason.trim()
         ? { discount_reason: discountReason.trim() }
         : {}),
-      // LIRA-371 — only when the choice applies to THESE legs (the
-      // old-history settle moves no money, so it never carries it).
-      ...(cashChoiceApplies(
-        SETTLE_CURRENCIES.flatMap((c) => perCurrency[c]?.payments ?? []),
-      )
-        ? { cash_drawer: cashDrawer }
-        : {}),
     };
   };
 
@@ -1157,7 +1129,8 @@ export function AccountSettleSheet({
             ...linesByCurrency[c]
               .filter((l) => l.amount > 0)
               .map((l) => ({
-                method: l.method,
+                // LIRA-399 — "Cash · General" becomes CASH + cash_drawer.
+                ...legFromMethodCode(l.method),
                 currency_code: l.currencyCode,
                 // LIRA-359 — a line may be in the other currency: round
                 // it in its own currency.
@@ -1169,7 +1142,7 @@ export function AccountSettleSheet({
             ...returnLegsByCurrency[c]
               .filter((l) => l.amount > 0)
               .map((l) => ({
-                method: l.method,
+                ...legFromMethodCode(l.method),
                 currency_code: l.currencyCode,
                 amount: roundMoney(
                   l.amount,
@@ -1965,7 +1938,7 @@ export function AccountSettleSheet({
                   cashOnlyReturn
                   showPmFee={false}
                   showDiscount={false}
-                  paymentMethods={methods}
+                  paymentMethods={paymentMethodOptions}
                   // FR-001 — only the currencies this box settles; LIRA-359:
                   // both when the box converts (not OMT).
                   currencies={(convertsCurrency
@@ -1990,7 +1963,6 @@ export function AccountSettleSheet({
                   // No Waive on any settle screen (LIRA-372: the cashier
                   // types the discount).
                   waiveDisabled
-                  footerRow={cashDrawerRow}
                 />
               }
             />
@@ -2083,7 +2055,7 @@ export function AccountSettleSheet({
                       cashOnlyReturn
                       showPmFee={false}
                       showDiscount={false}
-                      paymentMethods={methods}
+                      paymentMethods={paymentMethodOptions}
                       // FR-001 — money in this section is in its own currency;
                       // LIRA-359: either currency when the box converts.
                       currencies={(convertsCurrency
@@ -2106,12 +2078,6 @@ export function AccountSettleSheet({
                           }
                         : {})}
                       waiveDisabled
-                      footerRow={
-                        mainCurrencies.length === 0 &&
-                        sideSections[0]?.currency === s.currency
-                          ? cashDrawerRow
-                          : null
-                      }
                     />
                   )
                 }

@@ -268,6 +268,20 @@ export interface ServiceCashDrawerContext {
  * `isNonCashDrawerMethod` testing `drawer_name !== "General"`); this resolver
  * is a call-site-level override, not a global remap.
  */
+/**
+ * LIRA-399 — the context for ONE leg: the leg's own `cash_drawer` (chosen on
+ * the cash line) wins over the settlement-level choice; absent = the
+ * settlement's. ONE definition for every repository loop (rule 14).
+ */
+export function legCashDrawerContext(
+  ctx: ServiceCashDrawerContext,
+  leg: { method: string; cash_drawer?: CashDrawerChoice | undefined },
+): ServiceCashDrawerContext {
+  return leg.cash_drawer === undefined
+    ? ctx
+    : { ...ctx, cashDrawer: leg.cash_drawer };
+}
+
 export function resolveServiceCashDrawer(
   method: string,
   ctx: ServiceCashDrawerContext,

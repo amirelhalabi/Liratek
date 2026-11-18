@@ -58,7 +58,9 @@ export function ClientDebtDetailsBody({
   const { allMethods } = usePaymentMethods();
   const methodLabel = useMemo(() => {
     const map = new Map<string, string>();
-    for (const m of allMethods ?? []) map.set(m.code, m.label);
+    // A detail view prints the bare method name; the drawer suffix is for
+    // forms only (owner 2026-11-18).
+    for (const m of allMethods ?? []) map.set(m.code, m.rawLabel ?? m.label);
     return (code: string) => map.get(code) ?? fallbackMethodLabel(code);
   }, [allMethods]);
 

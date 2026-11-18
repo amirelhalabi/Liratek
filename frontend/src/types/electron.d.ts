@@ -1447,6 +1447,8 @@ export interface ElectronAPI {
         currencyCode: string;
         amount: number;
         direction?: "IN" | "OUT";
+        /** LIRA-399 — this leg's own drawer choice (cash lines). */
+        cash_drawer?: "SYSTEM" | "GENERAL";
       }>;
       transaction_time?: string;
       tender_exchange_rate?: number;
@@ -1494,6 +1496,8 @@ export interface ElectronAPI {
         currencyCode: string;
         amount: number;
         direction?: "IN" | "OUT";
+        /** LIRA-399 — this leg's own drawer choice (cash lines). */
+        cash_drawer?: "SYSTEM" | "GENERAL";
       }>;
       note?: string;
       transaction_time?: string;
@@ -1513,6 +1517,8 @@ export interface ElectronAPI {
         currencyCode: string;
         amount: number;
         direction?: "IN" | "OUT";
+        /** LIRA-399 — this leg's own drawer choice (cash lines). */
+        cash_drawer?: "SYSTEM" | "GENERAL";
       }>;
       note?: string;
       transaction_time?: string;
@@ -2077,6 +2083,8 @@ export interface ElectronAPI {
         currency_code: string;
         amount: number;
         direction?: "IN" | "OUT";
+        /** LIRA-399 — this leg's own drawer choice (cash lines). */
+        cash_drawer?: "SYSTEM" | "GENERAL";
       }>;
       /** LIRA-256 — OMT commission types this settlement's statement covers
        *  (absent = all types). Rule 12: mirrors the core settle schema. */
@@ -4125,6 +4133,8 @@ export interface ElectronAPI {
         currency_code: string;
         amount: number;
         direction?: "IN" | "OUT";
+        /** LIRA-399 — this leg's own drawer choice (cash lines). */
+        cash_drawer?: "SYSTEM" | "GENERAL";
       }>;
       exchange_rate?: number;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
@@ -4154,6 +4164,8 @@ export interface ElectronAPI {
         currency_code: string;
         amount: number;
         direction?: "IN" | "OUT";
+        /** LIRA-399 — this leg's own drawer choice (cash lines). */
+        cash_drawer?: "SYSTEM" | "GENERAL";
       }>;
       exchange_rate?: number;
       transaction_time?: string;

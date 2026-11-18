@@ -76,6 +76,7 @@ import {
   historyCommissionSortValue,
   type HistoryCommission,
 } from "@/shared/utils/historyCommission";
+import { labelCashByDrawer } from "@/shared/utils/cashDrawerMethod";
 
 type Provider = "OMT" | "WHISH";
 type ServiceType = "SEND" | "RECEIVE";
@@ -281,13 +282,13 @@ export default function Services() {
   const { t: tc } = useTranslation("common");
   const { formatDate, formatTime } = useFormat();
   const api = useApi();
-  const { partnerSystem } = useShopBase();
+  const { baseSystem, partnerSystem } = useShopBase();
   const {
     activeSession,
     linkTransaction,
     addToCart: addToSessionCart,
   } = useSession();
-  const { methods: allPaymentMethods } = usePaymentMethods();
+  const { methods: loadedPaymentMethods } = usePaymentMethods();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [analytics, setAnalytics] = useState<Analytics>({
     today: { commission: 0, pending_commission: 0, count: 0, byCurrency: [] },
@@ -309,6 +310,23 @@ export default function Services() {
 
   // Form State
   const [provider, setProvider] = useState<Provider>("OMT");
+  // Owner 2026-11-18 — the Cash label names the drawer the cash goes to: a
+  // transfer on the shop's main system puts its cash in the OMT (Whish)
+  // Cash Drawer (resolveServiceCashDrawer); any other provider in General
+  // (the hook's default label).
+  const { t: tPayment } = useTranslation("payment");
+  const allPaymentMethods = useMemo(
+    () =>
+      provider === baseSystem
+        ? labelCashByDrawer(
+            loadedPaymentMethods,
+            baseSystem === "WHISH"
+              ? tPayment("cashDrawerChoice.whish")
+              : tPayment("cashDrawerChoice.omt"),
+          )
+        : loadedPaymentMethods,
+    [provider, baseSystem, loadedPaymentMethods, tPayment],
+  );
   // LIRA-391: the method used before any payment line exists (the
   // provider's default); once lines exist the method is derived from them.
   const [defaultPaidByMethod, setDefaultPaidByMethod] = useState("CASH");

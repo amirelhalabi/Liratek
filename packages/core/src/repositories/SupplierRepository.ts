@@ -25,6 +25,7 @@ import {
   isReturnLeg,
   partitionLegs,
   resolveServiceCashDrawer,
+  legCashDrawerContext,
   type ServiceCashDrawerContext,
 } from "../utils/payments.js";
 // Primary Cash Drawer plan §8.2 (docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md):
@@ -652,6 +653,8 @@ export interface SettleTransactionsData {
     currency_code: string;
     amount: number;
     direction?: "IN" | "OUT";
+    /** LIRA-399 — this leg's own drawer choice (cash lines). */
+    cash_drawer?: CashDrawerChoice;
   }>;
   /** Owner decision 2026-10-07 — the rate the Settle sheet's payment input
    *  showed; stamped on the SUPPLIER_SETTLEMENT transaction when sent.
@@ -735,6 +738,8 @@ export interface SupplierCashflowData {
     currency_code: string;
     amount: number;
     direction?: "IN" | "OUT";
+    /** LIRA-399 — this leg's own drawer choice (cash lines). */
+    cash_drawer?: CashDrawerChoice;
   }>;
   note?: string;
   /** LIRA-352 — "Set custom time" (ISO): every row this payment writes
@@ -1208,6 +1213,8 @@ export interface SettleAccountData {
     currency_code: string;
     amount: number;
     direction?: "IN" | "OUT";
+    /** LIRA-399 — this leg's own drawer choice (cash lines). */
+    cash_drawer?: CashDrawerChoice;
   }>;
   /**
    * LIRA-203 (owner D18 follow-up, OMT_OPEN_CREDIT_ACCOUNT_PLAN.md) — pay
@@ -4170,6 +4177,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       currency_code: string;
       amount: number;
       direction?: "IN" | "OUT";
+      /** LIRA-399 — this leg's own drawer choice (cash lines). */
+      cash_drawer?: CashDrawerChoice;
     }>,
     owed: { usd: number; lbp: number },
     opts: {
@@ -4394,8 +4403,28 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   private _withCashDrawerChoice(
     base: ServiceCashDrawerContext,
     choice: CashDrawerChoice | undefined,
-    legs: ReadonlyArray<{ method: string }>,
+    legs: ReadonlyArray<{ method: string; cash_drawer?: CashDrawerChoice }>,
   ): ServiceCashDrawerContext {
+    const isGeneralCash = (method: string) =>
+      resolveServiceCashDrawer(method, base) ===
+      primaryCashDrawerName(base.baseSystem);
+    // LIRA-399 — a leg-level GENERAL is refused on any leg that is not
+    // General-bound cash of the main-system supplier (same sentence).
+    for (const leg of legs) {
+      if (
+        leg.cash_drawer === "GENERAL" &&
+        !systemCashDrawerChoiceApplies({
+          provider: base.provider,
+          baseSystem: base.baseSystem,
+          legs: [leg],
+          isGeneralCash,
+        })
+      ) {
+        throw new DatabaseError(
+          cashDrawerChoiceNotApplicable(base.baseSystem),
+        );
+      }
+    }
     if (choice === undefined) return base;
     if (
       choice === "GENERAL" &&
@@ -4403,9 +4432,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         provider: base.provider,
         baseSystem: base.baseSystem,
         legs,
-        isGeneralCash: (method) =>
-          resolveServiceCashDrawer(method, base) ===
-          primaryCashDrawerName(base.baseSystem),
+        isGeneralCash,
       })
     ) {
       throw new DatabaseError(cashDrawerChoiceNotApplicable(base.baseSystem));
@@ -5033,7 +5060,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             // Primary Cash Drawer plan §1/§8.2 (decision #10): a CASH leg
             // paid to the shop's primary-system supplier resolves to the
             // PCD; every other supplier/method falls through unchanged.
-            const drawerName = resolveServiceCashDrawer(p.method, drawerCtx);
+            const drawerName = resolveServiceCashDrawer(
+              p.method,
+              legCashDrawerContext(drawerCtx, p),
+            );
             // LIRA-315 — change the supplier hands back comes IN.
             const isChange = isReturnLeg(p);
             const delta = (isChange ? 1 : -1) * Math.abs(p.amount);
@@ -5763,7 +5793,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         p.currency_code,
         "Other-payment commission leg",
       );
-      const drawerName = resolveServiceCashDrawer(p.method, drawerCtx);
+      const drawerName = resolveServiceCashDrawer(
+              p.method,
+              legCashDrawerContext(drawerCtx, p),
+            );
       applyDrawerDelta(this.db, {
         drawerName,
         currencyCode: p.currency_code,
@@ -7062,7 +7095,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         const cashSign = wantsPay ? -1 : 1;
         for (const p of data.payments ?? []) {
           assertLegMovesADrawer(p.method);
-          const drawerName = resolveServiceCashDrawer(p.method, drawerCtx);
+          const drawerName = resolveServiceCashDrawer(
+              p.method,
+              legCashDrawerContext(drawerCtx, p),
+            );
           // LIRA-315 — change (an OUT leg) moves the drawer the other way.
           const delta =
             (isReturnLeg(p) ? -cashSign : cashSign) * Math.abs(p.amount);
@@ -7852,7 +7888,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         const cashSign = section.direction === "PAY" ? -1 : 1;
         for (const p of section.payments) {
           this._assertSupplierLegMovesADrawer(p.method, "Account settlement");
-          const drawerName = resolveServiceCashDrawer(p.method, drawerCtx);
+          const drawerName = resolveServiceCashDrawer(
+              p.method,
+              legCashDrawerContext(drawerCtx, p),
+            );
           const delta =
             (isReturnLeg(p) ? -cashSign : cashSign) * Math.abs(p.amount);
           applyDrawerDelta(this.db, {
@@ -9259,7 +9298,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           this._assertSupplierLegMovesADrawer(p.method, "Supplier cashflow");
           // Primary Cash Drawer plan §1/§8.2 (decision #10): a CASH leg to
           // the shop's primary-system supplier resolves to the PCD.
-          const drawerName = resolveServiceCashDrawer(p.method, drawerCtx);
+          const drawerName = resolveServiceCashDrawer(
+              p.method,
+              legCashDrawerContext(drawerCtx, p),
+            );
           // LIRA-313 — a change (OUT) leg moves the drawer the other way.
           const isChange = isReturnLeg(p);
           const delta = (isChange ? -sign : sign) * Math.abs(p.amount);

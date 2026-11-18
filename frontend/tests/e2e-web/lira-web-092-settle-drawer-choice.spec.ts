@@ -268,9 +268,11 @@ test.describe.serial("lira-web-092 cash drawer choice", () => {
     expect((await queue(page, auth, id)).some((r) => r.kind === "FINANCIAL_SERVICE" && r.id === rowId)).toBe(true);
 
     const sheet = await openSheetOnDay(page, today, DAY);
-    const choice = sheet.getByTestId("cash-drawer-choice");
-    await expect(choice).toContainText("Comes from");
-    await choice.getByTestId("cash-drawer-choice-general").click();
+    // LIRA-399 (option A): the drawer is chosen on the cash line itself.
+    await expect(sheet.getByTestId("cash-drawer-choice")).toHaveCount(0);
+    const method = sheet.locator('[data-testid^="payment-method-"]').first();
+    await expect(method.locator("option")).toContainText(["Cash · OMT Cash Drawer", "Cash · General"]);
+    await method.selectOption("CASH_GENERAL");
     const paid = Number(
       (await sheet.locator('[data-testid^="payment-amount-"]').first().inputValue()).replace(/,/g, ""),
     );

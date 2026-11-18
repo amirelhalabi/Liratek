@@ -103,54 +103,66 @@ describe("AccountSettleSheet — LIRA-371 cash drawer choice", () => {
     mockSettleSupplierAccount.mockResolvedValue({ success: true, id: 900 });
   });
 
-  it("PAY with a pre-filled cash line: the choice shows, OMT selected, 'Comes from'", async () => {
+  // LIRA-399 (owner 2026-11-18, option A): the drawer is chosen ON the cash
+  // line — the method list offers "Cash · OMT Cash Drawer" (CASH) and
+  // "Cash · General" (CASH_GENERAL); the leg carries `cash_drawer`. No
+  // "Comes from" row, no settlement-level key. RULE 17 — run before the
+  // change: the General option did not exist (select had 2 options).
+  const methodSelect = () =>
+    within(screen.getByTestId("supplier-account-settle-section-usd")).getAllByTestId(
+      /^payment-method-/,
+    )[0] as HTMLSelectElement;
+  const optionLabels = () => [...methodSelect().options].map((o) => o.textContent);
+
+  it("PAY: the method list splits Cash by drawer, OMT drawer selected by default, no 'Comes from' row", async () => {
     renderSheet(SIX_USD_ROWS, "OMT_System");
-    const choice = await screen.findByTestId("cash-drawer-choice");
-    expect(choice.textContent).toContain("Comes from");
-    expect(screen.getByTestId("cash-drawer-choice-system")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-  });
-
-  it("COLLECT says 'Goes to'", async () => {
-    renderSheet(COLLECT_ROWS, "OMT_System");
-    const choice = await screen.findByTestId("cash-drawer-choice");
-    expect(choice.textContent).toContain("Goes to");
-  });
-
-  it("picking General sends cash_drawer GENERAL", async () => {
-    renderSheet(SIX_USD_ROWS, "OMT_System");
-    fireEvent.click(await screen.findByTestId("cash-drawer-choice-general"));
-    const { parsed } = await submitAndParse();
-    expect(parsed.cash_drawer).toBe("GENERAL");
-  });
-
-  it("the default sends cash_drawer SYSTEM", async () => {
-    renderSheet(SIX_USD_ROWS, "OMT_System");
-    await screen.findByTestId("cash-drawer-choice");
-    const { parsed } = await submitAndParse();
-    expect(parsed.cash_drawer).toBe("SYSTEM");
-  });
-
-  it("Katsh / product supplier (systemCashDrawer null): no control, no key", async () => {
-    renderSheet(SIX_USD_ROWS, null);
-    await screen.findByTestId("supplier-account-settle-submit");
+    await screen.findByTestId("supplier-account-settle-section-usd");
+    expect(optionLabels()).toEqual(["Cash · OMT Cash Drawer", "Cash · General", "Whish"]);
+    expect(methodSelect().value).toBe("CASH");
     expect(screen.queryByTestId("cash-drawer-choice")).toBeNull();
+  });
+
+  it("picking 'Cash · General' sends the leg as CASH with cash_drawer GENERAL, no settlement-level key", async () => {
+    renderSheet(SIX_USD_ROWS, "OMT_System");
+    await screen.findByTestId("supplier-account-settle-section-usd");
+    fireEvent.change(methodSelect(), { target: { value: "CASH_GENERAL" } });
+    const { parsed, raw } = await submitAndParse();
+    expect(parsed.per_currency?.USD?.payments[0]).toMatchObject({
+      method: "CASH",
+      cash_drawer: "GENERAL",
+    });
+    expect("cash_drawer" in raw).toBe(false);
+  });
+
+  it("the default (OMT drawer) sends a plain CASH leg: no cash_drawer anywhere", async () => {
+    renderSheet(SIX_USD_ROWS, "OMT_System");
+    await screen.findByTestId("supplier-account-settle-section-usd");
+    const { parsed, raw } = await submitAndParse();
+    expect(parsed.per_currency?.USD?.payments[0]?.method).toBe("CASH");
+    expect("cash_drawer" in (parsed.per_currency?.USD?.payments[0] ?? {})).toBe(false);
+    expect("cash_drawer" in raw).toBe(false);
+  });
+
+  it("COLLECT lists the same two Cash entries", async () => {
+    renderSheet(COLLECT_ROWS, "OMT_System");
+    await screen.findByTestId("supplier-account-settle-section-usd");
+    expect(optionLabels()).toEqual(["Cash · OMT Cash Drawer", "Cash · General", "Whish"]);
+  });
+
+  it("Katsh / product supplier (systemCashDrawer null): plain Cash only, no key", async () => {
+    renderSheet(SIX_USD_ROWS, null);
+    await screen.findByTestId("supplier-account-settle-section-usd");
+    expect(optionLabels()).toEqual(["Cash", "Whish"]);
     const { raw } = await submitAndParse();
     expect("cash_drawer" in raw).toBe(false);
   });
 
-  it("a non-cash-only payment: no control, no key", async () => {
+  it("a wallet line carries no cash_drawer", async () => {
     renderSheet(SIX_USD_ROWS, "OMT_System");
-    await screen.findByTestId("cash-drawer-choice");
-    const box = screen.getByTestId("supplier-account-settle-section-usd");
-    const select = within(box).getAllByTestId(/^payment-method-/)[0] as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: "WHISH" } });
-    await waitFor(() =>
-      expect(screen.queryByTestId("cash-drawer-choice")).toBeNull(),
-    );
-    const { raw } = await submitAndParse();
-    expect("cash_drawer" in raw).toBe(false);
+    await screen.findByTestId("supplier-account-settle-section-usd");
+    fireEvent.change(methodSelect(), { target: { value: "WHISH" } });
+    const { parsed } = await submitAndParse();
+    expect(parsed.per_currency?.USD?.payments[0]).toMatchObject({ method: "WHISH" });
+    expect("cash_drawer" in (parsed.per_currency?.USD?.payments[0] ?? {})).toBe(false);
   });
 });

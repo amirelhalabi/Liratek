@@ -386,7 +386,9 @@ export default function TransactionsViewer({
     usePaymentMethods();
   const methodLabelByCode = useMemo(() => {
     const map = new Map<string, string>();
-    for (const m of paymentMethods) map.set(m.code, m.label);
+    // Tables print the bare method name ("Cash"); the drawer suffix is
+    // for forms only (owner 2026-11-18).
+    for (const m of paymentMethods) map.set(m.code, m.rawLabel ?? m.label);
     return map;
   }, [paymentMethods]);
 
