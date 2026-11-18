@@ -44,7 +44,12 @@ import {
   type CounterpartyKind,
   type CounterpartyFlow,
 } from "../validators/counterparty.js";
-import { isDrawerAffectingMethod, postingCurrency } from "../utils/payments.js";
+import {
+  isDrawerAffectingMethod,
+  paymentMethodToDrawerName,
+  postingCurrency,
+} from "../utils/payments.js";
+import { legFeeError, legFeeOf } from "../utils/legFee.js";
 import { requestNow } from "../utils/requestNow.js";
 import { TYPED_NOTE_SEPARATOR, withTypedNote } from "../utils/typedNote.js";
 import { debtLogger } from "../utils/logger.js";
@@ -502,6 +507,9 @@ export interface InsertPaymentRowInput {
   createdAt?: string | null;
   /** Checkpoint corrections only — see `ApplyDrawerDeltaInput.literalCurrency`. */
   literalCurrency?: boolean;
+  /** LIRA-400 — the payment-method fee INSIDE `amount` (same sign). The
+   *  caller passes `amount` = price part + fee; omitted → 0. */
+  feeAmount?: number | null;
 }
 
 export function insertPaymentRow(
@@ -511,11 +519,20 @@ export function insertPaymentRow(
   const currencyCode = input.literalCurrency
     ? input.currencyCode
     : postingCurrency(input.drawerName, input.currencyCode);
+  // LIRA-400: the fee column is named only when there is a fee, so every
+  // existing writer's INSERT is byte-identical (and still works on a
+  // pre-v233 / hand-built test schema).
+  const fee = input.feeAmount ?? 0;
   db.prepare(
-    `INSERT INTO payments (
-       transaction_id, session_id, method, drawer_name, currency_code,
-       amount, note, created_by, tenant_id, created_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    fee
+      ? `INSERT INTO payments (
+           transaction_id, session_id, method, drawer_name, currency_code,
+           amount, note, created_by, tenant_id, created_at, fee_amount
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      : `INSERT INTO payments (
+           transaction_id, session_id, method, drawer_name, currency_code,
+           amount, note, created_by, tenant_id, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     input.transactionId ?? null,
     input.sessionId ?? null,
@@ -528,7 +545,77 @@ export function insertPaymentRow(
     input.tenantId,
     // LIRA-306 FR-021: the event time on an offline replay (else now).
     input.createdAt ?? requestNow(),
+    ...(fee ? [fee] : []),
   );
+}
+
+const feeColumnCache = new WeakMap<Database.Database, boolean>();
+
+/**
+ * LIRA-400 — does this database's `payments` table have `fee_amount` (v233)?
+ * Cached per handle. Readers use {@link paymentsFeeSql} so a database built
+ * without the column (pre-v233, or a hand-built test schema) reads every
+ * fee as 0 instead of failing.
+ */
+export function paymentsHasFeeColumn(db: Database.Database): boolean {
+  const cached = feeColumnCache.get(db);
+  if (cached !== undefined) return cached;
+  let has = false;
+  try {
+    has = (
+      db.prepare(`PRAGMA table_info(payments)`).all() as { name: string }[]
+    ).some((c) => c.name === "fee_amount");
+  } catch {
+    has = false;
+  }
+  // Only a positive answer is cached: the column may be added later by a
+  // migration on the same handle, never removed while the app runs.
+  if (has) feeColumnCache.set(db, true);
+  return has;
+}
+
+/** `<alias>.fee_amount`, or the literal `0` when the column is absent. */
+export function paymentsFeeSql(db: Database.Database, alias?: string): string {
+  if (!paymentsHasFeeColumn(db)) return "0";
+  return alias ? `COALESCE(${alias}.fee_amount, 0)` : "COALESCE(fee_amount, 0)";
+}
+
+/**
+ * LIRA-400 — the server-side refusal of a payment-method fee the rules do
+ * not allow, on every phase-1 money-in flow (POS sale, telecom recharge,
+ * debt repayment), on BOTH transports (they share the repository). The pure
+ * checks (range, OUT leg, cash/account/gift card) also run in each schema;
+ * this adds the one that needs the method table: the method's drawer must
+ * not be the General cash drawer. Eligibility is `legFeeError` — the same
+ * function the payment screen uses (rule 14). Throws before any write; call
+ * it at the top of the flow, inside its db transaction.
+ */
+export function assertLegFeesAllowed(
+  legs:
+    | ReadonlyArray<{
+        method: string;
+        amount: number;
+        direction?: "IN" | "OUT" | undefined;
+        fee_amount?: number | null;
+        feeAmount?: number | null;
+      }>
+    | undefined
+    | null,
+): void {
+  for (const leg of legs ?? []) {
+    const fee = legFeeOf(leg);
+    if (fee === 0) continue;
+    const affects = isDrawerAffectingMethod(leg.method);
+    const error = legFeeError(
+      { method: leg.method, amount: leg.amount, fee, direction: leg.direction },
+      {
+        code: leg.method,
+        affectsDrawer: affects,
+        drawerName: affects ? paymentMethodToDrawerName(leg.method) : null,
+      },
+    );
+    if (error) throw new Error(error);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────

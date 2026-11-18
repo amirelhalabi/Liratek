@@ -15429,6 +15429,38 @@ DROP TABLE IF EXISTS omt_owed_shares;`);
       }
     },
   },
+  {
+    version: 233,
+    name: "payments_fee_amount",
+    description:
+      "LIRA-400: payment-method fee typed on a wallet payment line. Adds " +
+      "payments.fee_amount (REAL NOT NULL DEFAULT 0) — the part of the leg's " +
+      "amount that is the fee. payments.amount stays the whole drawer " +
+      "movement, so every drawer rebuild/expectation that sums it is " +
+      "unchanged. 0 on every existing row. Plus a partial index on the " +
+      "fee-carrying rows (idx_payments_fee). Seeds nothing.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "payments")) return;
+      if (!columnExists(db, "payments", "fee_amount")) {
+        db.exec(
+          `ALTER TABLE payments ADD COLUMN fee_amount REAL NOT NULL DEFAULT 0`,
+        );
+      }
+      // The Profits fee line reads only fee-carrying legs; a partial index
+      // keeps that read off a full payments scan (payments has no
+      // transaction_id index). Same WHERE text as the readers' predicate.
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_payments_fee ON payments(tenant_id, transaction_id) WHERE fee_amount > 0`,
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP INDEX IF EXISTS idx_payments_fee`);
+      if (columnExists(db, "payments", "fee_amount")) {
+        db.exec(`ALTER TABLE payments DROP COLUMN fee_amount`);
+      }
+    },
+  },
 ];
 
 /** v210 — offline_review_items.kind's original 14 values (frozen). */

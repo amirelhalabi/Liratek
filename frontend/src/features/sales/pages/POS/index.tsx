@@ -852,6 +852,7 @@ export default function POS() {
           // LIRA-319: "+ Extra" on the Discount line — this page sends the
           // whole PaymentData (extra_usd / extra_lbp) to processSale.
           allowExtraCharge={true}
+          allowLineFees={!activeSession}
           totalAmount={cartItems.reduce(
             (acc, item) => acc + item.retail_price * item.quantity,
             0,

@@ -238,6 +238,14 @@ describe("refundLegOverride (LIRA-078)", () => {
       expect(netByCurrency(legs)).toEqual({ USD: 100 });
     });
 
+    it("LIRA-400: a leg's payment-method fee is not refundable — net is the price part", () => {
+      const legs = [
+        { ...leg("in", 11, "USD", "WHISH"), fee_amount: 1 },
+        leg("in", 450_000, "LBP", "CASH"),
+      ];
+      expect(netByCurrency(legs)).toEqual({ USD: 10, LBP: 450_000 });
+    });
+
     it("keeps currencies separate", () => {
       const legs = [leg("in", 50, "USD"), leg("in", 900_000, "LBP")];
       expect(netByCurrency(legs)).toEqual({ USD: 50, LBP: 900_000 });

@@ -36,6 +36,11 @@
 
 ## ✨ Highlights
 
+### Charge a fee for paying by wallet
+
+When a customer pays with Whish, OMT wallet, Binance or another wallet, tap **+ fee** at the end of that payment line and type what you charge for it. The total stays the price; a "Payment method fee" line shows under it and Paid is price plus fee. The fee goes into that wallet's drawer and shows on Profits under Payment Method Fees, by method. Cash lines have no fee button. Works on the POS checkout, MTC/Alfa credit and days, and debt repayments. Refunding the sale gives back the price only; the fee stays yours.
+![POS checkout paid with Whish Wallet $10, the line's Fee box showing 1, "Payment method fee +$1.00" and Paid $11.00](whats-new/1.35.0/payment-method-fee.png)
+
 ### See totals by product or service
 
 On Audit & Transactions, switch from **List** to **Summary** to see, for the dates and filters you picked, how many of each product you sold (count, units and amount) or how many OMT, Whish, MTC/Alfa and other transactions you did and their amounts. Group by type, service, product or category, include refunded items if you want, and click a line to see those transactions. Excel adds a sheet with the summary. Profit stays on the Profits page.
@@ -226,6 +231,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 🛒 POS
 
+- POS checkout: a **+ fee** button on Whish, OMT wallet and Binance payment lines lets you charge the customer a fee for paying by wallet. The fee goes into that wallet's drawer and counts as profit; refunding the sale gives back the price only.
 - After a sale, and from any past sale's details, you can now send the receipt to the customer on WhatsApp. WhatsApp opens on their chat with the receipt already written; you press Send. Works on the desktop app and the web app.
 - A reprinted sale receipt now shows the part put on the customer's account and any gift card on their own lines, and its "Paid" amount stays what the customer paid at the counter, even after they pay off the account later.
 - From now on, when you put part of a sale on the customer's account in LBP, the customer owes it in LBP. Their LBP balance on the Accounts page goes up, not their $ balance. Paying it back in LBP closes that sale.
@@ -395,6 +401,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 📱 MTC / Alfa
 
+- MTC and Alfa credit and days: the payment window has the same **+ fee** button on wallet lines to charge a fee for paying by wallet.
 - Paying out a cash-out in several ways (part to the customer's account, part cash or wallet) now books each part where it belongs; before, the whole amount went to the account.
 - From now on, a line credits edit can be refunded from Transactions while the line still holds the edited credits. Older edits cannot.
 - MTC and Alfa Credit, Days, Alfa Gift and credit buy-back: typing a new client's name and phone no longer shows "Client is required" once the payment is on Customer Account, and a short payment now goes on that client's account, as on POS.
@@ -444,6 +451,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 📒 Accounts
 
+- Settle Debt: a wallet payment line can carry a fee for paying by wallet. The customer's debt goes down by the amount paid only, never by the fee.
 - On the Accounts page, "Confirm" on a repayment or cash-out now locks while the payment is being saved, so a second tap can no longer book the same payment twice.
 - A sale with an extra charge put on the account now settles in full: from now on, paying what the customer owes marks the sale paid including the extra, and the sale's profit and its extra then appear on the Profits page. Before, the extra stayed "still owing" on the sale forever and its profit never showed, even after the customer had paid everything.
 - Cash-in and cash-out on a customer account, and manual account entries, can be refunded from Transactions. Both the drawer and the customer's balance go back. A cash-in whose credit was already spent is refused, showing how much is left.
@@ -493,6 +501,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 📊 Profits page
 
+- Payment Method Fees now also counts the fees typed on wallet payment lines, and the card lists them by method (Whish, OMT wallet, Binance, and the OMT/Whish transfer fee).
 - By Module › MTC / Alfa › Show transactions: the Detail column now names what was sold the same way the Recharge page does — "Days 180 days", "Credits $6", "Voucher $10", "Gift $5". Before, every line read "… credit", so a 180-day validity sale showed as "180 credit".
 - Every tab now shows the same total profit for the same dates: By Module, By Date and By Cashier add up to the Overview. The Kept change row in By Module now also includes change kept on recharges, OMT/Whish transfers, loto tickets and exchanges, with its own "Show transactions" list, and By Cashier counts counterparty discounts for the cashier who recorded them.
 - By Client: baskets that were never given a name (shown as Client1, Client2… on the Sessions page) now count under Walk-in instead of appearing as separate customers, and "Show transactions" lists them as Walk-in. Totals do not change.

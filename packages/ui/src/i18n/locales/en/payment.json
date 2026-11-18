@@ -10,7 +10,11 @@
     "currency": "Currency",
     "currencyLocked": "Currency locked",
     "binanceUsdt": "Binance takes dollars — booked into Binance as USDT",
-    "remove": "Remove"
+    "remove": "Remove",
+    "addFee": "+ fee",
+    "fee": "Fee",
+    "feeTitle": "Payment method fee (customer pays on top)",
+    "clearFee": "Remove fee"
   },
   "rateWarning": {
     "away": "⚠ Rate is {{pct}}% away from the shop rate (<ltr>{{rate}}</ltr>)",
@@ -80,7 +84,8 @@
     "roundUpBooked": "Rounded up <ltr>{{amount}}</ltr> — booked as change rounding.",
     "grandTotal": "Grand Total",
     "inclWalletFee": "incl. <ltr>{{amount}}</ltr> wallet fee",
-    "owedPlusAddedChange": "Owed <ltr>{{owed}}</ltr> + customer gave <ltr>{{added}}</ltr> = <ltr>{{total}}</ltr>"
+    "owedPlusAddedChange": "Owed <ltr>{{owed}}</ltr> + customer gave <ltr>{{added}}</ltr> = <ltr>{{total}}</ltr>",
+    "paymentMethodFee": "Payment method fee"
   },
   "change": {
     "notReturnedCost": "Change not returned (cost)",

@@ -8857,6 +8857,37 @@ Needs: a dry-run mode that lists what it would delete; a guard test that a live 
 
 **What users will notice:** see the two bullets in `UNRELEASED.md`.
 
+
+## LIRA-400: Payment method fee (wallet lines) — phase 1 BUILT 2026-11-18 (not committed)
+
+**Asked by:** owner, decisions 2026-11-18 (decision page v4; memory `project-payment-method-fee.md`). Spec Kit: `specs/400-payment-method-fee/` (spec, plan, research, data-model, contracts, quickstart, tasks + analyze notes).
+
+**Decisions (owner):** the cashier TYPES a fee per wallet line (OMT wallet, Whish, Binance, any method whose drawer is not General), in the line's currency; no rate, no default, nothing in Settings. "+ fee" at the right end of wallet lines only, the method box shrinks, the button turns into the fee box (✕ clears it); cash lines unchanged. Total = price, separate "Payment method fee" line, Paid = price + fee; discount / change / overpay / extra stay on the price. Fee into the method's own drawer; profit in the line's currency on Profits › Payment Method Fees, by method, outside every module margin. Void reverses fee + profit; refund (full or item) keeps it. Never on cash / account / gift card / change lines / payouts. Debt never includes it.
+
+**Decisions taken while building (see spec "Settled design" + "Open questions"):**
+- `payments.amount` stays the whole drawer movement (price + fee); new `payments.fee_amount` is the fee part. Reason: `ClosingRepository` rebuilds `drawer_balances` from `SUM(payments.amount)` and checkpoint resolution sums it too — a fee outside `amount` would vanish on a rebuild. Refund readers use the price part through ONE helper (`priceOnlyLegRow`).
+- Profit is NOT stamped on `transactions.profit_*` (deviation from the memory note "stamped on the transaction"): the generic refund negates the stamp, which would remove the fee. Read from `payments` instead: fee > 0, transaction ACTIVE and not a reversal, dated by the transaction — folded into the existing PM_FEE line in Summary, By Module, By Date, By User, By Client and the drill-down (views still agree).
+- Fee key follows each schema's casing (rule 24): `fee_amount` on the POS sale leg, `feeAmount` on recharge and repayment legs (deviation from the memory note's "one `fee_amount` everywhere").
+- Phase-1 screens only, each opt-in: POS checkout (`allowLineFees`, off while a customer session is open — that sale is linked to the session, whose refund paths are phase 2 — and never on Maintenance, which shares CheckoutModal), telecom PaymentSheet (not buy-back, not in a session), Debts repay (not cash-out). Old transfer-page rate fee untouched; `lineFees` is ignored next to `showPmFee`. The fee box turns red above the line amount; the server is what refuses it.
+
+**Built:** migration v233 (`payments.fee_amount` + partial index `idx_payments_fee`, up/down) + `create_db.sql`; leaf `utils/legFee.ts` (eligibility, caps, messages, `priceOnlyLegRow`; reachable from `browser.ts`); `validators/legFee.ts` refine on the three leg schemas; `insertPaymentRow.feeAmount`, `assertLegFeesAllowed`, `paymentsFeeSql` (`moneyPosting.ts`); posting in `SalesRepository` / `RechargeRepository` / `DebtRepository.addRepayment`; `_reversePayments` void vs refund, `overridableNetByCurrency`, `paymentRowsToLegs`, `getPaymentsByTransactionId`, Transactions legs carry `fee_amount`; `SalesRepository` item refunds on the price part; ProfitRepository fee fragments + `getPmFeeByMethod`; `ProfitService` `pm_fee_by_method` + drill-down source `pm_fee_leg`; `MultiPaymentInput` `lineFees` (+ fee button, fee box, summary line, Paid); `toSnakeLegs`/`toCamelLegs`; refund modal net minus fee; Profits card by method; preload + `electron.d.ts`; en/ar strings.
+
+**Tests (rule 17):**
+- `packages/core/src/repositories/__tests__/paymentMethodFee.guard.test.ts` — guards + rule-28d variants (POS, recharge, debt: cash only / Whish + fee / split USD + LBP with fees / Whish + fee + change in LBP), through the real schemas and services on create_db.sql + migrations. **Proven failing first:** run before any schema/repository/profit change → 26 failed, 3 passed (the 3 "cash only" variants). Real failures: Whish moved +10 not +11 (fee key stripped by the schema), refunds/void showed no fee, every refusal was accepted ("Expected false, Received true"), PM_FEE row undefined. Now 30/30 (one By Client/drill-down case added after the build — not proven failing-first).
+- `v233.paymentsFeeAmount.test.ts`, `utils/__tests__/legFee.test.ts` — written with the code, not proven failing-first.
+- Frontend: `MultiPaymentInput` "lineFees (LIRA-400)" block (4), `paymentUtils.test.ts` fee keys parsed by the real schemas (2), `refundLegOverride` net minus fee (1) — written after the code, not proven failing-first.
+- Web e2e `lira-web-103-payment-method-fee` (POS UI: Whish $10 + $1 fee → Whish_App +11, fee +1; void → 0; refund → Whish and fee each +1; saves `whats-new/1.35.0/payment-method-fee.png`) — green, written after the code (not proven failing-first).
+
+**Runs (2026-11-18):** core full suite `--maxWorkers=2` 1050 suites / 9998 passed, 1 skipped (first run caught `requestNow.guard` — fixed by writing the fee INSERT as two literal SQL texts — and a `ProfitService.auditBatchLO` repo mock missing `getPmFeeByMethod`); backend recharge/debts/sales*/transactions*/profits* 22 suites / 152; frontend affected 33 suites / 766 then 6 / 446; web e2e lira-web-103 1 passed; `yarn typecheck` exit 0 (~63 s); `yarn lint` 0 errors; `build-release-notes --check` OK. Desktop IPC not run (no Electron on this Mac): the three handlers and offline bindings were read and forward the parsed payload whole.
+
+**Not built (phase 2, listed in spec):** sessions, custom services, maintenance, exchange, voucher sale, OMT/Whish transfer page migration off the rate fee, receipts / WhatsApp fee line, Transactions details snapshot fee line, Transactions export Fee column, closing expectation wording (already includes fees: `amount` holds them), phone app, Alfa Gift sale.
+
+**Open questions for the owner:** (1) new fees folded into the existing "Payment Method Fees" line (with a by-method list) rather than a second line of the same name — OK? (2) Alfa Gift direct sale has no + fee yet — add in phase 2? (3) the Transactions row shows the wallet leg as the full amount received (e.g. Whish $11); the fee is not called out on the row until phase 2.
+
+**Also touched:** removed two unused variables in `lira-web-065-omt-amount-first-settle.spec.ts` (committed with LIRA-398) that made `yarn lint` fail with 2 errors.
+
+**What users will notice:** on the POS checkout, MTC/Alfa payment window and Settle Debt, a "+ fee" button on Whish / OMT wallet / Binance lines; the fee shows as its own line, goes into that wallet, and appears on Profits › Payment Method Fees by method; a refund gives back the price only.
+
 ---
 
 ## LIRA-401: Duplicate repayment on Accounts — Confirm lock + one-time ticket on every money write — BUILT 2026-11-18

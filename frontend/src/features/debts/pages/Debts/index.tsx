@@ -3288,6 +3288,9 @@ export default function Debts() {
                 ? { onReturnChange: setRepayReturnLegs }
                 : {}),
               showPmFee: false,
+              // LIRA-400: "+ fee" on wallet lines of a repayment (the debt
+              // drops by the amount only); never on a cash-out (a payout).
+              lineFees: repayMode === "repay",
               // CQ-10: MultiPaymentInput's built-in discount is a single
               // scalar normalized to ONE target currency — it doesn't map
               // cleanly onto a mixed USD+LBP debt position, so the page's own

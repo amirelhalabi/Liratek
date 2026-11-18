@@ -446,6 +446,8 @@ contextBridge.exposeInMainWorld("api", {
         currencyCode: string;
         amount: number;
         direction?: "IN" | "OUT";
+        /** LIRA-400 — payment-method fee on a wallet line. */
+        feeAmount?: number;
       }>;
       keptChangeUSD?: number;
       keptChangeLBP?: number;

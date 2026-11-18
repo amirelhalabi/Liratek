@@ -24,6 +24,7 @@ import {
   tenderRateDeviationPct,
   isWithinShortfallMax,
   SHORTFALL_MAX,
+  isLegFeeEligibleMethod,
 } from "@liratek/core";
 
 /**
@@ -44,6 +45,10 @@ export type PaymentLine = {
   voucherCode?: string;
   /** IN (customer pays the shop, default) or OUT (shop returns change). */
   direction?: "IN" | "OUT";
+  /** LIRA-400 — the payment-method fee the cashier typed on this wallet
+   *  line, in the line's currency, ON TOP of `amount` (which still pays the
+   *  price). Only with the `lineFees` prop; never on cash/account/gift card. */
+  fee?: number;
 };
 
 /** A redeemable voucher belonging to the selected client. */
@@ -57,6 +62,10 @@ export interface VoucherOption {
 export interface PaymentMethod {
   code: string;
   label: string;
+  /** The drawer the method posts to (the methods list carries it). LIRA-400
+   *  uses it to tell a wallet line (fee allowed) from a cash one. */
+  drawer_name?: string | null;
+  affects_drawer?: number | boolean | null;
 }
 
 export interface Currency {
@@ -176,6 +185,15 @@ export interface MultiPaymentInputProps {
   showPmFee?: boolean;
   pmFeeRate?: number;
   onPmFeesChange?: (fees: Record<string, number>) => void;
+  /**
+   * LIRA-400 — "+ fee" on wallet (non-cash) money-in lines: the cashier types
+   * a payment-method fee per line, carried on the line as `fee` and paid ON
+   * TOP of the price (summary: a "Payment method fee" line, Paid = price +
+   * fee; change/overpay/discount stay on the price). Off by default. Never
+   * together with `showPmFee` (the transfer page's rate fee) — with both,
+   * `lineFees` is ignored so a payment can never be charged twice.
+   */
+  lineFees?: boolean;
   /** Provider fee (e.g. OMT INTRA $1) charged on top of the send amount.
    *  Shown in the summary so the grand total = totalPaid + providerFee + totalPmFees. */
   providerFee?: number;
@@ -586,6 +604,10 @@ interface PaymentLineRowProps {
   rowTestId?: string;
   /** LIRA-321: the currency select is disabled (lockCurrency). */
   currencyLocked?: boolean;
+  /** LIRA-400 — given only on a fee-eligible (wallet) line: shows "+ fee"
+   *  at the right end, which turns into the fee box in the same spot. */
+  onFeeChange?: (fee: number) => void;
+  fee?: number;
 }
 
 /**
@@ -611,7 +633,12 @@ function PaymentLineRow({
   removeDisabled = false,
   rowTestId,
   currencyLocked = false,
+  onFeeChange,
+  fee = 0,
 }: PaymentLineRowProps) {
+  // LIRA-400 — the fee box is open once tapped, or while a fee is set.
+  const [feeOpen, setFeeOpen] = useState(false);
+  const showFeeBox = !!onFeeChange && (feeOpen || fee > 0);
   const large = size === "large";
   const bg = large ? "bg-slate-800/80" : "bg-slate-900";
   const py = large ? "py-2.5" : "py-2";
@@ -737,6 +764,56 @@ function PaymentLineRow({
         />
       </div>
 
+      {/* LIRA-400 — payment-method fee: "+ fee" on a wallet line only (a
+          cash line renders nothing here, so its layout is unchanged); the
+          method select (flex-1) gives up the room. */}
+      {onFeeChange &&
+        (showFeeBox ? (
+          <div
+            className="relative w-24 shrink-0"
+            title={t("row.feeTitle")}
+          >
+            <span
+              className={`pointer-events-none absolute start-2 top-1/2 -translate-y-1/2 text-[10px] ${accent === "emerald" ? "text-emerald-400" : "text-violet-400"}`}
+            >
+              {t("row.fee")}
+            </span>
+            <DecimalInput
+              data-testid={`${testIdPrefix}-fee-${lineId}`}
+              aria-label={t("row.feeTitle")}
+              value={fee}
+              decimals={currencyCode === "LBP" ? 0 : 2}
+              onChange={(n) => onFeeChange(Math.max(0, n))}
+              aria-invalid={fee > Math.abs(amount) + 1e-9}
+              className={`w-full ${bg} border ${fee > Math.abs(amount) + 1e-9 ? "border-red-500" : "border-slate-600"} rounded-lg ps-9 pe-5 ${py} text-white text-xs font-mono focus:outline-none ${focus} transition-colors`}
+              placeholder="0"
+            />
+            <button
+              type="button"
+              data-testid={`${testIdPrefix}-fee-clear-${lineId}`}
+              aria-label={t("row.clearFee")}
+              title={t("row.clearFee")}
+              onClick={() => {
+                onFeeChange(0);
+                setFeeOpen(false);
+              }}
+              className="absolute end-1 top-1/2 -translate-y-1/2 text-slate-500 hover:text-red-400"
+            >
+              <X size={11} />
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            data-testid={`${testIdPrefix}-fee-add-${lineId}`}
+            title={t("row.feeTitle")}
+            onClick={() => setFeeOpen(true)}
+            className={`shrink-0 whitespace-nowrap rounded-lg border border-dashed border-slate-600 px-2 ${py} text-xs text-slate-400 hover:text-slate-200 hover:border-slate-400 transition-colors`}
+          >
+            {t("row.addFee")}
+          </button>
+        ))}
+
       {/* Remove */}
       {onRemove && (
         <button
@@ -823,6 +900,7 @@ export default function MultiPaymentInput({
   showPmFee = false,
   pmFeeRate = 0.01,
   onPmFeesChange,
+  lineFees = false,
   providerFee = 0,
   paymentMethods = [],
   currencies = [],
@@ -1791,6 +1869,16 @@ export default function MultiPaymentInput({
       if (line.id !== id) return line;
       const updated = { ...line, [field]: value };
 
+      // LIRA-400 — a fee is typed in the line's currency for a wallet
+      // method: a new currency or a method that takes no fee clears it.
+      if (
+        updated.fee !== undefined &&
+        ((field === "currencyCode" && value !== line.currencyCode) ||
+          (field === "method" && !isLineFeeEligible(value as string)))
+      ) {
+        delete updated.fee;
+      }
+
       // Convert amount when currency changes — an actual exchange, so the
       // result is rounded to the new currency's precision (LBP whole, USD 2dp).
       if (field === "currencyCode" && value !== line.currencyCode) {
@@ -1945,6 +2033,47 @@ export default function MultiPaymentInput({
   const totalPaid = paymentLines.reduce((sum, line) => {
     return sum + normalizeToTarget(line.amount || 0, line.currencyCode);
   }, 0);
+
+  // ── LIRA-400 — payment-method fee typed on wallet lines ──
+  // ON TOP of the price: `totalPaid` above (and so overpay, change, kept
+  // change and the discount) never sees it; only the summary's "Payment
+  // method fee" line and the Paid figure add it. Never with `showPmFee`.
+  const lineFeesOn = lineFees && !showPmFee;
+  const isLineFeeEligible = (code: string): boolean => {
+    const pm = paymentMethods.find((m) => m.code === code);
+    return isLegFeeEligibleMethod({
+      code,
+      drawerName: pm?.drawer_name ?? null,
+      affectsDrawer:
+        pm?.affects_drawer == null ? null : Boolean(pm.affects_drawer),
+    });
+  };
+  const feeLines = lineFeesOn
+    ? paymentLines.filter(
+        (l) =>
+          l.direction !== "OUT" && (l.fee ?? 0) > 0 && isLineFeeEligible(l.method),
+      )
+    : [];
+  const totalLineFeesTarget = feeLines.reduce(
+    (sum, l) => sum + normalizeToTarget(l.fee ?? 0, l.currencyCode),
+    0,
+  );
+  const lineFeesByCurrency = feeLines.reduce<
+    Array<{ amount: number; currency: string }>
+  >((acc, l) => {
+    const hit = acc.find((a) => a.currency === l.currencyCode);
+    if (hit) hit.amount += l.fee ?? 0;
+    else acc.push({ amount: l.fee ?? 0, currency: l.currencyCode });
+    return acc;
+  }, []);
+  /** The row's fee props: only on a fee-eligible money-in line. */
+  const feePropsFor = (line: PaymentLine | undefined) =>
+    lineFeesOn && line && line.direction !== "OUT" && isLineFeeEligible(line.method)
+      ? {
+          fee: line.fee ?? 0,
+          onFeeChange: (n: number) => updatePaymentLine(line.id, "fee", n),
+        }
+      : {};
 
   // Tolerance for matching: LBP amounts are large so use higher tolerance
   const matchTolerance = matchToleranceFor(totalAmountCurrency);
@@ -3584,6 +3713,7 @@ export default function MultiPaymentInput({
                     }
                     onRemove={() => removePaymentLine(line.id)}
                     removeDisabled={paymentLines.length === 1}
+                    {...feePropsFor(line)}
                   />
 
                   {/* Voucher picker (GIFT_CARD) */}
@@ -3667,6 +3797,7 @@ export default function MultiPaymentInput({
               onAmountChange={(n) =>
                 updatePaymentLine(paymentLines[0]?.id, "amount", n)
               }
+              {...feePropsFor(paymentLines[0])}
             />
 
             {/* Voucher picker (GIFT_CARD) */}
@@ -4008,6 +4139,24 @@ export default function MultiPaymentInput({
           </div>
         )}
 
+        {/* LIRA-400 — the payment-method fee, on top of the price. */}
+        {feeLines.length > 0 && (
+          <div
+            data-testid="payment-method-fee-summary"
+            className="flex justify-between text-xs"
+          >
+            <span className="text-violet-300">
+              {t("summary.paymentMethodFee")}
+            </span>
+            <span className="font-mono text-violet-200">
+              +
+              {perCurrencyTotals
+                ? pcText(lineFeesByCurrency)
+                : fmtTarget(toDisplayCurrency(totalLineFeesTarget))}
+            </span>
+          </div>
+        )}
+
         {/* Total Paid */}
         <div className="flex justify-between items-center text-xs pt-1.5 border-t border-slate-700/40">
           <span className="text-slate-300 font-medium">{paidLabel}</span>
@@ -4051,11 +4200,15 @@ export default function MultiPaymentInput({
               {perCurrencyTotals
                 ? pcText(
                     pcRows.map((r) => ({
-                      amount: r.paid,
+                      amount:
+                        r.paid +
+                        (lineFeesByCurrency.find(
+                          (f) => f.currency === r.currency,
+                        )?.amount ?? 0),
                       currency: r.currency,
                     })),
                   )
-                : fmtTarget(toDisplayCurrency(totalPaid))}
+                : fmtTarget(toDisplayCurrency(totalPaid + totalLineFeesTarget))}
             </span>
           </span>
         </div>

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { legFeeAmountSchema, refineLegFees } from "./legFee.js";
 import {
   positiveDecimalSchema,
   positiveIntegerSchema,
@@ -54,6 +55,9 @@ export const salePaymentLegSchema = z.object({
   voucher_code: z.string().optional(),
   // IN (customer pays, default) or OUT (shop returns change to customer).
   direction: z.enum(["IN", "OUT"]).optional(),
+  // LIRA-400: the payment-method fee the cashier typed on a wallet line, in
+  // the line's currency, ON TOP of `amount` (which still pays the price).
+  fee_amount: legFeeAmountSchema,
 });
 
 /**
@@ -92,7 +96,10 @@ export const saleProcessSchema = z
     final_amount: z.number().nonnegative(),
     payment_usd: z.number().nonnegative(),
     payment_lbp: z.number().nonnegative(),
-    payments: z.array(salePaymentLegSchema).optional(),
+    payments: z
+      .array(salePaymentLegSchema)
+      .superRefine(refineLegFees("fee_amount"))
+      .optional(),
     change_given_usd: z.number().optional(),
     change_given_lbp: z.number().optional(),
     // T3 keep-change (docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md): per-currency amounts

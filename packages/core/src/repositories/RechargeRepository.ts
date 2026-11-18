@@ -5,6 +5,7 @@
  * Uses recharges and drawer_balances tables.
  */
 
+import { LEG_FEE_METHOD_MESSAGE, legFeeOf } from "../utils/legFee.js";
 import type Database from "better-sqlite3";
 import { BaseRepository } from "./BaseRepository.js";
 import { rechargeLogger } from "../utils/logger.js";
@@ -27,6 +28,7 @@ import {
   expectedTotalIn,
   applyDrawerDelta,
   insertPaymentRow,
+  assertLegFeesAllowed,
   bookClientDebtCharge,
   syncTypedNote,
   assertPartnerIdRequired,
@@ -191,6 +193,8 @@ export interface RechargeData {
     voucherCode?: string;
     /** IN (customer pays, default) or OUT (shop returns change to customer). */
     direction?: "IN" | "OUT";
+    /** LIRA-400 — payment-method fee on a wallet line, ON TOP of `amount`. */
+    feeAmount?: number;
   }>;
   phoneNumber?: string;
   clientId?: number;
@@ -1258,6 +1262,27 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           "A discount cannot be applied to a credit buy-back — it is a payout, not a sale",
       };
     }
+    // LIRA-400 — a payment-method fee only on a wallet money-in line of a
+    // walk-in sale: never on a buy-back (a payout), a For-Partner recharge
+    // (no counter payment) or a session-basket item (the basket takes the
+    // payment). Before anything is written; both transports reach this.
+    if ((input.payments ?? []).some((l) => legFeeOf(l) !== 0)) {
+      if (
+        input.type === "CREDIT_BUYBACK" ||
+        input.partnerMode === "FOR" ||
+        input.deferPayment === true
+      ) {
+        return { success: false, error: LEG_FEE_METHOD_MESSAGE };
+      }
+      try {
+        assertLegFeesAllowed(input.payments);
+      } catch (e) {
+        return {
+          success: false,
+          error: e instanceof Error ? e.message : LEG_FEE_METHOD_MESSAGE,
+        };
+      }
+    }
     // LIRA-334 (rule 23): a payout round-up exists only on the credit
     // buy-back (a payout). Every other type is a sale — refuse the claim
     // rather than drop it silently.
@@ -1689,16 +1714,26 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
               continue;
             }
             const drawer = paymentMethodToDrawerName(p.method);
-            insertPayment.run(
-              txnId,
-              p.method,
-              drawer,
-              p.currencyCode,
-              Math.abs(p.amount),
+            // LIRA-400 — the fee rides on top of the price part, into the
+            // same wallet drawer; the row records the whole movement and
+            // the fee part.
+            const fee = legFeeOf(p);
+            insertPaymentRow(this.db, {
+              transactionId: txnId,
+              method: p.method,
+              drawerName: drawer,
+              currencyCode: p.currencyCode,
+              amount: Math.abs(p.amount) + fee,
               note,
               createdBy,
+              tenantId,
+              feeAmount: fee,
+            });
+            upsertBalanceDelta.run(
+              drawer,
+              p.currencyCode,
+              Math.abs(p.amount) + fee,
             );
-            upsertBalanceDelta.run(drawer, p.currencyCode, Math.abs(p.amount));
           }
         } else if (isDrawerAffectingMethod(paidBy)) {
           // Single payment (backwards-compatible)

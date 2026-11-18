@@ -122,6 +122,15 @@ interface ProfitSummary {
     awaiting_settlement_count?: number;
     pm_fee_usd: number;
     pm_fee_lbp: number;
+    /** LIRA-400 — the same fees by method and currency. Optional: an older
+     *  payload or a mocked response may not carry it. */
+    pm_fee_by_method?: Array<{
+      method: string;
+      label: string;
+      currency_code: string;
+      total: number;
+      count: number;
+    }>;
     /** LO-R2 (round 3, data lane) — a SETTLED FS-commission row's own
      *  off-currency kept change (e.g. an OMT/WHISH model-1 row's D1-style
      *  fee stamp in the other currency). Already folded into
@@ -1886,6 +1895,39 @@ export default function Profits() {
                     </span>
                   </div>
                   <div className="text-xs text-slate-400 space-y-1">
+                    {/* LIRA-400 — by method (Whish, OMT wallet, Binance…
+                        and the transfer page's fee), each in its currency. */}
+                    {[
+                      ...new Set(
+                        (summary.financial_services.pm_fee_by_method ?? []).map(
+                          (r) => r.method,
+                        ),
+                      ),
+                    ].map((method) => {
+                      const rows = (
+                        summary.financial_services.pm_fee_by_method ?? []
+                      ).filter((r) => r.method === method);
+                      return (
+                        <div
+                          key={method}
+                          data-testid={`overview-pm-fee-method-${method}`}
+                          className="flex justify-between"
+                        >
+                          <span>{rows[0]?.label ?? method}</span>
+                          <span>
+                            <ProfitAmountSpans
+                              usd={rows
+                                .filter((r) => r.currency_code === "USD")
+                                .reduce((a, r) => a + r.total, 0)}
+                              lbp={rows
+                                .filter((r) => r.currency_code === "LBP")
+                                .reduce((a, r) => a + r.total, 0)}
+                              formatAmount={formatAmount}
+                            />
+                          </span>
+                        </div>
+                      );
+                    })}
                     <div className="flex justify-between border-t border-slate-700 pt-1">
                       <span className="font-semibold">
                         {t("overview.pmFees.kept")}

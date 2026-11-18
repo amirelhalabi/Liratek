@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { legFeeAmountSchema, refineLegFees } from "./legFee.js";
 import {
   idSchema,
   positiveDecimalSchema,
@@ -158,8 +159,12 @@ export const createRechargeSchema = z
           /** Set when method === 'GIFT_CARD' — the voucher code being redeemed. */
           voucherCode: z.string().optional(),
           direction: z.enum(["IN", "OUT"]).optional(),
+          // LIRA-400: payment-method fee typed on a wallet line, on top of
+          // `amount` (which still pays the price).
+          feeAmount: legFeeAmountSchema,
         }),
       )
+      .superRefine(refineLegFees("feeAmount"))
       .optional(),
     // T3 keep-change (docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md KC-3): kept (not
     // returned) change per currency → added to the transaction's profit stamp.

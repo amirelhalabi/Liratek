@@ -25,6 +25,7 @@
 
 import type Database from "better-sqlite3";
 import { binancePaidLegSql } from "../utils/payments.js";
+import { paymentsHasFeeColumn } from "./moneyPosting.js";
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import type { RechargeData } from "./RechargeRepository.js";
@@ -628,6 +629,10 @@ export interface PmFeeDetailRow {
   provider: string | null;
   currency_code: string;
   fee: number;
+  /** LIRA-400 — "leg": a fee typed on a wallet payment line (`id` is the
+   *  transaction id); absent/"fs": the transfer page's rate fee (`id` is
+   *  the financial_services id). */
+  kind?: "fs" | "leg";
 }
 
 /**
@@ -2813,6 +2818,60 @@ export function pmFeeRecognized(
       ? usdBucketPredicate(reportingCurrency, true)
       : `${reportingCurrency} = 'LBP'`;
   return `(CASE WHEN ${notRefunded(fsAlias)} AND ${currencyGate} THEN COALESCE(${fsAlias}.payment_method_fee, 0) ELSE 0 END)`;
+}
+
+/**
+ * LIRA-400 — the payment-method fee a cashier types on a wallet payment line
+ * (POS, telecom recharge, debt repayment), stored on the leg itself:
+ * `payments.fee_amount` (the fee part inside `payments.amount`).
+ *
+ * ONE recognition rule (rule 14), used by every Profits view through the
+ * PM_FEE ("Payment Method Fees") line, beside the older
+ * `financial_services.payment_method_fee`:
+ *   - `fee_amount > 0` (a void's mirror row carries the negated fee — never
+ *     counted here; the original is VOIDED instead);
+ *   - the leg's transaction is ACTIVE and not itself a reversal — a VOID
+ *     marks the original VOIDED (fee gone, on the original's own day); a
+ *     REFUND leaves the original ACTIVE and only negates the profit STAMP,
+ *     which never held the fee (fee kept — owner decision 2026-11-18);
+ *   - dated by the transaction's own `created_at`.
+ * The fee is never stamped on `transactions.profit_*`, so no module margin
+ * contains it and nothing counts it twice.
+ */
+function legFeeRecognized(pAlias: string, tAlias: string): string {
+  return `${pAlias}.fee_amount > 0 AND ${tAlias}.status = 'ACTIVE' AND ${tAlias}.reverses_id IS NULL`;
+}
+
+/** LIRA-400 — USD / LBP bucket of a fee leg: Binance's USDT reports as USD
+ *  (like every Binance figure, LIRA-268); any other code buckets as itself
+ *  and so lands in neither USD nor LBP (PA-1.4). */
+function legFeeCurrency(pAlias: string): string {
+  return `(CASE WHEN ${pAlias}.currency_code = 'LBP' THEN 'LBP' WHEN ${pAlias}.currency_code IN ('USD', 'USDT') THEN 'USD' ELSE ${pAlias}.currency_code END)`;
+}
+
+/** LIRA-400 — a fee leg's profit in one currency bucket. */
+function legFeeProfit(pAlias: string, currency: "usd" | "lbp"): string {
+  return `(CASE WHEN ${legFeeCurrency(pAlias)} = '${currency === "usd" ? "USD" : "LBP"}' THEN ${pAlias}.fee_amount ELSE 0 END)`;
+}
+
+/** LIRA-400 — `FROM payments <p> JOIN transactions <t>`, tenant-scoped on
+ *  both sides, recognized and in range on the transaction's day. Embeds 3
+ *  binds: `dateRange`'s 2, then `<p>.tenant_id`. */
+function legFeeSource(pAlias: string, tAlias: string): string {
+  return `payments ${pAlias}
+          JOIN transactions ${tAlias} ON ${tAlias}.id = ${pAlias}.transaction_id AND ${tAlias}.tenant_id = ${pAlias}.tenant_id
+          WHERE ${legFeeRecognized(pAlias, tAlias)}
+            AND ${dateRange(`${tAlias}.created_at`)}
+            AND ${pAlias}.tenant_id = ?`;
+}
+
+/** LIRA-400 — one Payment Method Fees figure by method and currency. */
+export interface PmFeeByMethodRow {
+  method: string;
+  label: string;
+  currency_code: string;
+  total: number;
+  count: number;
 }
 
 /**
@@ -5878,6 +5937,89 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * USD, the same rule as its commission (LIRA-268).
    */
   getPmFeeTotals(fromDt: string, toDt: string): PmFeeCurrencyRow[] {
+    // LIRA-400 — plus the fee typed on wallet payment lines (legFeeSource),
+    // merged per currency: ONE PM_FEE line for both kinds of fee.
+    const merged = new Map<string, PmFeeCurrencyRow>();
+    for (const row of [
+      ...this._getFsPmFeeTotals(fromDt, toDt),
+      ...this._getLegFeeTotals(fromDt, toDt),
+    ]) {
+      const prev = merged.get(row.currency_code);
+      merged.set(
+        row.currency_code,
+        prev
+          ? {
+              currency_code: row.currency_code,
+              total: prev.total + row.total,
+              count: prev.count + row.count,
+            }
+          : { ...row },
+      );
+    }
+    return [...merged.values()];
+  }
+
+  /** LIRA-400 — the wallet-line fees per currency (see legFeeSource). */
+  private _getLegFeeTotals(fromDt: string, toDt: string): PmFeeCurrencyRow[] {
+    if (!paymentsHasFeeColumn(this.db)) return [];
+    return this.db
+      .prepare(
+        `SELECT ${legFeeCurrency("p")} AS currency_code,
+                COALESCE(SUM(p.fee_amount), 0) AS total,
+                COUNT(*) AS count
+           FROM ${legFeeSource("p", "t")}
+          GROUP BY ${legFeeCurrency("p")}`,
+      )
+      .all(fromDt, toDt, getCurrentTenantId()) as PmFeeCurrencyRow[];
+  }
+
+  /**
+   * LIRA-400 — the Payment Method Fees line by method (wallet-line fees
+   * plus the transfer page's rate fee, by its FS row's paying method),
+   * per currency — the Overview card's breakdown. Same rows and gates as
+   * {@link getPmFeeTotals}.
+   */
+  getPmFeeByMethod(fromDt: string, toDt: string): PmFeeByMethodRow[] {
+    const tenantId = getCurrentTenantId();
+    const rows: PmFeeByMethodRow[] = [];
+    if (paymentsHasFeeColumn(this.db)) {
+      rows.push(
+        ...(this.db
+          .prepare(
+            `SELECT p.method AS method,
+                    COALESCE(
+                      (SELECT pm.label FROM payment_methods pm
+                        WHERE pm.code = p.method AND pm.tenant_id = p.tenant_id),
+                      p.method
+                    ) AS label,
+                    ${legFeeCurrency("p")} AS currency_code,
+                    COALESCE(SUM(p.fee_amount), 0) AS total,
+                    COUNT(*) AS count
+               FROM ${legFeeSource("p", "t")}
+              GROUP BY p.method, ${legFeeCurrency("p")}
+              ORDER BY p.method`,
+          )
+          .all(fromDt, toDt, tenantId) as PmFeeByMethodRow[]),
+      );
+    }
+    // The transfer page's rate fee, as one entry per currency.
+    for (const r of this._getFsPmFeeTotals(fromDt, toDt)) {
+      rows.push({
+        method: "TRANSFER_RATE_FEE",
+        label: "OMT / Whish transfer fee",
+        currency_code: r.currency_code,
+        total: r.total,
+        count: r.count,
+      });
+    }
+    return rows;
+  }
+
+  /** The transfer page's rate fee (`financial_services.payment_method_fee`). */
+  private _getFsPmFeeTotals(
+    fromDt: string,
+    toDt: string,
+  ): PmFeeCurrencyRow[] {
     return this.db
       .prepare(
         `SELECT
@@ -7154,7 +7296,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    */
   getPmFeeDetail(fromDt: string, toDt: string): PmFeeDetailRow[] {
     const tenantId = getCurrentTenantId();
-    return this.db
+    const fsRows = this.db
       .prepare(
         `SELECT
           fs.id AS id,
@@ -7172,6 +7314,33 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         ORDER BY fs.created_at DESC, fs.id DESC`,
       )
       .all(fromDt, toDt, tenantId) as PmFeeDetailRow[];
+    if (!paymentsHasFeeColumn(this.db)) return fsRows;
+    // LIRA-400 — the wallet-line fees, one row per fee leg (legFeeSource).
+    const legRows = this.db
+      .prepare(
+        `SELECT
+          t.id AS id,
+          t.created_at AS created_at,
+          t.client_name AS client_name,
+          t.client_phone AS phone_number,
+          COALESCE(
+            (SELECT pm.label FROM payment_methods pm
+              WHERE pm.code = p.method AND pm.tenant_id = p.tenant_id),
+            p.method
+          ) AS provider,
+          ${legFeeCurrency("p")} AS currency_code,
+          p.fee_amount AS fee,
+          'leg' AS kind
+        FROM ${legFeeSource("p", "t")}`,
+      )
+      .all(fromDt, toDt, tenantId) as PmFeeDetailRow[];
+    return [...fsRows, ...legRows].sort((a, b) =>
+      a.created_at === b.created_at
+        ? b.id - a.id
+        : a.created_at < b.created_at
+          ? 1
+          : -1,
+    );
   }
 
   /**
@@ -7557,6 +7726,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     params.push(fromDt, toDt, tenantId); // daily_expenses
     params.push(fromDt, toDt, tenantId); // daily_exchange
     params.push(fromDt, toDt, tenantId); // daily_pmfee (fs)
+    // LIRA-400 — daily_pmfee's wallet-line fee arm (legFeeSource).
+    const hasLegFee = paymentsHasFeeColumn(this.db);
+    if (hasLegFee) params.push(fromDt, toDt, tenantId);
     // PA-2.2 (OWNER_NOTES_2026-09-21.md §6.4) — the same three extra sources
     // PA-2.1 added to getByModule, plus PA-2.3's top-up/buyback query.
     params.push(fromDt, toDt, tenantId); // daily_kept_change
@@ -7797,6 +7969,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           -- '!= LBP' — a third currency (e.g. EUR) contributes to neither
           -- bucket. A Binance USDT fee reports as USD (fsReportingCurrency,
           -- LIRA-268), the same rule as getPmFeeTotals.
+          -- LIRA-400: plus the fee typed on wallet payment lines
+          -- (legFeeSource), on the leg's transaction's day.
+          SELECT d, SUM(profit_usd) AS profit_usd, SUM(profit_lbp) AS profit_lbp
+          FROM (
           SELECT
             ${localDayExpr("fs.created_at")} AS d,
             COALESCE(SUM(CASE WHEN ${fsReportingCurrency("fs")} = 'USD' THEN fs.payment_method_fee ELSE 0 END), 0) AS profit_usd,
@@ -7807,6 +7983,18 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND ${dateRange("fs.created_at")}
             AND fs.tenant_id = ?
           GROUP BY ${localDayExpr("fs.created_at")}
+          ${
+            hasLegFee
+              ? `UNION ALL
+          SELECT
+            ${localDayExpr("lft.created_at")} AS d,
+            COALESCE(SUM(${legFeeProfit("lfp", "usd")}), 0) AS profit_usd,
+            COALESCE(SUM(${legFeeProfit("lfp", "lbp")}), 0) AS profit_lbp
+          FROM ${legFeeSource("lfp", "lft")}
+          GROUP BY ${localDayExpr("lft.created_at")}`
+              : ""
+          }
+          ) GROUP BY d
         ),
         -- PA-2.2 (OWNER_NOTES_2026-09-21.md §6.4) — the same three sources
         -- PA-2.1 added to getByModule (see that block's own comments there
@@ -9125,6 +9313,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       toDt, // LIRA-395 counterparty-discount branch — dateRange(cd.created_at)
       tenantId, // LIRA-395 counterparty-discount branch — cd.tenant_id
     );
+    // LIRA-400 — the wallet-line fee branch (legFeeSource).
+    const hasLegFee = paymentsHasFeeColumn(this.db);
+    if (hasLegFee) params.push(fromDt, toDt, tenantId);
 
     return this.db
       .prepare(
@@ -9521,6 +9712,33 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND ${dateRange("cd.created_at")}
           AND +cd.tenant_id = ?
         GROUP BY cd.user_id
+        ${
+          hasLegFee
+            ? `UNION ALL
+
+        -- LIRA-400 — payment-method fees typed on wallet payment lines
+        -- (legFeeSource, the SAME rows as the Overview's PM fee line),
+        -- credited to the cashier who took the payment, on its day. Profit
+        -- only; the transaction itself is already counted where it belongs.
+        SELECT
+          lft.user_id AS user_id,
+          COALESCE(
+            (SELECT lfu.username FROM users lfu
+              WHERE lfu.id = lft.user_id AND lfu.tenant_id = lft.tenant_id),
+            'Unknown'
+          ) AS username,
+          0 AS revenue_usd,
+          0 AS revenue_lbp,
+          COALESCE(SUM(${legFeeProfit("lfp", "usd")}), 0) AS profit_usd,
+          COALESCE(SUM(${legFeeProfit("lfp", "lbp")}), 0) AS profit_lbp,
+          0 AS transaction_count,
+          0 AS recognized_transaction_count,
+          0 AS pending_profit_usd,
+          0 AS pending_profit_lbp
+        FROM ${legFeeSource("lfp", "lft")}
+        GROUP BY lft.user_id`
+            : ""
+        }
         ) GROUP BY user_id
       ) WHERE NOT ${PROFIT_ATTRIBUTION_ROW_IS_EMPTY}
         ORDER BY profit_usd DESC`,
@@ -9939,8 +10157,11 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       fromDt,
       toDt, // LIRA-319 extra branch — dateRange(extraChargeDay(xc))
       tenantId, // LIRA-319 extra branch — xc.tenant_id
-      limit,
     );
+    // LIRA-400 — the wallet-line fee branch (legFeeSource).
+    const hasLegFee = paymentsHasFeeColumn(this.db);
+    if (hasLegFee) params.push(fromDt, toDt, tenantId);
+    params.push(limit);
 
     return this.db
       .prepare(
@@ -10269,6 +10490,36 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND +xc.tenant_id = ?
         GROUP BY CASE WHEN xc.client_id IS NOT NULL THEN xc.client_id END,
                  CASE WHEN xc.client_id IS NULL THEN ${keptChangeAttributedClientName("xc")} END
+        ${
+          hasLegFee
+            ? `UNION ALL
+
+        -- LIRA-400 — payment-method fees typed on wallet payment lines
+        -- (legFeeSource), credited to the transaction's own client (a walk-in
+        -- by its name), PROFIT only — see getByUser's identical branch.
+        SELECT
+          lft.client_id AS client_id,
+          COALESCE(
+            (SELECT lfc.full_name FROM clients lfc
+              WHERE lfc.id = lft.client_id AND lfc.tenant_id = lft.tenant_id),
+            NULLIF(MAX(lft.client_name), ''),
+            'Walk-in'
+          ) AS client_name,
+          (SELECT lfc.phone_number FROM clients lfc
+            WHERE lfc.id = lft.client_id AND lfc.tenant_id = lft.tenant_id) AS client_phone,
+          0 AS revenue_usd,
+          0 AS revenue_lbp,
+          COALESCE(SUM(${legFeeProfit("lfp", "usd")}), 0) AS profit_usd,
+          COALESCE(SUM(${legFeeProfit("lfp", "lbp")}), 0) AS profit_lbp,
+          0 AS transaction_count,
+          0 AS recognized_transaction_count,
+          0 AS pending_profit_usd,
+          0 AS pending_profit_lbp
+        FROM ${legFeeSource("lfp", "lft")}
+        GROUP BY CASE WHEN lft.client_id IS NOT NULL THEN lft.client_id END,
+                 CASE WHEN lft.client_id IS NULL THEN COALESCE(lft.client_name, '') END`
+            : ""
+        }
         ) GROUP BY CASE WHEN client_id IS NOT NULL THEN client_id END,
                    CASE WHEN client_id IS NULL THEN ${OUTER_WALK_IN_NAME} END
       ) WHERE NOT ${PROFIT_ATTRIBUTION_ROW_IS_EMPTY}
