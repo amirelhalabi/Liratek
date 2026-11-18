@@ -371,6 +371,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 - The side menu's scroll bar only shows while your pointer is over the menu, and takes no space otherwise.
 - Refreshing the page no longer sends you back to the sign-in screen when several people use the same login at once. If the app can't check your sign-in right away, it tries again for a few seconds before showing the sign-in screen.
 - New shops now start with a free 14-day trial. You can see how many days are left at the top of every page and in the phone app, and contact us on WhatsApp to activate. When a trial ends you can still sign in, see and export everything; nothing is deleted.
+- The web app is back after an outage on the morning of 18 November, when every page showed an error. Nothing was lost.
 
 ## 📲 Phone app
 

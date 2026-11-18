@@ -214,6 +214,13 @@ jobs:
       - name: Build core (schema-equivalence check needs compiled migrations)
         run: yarn build:core
 
+      # The compiled core must load as ESM from a fresh process. Jest runs it
+      # as CommonJS, so an import-cycle temporal-dead-zone error (a module-scope
+      # const read before its module finished evaluating) passes every test and
+      # typecheck and first surfaces as a Fly boot crash-loop (2026-11-18).
+      - name: Core ESM import smoke (import-cycle TDZ guard)
+        run: yarn check:core-esm
+
       # Same reasoning as backend-tests/core-tests below: the root
       # `postinstall` builds better-sqlite3 for the ELECTRON ABI, but this
       # check opens a REAL in-memory database via better-sqlite3 under plain

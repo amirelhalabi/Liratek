@@ -73,7 +73,8 @@
     "web:tunnel": "node scripts/web-tunnel.mjs",
     "web:up": "node scripts/web-up.mjs",
     "web:deploy": "vercel deploy --prod --yes",
-    "web:db:refresh": "node scripts/refresh-web-db.mjs"
+    "web:db:refresh": "node scripts/refresh-web-db.mjs",
+    "check:core-esm": "node scripts/check-core-esm-import.mjs"
   },
   "dependencies": {
     "@liratek/core": "workspace:*",

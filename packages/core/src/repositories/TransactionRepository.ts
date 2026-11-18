@@ -71,6 +71,7 @@ import {
 } from "../constants/paidViaDrawer.js";
 import { PAID_VIA_ACCOUNT_OWN_TUPLES } from "../constants/paidViaAccount.js";
 import { PAID_VIA_VOUCHER_OWN_TUPLES } from "../constants/paidViaVoucher.js";
+import { CREDIT_RETURN_LEG_METHOD } from "../constants/creditReturnLeg.js";
 import { insertDebtRefundReversal } from "./debtReversal.js";
 import { getHoldMoneyRepository } from "./HoldMoneyRepository.js";
 import { getLotoMonthlyFeeRepository } from "./LotoMonthlyFeeRepository.js";
@@ -364,7 +365,11 @@ export interface TransactionPaymentLeg {
  *  so pointing it at this export is a follow-up, not done here. Exported
  *  (rather than left module-private) so that follow-up is a one-line import
  *  away instead of also needing to add the export first. */
-export const CREDIT_RETURN_LEG_METHOD = "CREDIT_RETURN";
+// Re-exported so every existing importer of this file keeps working; the
+// value itself lives in the LEAF `constants/creditReturnLeg.ts` so that
+// `ProfitRepository` (which this file reaches through an import cycle) can
+// read it at module scope without hitting the ESM temporal dead zone.
+export { CREDIT_RETURN_LEG_METHOD };
 
 /** LIRA-335 (FR-013) — the refusal every manual path gives for a Drawer
  *  shortage expense (one wording, rule 14; ExpenseRepository reuses it). */

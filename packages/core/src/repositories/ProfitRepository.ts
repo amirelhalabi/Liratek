@@ -29,11 +29,14 @@ import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import type { RechargeData } from "./RechargeRepository.js";
 import {
-  CREDIT_RETURN_LEG_METHOD,
   INTERNAL_LEG_METHODS,
   PROVIDER_STOCK_DRAWERS,
   sessionBasketNotReversedSql,
 } from "./TransactionRepository.js";
+// From the LEAF module, never from TransactionRepository: ONLY_DAYS_TXN_IDS_SQL
+// below reads it at module scope, and this file sits in an import cycle with
+// TransactionRepository (ESM temporal dead zone — crashed the Fly boot 2026-11-18).
+import { CREDIT_RETURN_LEG_METHOD } from "../constants/creditReturnLeg.js";
 // LIRA-237 — day/time-bucketing fragments (localtimeModifier/localDayExpr/
 // isToday/dateRange). Imported from the LEAF module (not defined here) so
 // `SalesRepository.ts` can use them without creating a require cycle — see
