@@ -738,7 +738,8 @@ const SCENARIOS: Scenario[] = [
     },
     drive: async () => {
       const sheet = await openAccountSheet();
-      const box = await within(sheet).findByTestId(
+      // The one USD + LBP box must be up before the SMS figure is typed.
+      await within(sheet).findByTestId(
         "supplier-account-settle-section-usd-lbp",
       );
       // LIRA-378: the SMS below implies commission, so its types must be
