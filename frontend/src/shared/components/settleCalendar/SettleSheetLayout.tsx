@@ -55,13 +55,13 @@ export function SettleSheetLayout({
       aria-label={ariaLabel}
       onMouseDown={onMouseDown}
       className={`flex max-h-[90vh] w-full flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl transition-[max-width] duration-[350ms] ${EASE} motion-reduce:transition-none ${
-        open ? "max-w-2xl min-[900px]:max-w-[1240px]" : "max-w-2xl"
+        open ? "max-w-2xl min-[900px]:max-w-[calc(100vw-2rem)] min-[900px]:w-auto" : "max-w-2xl"
       }`}
     >
       <div
         className={`grid min-h-0 flex-1 grid-rows-1 transition-[grid-template-columns] duration-[350ms] ${EASE} motion-reduce:transition-none ${
           open
-            ? "grid-cols-1 min-[900px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
+            ? "grid-cols-1 min-[900px]:grid-cols-[minmax(34rem,42rem)_minmax(0,max-content)]"
             : "grid-cols-[minmax(0,1fr)_0fr]"
         }`}
       >

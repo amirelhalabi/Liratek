@@ -46,6 +46,9 @@ export type {
 export { SettleTransactionsPanel } from "./SettleTransactionsPanel";
 export type { SettleTransactionsPanelProps } from "./SettleTransactionsPanel";
 export { countOpenSettleTransactions } from "./settleTransactions";
-export type { SettleTransactionRow } from "./settleTransactions";
+export type {
+  SettleRowOutcome,
+  SettleTransactionRow,
+} from "./settleTransactions";
 export { SettleSheetLayout } from "./SettleSheetLayout";
 export type { SettleSheetLayoutProps } from "./SettleSheetLayout";

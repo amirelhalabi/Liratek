@@ -30,6 +30,29 @@ import { AccountSettleSheet } from "../AccountSettleSheet";
 import type { AccountUnsettledRow } from "../../hooks/useSuppliers";
 import { OMT_ACCOUNT, SIX_USD_ROWS } from "../../testing/accountSettleFixtures";
 
+/** LIRA-398 — row outcomes (closes / part-paid / untouched) live in the
+ *  "See transactions" panel's Status column; the panel is opened on first
+ *  read. `outcomeRowsOf(section)` keeps the section's currencies only. */
+function outcomeRowsIn(...currencies: Array<"USD" | "LBP">) {
+  if (!screen.queryByTestId("settle-transactions-panel")) {
+    fireEvent.click(screen.getByTestId("settle-see-transactions"));
+  }
+  return screen
+    .queryAllByTestId("supplier-account-settle-preview-row")
+    .filter((r) =>
+      currencies.includes(r.getAttribute("data-currency") as "USD" | "LBP"),
+    );
+}
+function outcomeRowsOf(section: HTMLElement) {
+  const id = section.getAttribute("data-testid") ?? "";
+  return outcomeRowsIn(
+    ...(["USD", "LBP"] as const).filter(
+      (c) =>
+        id.endsWith(`-${c.toLowerCase()}`) || id.includes(`-${c.toLowerCase()}-`),
+    ),
+  );
+}
+
 jest.mock("@/shared/utils/localDay", () => {
   const actual = jest.requireActual("@/shared/utils/localDay");
   return { ...actual, localDay: () => "2026-10-26" };
@@ -88,9 +111,10 @@ function amountInput(section: HTMLElement): HTMLInputElement {
 }
 
 function previewRows(section: HTMLElement) {
-  return within(section)
-    .getAllByTestId("supplier-account-settle-preview-row")
-    .map((r) => [r.getAttribute("data-row-id"), r.getAttribute("data-status")]);
+  return outcomeRowsOf(section).map((r) => [
+    r.getAttribute("data-row-id"),
+    r.getAttribute("data-status"),
+  ]);
 }
 
 /** Tap the calendar day `2026-10-DD`. */

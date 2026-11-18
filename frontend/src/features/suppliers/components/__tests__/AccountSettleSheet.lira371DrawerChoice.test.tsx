@@ -144,8 +144,7 @@ describe("AccountSettleSheet — LIRA-371 cash drawer choice", () => {
   it("a non-cash-only payment: no control, no key", async () => {
     renderSheet(SIX_USD_ROWS, "OMT_System");
     await screen.findByTestId("cash-drawer-choice");
-    const box = screen.getByTestId("supplier-account-settle-paid-total")
-      .parentElement as HTMLElement;
+    const box = screen.getByTestId("supplier-account-settle-section-usd");
     const select = within(box).getAllByTestId(/^payment-method-/)[0] as HTMLSelectElement;
     fireEvent.change(select, { target: { value: "WHISH" } });
     await waitFor(() =>

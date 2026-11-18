@@ -26,6 +26,29 @@ import { type AccountUnsettledRow } from "../../hooks/useSuppliers";
 import { OMT_ACCOUNT, queueRow } from "../../testing/accountSettleFixtures";
 import { tickAllCoveredTypes } from "../../testing/coveredTypesPicker";
 
+/** LIRA-398 — row outcomes (closes / part-paid / untouched) live in the
+ *  "See transactions" panel's Status column; the panel is opened on first
+ *  read. `outcomeRowsOf(section)` keeps the section's currencies only. */
+function outcomeRowsIn(...currencies: Array<"USD" | "LBP">) {
+  if (!screen.queryByTestId("settle-transactions-panel")) {
+    fireEvent.click(screen.getByTestId("settle-see-transactions"));
+  }
+  return screen
+    .queryAllByTestId("supplier-account-settle-preview-row")
+    .filter((r) =>
+      currencies.includes(r.getAttribute("data-currency") as "USD" | "LBP"),
+    );
+}
+function outcomeRowsOf(section: HTMLElement) {
+  const id = section.getAttribute("data-testid") ?? "";
+  return outcomeRowsIn(
+    ...(["USD", "LBP"] as const).filter(
+      (c) =>
+        id.endsWith(`-${c.toLowerCase()}`) || id.includes(`-${c.toLowerCase()}-`),
+    ),
+  );
+}
+
 const mockSettleSupplierAccount = jest.fn();
 
 const mockGetSupplierAccountUnsettled = jest.fn();
@@ -184,6 +207,8 @@ describe("AccountSettleSheet.lira370Sms (LIRA-370)", () => {
     within(section).getAllByTestId(/^payment-amount-/)[0] as HTMLInputElement;
   const smsInput = () =>
     screen.getByTestId("supplier-account-settle-sms-usd") as HTMLInputElement;
+  // LIRA-398 — the box opens EMPTY; LiraTek's own figure is its placeholder.
+  const statedUsd = () => smsInput().placeholder;
   const commissionLine = () =>
     screen.getByTestId("supplier-account-settle-sms-commission-usd")
       .textContent;
@@ -214,7 +239,8 @@ describe("AccountSettleSheet.lira370Sms (LIRA-370)", () => {
       const usd = await screen.findByTestId(
         "supplier-account-settle-section-usd",
       );
-      expect(smsInput().value).toBe("772.30");
+      expect(smsInput().value).toBe("");
+      expect(statedUsd()).toContain("772.30");
       expect(commissionLine()).toContain("$4.20");
       await waitFor(() =>
         expect(Number(amountInput(usd).value.replace(/,/g, ""))).toBe(772.3),
@@ -240,9 +266,9 @@ describe("AccountSettleSheet.lira370Sms (LIRA-370)", () => {
       await waitFor(() =>
         expect(Number(amountInput(usd).value.replace(/,/g, ""))).toBe(762.3),
       );
-      const statuses = within(usd)
-        .getAllByTestId("supplier-account-settle-preview-row")
-        .map((r) => r.getAttribute("data-status"));
+      const statuses = outcomeRowsOf(usd).map((r) =>
+        r.getAttribute("data-status"),
+      );
       expect(statuses.every((s) => s === "closes")).toBe(true);
       const parsed = await submitAndParse();
       expect(parsed.per_currency?.USD).toMatchObject({
@@ -288,7 +314,9 @@ describe("AccountSettleSheet.lira370Sms (LIRA-370)", () => {
       const usd = await screen.findByTestId(
         "supplier-account-settle-section-usd",
       );
-      expect(smsInput().value).toBe("-229.70");
+      expect(smsInput().value).toBe("");
+      expect(statedUsd()).toContain("229.70");
+      expect(statedUsd()).toContain("-");
       fireEvent.change(smsInput(), { target: { value: "-249.70" } });
       await waitFor(() => expect(commissionLine()).toContain("$26.20"));
       await waitFor(() =>
@@ -315,7 +343,8 @@ describe("AccountSettleSheet.lira370Sms (LIRA-370)", () => {
         },
       ]);
       await screen.findByTestId("supplier-account-settle-section-usd");
-      await waitFor(() => expect(smsInput().value).toBe("758.10"));
+      await waitFor(() => expect(statedUsd()).toContain("758.10"));
+      expect(smsInput().value).toBe("");
     });
 
     // Owner 2026-11-03: the whole credit is used, so 776.50 owed − 1000
@@ -336,7 +365,9 @@ describe("AccountSettleSheet.lira370Sms (LIRA-370)", () => {
       const usd = await screen.findByTestId(
         "supplier-account-settle-section-usd",
       );
-      await waitFor(() => expect(smsInput().value).toBe("-227.70"));
+      await waitFor(() => expect(statedUsd()).toContain("227.70"));
+      expect(smsInput().value).toBe("");
+      expect(statedUsd()).toContain("-");
       expect(commissionLine()).toContain("$4.20");
       await waitFor(() =>
         expect(Number(amountInput(usd).value.replace(/,/g, ""))).toBe(227.7),
@@ -679,6 +710,8 @@ describe("AccountSettleSheet.lira378NoCommission (LIRA-378)", () => {
 
   const smsInput = () =>
     screen.getByTestId("supplier-account-settle-sms-usd") as HTMLInputElement;
+  // LIRA-398 — the box opens EMPTY; LiraTek's own figure is its placeholder.
+  const statedUsd = () => smsInput().placeholder;
   const commissionLine = () =>
     screen.getByTestId("supplier-account-settle-sms-commission-usd")
       .textContent;
@@ -707,17 +740,18 @@ describe("AccountSettleSheet.lira378NoCommission (LIRA-378)", () => {
     it("opens with nothing ticked: SMS box at the gross 776.50, commission $0.00, 4.20 stays owed", async () => {
       renderSheet(PAY_ROWS);
       await screen.findByTestId("supplier-account-settle-section-usd");
-      expect(smsInput().value).toBe("776.50");
-      expect(commissionLine()).toContain("$0.00");
-      expect(screen.getByTestId(SP).textContent).toContain("No commission");
+      expect(smsInput().value).toBe("");
+      expect(statedUsd()).toContain("776.50");
+      // Nothing ticked: no commission line at all (the amber line says it).
       expect(
-        screen.getByTestId("supplier-account-settle-sms-includes-none"),
-      ).toBeTruthy();
+        screen.queryByTestId("supplier-account-settle-sms-commission-usd"),
+      ).toBeNull();
+      expect(screen.getByTestId(SP).textContent).toContain("No commission");
       expect(
         screen.queryByTestId("supplier-account-settle-sms-includes"),
       ).toBeNull();
       expect(
-        screen.getByTestId("supplier-account-settle-sms-stays-owed-usd")
+        screen.getByTestId("supplier-account-settle-sms-stays-owed")
           .textContent,
       ).toContain("$4.20");
     });
@@ -735,11 +769,9 @@ describe("AccountSettleSheet.lira378NoCommission (LIRA-378)", () => {
       renderSheet(PAY_ROWS);
       await screen.findByTestId("supplier-account-settle-section-usd");
       await tickAllCoveredTypes(SP);
-      await waitFor(() => expect(smsInput().value).toBe("772.30"));
+      await waitFor(() => expect(statedUsd()).toContain("772.30"));
+      expect(smsInput().value).toBe("");
       expect(commissionLine()).toContain("$4.20");
-      expect(
-        screen.queryByTestId("supplier-account-settle-sms-includes-none"),
-      ).toBeNull();
       expect(
         screen.getByTestId("supplier-account-settle-sms-includes"),
       ).toBeTruthy();
@@ -767,11 +799,9 @@ describe("AccountSettleSheet.lira378NoCommission (LIRA-378)", () => {
           (within(row).getByRole("checkbox") as HTMLInputElement).checked,
         ).toBe(true);
       }
-      const statuses = within(
+      const statuses = outcomeRowsOf(
         screen.getByTestId("supplier-account-settle-section-usd"),
-      )
-        .getAllByTestId("supplier-account-settle-preview-row")
-        .map((r) => r.getAttribute("data-status"));
+      ).map((r) => r.getAttribute("data-status"));
       expect(statuses.every((s) => s === "closes")).toBe(true);
     });
 
@@ -794,12 +824,14 @@ describe("AccountSettleSheet.lira378NoCommission (LIRA-378)", () => {
             .textContent,
         ).toContain("$6.50"),
       );
-      expect(commissionLine()).toContain("$0.00");
+      expect(
+        screen.queryByTestId("supplier-account-settle-sms-commission-usd"),
+      ).toBeNull();
       expect(
         screen.queryByTestId("supplier-account-settle-sms-needs-types-usd"),
       ).toBeNull();
       expect(
-        screen.getByTestId("supplier-account-settle-sms-stays-owed-usd")
+        screen.getByTestId("supplier-account-settle-sms-stays-owed")
           .textContent,
       ).toContain("$4.20");
       expect(
@@ -811,11 +843,81 @@ describe("AccountSettleSheet.lira378NoCommission (LIRA-378)", () => {
       expect(parsed.per_currency?.USD?.commission).toBe(0);
     });
 
+    // LIRA-398 (owner 2026-11-18): a typed figure further than $5 from
+    // LiraTek's asks the cashier to check the picked days' transactions
+    // (one is probably missing); within $5 nothing is said. Written with
+    // the feature (not proven failing-first).
+    it("SMS $6.50 away from LiraTek's 776.50 shows the check-transactions line; $2.50 away does not; Settle stays on", async () => {
+      renderSheet(PAY_ROWS);
+      await screen.findByTestId("supplier-account-settle-section-usd");
+      expect(smsInput().value).toBe("");
+      expect(statedUsd()).toContain("776.50");
+      await act(async () => {
+        fireEvent.change(smsInput(), { target: { value: "770" } });
+      });
+      await waitFor(() =>
+        expect(
+          screen.getByTestId("supplier-account-settle-sms-check-usd").textContent,
+        ).toContain("$6.50"),
+      );
+      expect(screen.getByTestId("supplier-account-settle-submit")).not.toBeDisabled();
+      await act(async () => {
+        fireEvent.change(smsInput(), { target: { value: "774" } });
+      });
+      await waitFor(() =>
+        expect(screen.queryByTestId("supplier-account-settle-sms-check-usd")).toBeNull(),
+      );
+      const parsed = await submitAndParse();
+      expect(parsed.per_currency?.USD?.sms_amount).toBe(774);
+    });
+
+    // LIRA-398 (owner 2026-11-18): SMS mode has no Pay / Collect buttons.
+    // A currency that owes nothing still shows its empty SMS box; the sign
+    // of the figure typed decides who pays whom (minus = OMT pays you), and
+    // only then does its payment box appear.
+    it("LBP owes nothing: no buttons, no LBP section, empty LBP SMS box beside the USD one; −100,000 → OMT pays you, 100,000 → You pay OMT", async () => {
+      renderSheet(PAY_ROWS);
+      await screen.findByTestId("supplier-account-settle-section-usd");
+      expect(
+        screen.queryByTestId("supplier-account-settle-direction-collect-lbp"),
+      ).toBeNull();
+      expect(
+        screen.queryByTestId("supplier-account-settle-nothing-owed-lbp"),
+      ).toBeNull();
+      expect(
+        screen.queryByTestId("supplier-account-settle-section-lbp"),
+      ).toBeNull();
+      const entry = screen.getByTestId("supplier-account-settle-sms-entry");
+      const lbpSms = within(entry).getByTestId(
+        "supplier-account-settle-sms-lbp",
+      ) as HTMLInputElement;
+      expect(lbpSms.value).toBe("");
+      expect(lbpSms.placeholder).toContain("0 LBP");
+      await act(async () => {
+        fireEvent.change(lbpSms, { target: { value: "-100000" } });
+      });
+      const lbp = await screen.findByTestId("supplier-account-settle-section-lbp");
+      expect(lbp.textContent).toContain("OMT pays you");
+      expect(within(lbp).queryByTestId(/^payment-amount-/)).not.toBeNull();
+      // The box the cashier types in is the same element: no re-mount.
+      expect(screen.getByTestId("supplier-account-settle-sms-lbp")).toBe(lbpSms);
+      await act(async () => {
+        fireEvent.change(lbpSms, { target: { value: "100000" } });
+      });
+      await waitFor(() =>
+        expect(
+          screen.getByTestId("supplier-account-settle-section-usd-lbp").textContent,
+        ).toContain("You pay OMT"),
+      );
+      expect(screen.getByTestId("supplier-account-settle-sms-lbp")).toBe(lbpSms);
+    });
+
     it("ticking All types turns the same gap back into commission: $6.50, no gap line", async () => {
       renderSheet(PAY_ROWS);
       await screen.findByTestId("supplier-account-settle-section-usd");
       await tickAllCoveredTypes(SP);
-      await waitFor(() => expect(smsInput().value).toBe("772.30"));
+      await waitFor(() => expect(statedUsd()).toContain("772.30"));
+      expect(smsInput().value).toBe("");
       await act(async () => {
         fireEvent.change(smsInput(), { target: { value: "770" } });
       });

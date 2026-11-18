@@ -4,6 +4,18 @@
  * component so that file only exports components (fast refresh).
  */
 
+export interface SettleRowOutcome {
+  status: "closes" | "part-paid" | "untouched";
+  /** The pill's text, e.g. "Closes", "$47 of $101 · $54 owed". */
+  label: string;
+  /** The row's currency, kind and id, exposed as data attributes. */
+  currency: string;
+  kind: string;
+  rowId: number;
+  /** A credit row (negative: the account owes the shop). */
+  credit?: boolean | undefined;
+}
+
 export interface SettleTransactionRow {
   /** Stable row key, the same one the caller's untick set holds. */
   key: string;
@@ -25,6 +37,10 @@ export interface SettleTransactionRow {
   left_lbp: number;
   /** "waiting": open but outside what may be settled now (no tick). */
   status: "open" | "paid" | "waiting";
+  /** LIRA-398 — what the payment being typed does to this row (the
+   *  caller's own allocation preview, rule 14): closes / part-paid /
+   *  untouched, with the pill's text. Absent = no Status column cell. */
+  outcome?: SettleRowOutcome | null | undefined;
   /** In the settlement — from the caller's own payload builder (its
    *  selection keys), never derived again (rule 14). Read for open rows. */
   checked: boolean;

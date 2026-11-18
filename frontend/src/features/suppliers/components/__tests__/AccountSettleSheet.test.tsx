@@ -43,6 +43,29 @@ import {
 } from "../../testing/accountSettleFixtures";
 import { localDay } from "@/shared/utils/localDay";
 
+/** LIRA-398 — row outcomes (closes / part-paid / untouched) live in the
+ *  "See transactions" panel's Status column; the panel is opened on first
+ *  read. `outcomeRowsOf(section)` keeps the section's currencies only. */
+function outcomeRowsIn(...currencies: Array<"USD" | "LBP">) {
+  if (!screen.queryByTestId("settle-transactions-panel")) {
+    fireEvent.click(screen.getByTestId("settle-see-transactions"));
+  }
+  return screen
+    .queryAllByTestId("supplier-account-settle-preview-row")
+    .filter((r) =>
+      currencies.includes(r.getAttribute("data-currency") as "USD" | "LBP"),
+    );
+}
+function outcomeRowsOf(section: HTMLElement) {
+  const id = section.getAttribute("data-testid") ?? "";
+  return outcomeRowsIn(
+    ...(["USD", "LBP"] as const).filter(
+      (c) =>
+        id.endsWith(`-${c.toLowerCase()}`) || id.includes(`-${c.toLowerCase()}-`),
+    ),
+  );
+}
+
 const mockSettleSupplierAccount = jest.fn();
 
 const mockGetSupplierAccountUnsettled = jest.fn();
@@ -206,9 +229,9 @@ describe("AccountSettleSheet.coveredTypes (LIRA-256)", () => {
   }
 
   const previewIds = async () =>
-    within(await screen.findByTestId("supplier-account-settle-section-usd"))
-      .getAllByTestId("supplier-account-settle-preview-row")
-      .map((r) => r.getAttribute("data-row-id"));
+    outcomeRowsOf(
+      await screen.findByTestId("supplier-account-settle-section-usd"),
+    ).map((r) => r.getAttribute("data-row-id"));
   async function payUsd(value: string) {
     const usd = await screen.findByTestId(
       "supplier-account-settle-section-usd",
@@ -511,9 +534,7 @@ describe("AccountSettleSheet.lira322Commission (LIRA-322)", () => {
   }
 
   function statuses(section: HTMLElement) {
-    return within(section)
-      .getAllByTestId("supplier-account-settle-preview-row")
-      .map((r) => r.getAttribute("data-status"));
+    return outcomeRowsOf(section).map((r) => r.getAttribute("data-status"));
   }
 
   describe("AccountSettleSheet — commission per currency (LIRA-322 F4)", () => {
@@ -540,7 +561,7 @@ describe("AccountSettleSheet.lira322Commission (LIRA-322)", () => {
         expect(statuses(usd)).toEqual(Array(6).fill("closes")),
       );
       expect(
-        within(usd).getByTestId("supplier-account-settle-still-owed-usd")
+        screen.getByTestId("supplier-account-settle-still-owed-usd")
           .textContent,
       ).toBe("$0.00");
       // No "Extra $0.70 goes on the account" caused by the commission.
@@ -592,7 +613,7 @@ describe("AccountSettleSheet.lira322Commission (LIRA-322)", () => {
         ]),
       );
       expect(
-        within(usd).getByTestId("supplier-account-settle-still-owed-usd")
+        screen.getByTestId("supplier-account-settle-still-owed-usd")
           .textContent,
       ).toBe("$0.70");
       expect(
@@ -621,7 +642,7 @@ describe("AccountSettleSheet.lira322Commission (LIRA-322)", () => {
         ]),
       );
       expect(
-        within(usd).getByTestId("supplier-account-settle-still-owed-usd")
+        screen.getByTestId("supplier-account-settle-still-owed-usd")
           .textContent,
       ).toBe("$0.70");
     });
@@ -907,9 +928,7 @@ describe("AccountSettleSheet.lira322Currency (LIRA-322)", () => {
       fireEvent.change(lineInputs(usd)[0], { target: { value: "0" } });
       await waitFor(() =>
         expect(
-          within(usd)
-            .getAllByTestId("supplier-account-settle-preview-row")
-            .map((r) => r.getAttribute("data-status")),
+          outcomeRowsOf(usd).map((r) => r.getAttribute("data-status")),
         ).toEqual(["part-paid", "closes"]),
       );
       await submitOnce();
@@ -938,14 +957,9 @@ describe("AccountSettleSheet.lira322Currency (LIRA-322)", () => {
       const box = await screen.findByTestId(BOTH);
       setLines(box, "497", "0");
 
-      const lbpPreview = within(box).getByTestId(
-        "supplier-account-settle-preview-lbp",
-      );
       await waitFor(() =>
         expect(
-          within(lbpPreview)
-            .getAllByTestId("supplier-account-settle-preview-row")
-            .map((r) => r.getAttribute("data-status")),
+          outcomeRowsIn("LBP").map((r) => r.getAttribute("data-status")),
         ).toEqual(["untouched", "untouched"]),
       );
 
@@ -1070,13 +1084,11 @@ describe("AccountSettleSheet.lira322Preview (LIRA-322)", () => {
     )[0] as HTMLInputElement;
   }
 
-  function previewStatuses(preview: HTMLElement) {
-    return within(preview)
-      .getAllByTestId("supplier-account-settle-preview-row")
-      .map((r) => [
-        r.getAttribute("data-row-id"),
-        r.getAttribute("data-status"),
-      ]);
+  function previewStatuses(currency: "USD" | "LBP") {
+    return outcomeRowsIn(currency).map((r) => [
+      r.getAttribute("data-row-id"),
+      r.getAttribute("data-status"),
+    ]);
   }
 
   describe("AccountSettleSheet — per-currency preview (LIRA-322 US2)", () => {
@@ -1094,9 +1106,7 @@ describe("AccountSettleSheet.lira322Preview (LIRA-322)", () => {
       // Line 1 is USD; line 2 (LBP) stays pre-filled with 900,000.
       fireEvent.change(amountInput(usd), { target: { value: "300" } });
 
-      const preview = within(usd).getByTestId(
-        "supplier-account-settle-preview-usd",
-      );
+      const preview = "USD" as const;
       await waitFor(() =>
         expect(previewStatuses(preview)).toEqual([
           ["101", "closes"],
@@ -1107,12 +1117,12 @@ describe("AccountSettleSheet.lira322Preview (LIRA-322)", () => {
           ["106", "untouched"],
         ]),
       );
-      const partial = within(preview)
-        .getAllByTestId("supplier-account-settle-preview-row")
-        .find((r) => r.getAttribute("data-status") === "part-paid")!;
+      const partial = outcomeRowsIn(preview).find(
+        (r) => r.getAttribute("data-status") === "part-paid",
+      )!;
       expect(partial.textContent).toContain("$47 of $101 · $54 owed");
       expect(
-        within(usd).getByTestId("supplier-account-settle-still-owed-usd")
+        screen.getByTestId("supplier-account-settle-still-owed-usd")
           .textContent,
       ).toBe("$197.00");
       // The box's own Remaining row names only the short currency.
@@ -1120,12 +1130,9 @@ describe("AccountSettleSheet.lira322Preview (LIRA-322)", () => {
         "$197.00",
       );
 
-      const lbpPreview = within(usd).getByTestId(
-        "supplier-account-settle-preview-lbp",
-      );
-      expect(previewStatuses(lbpPreview)).toEqual([["201", "closes"]]);
+      expect(previewStatuses("LBP")).toEqual([["201", "closes"]]);
       expect(
-        within(usd).getByTestId("supplier-account-settle-still-owed-lbp")
+        screen.getByTestId("supplier-account-settle-still-owed-lbp")
           .textContent,
       ).toBe("0 LBP");
     });
@@ -1145,12 +1152,12 @@ describe("AccountSettleSheet.lira322Preview (LIRA-322)", () => {
 
       await waitFor(() =>
         expect(
-          within(usd).getByTestId("supplier-account-settle-extra-usd")
+          screen.getByTestId("supplier-account-settle-extra-usd")
             .textContent,
-        ).toMatch(/\$10\.11.*goes on the account/),
+        ).toMatch(/\$10\.11/),
       );
       expect(
-        within(usd).getByTestId("supplier-account-settle-still-owed-usd")
+        screen.getByTestId("supplier-account-settle-still-owed-usd")
           .textContent,
       ).toBe("$0.00");
     });
@@ -1428,9 +1435,8 @@ describe("AccountSettleSheet.staleQueueRefetch (LIRA-189)", () => {
       // cache — the seeded row must be RENDERED in the preview.
       const row = await waitFor(
         () => {
-          const found = screen.getByTestId(
-            "supplier-account-settle-preview-row",
-          );
+          const found = outcomeRowsIn("USD", "LBP")[0];
+          expect(found).toBeDefined();
           expect(found).toHaveAttribute("data-row-id", "999");
           return found;
         },
@@ -1628,12 +1634,10 @@ describe("AccountSettleSheet (LIRA-189)", () => {
   }
 
   function previewRows(section: HTMLElement) {
-    return within(section)
-      .getAllByTestId("supplier-account-settle-preview-row")
-      .map((r) => [
-        r.getAttribute("data-row-id"),
-        r.getAttribute("data-status"),
-      ]);
+    return outcomeRowsOf(section).map((r) => [
+      r.getAttribute("data-row-id"),
+      r.getAttribute("data-status"),
+    ]);
   }
 
   async function submitAndParse() {

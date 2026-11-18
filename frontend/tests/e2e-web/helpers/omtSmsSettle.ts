@@ -19,17 +19,20 @@ import { expect, type Locator } from "@playwright/test";
  */
 export async function smsAtGross(sheet: Locator): Promise<void> {
   await tickAllSmsTypes(sheet);
+  // LIRA-398 — both SMS boxes always exist and open EMPTY; LiraTek's figure
+  // (with OMT's sign) is the placeholder. A currency with nothing owed has
+  // no section, so it is left alone.
   for (const c of ["usd", "lbp"] as const) {
     const sms = sheet.getByTestId(`supplier-account-settle-sms-${c}`);
     if ((await sms.count()) === 0) continue;
-    const owedText = await sheet
-      .getByTestId(`supplier-account-settle-owed-${c}`)
-      .first()
-      .innerText();
-    const owed = Number(owedText.replace(/[^0-9.]/g, ""));
-    const prefilled = Number((await sms.inputValue()).replace(/,/g, ""));
+    const owedEl = sheet.getByTestId(`supplier-account-settle-owed-${c}`);
+    if ((await owedEl.count()) === 0) continue;
+    // The header shows the SMS figure (LIRA-398); the gross owed is its
+    // `data-owed` attribute.
+    const owed = Math.abs(Number(await owedEl.first().getAttribute("data-owed")));
+    const placeholder = (await sms.getAttribute("placeholder")) ?? "";
     const value = c === "usd" ? owed.toFixed(2) : String(Math.round(owed));
-    await sms.fill(prefilled < 0 ? `-${value}` : value);
+    await sms.fill(placeholder.includes("-") ? `-${value}` : value);
     await expect(
       sheet.getByTestId(`supplier-account-settle-sms-commission-${c}`),
     ).toContainText(c === "usd" ? "$0.00" : "0 LBP");

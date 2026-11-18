@@ -95,6 +95,17 @@ import {
 import type { Page, Locator } from "@playwright/test";
 import { closeAllActiveSessions } from "./helpers/nav";
 
+/** LIRA-398 — row outcomes (closes / part-paid / untouched) are the Status
+ *  column of the "See transactions" panel: open it when closed, then locate
+ *  `supplier-account-settle-preview-row` pills from the sheet. */
+async function outcomes(sheet: Locator): Promise<Locator> {
+  if ((await sheet.getByTestId("settle-transactions-panel").count()) === 0) {
+    await sheet.getByTestId("settle-see-transactions").click();
+    await expect(sheet.getByTestId("settle-transactions-panel")).toBeVisible();
+  }
+  return sheet;
+}
+
 test.describe.configure({ retries: 0 });
 
 // This spec asserts on the repayment toast — opt out of the harness's 2ms
@@ -482,7 +493,7 @@ async function settleOmtRow(
   // The cash closes this transfer in full (commission only counts on a
   // transfer the settlement closes).
   await expect(
-    usd.locator(
+    (await outcomes(sheet)).locator(
       `[data-testid="supplier-account-settle-preview-row"][data-kind="FINANCIAL_SERVICE"][data-row-id="${rowId}"]`,
     ),
   ).toHaveAttribute("data-status", "closes");

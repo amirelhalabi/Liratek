@@ -129,6 +129,9 @@ export function SettleTransactionsPanel({
   const visible = groups
     .map((g) => ({ ...g, shown: g.rows.filter(matches) }))
     .filter((g) => g.shown.length > 0);
+  // LIRA-398 — the caller's allocation preview, one pill per row.
+  const hasOutcome = rows.some((r) => r.outcome != null);
+  const cols = hasOutcome ? 8 : 7;
 
   const th =
     "sticky top-0 z-[1] border-b border-slate-700 bg-slate-900 px-2.5 py-2 text-start text-[10.5px] font-semibold tracking-wider text-slate-400 uppercase";
@@ -189,7 +192,7 @@ export function SettleTransactionsPanel({
         data-testid="settle-tx-scroll"
         className="min-h-0 flex-1 overflow-auto scroll-smooth motion-reduce:scroll-auto"
       >
-        <table className="w-full min-w-[560px] border-collapse text-[12.5px] text-slate-300">
+        <table className="w-max min-w-full border-collapse text-[12.5px] text-slate-300 whitespace-nowrap">
           <thead>
             <tr>
               <th className={th} />
@@ -207,13 +210,18 @@ export function SettleTransactionsPanel({
               <th className={thEnd}>
                 {t("accountSettle.transactions.colLeft")}
               </th>
+              {hasOutcome && (
+                <th className={thEnd}>
+                  {t("accountSettle.transactions.colStatus")}
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
             {pickedDays.size === 0 ? (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={cols}
                   className="px-2.5 py-4 text-center text-xs text-slate-400"
                 >
                   {t("accountSettle.transactions.noDays")}
@@ -222,7 +230,7 @@ export function SettleTransactionsPanel({
             ) : visible.length === 0 ? (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={cols}
                   className="px-2.5 py-4 text-center text-xs text-slate-400"
                 >
                   {loading ? "" : t("accountSettle.transactions.noMatch")}
@@ -248,7 +256,7 @@ export function SettleTransactionsPanel({
                       {dayLabel(g.day)}
                     </td>
                     <td
-                      colSpan={2}
+                      colSpan={hasOutcome ? 3 : 2}
                       className="border-t border-slate-800 px-2.5 py-2 text-end font-mono text-xs font-bold whitespace-nowrap text-white tabular-nums"
                     >
                       {sub || "—"}
@@ -318,6 +326,35 @@ export function SettleTransactionsPanel({
                         >
                           {left}
                         </td>
+                        {hasOutcome && (
+                          <td className={`${td} text-end whitespace-nowrap`}>
+                            {r.outcome && (
+                              <span className="inline-flex items-center gap-1">
+                                {r.outcome.credit && (
+                                  <span className="px-1 py-0.5 rounded bg-emerald-900/50 text-emerald-400 text-[9px] font-semibold uppercase tracking-wide">
+                                    {t("accountSettle.credit")}
+                                  </span>
+                                )}
+                                <span
+                                  data-testid="supplier-account-settle-preview-row"
+                                  data-currency={r.outcome.currency}
+                                  data-kind={r.outcome.kind}
+                                  data-row-id={r.outcome.rowId}
+                                  data-status={r.outcome.status}
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                    r.outcome.status === "closes"
+                                      ? "bg-green-900/50 text-green-300"
+                                      : r.outcome.status === "part-paid"
+                                        ? "bg-amber-900/50 text-amber-300"
+                                        : "bg-slate-700 text-slate-400"
+                                  }`}
+                                >
+                                  {r.outcome.label}
+                                </span>
+                              </span>
+                            )}
+                          </td>
+                        )}
                       </tr>
                     );
                   }),

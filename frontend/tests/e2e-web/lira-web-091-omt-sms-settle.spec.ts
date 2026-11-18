@@ -28,6 +28,17 @@ import {
   BACKEND_URL,
 } from "./fixtures";
 
+/** LIRA-398 — row outcomes (closes / part-paid / untouched) are the Status
+ *  column of the "See transactions" panel: open it when closed, then locate
+ *  `supplier-account-settle-preview-row` pills from the sheet. */
+async function outcomes(sheet: Locator): Promise<Locator> {
+  if ((await sheet.getByTestId("settle-transactions-panel").count()) === 0) {
+    await sheet.getByTestId("settle-see-transactions").click();
+    await expect(sheet.getByTestId("settle-transactions-panel")).toBeVisible();
+  }
+  return sheet;
+}
+
 type Auth = { Authorization: string };
 
 interface QueueRow {
@@ -185,17 +196,18 @@ test.describe.serial("lira-web-091 OMT settle from the SMS amount", () => {
     // LIRA-378 — opens with nothing ticked: no commission, the box at the
     // gross owed, the expected commission "stays owed". What's new
     // screenshot of that default (rule 30), landscape.
-    await expect(sms).toHaveValue(OWED.toFixed(2));
+    // LIRA-398 — the box opens EMPTY; LiraTek's figure is its placeholder.
+    await expect(sms).toHaveValue("");
+    await expect(sms).toHaveAttribute("placeholder", `LiraTek: $${OWED.toFixed(2)}`);
     await expect(sheet.getByTestId("supplier-account-settle-covered")).toContainText("No commission");
-    await expect(sheet.getByTestId("supplier-account-settle-sms-includes-none")).toBeVisible();
-    await expect(sheet.getByTestId("supplier-account-settle-sms-stays-owed-usd")).toContainText(
+    await expect(sheet.getByTestId("supplier-account-settle-sms-stays-owed")).toContainText(
       `$${EXPECTED_COMMISSION.toFixed(2)}`,
     );
     await page.setViewportSize({ width: 1400, height: 900 });
     await sheet.screenshot({ path: "public/whats-new/1.35.0/omt-sms-no-commission.png" });
     // Ticking All types brings the expected figure back.
     await tickAllSmsTypes(sheet);
-    await expect(sms).toHaveValue(EXPECTED.toFixed(2));
+    await expect(sms).toHaveAttribute("placeholder", `LiraTek: $${EXPECTED.toFixed(2)}`);
     await sms.fill(SMS.toFixed(2));
     const line = sheet.getByTestId("supplier-account-settle-sms-commission-usd");
     await expect(line).toContainText(`$${money(EXPECTED_COMMISSION + 10).toFixed(2)}`);
@@ -205,7 +217,7 @@ test.describe.serial("lira-web-091 OMT settle from the SMS amount", () => {
       .poll(async () => Number((await usd.locator('[data-testid^="payment-amount-"]').first().inputValue()).replace(/,/g, "")))
       .toBeCloseTo(SMS, 2);
     await expect(
-      usd.locator(`[data-testid="supplier-account-settle-preview-row"][data-kind="FINANCIAL_SERVICE"][data-row-id="${rowId}"]`),
+      (await outcomes(sheet)).locator(`[data-testid="supplier-account-settle-preview-row"][data-kind="FINANCIAL_SERVICE"][data-row-id="${rowId}"]`),
     ).toHaveAttribute("data-status", "closes");
 
     // What's new (rule 30): the real sheet, landscape.
@@ -248,9 +260,12 @@ test.describe.serial("lira-web-091 OMT settle from the SMS amount", () => {
     await page.keyboard.press("Escape");
     await expect(sheet.getByTestId("supplier-account-settle-sms-includes")).toContainText("Western Union");
     const sms = sheet.getByTestId("supplier-account-settle-sms-usd");
-    await expect(sms).toHaveValue(SMS.toFixed(2));
+    await expect(sms).toHaveAttribute(
+      "placeholder",
+      `LiraTek: ${SMS < 0 ? "-" : ""}$${Math.abs(SMS).toFixed(2)}`,
+    );
     if (INTRA_SHARE > 0) {
-      await expect(sheet.getByTestId("supplier-account-settle-sms-stays-owed-usd")).toContainText(
+      await expect(sheet.getByTestId("supplier-account-settle-sms-stays-owed")).toContainText(
         `$${INTRA_SHARE.toFixed(2)}`,
       );
     }

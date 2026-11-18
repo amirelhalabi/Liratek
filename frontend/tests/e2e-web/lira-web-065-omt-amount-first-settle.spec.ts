@@ -55,6 +55,17 @@ import {
   BACKEND_URL,
 } from "./fixtures";
 
+/** LIRA-398 — row outcomes (closes / part-paid / untouched) are the Status
+ *  column of the "See transactions" panel: open it when closed, then locate
+ *  `supplier-account-settle-preview-row` pills from the sheet. */
+async function outcomes(sheet: Locator): Promise<Locator> {
+  if ((await sheet.getByTestId("settle-transactions-panel").count()) === 0) {
+    await sheet.getByTestId("settle-see-transactions").click();
+    await expect(sheet.getByTestId("settle-transactions-panel")).toBeVisible();
+  }
+  return sheet;
+}
+
 type Auth = { Authorization: string };
 
 interface AccountUnsettledRow {
@@ -258,8 +269,8 @@ async function setCreditToZero(sheet: Locator) {
   }
 }
 
-function previewRow(section: Locator, ref: RowRef): Locator {
-  return section.locator(
+async function previewRow(sheet: Locator, ref: RowRef): Promise<Locator> {
+  return (await outcomes(sheet)).locator(
     `[data-testid="supplier-account-settle-preview-row"][data-kind="${ref.kind}"][data-row-id="${ref.id}"]`,
   );
 }
@@ -375,16 +386,16 @@ test("lira-web-065 OMT settle by amount: USD only while LBP is owed, a previewed
   );
 
   // The preview, before confirming.
-  await expect(previewRow(usd, A)).toHaveAttribute("data-status", "closes");
-  await expect(previewRow(usd, B)).toHaveAttribute("data-status", "part-paid");
-  await expect(previewRow(usd, B)).toContainText("$47 of $101 · $54 owed");
-  await expect(previewRow(usd, C)).toHaveAttribute("data-status", "untouched");
+  await expect(await previewRow(sheet, A)).toHaveAttribute("data-status", "closes");
+  await expect(await previewRow(sheet, B)).toHaveAttribute("data-status", "part-paid");
+  await expect(await previewRow(sheet, B)).toContainText("$47 of $101 · $54 owed");
+  await expect(await previewRow(sheet, C)).toHaveAttribute("data-status", "untouched");
   await expect(
-    usd.getByTestId("supplier-account-settle-still-owed-usd"),
+    sheet.getByTestId("supplier-account-settle-still-owed-usd"),
   ).toHaveText("$75.00");
-  await expect(previewRow(lbp, L)).toHaveAttribute("data-status", "untouched");
+  await expect(await previewRow(sheet, L)).toHaveAttribute("data-status", "untouched");
   await expect(
-    lbp.getByTestId("supplier-account-settle-still-owed-lbp"),
+    sheet.getByTestId("supplier-account-settle-still-owed-lbp"),
   ).toHaveText(`${LBP_OWED.toLocaleString("en-US")} LBP`);
 
   const submit = sheet.getByTestId("supplier-account-settle-submit");

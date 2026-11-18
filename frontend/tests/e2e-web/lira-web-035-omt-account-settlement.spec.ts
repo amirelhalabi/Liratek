@@ -93,6 +93,17 @@ import {
   BACKEND_URL,
 } from "./fixtures";
 
+/** LIRA-398 — row outcomes (closes / part-paid / untouched) are the Status
+ *  column of the "See transactions" panel: open it when closed, then locate
+ *  `supplier-account-settle-preview-row` pills from the sheet. */
+async function outcomes(sheet: Locator): Promise<Locator> {
+  if ((await sheet.getByTestId("settle-transactions-panel").count()) === 0) {
+    await sheet.getByTestId("settle-see-transactions").click();
+    await expect(sheet.getByTestId("settle-transactions-panel")).toBeVisible();
+  }
+  return sheet;
+}
+
 async function authHeaders(page: Page): Promise<{ Authorization: string }> {
   await loginAsAdmin(page);
   const token = await page.evaluate(() => localStorage.getItem("liratek.jwt"));
@@ -922,12 +933,12 @@ test.describe("OMT open-credit account settlement over REST (LIRA-189)", () => {
       .fill(OWED.toFixed(2));
 
     await expect(
-      usd.locator(
+      (await outcomes(sheet)).locator(
         `[data-testid="supplier-account-settle-preview-row"][data-kind="FINANCIAL_SERVICE"][data-row-id="${rowId}"]`,
       ),
     ).toHaveAttribute("data-status", "closes");
     await expect(
-      usd.getByTestId("supplier-account-settle-still-owed-usd"),
+      sheet.getByTestId("supplier-account-settle-still-owed-usd"),
     ).toHaveText("$0.00");
 
     await sheet.getByTestId("supplier-account-settle-submit").click();

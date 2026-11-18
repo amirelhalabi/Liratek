@@ -40,6 +40,29 @@ import type {
 } from "../../hooks/useSuppliers";
 import { queueRow } from "../../testing/accountSettleFixtures";
 
+/** LIRA-398 — row outcomes (closes / part-paid / untouched) live in the
+ *  "See transactions" panel's Status column; the panel is opened on first
+ *  read. `outcomeRowsOf(section)` keeps the section's currencies only. */
+function outcomeRowsIn(...currencies: Array<"USD" | "LBP">) {
+  if (!screen.queryByTestId("settle-transactions-panel")) {
+    fireEvent.click(screen.getByTestId("settle-see-transactions"));
+  }
+  return screen
+    .queryAllByTestId("supplier-account-settle-preview-row")
+    .filter((r) =>
+      currencies.includes(r.getAttribute("data-currency") as "USD" | "LBP"),
+    );
+}
+function outcomeRowsOf(section: HTMLElement) {
+  const id = section.getAttribute("data-testid") ?? "";
+  return outcomeRowsIn(
+    ...(["USD", "LBP"] as const).filter(
+      (c) =>
+        id.endsWith(`-${c.toLowerCase()}`) || id.includes(`-${c.toLowerCase()}-`),
+    ),
+  );
+}
+
 const mockSettleSupplierAccount = jest.fn();
 const mockGetSupplierAccountUnsettled = jest.fn();
 const mockApi = {
@@ -212,8 +235,8 @@ describe("AccountSettleSheet — overpayment (LIRA-203 → LIRA-315)", () => {
       ).toMatch(/\$50\.00 not given back stays on OMT's account/),
     );
     expect(
-      within(usd).getByTestId("supplier-account-settle-extra-usd").textContent,
-    ).toMatch(/\$50\.00 goes on the account/);
+      screen.getByTestId("supplier-account-settle-extra-usd").textContent,
+    ).toMatch(/\$50\.00/);
 
     const { payload, parsed } = await submitAndGetPayload();
     expect(parsed.per_currency?.USD?.payments).toEqual([
@@ -250,7 +273,9 @@ describe("AccountSettleSheet — overpayment (LIRA-203 → LIRA-315)", () => {
     expect(
       screen.queryByTestId("supplier-account-settle-surplus-input"),
     ).not.toBeInTheDocument();
-    // LBP owes nothing: open it as a COLLECT section.
+    // LBP owes nothing: open it as a COLLECT section (the Pay / Collect
+    // buttons stay on the plain, non-SMS sheet; LIRA-398 removed them from
+    // the SMS sheet only).
     fireEvent.click(
       screen.getByTestId("supplier-account-settle-direction-collect-lbp"),
     );
@@ -297,17 +322,16 @@ describe("AccountSettleSheet — overpayment (LIRA-203 → LIRA-315)", () => {
   it('badges a negative (credit) row as "Credit" in the preview', async () => {
     renderSheet([ROW_OMT, ROW_CREDIT], ACCOUNT_WITH_CREDIT);
     const usd = await usdSection();
-    const preview = within(usd).getAllByTestId(
-      "supplier-account-settle-preview-row",
-    );
+    const preview = outcomeRowsOf(usd);
+    // The Credit badge sits beside the outcome pill, in the same cell.
     const creditRow = preview.find(
       (r) => r.getAttribute("data-row-id") === "40",
     )!;
-    expect(within(creditRow).getByText("Credit")).toBeInTheDocument();
+    expect(creditRow.parentElement?.textContent).toContain("Credit");
     const debtRow = preview.find(
       (r) => r.getAttribute("data-row-id") === "10",
     )!;
-    expect(within(debtRow).queryByText("Credit")).not.toBeInTheDocument();
+    expect(debtRow.parentElement?.textContent).not.toContain("Credit");
 
     expect(
       screen.queryByTestId("supplier-account-settle-pick-toggle"),

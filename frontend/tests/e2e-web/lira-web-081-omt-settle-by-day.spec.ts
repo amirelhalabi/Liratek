@@ -44,6 +44,17 @@ import {
   BACKEND_URL,
 } from "./fixtures";
 
+/** LIRA-398 — row outcomes (closes / part-paid / untouched) are the Status
+ *  column of the "See transactions" panel: open it when closed, then locate
+ *  `supplier-account-settle-preview-row` pills from the sheet. */
+async function outcomes(sheet: Locator): Promise<Locator> {
+  if ((await sheet.getByTestId("settle-transactions-panel").count()) === 0) {
+    await sheet.getByTestId("settle-see-transactions").click();
+    await expect(sheet.getByTestId("settle-transactions-panel")).toBeVisible();
+  }
+  return sheet;
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREENSHOT = path.join(
   __dirname,
@@ -458,24 +469,24 @@ test("lira-web-081 OMT settle by day: open days on the calendar, unpick one, set
     Number((await amount.first().inputValue()).replace(/,/g, "")),
   ).toBeCloseTo(NEW_NET, 2);
   // Only DAY_NEW's two transfers are in the preview; the SEND closes.
-  const previewRows = usd.locator(
+  const previewRows = (await outcomes(sheet)).locator(
     '[data-testid="supplier-account-settle-preview-row"]',
   );
   await expect(previewRows).toHaveCount(2);
   for (const ref of newRefs) {
     await expect(
-      usd.locator(
+      (await outcomes(sheet)).locator(
         `[data-testid="supplier-account-settle-preview-row"][data-kind="${ref.kind}"][data-row-id="${ref.id}"]`,
       ),
     ).toHaveCount(1);
   }
   await expect(
-    usd.locator(
+    (await outcomes(sheet)).locator(
       `[data-testid="supplier-account-settle-preview-row"][data-row-id="${NEW_SEND.id}"]`,
     ),
   ).toHaveAttribute("data-status", "closes");
   await expect(
-    usd.getByTestId("supplier-account-settle-still-owed-usd"),
+    sheet.getByTestId("supplier-account-settle-still-owed-usd"),
   ).toHaveText("$0.00");
 
   // What's new (rule 30): the sheet with the calendar, on DAY_NEW's month.

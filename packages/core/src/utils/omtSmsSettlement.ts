@@ -176,6 +176,29 @@ export function smsIncludesNoCommission(
   return coveredTypes !== undefined && coveredTypes.length === 0;
 }
 
+/**
+ * LIRA-398 (owner 2026-11-18) — the SMS box is empty and LiraTek's own
+ * figure is shown beside it; what the cashier types is what is paid. A typed
+ * figure further than this from LiraTek's means a transaction is probably
+ * missing: the sheet asks the cashier to check the picked days' transactions
+ * (a warning, not a block). Per currency, never added across currencies.
+ */
+export const SMS_CHECK_MARGIN: Record<SmsCurrency, number> = {
+  USD: 5,
+  LBP: 500_000,
+};
+
+/** How far a typed SMS figure is beyond the check margin: 0 within it. */
+export function smsBeyondMargin(
+  expected: number,
+  sms: number,
+  currency: SmsCurrency,
+): number {
+  const diff = Math.abs(toMinor(expected, currency) - toMinor(sms, currency));
+  const margin = toMinor(SMS_CHECK_MARGIN[currency], currency);
+  return diff > margin ? fromMinor(diff, currency) : 0;
+}
+
 /** The commission an SMS figure implies, split into expected and extra.
  *  With nothing ticked (LIRA-392) it is 0 and the gap is `gapOwed`. */
 export function deriveSmsCommission(args: {

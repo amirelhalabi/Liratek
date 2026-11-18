@@ -70,6 +70,17 @@
 import { test, expect, navigateTo } from "./fixtures";
 import type { Locator, Page } from "@playwright/test";
 
+/** LIRA-398 — row outcomes (closes / part-paid / untouched) are the Status
+ *  column of the "See transactions" panel: open it when closed, then locate
+ *  `supplier-account-settle-preview-row` pills from the sheet. */
+async function outcomes(sheet: Locator): Promise<Locator> {
+  if ((await sheet.getByTestId("settle-transactions-panel").count()) === 0) {
+    await sheet.getByTestId("settle-see-transactions").click();
+    await expect(sheet.getByTestId("settle-transactions-panel")).toBeVisible();
+  }
+  return sheet;
+}
+
 test.describe.configure({ retries: 0 });
 
 // D13: the OMT App cashout's own named constant — independently re-derived
@@ -463,13 +474,13 @@ async function isolateSelection(
   await setCreditToZero(sheet);
   for (const w of wanted) {
     await expect(
-      sheet.locator(
+      (await outcomes(sheet)).locator(
         `[data-testid="supplier-account-settle-preview-row"][data-kind="${w.kind}"][data-row-id="${w.id}"]`,
       ),
     ).toBeVisible({ timeout: 10_000 });
   }
   await expect(
-    sheet.locator('[data-testid="supplier-account-settle-preview-row"]'),
+    (await outcomes(sheet)).locator('[data-testid="supplier-account-settle-preview-row"]'),
   ).toHaveCount(wanted.length);
 }
 
@@ -610,7 +621,7 @@ test.describe("LIRA-189 — OMT account settlement, driven through the real sett
 
     await fillCashLeg(sheet, netPay);
     await expect(
-      usd.getByTestId("supplier-account-settle-still-owed-usd"),
+      sheet.getByTestId("supplier-account-settle-still-owed-usd"),
     ).toHaveText("$0.00");
 
     // The deferred cashout commission this settlement will recognise as
