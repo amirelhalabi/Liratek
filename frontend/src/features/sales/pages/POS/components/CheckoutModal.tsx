@@ -96,6 +96,12 @@ interface CheckoutModalProps {
    *  does; Maintenance builds its own payload). Never offered on a partner
    *  sale or when the job goes into a session basket. Default false. */
   allowExtraCharge?: boolean;
+  /** LIRA-400: offer "+ fee" (payment-method fee) on wallet payment lines.
+   *  Opt-in: only a host whose payload carries the legs' `fee_amount` to a
+   *  server that books it may turn it on (POS does; Maintenance — phase 2 —
+   *  builds its own payload). Never on a partner sale or a session-basket
+   *  save. Default false. */
+  allowLineFees?: boolean;
   totalAmount: number;
   /**
    * Currency the total/discount/net are expressed in. Defaults to "USD".
@@ -177,6 +183,7 @@ export default function CheckoutModal({
   allowForPartner = false,
   addsToSessionBasket = false,
   allowExtraCharge = false,
+  allowLineFees = false,
   showNote = false,
   totalAmount,
   currency,
@@ -1371,6 +1378,9 @@ export default function CheckoutModal({
                     // existing-client-with-phone rule.
                     autoDebtRemainder={canCreateDebt}
                     paymentMethods={effectivePaymentMethods}
+                    lineFees={
+                      allowLineFees && !forPartner && !addsToSessionBasket
+                    }
                     currencies={[
                       { code: "USD", symbol: "$" },
                       { code: "LBP", symbol: "LBP" },

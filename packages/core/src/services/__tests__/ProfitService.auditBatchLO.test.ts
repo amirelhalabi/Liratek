@@ -139,6 +139,8 @@ function makeFakeRepo(overrides: FakeOverrides = {}): ProfitRepository {
       awaiting_settlement_count: 0,
     }),
     getPmFeeTotals: (): PmFeeCurrencyRow[] => [],
+    // LIRA-400 — the Overview card's by-method breakdown.
+    getPmFeeByMethod: () => [],
     getMobileServicesByCurrency: (): MobileCurrencyRow[] => [],
     getRechargesByCurrency: (): RechargeCurrencyRow[] => [],
     getCustomServicesTotals: () => zeroCustom,

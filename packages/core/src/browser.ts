@@ -20,6 +20,8 @@ export * from "./utils/currencyConverter.js";
 // below for the exact failure mode this avoids.
 export * from "./utils/formatMoney.js";
 export * from "./utils/typedNote.js";
+// LIRA-400 — payment-method fee on a payment line (leaf, rule 29).
+export * from "./utils/legFee.js";
 export * from "./utils/splitCheckoutItems.js";
 // LIRA-331: UI language (pure leaves, also exported from index.ts).
 export * from "./constants/languages.js";

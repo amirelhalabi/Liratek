@@ -119,6 +119,10 @@ export interface PaymentSheetProps {
   maxDiscount?: number;
   showPmFee?: boolean;
   pmFeeRate?: number;
+  /** LIRA-400 — "+ fee" (payment-method fee) on wallet lines. Opt-in: only a
+   *  form whose payload carries each leg's `feeAmount` to a server that
+   *  books it (telecom recharge). Ignored with `showPmFee`. */
+  lineFees?: boolean;
   requiresClientForDebt?: boolean;
   hasClient?: boolean;
   /** Opt-in auto CUSTOMER_ACCOUNT remainder on underpayment — pass the
@@ -232,6 +236,7 @@ export function PaymentSheet({
   maxDiscount,
   showPmFee = false,
   pmFeeRate,
+  lineFees = false,
   requiresClientForDebt = true,
   hasClient = false,
   autoDebtRemainder = false,
@@ -504,6 +509,7 @@ export function PaymentSheet({
                 ? { initialMethod: initialPaymentMethod }
                 : {})}
               showPmFee={showPmFee}
+              lineFees={lineFees}
               {...(pmFeeRate !== undefined ? { pmFeeRate } : {})}
               {...(onPmFeesChange ? { onPmFeesChange } : {})}
               showDiscount={showDiscount}

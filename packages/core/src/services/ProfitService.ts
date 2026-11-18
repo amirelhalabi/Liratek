@@ -26,6 +26,7 @@ import {
   type LotoDetailRow,
   type ExchangeDetailRow,
   type PmFeeDetailRow,
+  type PmFeeByMethodRow,
   type ProfitOnlyDetailRow,
 } from "../repositories/ProfitRepository.js";
 import {
@@ -509,6 +510,9 @@ export interface ProfitSummary {
     /** Payment-method fees kept by the shop (immediate profit, PM_FEE rows) */
     pm_fee_usd: number;
     pm_fee_lbp: number;
+    /** LIRA-400 — the same Payment Method Fees by method and currency
+     *  (wallet-line fees by method, plus the transfer page's rate fee). */
+    pm_fee_by_method: PmFeeByMethodRow[];
     /**
      * LO-R2 (round 3, closing PA-3.1's last arm) — a settled FS commission
      * row's OTHER-currency kept change (`ProfitRepository.FinCurrencyRow
@@ -909,6 +913,7 @@ export class ProfitService {
         awaiting_settlement_count: 0,
         pm_fee_usd: 0,
         pm_fee_lbp: 0,
+        pm_fee_by_method: [] as PmFeeByMethodRow[],
         kept_change_usd: 0,
         kept_change_lbp: 0,
         waiting_for_repayment_usd: 0,
@@ -1014,6 +1019,10 @@ export class ProfitService {
           finSvc.pm_fee_lbp += row.total;
         }
       }
+      // LIRA-400 — the Overview card's by-method breakdown (same rows).
+      finSvc.pm_fee_by_method = this.repo
+        .getPmFeeByMethod(fromDt, toDt)
+        .filter((r) => r.currency_code === "USD" || r.currency_code === "LBP");
 
       // 2b. Mobile services (iPick, Katsh, BOB) — cost/price flow.
       const mobileRows = this.repo.getMobileServicesByCurrency(fromDt, toDt);
@@ -2851,7 +2860,9 @@ export class ProfitService {
 
       const row: ProfitModuleDetailRow = {
         id: r.id,
-        source: "pm_fee",
+        // LIRA-400 — a wallet-line fee's id is its transaction's id, so it
+        // gets its own source (row keys are `${source}-${id}`).
+        source: r.kind === "leg" ? "pm_fee_leg" : "pm_fee",
         date: r.created_at,
         counterpart,
         detail: r.provider

@@ -1156,3 +1156,120 @@ describe("MultiPaymentInput.usdLbpRateVisibility", () => {
     });
   });
 });
+
+describe("MultiPaymentInput.lineFees (LIRA-400)", () => {
+  beforeAll(resetBetweenFiles);
+
+  /**
+   * LIRA-400 — "+ fee" on wallet lines. Owner decisions 2026-11-18: a typed
+   * fee per wallet line (never cash / account / gift card), the button at
+   * the right end of the line, tapping turns it into the fee box in the same
+   * spot; cash lines keep today's layout; Total = price, a separate "Payment
+   * method fee" line, Paid = price + fee. Opt-in (`lineFees`), never with the
+   * transfer page's rate fee (`showPmFee`).
+   */
+
+  const USD_LBP = [
+    { code: "USD", symbol: "$" },
+    { code: "LBP", symbol: "LBP" },
+  ];
+  const METHODS = [
+    { code: "CASH", label: "Cash", drawer_name: "General", affects_drawer: 1 },
+    { code: "WHISH", label: "Whish", drawer_name: "Whish_App", affects_drawer: 1 },
+    {
+      code: "CUSTOMER_ACCOUNT",
+      label: "Account",
+      drawer_name: "General",
+      affects_drawer: 0,
+    },
+  ];
+
+  beforeAll(async () => {
+    await loadLanguage("en");
+    await i18n.changeLanguage("en");
+  });
+  afterEach(cleanup);
+
+  function renderMpi(
+    props: Partial<MultiPaymentInputProps> = {},
+  ): jest.Mock<void, [PaymentLine[]]> {
+    const onChange = jest.fn<void, [PaymentLine[]]>();
+    render(
+      <MultiPaymentInput
+        totals={[{ amount: 10, currency: "USD" }]}
+        currency="USD"
+        totalAmountCurrency="USD"
+        paymentMethods={METHODS}
+        currencies={USD_LBP}
+        showDiscount={false}
+        initialMethod="WHISH"
+        onChange={onChange}
+        lineFees
+        {...props}
+      />,
+    );
+    return onChange;
+  }
+
+  const feeAdd = () =>
+    document.querySelector('[data-testid^="payment-fee-add-"]');
+  const feeBox = () =>
+    document.querySelector<HTMLInputElement>('[data-testid^="payment-fee-"]:not([data-testid*="add"]):not([data-testid*="clear"])');
+
+  it("a wallet line shows + fee; typing 1 puts fee 1 on the line, a fee line and Paid = price + fee", () => {
+    const onChange = renderMpi();
+    expect(feeAdd()).not.toBeNull();
+    act(() => {
+      fireEvent.click(feeAdd()!);
+    });
+    const box = feeBox();
+    expect(box).not.toBeNull();
+    act(() => {
+      fireEvent.change(box!, { target: { value: "1" } });
+      fireEvent.blur(box!);
+    });
+    const last = onChange.mock.calls.at(-1)?.[0];
+    expect(last?.[0]).toMatchObject({ method: "WHISH", amount: 10, fee: 1 });
+    expect(
+      screen.getByTestId("payment-method-fee-summary").textContent,
+    ).toContain("1.00");
+    // Paid = price + fee; Total Amount stays the price.
+    expect(document.body.textContent).toContain("$11.00");
+    expect(document.body.textContent).toContain("$10.00");
+  });
+
+  it("a cash line has no + fee control (today's layout)", () => {
+    renderMpi({ initialMethod: "CASH" });
+    expect(feeAdd()).toBeNull();
+    expect(feeBox()).toBeNull();
+  });
+
+  it("off by default, and never together with the transfer page's rate fee", () => {
+    renderMpi({ lineFees: false });
+    expect(feeAdd()).toBeNull();
+    cleanup();
+    renderMpi({ showPmFee: true });
+    expect(feeAdd()).toBeNull();
+  });
+
+  it("switching the line to cash clears its fee", () => {
+    const onChange = renderMpi();
+    act(() => {
+      fireEvent.click(feeAdd()!);
+    });
+    act(() => {
+      fireEvent.change(feeBox()!, { target: { value: "2" } });
+      fireEvent.blur(feeBox()!);
+    });
+    const select = document.querySelector<HTMLSelectElement>(
+      '[data-testid^="payment-method-"]',
+    )!;
+    act(() => {
+      fireEvent.change(select, { target: { value: "CASH" } });
+    });
+    const last = onChange.mock.calls.at(-1)?.[0];
+    expect(last?.[0]?.method).toBe("CASH");
+    expect(last?.[0]?.fee).toBeUndefined();
+    expect(screen.queryByTestId("payment-method-fee-summary")).toBeNull();
+  });
+});

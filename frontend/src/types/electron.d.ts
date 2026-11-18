@@ -467,6 +467,9 @@ export interface TransactionPaymentLeg {
   /** A session basket's pooled leg that reverses the checkout (whole-basket
    *  void/refund) — mirrors core's `TransactionPaymentLeg.reversal`. */
   reversal?: true;
+  /** LIRA-400 — the payment-method fee inside `signed_amount` (same sign);
+   *  absent when none. A refund gives back `signed_amount - fee_amount`. */
+  fee_amount?: number;
 }
 
 /**
@@ -1449,6 +1452,8 @@ export interface ElectronAPI {
         direction?: "IN" | "OUT";
         /** LIRA-399 — this leg's own drawer choice (cash lines). */
         cash_drawer?: "SYSTEM" | "GENERAL";
+        /** LIRA-400 — payment-method fee on a wallet line. */
+        feeAmount?: number;
       }>;
       transaction_time?: string;
       tender_exchange_rate?: number;

@@ -18,6 +18,8 @@ export interface CamelPaymentLeg {
   amount: number;
   voucherCode?: string;
   direction?: "IN" | "OUT";
+  /** LIRA-400 — payment-method fee on a wallet line (recharge / repayment). */
+  feeAmount?: number;
 }
 
 /** Backend payment leg (snake_case shape — Sales, Custom Services, Loto). */
@@ -27,6 +29,13 @@ export interface SnakePaymentLeg {
   amount: number;
   voucher_code?: string;
   direction?: "IN" | "OUT";
+  /** LIRA-400 — payment-method fee on a wallet line (POS sale). */
+  fee_amount?: number;
+}
+
+/** LIRA-400 — the fee a line carries (money-in lines only; 0 when none). */
+function lineFee(l: PaymentLine): number {
+  return l.direction !== "OUT" && (l.fee ?? 0) > 0 ? (l.fee as number) : 0;
 }
 
 /**
@@ -44,6 +53,7 @@ export function toCamelLegs(
     amount: l.amount,
     ...(l.voucherCode ? { voucherCode: l.voucherCode } : {}),
     ...(l.direction ? { direction: l.direction } : {}),
+    ...(lineFee(l) > 0 ? { feeAmount: lineFee(l) } : {}),
   }));
 }
 
@@ -59,6 +69,7 @@ export function toSnakeLegs(
     amount: l.amount,
     ...(l.voucherCode ? { voucher_code: l.voucherCode } : {}),
     ...(l.direction ? { direction: l.direction } : {}),
+    ...(lineFee(l) > 0 ? { fee_amount: lineFee(l) } : {}),
   }));
 }
 

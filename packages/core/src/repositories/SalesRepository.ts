@@ -50,9 +50,12 @@ import {
   assertPartnerIdRequired,
   assertNoCounterPayment,
   assertNoCustomerAccountLeg,
+  assertLegFeesAllowed,
+  paymentsFeeSql,
   type KeptChange,
   type ReconciliationLeg,
 } from "./moneyPosting.js";
+import { legFeeOf, priceOnlyLegRow } from "../utils/legFee.js";
 import { resolveKeptChange } from "./keptChange.js";
 import { bookChangeRoundingExpense } from "./changeRoundingExpense.js";
 import {
@@ -176,6 +179,8 @@ export interface PaymentLine {
   voucher_code?: string;
   /** IN (customer pays, default) or OUT (shop returns change to customer). */
   direction?: PaymentDirection;
+  /** LIRA-400 — payment-method fee on a wallet line, ON TOP of `amount`. */
+  fee_amount?: number;
 }
 
 /**
@@ -895,6 +900,18 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         // [] : …)` below).
         if (!sale.deferPayment) {
           assertNoCashChangeLeg(paymentLines, "Sale");
+        }
+        // LIRA-400 — a payment-method fee only on a wallet money-in line
+        // (both transports reach this). A session-basket item posts no legs
+        // here, so a fee on one would silently vanish: refused.
+        if (sale.deferPayment) {
+          if (paymentLines.some((l) => legFeeOf(l) !== 0)) {
+            throw new BusinessRuleError(
+              "A payment-method fee can't be added to a session basket item — the basket takes the payment.",
+            );
+          }
+        } else {
+          assertLegFeesAllowed(paymentLines);
         }
 
         // G42 — kept change (payer = customer, docs/FEATURE_GUIDE.md §4.1).
@@ -1685,21 +1702,25 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             // DEBT means no drawer movement and should not create a payments row.
             if (!isDrawerAffectingMethod(p.method)) continue;
             const drawerName = paymentMethodToDrawerName(p.method);
-            insertPayment.run(
-              txnId,
-              p.method,
+            // LIRA-400 — the fee rides on top of the price part: the leg's
+            // row holds the whole movement (amount + fee) and the fee part.
+            const fee = legFeeOf(p);
+            insertPaymentRow(db, {
+              transactionId: txnId,
+              method: p.method,
               drawerName,
-              p.currency_code,
-              p.amount,
+              currencyCode: p.currency_code,
+              amount: p.amount + fee,
               note,
               createdBy,
               tenantId,
-            );
+              feeAmount: fee,
+            });
             upsertBalanceDelta.run(
               tenantId,
               drawerName,
               p.currency_code,
-              p.amount,
+              p.amount + fee,
             );
           }
 
@@ -2389,9 +2410,18 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    * LBP on the real Sale #182 refund).
    */
   private _itemRefundLegRows<
-    T extends { currency_code: string; amount: number; method?: string },
+    T extends {
+      currency_code: string;
+      amount: number;
+      method?: string;
+      fee_amount?: number | null;
+    },
   >(rows: T[], shareBefore: number, shareAfter: number): T[] {
     const isFull = shareAfter >= 1 - 1e-9;
+    // LIRA-400 — an item refund gives back its share of the PRICE part
+    // only; the payment-method fee stays (`priceOnlyLegRow`). The preview,
+    // the override check and the money-back all read these rows.
+    rows = rows.map((row) => priceOnlyLegRow(row) as T);
     // LIRA-335 (FR-009): a refund never gives back a checkpoint-resolution
     // offset — the counted cash was real, and the refund is new cash handed
     // back now. Filtered here, the ONE definition the preview, the override
@@ -3815,7 +3845,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
 
     const originalPayments = db
       .prepare(
-        `SELECT method, drawer_name, currency_code, amount, note FROM payments WHERE transaction_id = ? AND tenant_id = ?`,
+        `SELECT method, drawer_name, currency_code, amount, note,
+                ${paymentsFeeSql(db)} AS fee_amount
+           FROM payments WHERE transaction_id = ? AND tenant_id = ?`,
       )
       .all(params.originalTxnId, tenantId) as {
       method: string;
@@ -3823,6 +3855,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       currency_code: string;
       amount: number;
       note: string | null;
+      fee_amount: number;
     }[];
 
     const hasOverride = !!params.refundLegs && params.refundLegs.length > 0;

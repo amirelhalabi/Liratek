@@ -5,6 +5,7 @@
  * Uses BaseRepository for common functionality.
  */
 
+import { legFeeOf } from "../utils/legFee.js";
 import { requestNow } from "../utils/requestNow.js";
 import { BaseRepository } from "./BaseRepository.js";
 import { DatabaseError } from "../utils/errors.js";
@@ -81,6 +82,7 @@ import { getEffectiveRate } from "../utils/effectiveRate.js";
 import {
   applyDrawerDelta,
   insertPaymentRow,
+  assertLegFeesAllowed,
   linkedTransactionTime,
   buildCounterpartyDiscountPosting,
   resolveStampedExchangeRate,
@@ -238,6 +240,9 @@ export interface RepaymentPaymentLine {
   amount: number;
   /** IN (customer pays, default) or OUT (shop returns change to customer). */
   direction?: "IN" | "OUT";
+  /** LIRA-400 — payment-method fee on a wallet line, ON TOP of `amount`
+   *  (repayments only; the debt reduction never includes it). */
+  feeAmount?: number;
 }
 
 // =============================================================================
@@ -788,6 +793,9 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
   addRepayment(data: CreateRepaymentData): { id: number } {
     const tenantId = getCurrentTenantId();
     return this.transaction(() => {
+      // LIRA-400 — a payment-method fee only on a wallet money-in line
+      // (both transports reach this), before any write.
+      assertLegFeesAllowed(data.payments);
       // 0. Kept change (owner decision 2026-10-07, POSTING_MAP G42): the
       //    client only CLAIMS a kept extra — check it against the explicit
       //    payment lines BEFORE any write, so a refusal rolls nothing back.
@@ -1170,17 +1178,26 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       for (const leg of inLegs) {
         if (leg.amount <= 0) continue;
         const legDrawer = paymentMethodToDrawerName(leg.method);
-        insertPayment.run(
-          txnId,
-          leg.method,
+        // LIRA-400 — the fee rides on top of the price part, into the same
+        // wallet drawer; the row records the whole movement and the fee part.
+        const fee = legFeeOf(leg);
+        insertPaymentRow(this.db, {
+          transactionId: txnId,
+          method: leg.method,
+          drawerName: legDrawer,
+          currencyCode: leg.currencyCode,
+          amount: leg.amount + fee,
+          note: legNote,
+          createdBy: data.created_by,
+          tenantId,
+          feeAmount: fee,
+        });
+        upsertBalance.run(
           legDrawer,
           leg.currencyCode,
-          leg.amount,
-          legNote,
-          data.created_by,
+          leg.amount + fee,
           tenantId,
         );
-        upsertBalance.run(legDrawer, leg.currencyCode, leg.amount, tenantId);
       }
 
       // The routed share moves from the paying cash leg(s) into the primary

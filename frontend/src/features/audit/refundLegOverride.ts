@@ -118,7 +118,13 @@ export function netByCurrency(
 ): Record<string, number> {
   const out: Record<string, number> = {};
   for (const leg of legs ?? []) {
-    out[leg.currency_code] = (out[leg.currency_code] ?? 0) + leg.signed_amount;
+    // LIRA-400 — a payment-method fee inside the leg is never refunded: the
+    // net is the price part (`signed_amount - fee_amount`), the same rule the
+    // server validates the refund against (core `priceOnlyLegRow`).
+    out[leg.currency_code] =
+      (out[leg.currency_code] ?? 0) +
+      leg.signed_amount -
+      (leg.fee_amount ?? 0);
   }
   return out;
 }

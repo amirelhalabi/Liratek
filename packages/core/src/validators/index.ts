@@ -95,3 +95,4 @@ export * from "./tablePaging.js";
 export * from "./backup.js";
 // LIRA-377 web shop restore: prepare / confirm / cancel / file-upload query.
 export * from "./restore.js";
+export * from "./legFee.js";

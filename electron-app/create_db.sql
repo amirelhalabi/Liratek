@@ -1806,6 +1806,8 @@ CREATE TABLE IF NOT EXISTS payments (
   drawer_name TEXT NOT NULL,
   currency_code TEXT NOT NULL,
   amount REAL NOT NULL,
+  -- LIRA-400 (v233): the payment-method fee inside `amount` (0 = none)
+  fee_amount REAL NOT NULL DEFAULT 0,
   note TEXT,
   created_by INTEGER,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -2078,6 +2080,8 @@ CREATE INDEX IF NOT EXISTS idx_recharges_carrier_date ON recharges(carrier, crea
 CREATE INDEX IF NOT EXISTS idx_recharges_date ON recharges(created_at);
 CREATE INDEX IF NOT EXISTS idx_payments_drawer_currency ON payments(drawer_name, currency_code, created_at);
 CREATE INDEX IF NOT EXISTS idx_payments_session_id ON payments(session_id);
+-- v233 (LIRA-400): the Profits fee line reads only fee-carrying legs.
+CREATE INDEX IF NOT EXISTS idx_payments_fee ON payments(tenant_id, transaction_id) WHERE fee_amount > 0;
 CREATE INDEX IF NOT EXISTS idx_drawer_balances_drawer ON drawer_balances(drawer_name);
 CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_supplier_ledger_source_ref ON supplier_ledger(source_ref_table, source_ref_id);
@@ -3381,4 +3385,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- 'restore_removed' to offline_review_items.kind.
     (231, 'shop_restores'),
     -- v232 (LIRA-388) adds hold_money.voided_at / voided_by, declared above.
-    (232, 'hold_money_voided');
+    (232, 'hold_money_voided'),
+    -- v233 (LIRA-400) adds payments.fee_amount, declared above.
+    (233, 'payments_fee_amount');

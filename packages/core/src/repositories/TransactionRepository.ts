@@ -16,6 +16,7 @@
  * - **Exchange rate**: Immutable snapshot captured at creation time.
  */
 
+import { priceOnlyLegRow } from "../utils/legFee.js";
 import { PRODUCT_CATEGORY_KEY_SQL } from "./productCategoryFragment.js";
 import {
   reopenBasketMembers,
@@ -104,6 +105,7 @@ import { dbLogger } from "../utils/logger.js";
 import {
   applyDrawerDelta,
   insertPaymentRow,
+  paymentsFeeSql,
   measureCustomerLegs,
   writeCustomerLegs,
   type KeptChange,
@@ -309,6 +311,8 @@ export interface PaymentRow {
   amount: number;
   note: string | null;
   created_at: string;
+  /** LIRA-400 — the payment-method fee inside `amount` (0 = none). */
+  fee_amount: number;
 }
 
 /**
@@ -348,6 +352,12 @@ export interface TransactionPaymentLeg {
    * `false`) on every other leg.
    */
   reversal?: true;
+  /**
+   * LIRA-400 — the payment-method fee INSIDE `signed_amount`/`amount` (same
+   * sign as `signed_amount`). Absent when the leg carries no fee. A refund
+   * gives back `signed_amount - fee_amount` only.
+   */
+  fee_amount?: number;
 }
 
 /** The ONE `payments.method` marking telecom credit returned to the shop on an
@@ -603,11 +613,13 @@ export function paymentRowsToLegs(
     currency_code: string;
     amount: number;
     note: string | null;
+    fee_amount?: number | null;
   }>,
   scale = 1,
 ): TransactionPaymentLeg[] {
   const legs: TransactionPaymentLeg[] = [];
-  for (const p of rows) {
+  // LIRA-400 — refund legs show the PRICE part only (the fee is kept).
+  for (const p of rows.map(priceOnlyLegRow)) {
     if (isInternalLegJs(p)) continue;
     const signedAmount = p.amount * scale;
     legs.push({
@@ -684,10 +696,13 @@ export function overridableNetByCurrency(
     currency_code: string;
     amount: number;
     note: string | null;
+    fee_amount?: number | null;
   }>,
 ): Record<string, number> {
   const net: Record<string, number> = {};
-  for (const p of rows) {
+  // LIRA-400 — the refundable net is the PRICE part: a payment-method fee
+  // inside a leg is never handed back (`priceOnlyLegRow`).
+  for (const p of rows.map(priceOnlyLegRow)) {
     if (!isOverridableLeg(p)) continue;
     net[p.currency_code] = (net[p.currency_code] ?? 0) + p.amount;
   }
@@ -2397,8 +2412,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       currency_code: string;
       amount: number;
       note: string | null;
+      fee_amount: number;
     }>(
-      `SELECT transaction_id, method, drawer_name, currency_code, amount, note
+      `SELECT transaction_id, method, drawer_name, currency_code, amount, note,
+              ${paymentsFeeSql(this.db)} AS fee_amount
        FROM payments
        WHERE transaction_id IN (${placeholders}) AND tenant_id = ?
        ORDER BY id ASC`,
@@ -2412,6 +2429,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       currency_code: string;
       amount: number;
       note: string | null;
+      fee_amount?: number;
     }): TransactionPaymentLeg | null => {
       // Surface only customer-facing cash — shared rule (see isInternalLegJs).
       if (isInternalLegJs(p)) return null;
@@ -2428,6 +2446,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         ...(p.note === SESSION_BASKET_REVERSAL_NOTE
           ? { reversal: true as const }
           : {}),
+        // LIRA-400 — the payment-method fee inside `signed_amount` (same
+        // sign). Absent when none, so every existing leg is unchanged.
+        ...(p.fee_amount ? { fee_amount: p.fee_amount } : {}),
       };
     };
 
@@ -8233,7 +8254,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    */
   getPaymentsByTransactionId(transactionId: number): PaymentRow[] {
     return this.query<PaymentRow>(
-      `SELECT id, method, drawer_name, currency_code, amount, note, created_at
+      `SELECT id, method, drawer_name, currency_code, amount, note, created_at,
+              ${paymentsFeeSql(this.db)} AS fee_amount
        FROM payments
        WHERE transaction_id = ? AND tenant_id = ?
        ORDER BY id ASC`,
@@ -10455,6 +10477,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       currency_code: string;
       amount: number;
       note: string | null;
+      fee_amount?: number | null;
     }>,
   ): Record<string, number> {
     return overridableNetByCurrency(rows);
@@ -10958,23 +10981,33 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     exchangeRate?: number,
   ): void {
     const tenantId = getCurrentTenantId();
-    const payments = this.query<{
+    const rawPayments = this.query<{
       method: string;
       drawer_name: string;
       currency_code: string;
       amount: number;
       note: string | null;
+      fee_amount: number;
     }>(
-      `SELECT method, drawer_name, currency_code, amount, note
+      `SELECT method, drawer_name, currency_code, amount, note,
+              ${paymentsFeeSql(this.db)} AS fee_amount
        FROM payments WHERE transaction_id = ? AND tenant_id = ?`,
       originalTxnId,
       tenantId,
     );
+    // LIRA-400 — a VOID mirrors every leg whole, payment-method fee
+    // included (the transaction never happened). A REFUND gives back the
+    // price part only (`priceOnlyLegRow`): the fee stays in the wallet
+    // drawer and in profit (owner decision 2026-11-18).
+    const payments =
+      mode === "refund" ? rawPayments.map(priceOnlyLegRow) : rawPayments;
 
     for (const p of payments) {
       if (mode === "refund" && p.method === CHECKPOINT_RESOLUTION_METHOD) {
         continue;
       }
+      // A leg that was nothing but fee has no price part to give back.
+      if (mode === "refund" && p.amount === 0) continue;
       // LIRA-078: when the operator chose override return method(s), skip
       // mirroring the customer-facing legs verbatim here — they are replaced
       // by refundLegOverride below instead. Every OTHER (internal
@@ -10996,6 +11029,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         createdBy: userId,
         tenantId,
         literalCurrency,
+        feeAmount: -p.fee_amount,
       });
       // LIRA-258 (G34): an audit-only row (PM_FEE) never moved a drawer on
       // create — its money is inside another leg — so mirror it for the

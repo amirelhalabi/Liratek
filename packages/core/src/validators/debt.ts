@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { legFeeAmountSchema, refineLegFees } from "./legFee.js";
 import {
   positiveDecimalSchema,
   idSchema,
@@ -26,6 +27,9 @@ const repaymentPaymentLineSchema = z.object({
   // repayments with change-return legs, fixed by adding it here (both
   // transports now share one schema, so this fixes REST for free).
   direction: z.enum(["IN", "OUT"]).optional(),
+  // LIRA-400: payment-method fee typed on a wallet line, on top of `amount`
+  // (the debt reduction never includes it).
+  feeAmount: legFeeAmountSchema,
 });
 
 // Add debt repayment
@@ -39,7 +43,10 @@ export const addRepaymentSchema = z
     typedNote: typedNoteField,
     userId: idSchema.optional(),
     paidByMethod: z.string().min(1).optional(),
-    payments: z.array(repaymentPaymentLineSchema).optional(),
+    payments: z
+      .array(repaymentPaymentLineSchema)
+      .superRefine(refineLegFees("feeAmount"))
+      .optional(),
     // T3 keep-change (docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md KC-2): per-currency
     // change the shop keeps instead of returning. Excluded from the debt
     // reduction by the caller; checked server-side against the payment

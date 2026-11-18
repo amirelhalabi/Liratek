@@ -39,6 +39,8 @@ export * from "./utils/crypto.js";
 export * from "./utils/logger.js";
 export * from "./utils/errors.js";
 export * from "./utils/typedNote.js";
+// LIRA-400 — payment-method fee on a payment line (leaf, rule 29).
+export * from "./utils/legFee.js";
 // LIRA-291: the one wording for a user's sign-in methods (pure).
 export * from "./utils/signinMethods.js";
 // LIRA-294: the Google profile photo URL rule (pure).

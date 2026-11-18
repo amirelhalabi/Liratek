@@ -10,7 +10,11 @@
     "currency": "العملة",
     "currencyLocked": "العملة مقفلة",
     "binanceUsdt": "بينانس بالدولار فقط — يُسجَّل في بينانس كـ USDT",
-    "remove": "إزالة"
+    "remove": "إزالة",
+    "addFee": "+ رسم",
+    "fee": "رسم",
+    "feeTitle": "رسم وسيلة الدفع (يدفعه الزبون فوق المبلغ)",
+    "clearFee": "إزالة الرسم"
   },
   "rateWarning": {
     "away": "⚠ السعر يبعد {{pct}}% عن سعر المحل (<ltr>{{rate}}</ltr>)",
@@ -80,7 +84,8 @@
     "roundUpBooked": "تقريب للأعلى <ltr>{{amount}}</ltr> — يُسجَّل كفرق تقريب الفكّة.",
     "grandTotal": "المجموع الكلّي",
     "inclWalletFee": "يشمل <ltr>{{amount}}</ltr> رسم المحفظة",
-    "owedPlusAddedChange": "المستحق <ltr>{{owed}}</ltr> + أعطى الزبون <ltr>{{added}}</ltr> = <ltr>{{total}}</ltr>"
+    "owedPlusAddedChange": "المستحق <ltr>{{owed}}</ltr> + أعطى الزبون <ltr>{{added}}</ltr> = <ltr>{{total}}</ltr>",
+    "paymentMethodFee": "رسم وسيلة الدفع"
   },
   "change": {
     "notReturnedCost": "فكّة لم تُرجَع (كلفة)",

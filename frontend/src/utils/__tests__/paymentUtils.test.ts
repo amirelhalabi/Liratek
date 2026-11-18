@@ -7,7 +7,12 @@
  * even though the customer actually split the payment. Deriving straight
  * from the CURRENT legs on every call fixes both cases in one place.
  */
-import { derivePaidByMethod } from "../paymentUtils";
+import { derivePaidByMethod, toCamelLegs, toSnakeLegs } from "../paymentUtils";
+import {
+  addRepaymentSchema,
+  createRechargeSchema,
+  saleProcessSchema,
+} from "@liratek/core";
 
 describe("derivePaidByMethod", () => {
   it("returns the fallback (default CASH) when there are no legs", () => {
@@ -44,5 +49,39 @@ describe("derivePaidByMethod", () => {
         "CASH",
       ),
     ).toBe("MULTI");
+  });
+});
+
+/**
+ * LIRA-400 — the line's typed fee travels under each schema's OWN key
+ * (rule 24: the names are taken from the schemas, not hand-typed): the POS
+ * sale leg is snake_case, the recharge / repayment legs camelCase. A change
+ * (OUT) line never carries one.
+ */
+describe("payment-method fee on the legs", () => {
+  const lines = [
+    { id: "a", method: "WHISH", currencyCode: "USD", amount: 10, fee: 1 },
+    { id: "b", method: "CASH", currencyCode: "LBP", amount: 0 },
+  ];
+  const ret = [
+    { id: "r", method: "CASH", currencyCode: "LBP", amount: 90_000, direction: "OUT" as const, fee: 5 },
+  ];
+
+  it("snake legs: the sale schema keeps fee_amount (not stripped)", () => {
+    const legs = toSnakeLegs(lines, ret);
+    const saleLeg = saleProcessSchema.shape.payments.unwrap().element;
+    const parsed = legs.map((l) => saleLeg.parse(l));
+    expect(parsed[0]).toEqual({ method: "WHISH", currency_code: "USD", amount: 10, fee_amount: 1 });
+    expect(parsed[2]).not.toHaveProperty("fee_amount");
+  });
+
+  it("camel legs: the recharge and repayment schemas keep feeAmount", () => {
+    const legs = toCamelLegs(lines, ret);
+    const rechargeLeg = createRechargeSchema.shape.payments.unwrap().element;
+    expect(legs[0]).toEqual({ method: "WHISH", currencyCode: "USD", amount: 10, feeAmount: 1 });
+    expect(rechargeLeg.parse(legs[0])).toEqual(legs[0]);
+    const repay = addRepaymentSchema.shape.payments.unwrap().element;
+    expect(repay.parse(legs[0])).toEqual(legs[0]);
+    expect(legs[2]).not.toHaveProperty("feeAmount");
   });
 });

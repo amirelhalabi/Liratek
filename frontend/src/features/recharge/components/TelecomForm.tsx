@@ -1446,6 +1446,10 @@ export function TelecomForm({
                       : 0,
                   )}
                   onPaymentChange={setPaymentLines}
+                  // LIRA-400: "+ fee" on wallet lines of a walk-in sale only —
+                  // never a buy-back (a payout) or a session-basket item
+                  // (the basket takes the payment; its legs are not sent).
+                  lineFees={!isCreditBuyback && !activeSession}
                   onDiscountChange={handleDiscountChange}
                   // Buy-back is a payout (owner decisions 2026-10-07): the
                   // shop hands the customer money, so no change (OUT) legs
