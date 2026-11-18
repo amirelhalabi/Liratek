@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import logger from "@/utils/logger";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { localDay } from "@/shared/utils/localDay";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import {
@@ -143,6 +144,19 @@ function statusBadgeClass(status: string): string {
 
 export default function Maintenance() {
   const api = useApi();
+  // LIRA-401 — one-time ticket for the job saves (web): a double tap or a
+  // retry books once; a new key after every successful save. A status step
+  // on a listed job suffixes that job, so it never shares the form's key.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
+  const saveOpts = (suffix?: string) =>
+    idempotencyKey
+      ? {
+          idempotencyKey: suffix
+            ? `${idempotencyKey}-${suffix}`
+            : idempotencyKey,
+        }
+      : {};
   const { t } = useTranslation("maintenance");
   const { t: tc } = useTranslation("common");
   const { formatDate, formatDateTime } = useFormat();
@@ -578,18 +592,18 @@ export default function Maintenance() {
     // {status,message,details} object on a non-2xx response (never an
     // `Error`), it was an uncaught promise rejection, not merely silent.
     try {
-      const result = await api.saveMaintenanceJob(payload);
+      const result = await api.saveMaintenanceJob(
+        payload,
+        saveOpts(`s${job.id}`),
+      );
       if (result.success) {
+        resetIdempotencyKey();
         const data = await api.getMaintenanceJobs(filter);
         setJobs(data);
       } else {
         alert(
           t("alerts.error", {
-            message: translateServerError(
-              result,
-              t,
-              t("alerts.statusFailed"),
-            ),
+            message: translateServerError(result, t, t("alerts.statusFailed")),
           }),
         );
       }
@@ -669,8 +683,9 @@ export default function Maintenance() {
     // {status,message,details} object (requestJson), which is an uncaught
     // promise rejection, not a caught `result.success === false`.
     try {
-      const result = await api.saveMaintenanceJob(jobData);
+      const result = await api.saveMaintenanceJob(jobData, saveOpts());
       if (result.success) {
+        resetIdempotencyKey();
         setIsCheckoutOpen(false);
         handleNewJob();
         const data = await api.getMaintenanceJobs(filter);
@@ -800,13 +815,10 @@ export default function Maintenance() {
     // call had no try/catch, so a thrown ApiError (web 403, etc.) never
     // reached the `else` branch below at all.
     try {
-      const result = await api.saveMaintenanceJob(jobData);
+      const result = await api.saveMaintenanceJob(jobData, saveOpts());
       if (result.success) {
-        appEvents.emit(
-          "notification:show",
-          t("alerts.paymentDone"),
-          "success",
-        );
+        resetIdempotencyKey();
+        appEvents.emit("notification:show", t("alerts.paymentDone"), "success");
         void autoPrintReceipt({
           type: "MAINTENANCE",
           sourceTable: "maintenance",
@@ -820,11 +832,7 @@ export default function Maintenance() {
       } else {
         alert(
           t("alerts.error", {
-            message: translateServerError(
-              result,
-              t,
-              t("alerts.paymentFailed"),
-            ),
+            message: translateServerError(result, t, t("alerts.paymentFailed")),
           }),
         );
       }

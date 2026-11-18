@@ -30,6 +30,7 @@ import {
 import { useForPartnerOffInSession } from "@/features/partners/hooks/useForPartnerOffInSession";
 import logger from "@/utils/logger";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { cryptoAmounts, cryptoFeeDiscount } from "../utils/cryptoAmounts";
 import { SHORTFALL_MAX } from "@liratek/core";
 
@@ -178,6 +179,9 @@ export function CryptoForm({
   const [sheetPaymentLines, setSheetPaymentLines] = useState<PaymentLine[]>([]);
   const { activeSession } = useSession();
   const api = useApi();
+  // LIRA-401 — one key per For Partner submit, renewed after a success.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
 
   // PFT-3b: a "for partner" Binance transaction has NO walk-in customer —
   // it never opens the PaymentSheet and takes no counter payment. The
@@ -341,20 +345,23 @@ export function CryptoForm({
 
     setIsSubmittingPartner(true);
     try {
-      const result = await api.addOMTTransaction({
-        provider: "BINANCE",
-        serviceType: cryptoType,
-        amount: cryptoType === "RECEIVE" ? receiveUsdt : sendUsdt,
-        currency: "USDT",
-        commission: fee,
-        payments: [],
-        partnerId: selectedPartnerId,
-        partnerMode: "FOR" as const,
-        note: cryptoDescription || undefined,
-        // LIRA-366: the Notes box is the cashier's typed note.
-        ...(cryptoDescription.trim() ? { typedNote: cryptoDescription } : {}),
-        transaction_time: transactionTime,
-      });
+      const result = await api.addOMTTransaction(
+        {
+          provider: "BINANCE",
+          serviceType: cryptoType,
+          amount: cryptoType === "RECEIVE" ? receiveUsdt : sendUsdt,
+          currency: "USDT",
+          commission: fee,
+          payments: [],
+          partnerId: selectedPartnerId,
+          partnerMode: "FOR" as const,
+          note: cryptoDescription || undefined,
+          // LIRA-366: the Notes box is the cashier's typed note.
+          ...(cryptoDescription.trim() ? { typedNote: cryptoDescription } : {}),
+          transaction_time: transactionTime,
+        },
+        { idempotencyKey },
+      );
 
       if (!result?.success) {
         appEvents.emit(
@@ -364,6 +371,7 @@ export function CryptoForm({
         );
         return;
       }
+      resetIdempotencyKey();
 
       appEvents.emit("notification:show", t("crypto.partnerDone"), "success");
       setCryptoAmount("");

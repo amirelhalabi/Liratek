@@ -136,6 +136,8 @@ describe("InitialDrawerAmountsModal — Add currency scope", () => {
           }),
         ]),
       }),
+      // LIRA-401: one idempotency key per open of the modal.
+      expect.objectContaining({ idempotencyKey: expect.any(String) }),
     );
   });
 

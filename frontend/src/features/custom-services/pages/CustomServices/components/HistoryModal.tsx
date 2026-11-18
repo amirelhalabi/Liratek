@@ -44,6 +44,7 @@ import {
 import { printServiceReceiptByTransaction } from "@/shared/utils/serviceReceipt";
 import { isReceiptableTransaction } from "@/features/audit/receiptGating";
 import logger from "@/utils/logger";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import type { CustomServiceEntry } from "../../../hooks/useCustomServices";
 import { formatServiceAmount } from "@/features/custom-services/utils/formatServiceAmount";
@@ -164,6 +165,12 @@ export function HistoryModal({
 }: HistoryModalProps) {
   useModalFocusFix(true);
   const api = useApi();
+  // LIRA-401 — one-time ticket for this window's writes (web), suffixed with
+  // the row it targets so one key never covers two rows; new key per success.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
+  const rowOpts = (target: string) =>
+    idempotencyKey ? { idempotencyKey: `${idempotencyKey}-${target}` } : {};
   const { t } = useTranslation("customServices");
   const { t: tc } = useTranslation("common");
   const fmt = useFormat();
@@ -181,9 +188,7 @@ export function HistoryModal({
   // category tab above (the full history array is already in memory; the
   // page-level list also supports a server-side `workStatus` filter for a
   // smaller initial fetch, see CustomServices/index.tsx).
-  const [workStatusTab, setWorkStatusTab] = useState<"All" | WorkStatus>(
-    "All",
-  );
+  const [workStatusTab, setWorkStatusTab] = useState<"All" | WorkStatus>("All");
   const scopedData = (
     categoryTab === "Insurance"
       ? filteredData.filter((tx) => tx.category === INSURANCE_CATEGORY)
@@ -227,11 +232,15 @@ export function HistoryModal({
   ) {
     setAdvancingId(tx.id);
     try {
-      const result = await api.advanceCustomServiceFulfillment({
-        id: tx.id,
-        fulfillment_status: next,
-      });
+      const result = await api.advanceCustomServiceFulfillment(
+        {
+          id: tx.id,
+          fulfillment_status: next,
+        },
+        rowOpts(`f${tx.id}`),
+      );
       if (result.success) {
+        resetIdempotencyKey();
         onRefresh();
       } else {
         alert(result.error ?? t("history.statusFailed"));
@@ -250,7 +259,10 @@ export function HistoryModal({
    *  `handleAdvanceFulfillment`, this is freeform (any of the four values,
    *  any direction) — see `CustomServiceService.setWorkStatus`'s doc
    *  comment for why. */
-  async function handleChangeWorkStatus(tx: CustomServiceEntry, next: WorkStatus) {
+  async function handleChangeWorkStatus(
+    tx: CustomServiceEntry,
+    next: WorkStatus,
+  ) {
     if (next === tx.work_status) return;
     setWorkStatusChangingId(tx.id);
     try {
@@ -278,9 +290,7 @@ export function HistoryModal({
    *  hard-sets status='voided' and vanishes the row from `getAll` (that
    *  would contradict "Cancelled" as a visible, derived label). */
   async function handleCancel(tx: CustomServiceEntry) {
-    if (
-      !confirm(t("history.cancelInsuranceConfirm"))
-    ) {
+    if (!confirm(t("history.cancelInsuranceConfirm"))) {
       return;
     }
     setCancellingId(tx.id);
@@ -291,8 +301,17 @@ export function HistoryModal({
         alert(t("history.insuranceTxnMissing"));
         return;
       }
-      const result = await refundTransaction(txnId);
+      const result = await refundTransaction(
+        txnId,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        rowOpts(`r${txnId}`),
+      );
       if (result.success) {
+        resetIdempotencyKey();
         onRefresh();
       } else {
         alert(result.error ?? t("history.cancelInsuranceFailed"));
@@ -390,7 +409,9 @@ export function HistoryModal({
                       : "text-slate-400 hover:text-slate-200"
                   }`}
                 >
-                  {tab === "All" ? t("history.tabAll") : t("history.tabInsurance")}
+                  {tab === "All"
+                    ? t("history.tabAll")
+                    : t("history.tabInsurance")}
                 </button>
               ))}
             </div>
@@ -524,7 +545,8 @@ export function HistoryModal({
                               amount badge (it would read a meaningless ↑ $0.00). */}
                           {tx.category !== "hold_money" && (
                             <span className="inline-flex items-center gap-0.5 text-[11px] font-mono text-emerald-400 shrink-0">
-                              ↑ {formatServiceAmount(tx.price_usd, tx.price_lbp)}
+                              ↑{" "}
+                              {formatServiceAmount(tx.price_usd, tx.price_lbp)}
                             </span>
                           )}
                           {tx.description}
@@ -604,11 +626,15 @@ export function HistoryModal({
                                   }
                                   disabled={advancingId === tx.id}
                                   className="text-[10px] px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors whitespace-nowrap disabled:opacity-50"
-                                  title={t("history.markAs", { status: nextLabel })}
+                                  title={t("history.markAs", {
+                                    status: nextLabel,
+                                  })}
                                 >
                                   {advancingId === tx.id
                                     ? "..."
-                                    : t("history.markAs", { status: nextLabel })}
+                                    : t("history.markAs", {
+                                        status: nextLabel,
+                                      })}
                                 </button>
                               );
                             })()}
@@ -682,9 +708,7 @@ export function HistoryModal({
                                 : "text-red-400"
                           }`}
                           title={
-                            isRefunded
-                              ? t("history.refundedProfit")
-                              : undefined
+                            isRefunded ? t("history.refundedProfit") : undefined
                           }
                         >
                           {formatServiceAmount(tx.profit_usd, tx.profit_lbp)}

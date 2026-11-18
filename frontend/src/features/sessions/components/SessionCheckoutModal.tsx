@@ -8,6 +8,7 @@ import {
   Printer,
 } from "lucide-react";
 import logger from "@/utils/logger";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
@@ -242,6 +243,10 @@ export function SessionCheckoutModal({
   const { t } = useTranslation("sessions");
   const { t: tc } = useTranslation("common");
   const api = useApi();
+  // LIRA-401 — one-time ticket per opening of the checkout (web): a double
+  // tap or a retry books the basket once; a new key after each success.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(isOpen);
   const {
     activeSession,
     cartItems,
@@ -1062,52 +1067,56 @@ export function SessionCheckoutModal({
         };
       });
 
-      const result = await api.session.checkout({
-        sessionId: activeSession.id,
-        cartItems: updatedCartItems,
-        paidByMethod: primaryMethod,
-        payments: allPaymentLegs,
-        exchangeRate,
-        // T3 keep-change: standalone profit-only row, not linked to any item.
-        // The server verifies it against the basket's net charge (G42). Only
-        // sent while there is a charge to keep it from — when the payment
-        // input is hidden (net charge 0) a stale value from an earlier
-        // render must not ride along and get the checkout refused.
-        ...(keptChange &&
-        hasChargeToCollect &&
-        (keptChange.usd > 0 || keptChange.lbp > 0)
-          ? {
-              kept_change_usd: keptChange.usd,
-              kept_change_lbp: keptChange.lbp,
-            }
-          : {}),
-        // LIRA-310 Waive: sent next to the kept fields, each only when > 0
-        // and only while there is a charge to waive from.
-        ...(waived && hasChargeToCollect && waived.usd > 0
-          ? { waived_usd: waived.usd }
-          : {}),
-        ...(waived && hasChargeToCollect && waived.lbp > 0
-          ? { waived_lbp: waived.lbp }
-          : {}),
-        // LIRA-319: the basket extra, each currency only when > 0 (the
-        // schema has no default — an absent key means "no extra").
-        ...(basketExtra.usd > 0 ? { extra_usd: basketExtra.usd } : {}),
-        ...(basketExtra.lbp > 0 ? { extra_lbp: basketExtra.lbp } : {}),
-        // LIRA-341: the basket discount, each currency only when > 0 (no
-        // schema default). Never with an extra (basketDiscount is 0 then)
-        // or a waive (typing a discount drops it).
-        ...(basketDiscount.usd > 0 && !waived
-          ? { discount_usd: basketDiscount.usd }
-          : {}),
-        ...(basketDiscount.lbp > 0 && !waived
-          ? { discount_lbp: basketDiscount.lbp }
-          : {}),
-        // Bug #4: absent = booked now.
-        ...(checkoutTime ? { transaction_time: checkoutTime } : {}),
-        userId: user.id,
-      });
+      const result = await api.session.checkout(
+        {
+          sessionId: activeSession.id,
+          cartItems: updatedCartItems,
+          paidByMethod: primaryMethod,
+          payments: allPaymentLegs,
+          exchangeRate,
+          // T3 keep-change: standalone profit-only row, not linked to any item.
+          // The server verifies it against the basket's net charge (G42). Only
+          // sent while there is a charge to keep it from — when the payment
+          // input is hidden (net charge 0) a stale value from an earlier
+          // render must not ride along and get the checkout refused.
+          ...(keptChange &&
+          hasChargeToCollect &&
+          (keptChange.usd > 0 || keptChange.lbp > 0)
+            ? {
+                kept_change_usd: keptChange.usd,
+                kept_change_lbp: keptChange.lbp,
+              }
+            : {}),
+          // LIRA-310 Waive: sent next to the kept fields, each only when > 0
+          // and only while there is a charge to waive from.
+          ...(waived && hasChargeToCollect && waived.usd > 0
+            ? { waived_usd: waived.usd }
+            : {}),
+          ...(waived && hasChargeToCollect && waived.lbp > 0
+            ? { waived_lbp: waived.lbp }
+            : {}),
+          // LIRA-319: the basket extra, each currency only when > 0 (the
+          // schema has no default — an absent key means "no extra").
+          ...(basketExtra.usd > 0 ? { extra_usd: basketExtra.usd } : {}),
+          ...(basketExtra.lbp > 0 ? { extra_lbp: basketExtra.lbp } : {}),
+          // LIRA-341: the basket discount, each currency only when > 0 (no
+          // schema default). Never with an extra (basketDiscount is 0 then)
+          // or a waive (typing a discount drops it).
+          ...(basketDiscount.usd > 0 && !waived
+            ? { discount_usd: basketDiscount.usd }
+            : {}),
+          ...(basketDiscount.lbp > 0 && !waived
+            ? { discount_lbp: basketDiscount.lbp }
+            : {}),
+          // Bug #4: absent = booked now.
+          ...(checkoutTime ? { transaction_time: checkoutTime } : {}),
+          userId: user.id,
+        },
+        idempotencyKey ? { idempotencyKey } : {},
+      );
 
       if (result.success) {
+        resetIdempotencyKey();
         logger.info(`Session checkout completed: ${result.itemCount} items`);
         // W1.b — snapshot everything the receipt needs BEFORE clearCart()
         // wipes cartItems and the session closes (activeSession -> null).

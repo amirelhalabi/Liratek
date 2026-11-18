@@ -133,6 +133,8 @@ describe("CloseDifferenceDialog", () => {
     expect(mockClose).toHaveBeenCalledTimes(1);
     expect(mockClose).toHaveBeenCalledWith(
       closeCheckpointDifferenceSchema.parse({ difference_id: 103 }),
+      // LIRA-401: the write carries an idempotency key.
+      expect.objectContaining({ idempotencyKey: expect.any(String) }),
     );
   });
 

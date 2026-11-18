@@ -15,6 +15,7 @@ import {
 import { logger } from "../server.js";
 import type { AuthRequest } from "../middleware/auth.js";
 import { auditRest } from "../middleware/audit.js";
+import { sendIdempotent } from "../middleware/idempotency.js";
 
 const router = express.Router();
 
@@ -136,32 +137,36 @@ router.post(
     try {
       const rechargeService = getRechargeService();
       const userId = (req as AuthRequest).user!.userId;
-      const result = rechargeService.processRecharge({
-        ...req.body,
-        userId,
-      });
-
-      if (result.success) {
-        // Mirrors rechargeHandlers.ts's recharge:process audit
-        // (create/recharge). Gated on success (rule 19c non-negotiable) —
-        // the IPC handler itself audits unconditionally, a pre-existing
-        // asymmetry noted in the implementation report.
-        auditRest(req, {
-          action: "create",
-          entity_type: "recharge",
-          summary: `Recharge ${req.body.provider} ${req.body.type}: ${req.body.amount}`,
-          metadata: {
-            provider: req.body.provider,
-            type: req.body.type,
-            amount: req.body.amount,
-          },
-        });
-      }
-
       // Match the IPC envelope: HTTP 200 with { success: false, error }
       // even on a business-rule failure (rule 19c) — the frontend adapter
       // branches on result.success, not the status code.
-      res.json(result);
+      sendIdempotent(
+        req,
+        res,
+        () =>
+          rechargeService.processRecharge({
+            ...req.body,
+            userId,
+          }),
+        {
+          onBooked: () => {
+            // Mirrors rechargeHandlers.ts's recharge:process audit
+            // (create/recharge). Gated on success (rule 19c non-negotiable) —
+            // the IPC handler itself audits unconditionally, a pre-existing
+            // asymmetry noted in the implementation report.
+            auditRest(req, {
+              action: "create",
+              entity_type: "recharge",
+              summary: `Recharge ${req.body.provider} ${req.body.type}: ${req.body.amount}`,
+              metadata: {
+                provider: req.body.provider,
+                type: req.body.type,
+                amount: req.body.amount,
+              },
+            });
+          },
+        },
+      );
     } catch (error) {
       logger.error({ error }, "Process recharge error");
       res
@@ -211,23 +216,28 @@ router.post(
     try {
       const rechargeService = getRechargeService();
       const userId = (req as AuthRequest).user!.userId;
-      const result = rechargeService.topUpApp({ ...req.body, userId });
-      if (result.success) {
-        // Mirrors rechargeHandlers.ts's recharge:top-up-app audit
-        // (create/recharge_topup).
-        auditRest(req, {
-          action: "create",
-          entity_type: "recharge_topup",
-          summary: `App top-up ${req.body.provider}: ${req.body.amount} ${req.body.currency} from ${req.body.sourceDrawer}`,
-          metadata: {
-            provider: req.body.provider,
-            amount: req.body.amount,
-            currency: req.body.currency,
-            sourceDrawer: req.body.sourceDrawer,
+      sendIdempotent(
+        req,
+        res,
+        () => rechargeService.topUpApp({ ...req.body, userId }),
+        {
+          onBooked: () => {
+            // Mirrors rechargeHandlers.ts's recharge:top-up-app audit
+            // (create/recharge_topup).
+            auditRest(req, {
+              action: "create",
+              entity_type: "recharge_topup",
+              summary: `App top-up ${req.body.provider}: ${req.body.amount} ${req.body.currency} from ${req.body.sourceDrawer}`,
+              metadata: {
+                provider: req.body.provider,
+                amount: req.body.amount,
+                currency: req.body.currency,
+                sourceDrawer: req.body.sourceDrawer,
+              },
+            });
           },
-        });
-      }
-      res.json(result);
+        },
+      );
     } catch (error) {
       logger.error({ error }, "App top-up error");
       res
@@ -248,25 +258,31 @@ router.post(
     try {
       const rechargeService = getRechargeService();
       const userId = (req as AuthRequest).user!.userId;
-      const result = rechargeService.topUpFromSupplier({
-        ...req.body,
-        userId,
-      });
-      if (result.success) {
-        // Mirrors rechargeHandlers.ts's recharge:top-up-from-supplier audit
-        // (create/recharge_topup).
-        auditRest(req, {
-          action: "create",
-          entity_type: "recharge_topup",
-          summary: `Supplier top-up ${req.body.provider}: ${req.body.amount} ${req.body.currency}`,
-          metadata: {
-            provider: req.body.provider,
-            amount: req.body.amount,
-            currency: req.body.currency,
+      sendIdempotent(
+        req,
+        res,
+        () =>
+          rechargeService.topUpFromSupplier({
+            ...req.body,
+            userId,
+          }),
+        {
+          onBooked: () => {
+            // Mirrors rechargeHandlers.ts's recharge:top-up-from-supplier audit
+            // (create/recharge_topup).
+            auditRest(req, {
+              action: "create",
+              entity_type: "recharge_topup",
+              summary: `Supplier top-up ${req.body.provider}: ${req.body.amount} ${req.body.currency}`,
+              metadata: {
+                provider: req.body.provider,
+                amount: req.body.amount,
+                currency: req.body.currency,
+              },
+            });
           },
-        });
-      }
-      res.json(result);
+        },
+      );
     } catch (error) {
       logger.error({ error }, "Supplier top-up error");
       res
@@ -293,28 +309,34 @@ router.post(
     try {
       const rechargeService = getRechargeService();
       const userId = (req as AuthRequest).user!.userId;
-      const result = rechargeService.cashoutToSupplier({
-        ...req.body,
-        userId,
-      });
-      if (result.success) {
-        // Mirrors rechargeHandlers.ts's recharge:cashout-to-supplier audit
-        // (create/recharge_cashout).
-        auditRest(req, {
-          action: "create",
-          entity_type: "recharge_cashout",
-          summary: `Cash Out to OMT ${req.body.provider}: ${req.body.amount} ${req.body.currency}`,
-          metadata: {
-            provider: req.body.provider,
-            amount: req.body.amount,
-            currency: req.body.currency,
-            commission: result.commission,
-          },
-        });
-      }
       // Match the IPC envelope: HTTP 200 with { success: false, error } even
       // on a business-rule failure (e.g. the D15 over-draw guard) — rule 19c.
-      res.json(result);
+      sendIdempotent(
+        req,
+        res,
+        () =>
+          rechargeService.cashoutToSupplier({
+            ...req.body,
+            userId,
+          }),
+        {
+          onBooked: (result) => {
+            // Mirrors rechargeHandlers.ts's recharge:cashout-to-supplier audit
+            // (create/recharge_cashout).
+            auditRest(req, {
+              action: "create",
+              entity_type: "recharge_cashout",
+              summary: `Cash Out to OMT ${req.body.provider}: ${req.body.amount} ${req.body.currency}`,
+              metadata: {
+                provider: req.body.provider,
+                amount: req.body.amount,
+                currency: req.body.currency,
+                commission: result.commission,
+              },
+            });
+          },
+        },
+      );
     } catch (error) {
       logger.error({ error }, "OMT App cash-out error");
       res
@@ -335,26 +357,32 @@ router.post(
     try {
       const rechargeService = getRechargeService();
       const userId = (req as AuthRequest).user!.userId;
-      const result = rechargeService.topUpFromPartner({
-        ...req.body,
-        userId,
-      });
-      if (result.success) {
-        // Mirrors rechargeHandlers.ts's recharge:top-up-from-partner audit
-        // (create/recharge_topup).
-        auditRest(req, {
-          action: "create",
-          entity_type: "recharge_topup",
-          summary: `Partner top-up ${req.body.provider}: ${req.body.amount} ${req.body.currency}`,
-          metadata: {
-            provider: req.body.provider,
-            partnerId: req.body.partnerId,
-            amount: req.body.amount,
-            currency: req.body.currency,
+      sendIdempotent(
+        req,
+        res,
+        () =>
+          rechargeService.topUpFromPartner({
+            ...req.body,
+            userId,
+          }),
+        {
+          onBooked: () => {
+            // Mirrors rechargeHandlers.ts's recharge:top-up-from-partner audit
+            // (create/recharge_topup).
+            auditRest(req, {
+              action: "create",
+              entity_type: "recharge_topup",
+              summary: `Partner top-up ${req.body.provider}: ${req.body.amount} ${req.body.currency}`,
+              metadata: {
+                provider: req.body.provider,
+                partnerId: req.body.partnerId,
+                amount: req.body.amount,
+                currency: req.body.currency,
+              },
+            });
           },
-        });
-      }
-      res.json(result);
+        },
+      );
     } catch (error) {
       logger.error({ error }, "Partner top-up error");
       res
@@ -384,36 +412,43 @@ router.post(
     try {
       const rechargeService = getRechargeService();
       const userId = (req as AuthRequest).user!.userId;
-      const result = rechargeService.topUpFromClient({
-        ...req.body,
-        userId,
-      });
-      if (result.success) {
-        // Mirrors rechargeHandlers.ts's recharge:top-up-from-client audit
-        // (create/recharge_topup): `cashPaid` no longer exists on the wire,
-        // so the entry logs the leg count and the summed payout instead so
-        // it stays legible. `fee` is the owner's declared profit on this
-        // transaction (LIRA-194 follow-on) — recorded here so "what did we
-        // make on that?" is answerable straight from the audit trail without
-        // re-deriving it from the legs.
-        const payoutTotal = (req.body.payments as Array<{ amount: number }>)
-          .reduce((sum, leg) => sum + leg.amount, 0);
-        auditRest(req, {
-          action: "create",
-          entity_type: "recharge_topup",
-          summary: `Client top-up: ${req.body.amount} ${req.body.currency}`,
-          metadata: {
-            amount: req.body.amount,
-            currency: req.body.currency,
-            fee: req.body.fee,
-            legCount: req.body.payments.length,
-            payoutTotal,
-            clientName: req.body.clientName,
-            clientId: req.body.clientId,
+      sendIdempotent(
+        req,
+        res,
+        () =>
+          rechargeService.topUpFromClient({
+            ...req.body,
+            userId,
+          }),
+        {
+          onBooked: () => {
+            // Mirrors rechargeHandlers.ts's recharge:top-up-from-client audit
+            // (create/recharge_topup): `cashPaid` no longer exists on the wire,
+            // so the entry logs the leg count and the summed payout instead so
+            // it stays legible. `fee` is the owner's declared profit on this
+            // transaction (LIRA-194 follow-on) — recorded here so "what did we
+            // make on that?" is answerable straight from the audit trail without
+            // re-deriving it from the legs.
+            const payoutTotal = (
+              req.body.payments as Array<{ amount: number }>
+            ).reduce((sum, leg) => sum + leg.amount, 0);
+            auditRest(req, {
+              action: "create",
+              entity_type: "recharge_topup",
+              summary: `Client top-up: ${req.body.amount} ${req.body.currency}`,
+              metadata: {
+                amount: req.body.amount,
+                currency: req.body.currency,
+                fee: req.body.fee,
+                legCount: req.body.payments.length,
+                payoutTotal,
+                clientName: req.body.clientName,
+                clientId: req.body.clientId,
+              },
+            });
           },
-        });
-      }
-      res.json(result);
+        },
+      );
     } catch (error) {
       logger.error({ error }, "Client top-up error");
       res

@@ -13,11 +13,7 @@ import {
   debtWriteOffSchema,
 } from "@liratek/core";
 import type { AuthRequest } from "../middleware/auth.js";
-import {
-  INVALID_IDEMPOTENCY_KEY,
-  readIdempotencyKey,
-  runIdempotent,
-} from "../middleware/idempotency.js";
+import { sendIdempotent } from "../middleware/idempotency.js";
 import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
@@ -167,32 +163,28 @@ router.post(
     // cash-out, account-entry, credit, use-credit and write-off all spread
     // `{ ...req.body, userId }`. This one was simply missed.
     const userId = (req as AuthRequest).user!.userId;
-    // LIRA-289 FR-017: a repeated Idempotency-Key replays the first reply.
-    const key = readIdempotencyKey(req);
-    if (key === "invalid") {
-      res.json({ success: false, error: INVALID_IDEMPOTENCY_KEY });
-      return;
-    }
-    const { replayed, result } = runIdempotent(
+    // LIRA-289 FR-017 / LIRA-401: a repeated Idempotency-Key replays the
+    // first reply instead of booking the repayment again.
+    sendIdempotent(
       req,
-      "POST /api/debts/repayments",
-      key,
+      res,
       () => service.addRepayment({ ...req.body, userId }),
+      {
+        onBooked: () =>
+          // Mirrors debtHandlers.ts's debt:add-repayment audit.
+          auditRest(req, {
+            action: "create",
+            entity_type: "repayment",
+            summary: `Repayment for client #${req.body.clientId}: $${req.body.amountUSD} + ${req.body.amountLBP} LBP`,
+            metadata: {
+              clientId: req.body.clientId,
+              amountUSD: req.body.amountUSD,
+              amountLBP: req.body.amountLBP,
+            },
+          }),
+        status: (result) => (result.success ? 200 : 400),
+      },
     );
-    if (result.success && !replayed) {
-      // Mirrors debtHandlers.ts's debt:add-repayment audit.
-      auditRest(req, {
-        action: "create",
-        entity_type: "repayment",
-        summary: `Repayment for client #${req.body.clientId}: $${req.body.amountUSD} + ${req.body.amountLBP} LBP`,
-        metadata: {
-          clientId: req.body.clientId,
-          amountUSD: req.body.amountUSD,
-          amountLBP: req.body.amountLBP,
-        },
-      });
-    }
-    res.status(result.success ? 200 : 400).json(result);
   },
 );
 
@@ -203,21 +195,26 @@ router.post(
   validateRequest(debtCashOutSchema),
   (req, res) => {
     const userId = (req as AuthRequest).user!.userId;
-    const result = getDebtService().cashOut({ ...req.body, userId });
-    if (result.success) {
-      // Mirrors debtHandlers.ts's debt:cash-out audit.
-      auditRest(req, {
-        action: "create",
-        entity_type: "credit_cash_out",
-        summary: `Credit cash out for client #${req.body.clientId}: $${req.body.amountUSD} + ${req.body.amountLBP} LBP`,
-        metadata: {
-          clientId: req.body.clientId,
-          amountUSD: req.body.amountUSD,
-          amountLBP: req.body.amountLBP,
+    sendIdempotent(
+      req,
+      res,
+      () => getDebtService().cashOut({ ...req.body, userId }),
+      {
+        onBooked: () => {
+          // Mirrors debtHandlers.ts's debt:cash-out audit.
+          auditRest(req, {
+            action: "create",
+            entity_type: "credit_cash_out",
+            summary: `Credit cash out for client #${req.body.clientId}: $${req.body.amountUSD} + ${req.body.amountLBP} LBP`,
+            metadata: {
+              clientId: req.body.clientId,
+              amountUSD: req.body.amountUSD,
+              amountLBP: req.body.amountLBP,
+            },
+          });
         },
-      });
-    }
-    res.json(result);
+      },
+    );
   },
 );
 
@@ -228,26 +225,32 @@ router.post(
   validateRequest(debtAccountEntrySchema),
   (req, res) => {
     const userId = (req as AuthRequest).user!.userId;
-    const result = getDebtService().addAccountCashEntry({
-      ...req.body,
-      userId,
-    });
-    if (result.success) {
-      // Mirrors debtHandlers.ts's debt:add-account-entry audit.
-      auditRest(req, {
-        action: "create",
-        entity_type: "account_cash_entry",
-        summary: `Account ${req.body.direction} for client #${req.body.clientId}: $${req.body.amountUSD} + ${req.body.amountLBP} LBP${req.body.moveCash === false ? " (paper, no cash moved)" : ""}`,
-        metadata: {
-          direction: req.body.direction,
-          clientId: req.body.clientId,
-          amountUSD: req.body.amountUSD,
-          amountLBP: req.body.amountLBP,
-          moveCash: req.body.moveCash !== false,
+    sendIdempotent(
+      req,
+      res,
+      () =>
+        getDebtService().addAccountCashEntry({
+          ...req.body,
+          userId,
+        }),
+      {
+        onBooked: () => {
+          // Mirrors debtHandlers.ts's debt:add-account-entry audit.
+          auditRest(req, {
+            action: "create",
+            entity_type: "account_cash_entry",
+            summary: `Account ${req.body.direction} for client #${req.body.clientId}: $${req.body.amountUSD} + ${req.body.amountLBP} LBP${req.body.moveCash === false ? " (paper, no cash moved)" : ""}`,
+            metadata: {
+              direction: req.body.direction,
+              clientId: req.body.clientId,
+              amountUSD: req.body.amountUSD,
+              amountLBP: req.body.amountLBP,
+              moveCash: req.body.moveCash !== false,
+            },
+          });
         },
-      });
-    }
-    res.json(result);
+      },
+    );
   },
 );
 
@@ -259,21 +262,26 @@ router.post(
   validateRequest(addCreditSchema),
   (req, res) => {
     const userId = (req as AuthRequest).user!.userId;
-    const result = getDebtService().addCredit({ ...req.body, userId });
-    if (result.success) {
-      // Mirrors debtHandlers.ts's debt:add-credit audit.
-      auditRest(req, {
-        action: "create",
-        entity_type: "credit",
-        summary: `Credit added for client #${req.body.clientId}: $${req.body.amountUsd} + ${req.body.amountLbp} LBP`,
-        metadata: {
-          clientId: req.body.clientId,
-          amountUsd: req.body.amountUsd,
-          amountLbp: req.body.amountLbp,
+    sendIdempotent(
+      req,
+      res,
+      () => getDebtService().addCredit({ ...req.body, userId }),
+      {
+        onBooked: () => {
+          // Mirrors debtHandlers.ts's debt:add-credit audit.
+          auditRest(req, {
+            action: "create",
+            entity_type: "credit",
+            summary: `Credit added for client #${req.body.clientId}: $${req.body.amountUsd} + ${req.body.amountLbp} LBP`,
+            metadata: {
+              clientId: req.body.clientId,
+              amountUsd: req.body.amountUsd,
+              amountLbp: req.body.amountLbp,
+            },
+          });
         },
-      });
-    }
-    res.json(result);
+      },
+    );
   },
 );
 
@@ -287,21 +295,26 @@ router.post(
   validateRequest(debtUseCreditSchema),
   (req, res) => {
     const userId = (req as AuthRequest).user!.userId;
-    const result = getDebtService().useCredit({ ...req.body, userId });
-    if (result.success) {
-      // Mirrors debtHandlers.ts's debt:use-credit audit.
-      auditRest(req, {
-        action: "create",
-        entity_type: "credit_used",
-        summary: `Credit used for client #${req.body.clientId}: $${req.body.amountUsd} + ${req.body.amountLbp} LBP`,
-        metadata: {
-          clientId: req.body.clientId,
-          amountUsd: req.body.amountUsd,
-          amountLbp: req.body.amountLbp,
+    sendIdempotent(
+      req,
+      res,
+      () => getDebtService().useCredit({ ...req.body, userId }),
+      {
+        onBooked: () => {
+          // Mirrors debtHandlers.ts's debt:use-credit audit.
+          auditRest(req, {
+            action: "create",
+            entity_type: "credit_used",
+            summary: `Credit used for client #${req.body.clientId}: $${req.body.amountUsd} + ${req.body.amountLbp} LBP`,
+            metadata: {
+              clientId: req.body.clientId,
+              amountUsd: req.body.amountUsd,
+              amountLbp: req.body.amountLbp,
+            },
+          });
         },
-      });
-    }
-    res.json(result);
+      },
+    );
   },
 );
 
@@ -353,22 +366,27 @@ router.post(
   validateRequest(debtWriteOffSchema),
   (req, res) => {
     const userId = (req as AuthRequest).user!.userId;
-    const result = getDebtService().writeOffDebt({ ...req.body, userId });
-    if (result.success) {
-      // Mirrors debtHandlers.ts's debt:write-off audit.
-      auditRest(req, {
-        action: "write_off",
-        entity_type: "debt_write_off",
-        summary: `Debt write-off for client #${req.body.clientId}: $${req.body.amountUSD} + ${req.body.amountLBP} LBP`,
-        metadata: {
-          clientId: req.body.clientId,
-          amountUSD: req.body.amountUSD,
-          amountLBP: req.body.amountLBP,
-          reason: req.body.reason,
+    sendIdempotent(
+      req,
+      res,
+      () => getDebtService().writeOffDebt({ ...req.body, userId }),
+      {
+        onBooked: () => {
+          // Mirrors debtHandlers.ts's debt:write-off audit.
+          auditRest(req, {
+            action: "write_off",
+            entity_type: "debt_write_off",
+            summary: `Debt write-off for client #${req.body.clientId}: $${req.body.amountUSD} + ${req.body.amountLBP} LBP`,
+            metadata: {
+              clientId: req.body.clientId,
+              amountUSD: req.body.amountUSD,
+              amountLBP: req.body.amountLBP,
+              reason: req.body.reason,
+            },
+          });
         },
-      });
-    }
-    res.json(result);
+      },
+    );
   },
 );
 

@@ -21,6 +21,7 @@ import {
   type CarrierLineEntity,
   type MobileServiceItemEntity,
 } from "@liratek/ui";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { useTranslation } from "react-i18next";
 import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import type {
@@ -55,6 +56,10 @@ export function WrongNumberPanel({
 }) {
   const api = useApi();
   const apiRef = useRef(api);
+  // LIRA-401: one key per entry, renewed after it is saved, so a double tap
+  // or a retry on Save books it once.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
   apiRef.current = api;
   const { t } = useTranslation("wrongNumbers");
   const tRef = useRef(t);
@@ -170,16 +175,17 @@ export function WrongNumberPanel({
     };
     setSaving(true);
     try {
-      const res = await apiRef.current.recordWrongNumber(payload);
+      const res = await apiRef.current.recordWrongNumber(payload, {
+        idempotencyKey,
+      });
       if (!res.success) {
         setError(res.error || t("panel.saveFailed"));
         return;
       }
+      resetIdempotencyKey();
       onDone(res.data.id);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : t("panel.saveFailed"),
-      );
+      setError(err instanceof Error ? err.message : t("panel.saveFailed"));
     } finally {
       setSaving(false);
     }

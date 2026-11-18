@@ -22,6 +22,7 @@ import { useSellRate } from "@/hooks/useSellRate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import logger from "@/utils/logger";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
 import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
@@ -79,6 +80,10 @@ function OmtWhishAppTransferFormInner({
 }: OmtWhishAppTransferFormProps) {
   const { t } = useTranslation("rechargeFinancial");
   const api = useApi();
+  // LIRA-401 — one key per transfer on this always-visible form, renewed
+  // after a success (the For Partner submit uses it with a `-p` suffix).
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
   // Input focus and radios take the active wallet's brand colour.
   const brand = PROVIDER_BRANDS[activeProvider === "OMT_APP" ? "OMT" : "WHISH"];
   const {
@@ -502,94 +507,99 @@ function OmtWhishAppTransferFormInner({
       // LIRA-289 (rule 22): the body is built by the ONE shared builder the
       // phone app uses too. Each condition below is what this form used to
       // inline; the builder keeps the keys and values the server saw before.
-      const result = await api.addOMTTransaction({
-        ...buildWalletTransferPayload({
-          provider: activeProvider,
-          serviceType,
-          currency,
-          fees: {
-            autoFee,
-            providerFee,
-            isAppWalletReceive,
-            walletAmount,
-            totalAmount,
-            shopProfit,
-            // Fee after the discount — the figure the server pays out by.
-            commission,
-            feeToCollect,
-            customerPays,
-          },
-          includingFees,
-          // LIRA-329: the sheet's discount as typed (none in a session or
-          // on a walk-in cash-out — LIRA-365).
-          discount: feeDiscount,
-          typedNote,
-          client: {
-            id: resolvedClientId,
-            name: serviceType === "SEND" ? finalSenderName : finalReceiverName,
-            phone:
-              serviceType === "SEND" ? finalSenderPhone : finalReceiverPhone,
-          },
-          paidByMethod: paymentMethod,
-          ...(useStructuredPayments
-            ? {
-                payments: toCamelLegs(paymentLines, changeLegs),
-                // The rate the PaymentSheet ACTUALLY converted tender at
-                // (lira-095), so the repository reconciles at the till's rate.
-                ...((effectiveRate ?? exchangeRate) !== undefined
-                  ? { tenderExchangeRate: effectiveRate ?? exchangeRate }
-                  : {}),
-              }
+      const result = await api.addOMTTransaction(
+        {
+          ...buildWalletTransferPayload({
+            provider: activeProvider,
+            serviceType,
+            currency,
+            fees: {
+              autoFee,
+              providerFee,
+              isAppWalletReceive,
+              walletAmount,
+              totalAmount,
+              shopProfit,
+              // Fee after the discount — the figure the server pays out by.
+              commission,
+              feeToCollect,
+              customerPays,
+            },
+            includingFees,
+            // LIRA-329: the sheet's discount as typed (none in a session or
+            // on a walk-in cash-out — LIRA-365).
+            discount: feeDiscount,
+            typedNote,
+            client: {
+              id: resolvedClientId,
+              name:
+                serviceType === "SEND" ? finalSenderName : finalReceiverName,
+              phone:
+                serviceType === "SEND" ? finalSenderPhone : finalReceiverPhone,
+            },
+            paidByMethod: paymentMethod,
+            ...(useStructuredPayments
+              ? {
+                  payments: toCamelLegs(paymentLines, changeLegs),
+                  // The rate the PaymentSheet ACTUALLY converted tender at
+                  // (lira-095), so the repository reconciles at the till's rate.
+                  ...((effectiveRate ?? exchangeRate) !== undefined
+                    ? { tenderExchangeRate: effectiveRate ?? exchangeRate }
+                    : {}),
+                }
+              : {}),
+            // RECEIVE only: how the shop pays the customer out (Bug 6) —
+            // only when every payout line shares one method (LIRA-391).
+            ...(serviceType === "RECEIVE" && lumpMethod
+              ? {
+                  cashoutMethod: lumpMethod as
+                    | "CASH"
+                    | "CUSTOMER_ACCOUNT"
+                    | "OMT"
+                    | "WHISH"
+                    | "BINANCE",
+                }
+              : {}),
+            // LIRA-321: the customer's side as `customerPayments` (never
+            // `feePayments`), with the fee mode stated and any forgiven part.
+            ...(sentCustomerLines.length > 0
+              ? {
+                  customerPayments: sentCustomerLines.map((l) => ({
+                    method: l.method,
+                    currencyCode: l.currencyCode,
+                    amount: l.amount,
+                  })),
+                  feeCollectedSeparately: feeLineSeparate,
+                  customerWaivedAmount: customerSectionState?.forgiven ?? 0,
+                }
+              : {}),
+            // T3 keep-change: only when it belongs to this direction.
+            ...(keptChange && keptChange.payout === (serviceType === "RECEIVE")
+              ? { keptChange: { usd: keptChange.usd, lbp: keptChange.lbp } }
+              : {}),
+            // LIRA-334: the payout round-up (see `roundUpApplies`).
+            ...(roundUpApplies && roundUp && roundUp.payout
+              ? { roundingGiven: { usd: roundUp.usd, lbp: roundUp.lbp } }
+              : {}),
+            // LIRA-336: the change the customer added (the builder sends it
+            // only with the customer's lines).
+            ...(addedChangeApplies && addedChange && addedChange.payout
+              ? { addedChange: { usd: addedChange.usd, lbp: addedChange.lbp } }
+              : {}),
+            ...(transactionTime !== undefined ? { transactionTime } : {}),
+          }),
+          // LIRA-319: the extra rides its own field (walk-in SEND only).
+          ...(sendExtra > 0
+            ? currency === "LBP"
+              ? { extra_lbp: sendExtra }
+              : { extra_usd: sendExtra }
             : {}),
-          // RECEIVE only: how the shop pays the customer out (Bug 6) —
-          // only when every payout line shares one method (LIRA-391).
-          ...(serviceType === "RECEIVE" && lumpMethod
-            ? {
-                cashoutMethod: lumpMethod as
-                  | "CASH"
-                  | "CUSTOMER_ACCOUNT"
-                  | "OMT"
-                  | "WHISH"
-                  | "BINANCE",
-              }
-            : {}),
-          // LIRA-321: the customer's side as `customerPayments` (never
-          // `feePayments`), with the fee mode stated and any forgiven part.
-          ...(sentCustomerLines.length > 0
-            ? {
-                customerPayments: sentCustomerLines.map((l) => ({
-                  method: l.method,
-                  currencyCode: l.currencyCode,
-                  amount: l.amount,
-                })),
-                feeCollectedSeparately: feeLineSeparate,
-                customerWaivedAmount: customerSectionState?.forgiven ?? 0,
-              }
-            : {}),
-          // T3 keep-change: only when it belongs to this direction.
-          ...(keptChange && keptChange.payout === (serviceType === "RECEIVE")
-            ? { keptChange: { usd: keptChange.usd, lbp: keptChange.lbp } }
-            : {}),
-          // LIRA-334: the payout round-up (see `roundUpApplies`).
-          ...(roundUpApplies && roundUp && roundUp.payout
-            ? { roundingGiven: { usd: roundUp.usd, lbp: roundUp.lbp } }
-            : {}),
-          // LIRA-336: the change the customer added (the builder sends it
-          // only with the customer's lines).
-          ...(addedChangeApplies && addedChange && addedChange.payout
-            ? { addedChange: { usd: addedChange.usd, lbp: addedChange.lbp } }
-            : {}),
-          ...(transactionTime !== undefined ? { transactionTime } : {}),
-        }),
-        // LIRA-319: the extra rides its own field (walk-in SEND only).
-        ...(sendExtra > 0
-          ? currency === "LBP"
-            ? { extra_lbp: sendExtra }
-            : { extra_usd: sendExtra }
-          : {}),
-      });
+        },
+        { idempotencyKey },
+      );
 
       if (result.success) {
+        resetIdempotencyKey();
         // Link to active customer session
         if (activeSession && result.id) {
           try {
@@ -630,7 +640,7 @@ function OmtWhishAppTransferFormInner({
         setFeeMode("SENDER");
         setCustomerLines([]);
         setCustomerSectionState(null);
-          setTransactionTime(undefined);
+        setTransactionTime(undefined);
         // LIRA-248: an operator-edited sheet rate must not carry over to the
         // next, unrelated transaction — reset to undefined so the next
         // submit falls back to the live shop rate (`exchangeRate`) via
@@ -670,36 +680,42 @@ function OmtWhishAppTransferFormInner({
 
     setIsSubmittingPartner(true);
     try {
-      const result = await api.addOMTTransaction({
-        provider: activeProvider,
-        serviceType,
-        amount: walletAmount,
-        currency,
-        commission: shopProfit,
-        ...(activeProvider === "OMT_APP" ? { omtFee: providerFee } : {}),
-        ...(activeProvider === "WHISH_APP" ? { whishFee: providerFee } : {}),
-        partnerId: selectedPartnerId,
-        partnerMode: "FOR" as const,
-        payments:
-          serviceType === "SEND"
-            ? [
-                {
-                  method: partnerPayFromMethod,
-                  currencyCode: currency,
-                  amount: totalAmount,
-                  direction: "OUT" as const,
-                },
-              ]
-            : [],
-        note: `${serviceType} transfer via ${providerLabel}`,
-        ...(typedNote.trim() ? { typedNote } : {}),
-        transaction_time: transactionTime,
-      });
+      const result = await api.addOMTTransaction(
+        {
+          provider: activeProvider,
+          serviceType,
+          amount: walletAmount,
+          currency,
+          commission: shopProfit,
+          ...(activeProvider === "OMT_APP" ? { omtFee: providerFee } : {}),
+          ...(activeProvider === "WHISH_APP" ? { whishFee: providerFee } : {}),
+          partnerId: selectedPartnerId,
+          partnerMode: "FOR" as const,
+          payments:
+            serviceType === "SEND"
+              ? [
+                  {
+                    method: partnerPayFromMethod,
+                    currencyCode: currency,
+                    amount: totalAmount,
+                    direction: "OUT" as const,
+                  },
+                ]
+              : [],
+          note: `${serviceType} transfer via ${providerLabel}`,
+          ...(typedNote.trim() ? { typedNote } : {}),
+          transaction_time: transactionTime,
+        },
+        {
+          idempotencyKey: idempotencyKey ? `${idempotencyKey}-p` : undefined,
+        },
+      );
 
       if (!result.success) {
         alert(result.error || t("transfer.partnerFailed"));
         return;
       }
+      resetIdempotencyKey();
 
       appEvents.emit(
         "notification:show",

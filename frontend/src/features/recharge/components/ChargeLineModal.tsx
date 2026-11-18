@@ -29,6 +29,7 @@ import { useSellRate } from "@/hooks/useSellRate";
 import { localDay } from "@/shared/utils/localDay";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import logger from "@/utils/logger";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import type { ServiceItem } from "../hooks/useMobileServiceItems";
 import { formatCatalogItemName } from "../hooks/useMobileServiceItems";
 
@@ -50,9 +51,13 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-function daysLeft(expiry: string | null | undefined, today: string): number | null {
+function daysLeft(
+  expiry: string | null | undefined,
+  today: string,
+): number | null {
   if (!expiry) return null;
-  const ms = Date.parse(`${expiry}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`);
+  const ms =
+    Date.parse(`${expiry}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`);
   return Math.round(ms / 86_400_000);
 }
 
@@ -69,6 +74,10 @@ export function ChargeLineModal({
   const api = useApi();
   const apiRef = useRef(api);
   apiRef.current = api;
+  // LIRA-401 — mounted only while open: one key per open, renewed after a
+  // successful charge (the modal stays open on its "done" screen).
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
   const { sellRate } = useSellRate();
   const { t } = useTranslation("recharge");
   const { t: tc } = useTranslation("common");
@@ -103,8 +112,11 @@ export function ChargeLineModal({
           (l) =>
             l.carrier === carrier &&
             l.is_unsold === 1 &&
-            classifyLineStatus(l.validity_expires_at, today, RESALE_LINE_EXPIRY_WARNING_DAYS)
-              .status !== "LOST",
+            classifyLineStatus(
+              l.validity_expires_at,
+              today,
+              RESALE_LINE_EXPIRY_WARNING_DAYS,
+            ).status !== "LOST",
         );
         setShopLines(own);
         setSaleLines(sale);
@@ -137,7 +149,8 @@ export function ChargeLineModal({
   // LIRA-157 — what the charge will really do to a SHOP line's validity.
   const projection = useMemo(() => {
     const requested = item.validityDays;
-    if (target?.kind !== "shop" || requested == null || requested <= 0) return null;
+    if (target?.kind !== "shop" || requested == null || requested <= 0)
+      return null;
     const p = projectValidityExpiry(
       target.line.validity_expires_at,
       requested,
@@ -160,22 +173,28 @@ export function ChargeLineModal({
     setError("");
     try {
       if (target.kind === "shop") {
-        const res = await apiRef.current.selfChargeTelecomItem({
-          mobileServiceItemId: item.id,
-          carrierLineId: target.line.id,
-          client_day: localDay(),
-        });
+        const res = await apiRef.current.selfChargeTelecomItem(
+          {
+            mobileServiceItemId: item.id,
+            carrierLineId: target.line.id,
+            client_day: localDay(),
+          },
+          { idempotencyKey },
+        );
         if (!res.success || !res.data) {
           setError(res.error || t("katsh.selfChargeFailed"));
           return;
         }
-        setDone(t("chargeLine.doneShop", {
-          line: target.line.label || target.line.phone_number,
-          credits: res.data.creditsAdded,
-          days: res.data.validityDaysAdded,
-          cost: formatNumber(res.data.costLbp),
-          provider: providerName,
-        }));
+        resetIdempotencyKey();
+        setDone(
+          t("chargeLine.doneShop", {
+            line: target.line.label || target.line.phone_number,
+            credits: res.data.creditsAdded,
+            days: res.data.validityDaysAdded,
+            cost: formatNumber(res.data.costLbp),
+            provider: providerName,
+          }),
+        );
       } else {
         // ONE payload, typed from the schema (rules 21, 22).
         const payload: RechargeResaleLineInput = {
@@ -185,16 +204,21 @@ export function ChargeLineModal({
           exchange_rate: sellRate,
           client_day: localDay(),
         };
-        const res = await apiRef.current.rechargeResaleLine(payload);
+        const res = await apiRef.current.rechargeResaleLine(payload, {
+          idempotencyKey,
+        });
         if (!res.success) {
           setError(res.error || t("katsh.selfChargeFailed"));
           return;
         }
-        setDone(t("chargeLine.doneSale", {
-          line: target.line.phone_number ?? target.line.name,
-          cost: money(res.data.line.cost_usd),
-          price: money(res.data.line.price_usd),
-        }));
+        resetIdempotencyKey();
+        setDone(
+          t("chargeLine.doneSale", {
+            line: target.line.phone_number ?? target.line.name,
+            cost: money(res.data.line.cost_usd),
+            price: money(res.data.line.price_usd),
+          }),
+        );
       }
       onCharged();
     } catch (err) {
@@ -215,7 +239,9 @@ export function ChargeLineModal({
     <label
       key={value}
       className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-sm ${
-        pick === value ? "bg-emerald-900/30 text-white" : "text-slate-300 hover:bg-slate-800"
+        pick === value
+          ? "bg-emerald-900/30 text-white"
+          : "text-slate-300 hover:bg-slate-800"
       }`}
     >
       <input
@@ -240,9 +266,12 @@ export function ChargeLineModal({
         data-testid="charge-line-modal"
         className="relative w-full max-w-md bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl p-6"
       >
-        <h3 className="text-lg font-bold text-white mb-1">{t("chargeLine.title")}</h3>
+        <h3 className="text-lg font-bold text-white mb-1">
+          {t("chargeLine.title")}
+        </h3>
         <p className="text-slate-400 text-xs mb-4">
-          {formatCatalogItemName(item)} · {formatNumber(costLbp)} LBP · {providerName}
+          {formatCatalogItemName(item)} · {formatNumber(costLbp)} LBP ·{" "}
+          {providerName}
         </p>
 
         {done ? (
@@ -276,7 +305,9 @@ export function ChargeLineModal({
                   `shop:${l.id}`,
                   `${l.phone_number}${l.is_primary === 1 ? ` ${t("chargeLine.main")}` : ""}`,
                   `${money(l.credits ?? 0)} · ${
-                    left === null ? t("chargeLine.noExpiry") : t("chargeLine.daysLeft", { n: left })
+                    left === null
+                      ? t("chargeLine.noExpiry")
+                      : t("chargeLine.daysLeft", { n: left })
                   }`,
                 );
               })}
@@ -295,18 +326,27 @@ export function ChargeLineModal({
             </div>
 
             {error && (
-              <div className="text-red-400 text-sm bg-red-900/20 px-3 py-1.5 rounded">{error}</div>
+              <div className="text-red-400 text-sm bg-red-900/20 px-3 py-1.5 rounded">
+                {error}
+              </div>
             )}
 
             {target && (
               <div className="bg-slate-900/60 border border-slate-700 rounded-lg p-3 text-sm text-slate-300 space-y-1">
-                <p className="text-slate-400 text-xs uppercase mb-1">{t("katsh.thisWill")}</p>
+                <p className="text-slate-400 text-xs uppercase mb-1">
+                  {t("katsh.thisWill")}
+                </p>
                 <p>
                   <Trans
                     t={t}
                     i18nKey="katsh.debitFromDrawer"
-                    values={{ amount: `${formatNumber(costLbp)} LBP`, provider: providerName }}
-                    components={{ amt: <span className="text-white font-mono" /> }}
+                    values={{
+                      amount: `${formatNumber(costLbp)} LBP`,
+                      provider: providerName,
+                    }}
+                    components={{
+                      amt: <span className="text-white font-mono" />,
+                    }}
                   />
                 </p>
                 <p>
@@ -314,7 +354,9 @@ export function ChargeLineModal({
                     t={t}
                     i18nKey="katsh.addCreditTo"
                     values={{ amount: `+$${item.credits}`, line: lineName }}
-                    components={{ amt: <span className="text-emerald-400 font-mono" /> }}
+                    components={{
+                      amt: <span className="text-emerald-400 font-mono" />,
+                    }}
                   />
                 </p>
                 <p>
@@ -336,22 +378,35 @@ export function ChargeLineModal({
                   />
                 </p>
                 {target.kind === "sale" && (
-                  <p data-testid="charge-line-for-sale-preview" className="text-slate-300">
+                  <p
+                    data-testid="charge-line-for-sale-preview"
+                    className="text-slate-300"
+                  >
                     {t("chargeLine.forSaleEffect", {
                       costFrom: money(target.line.cost_price_usd),
-                      costTo: money(round2(target.line.cost_price_usd + saleCostUsd)),
+                      costTo: money(
+                        round2(target.line.cost_price_usd + saleCostUsd),
+                      ),
                       priceFrom: money(target.line.selling_price_usd),
-                      priceTo: money(round2(target.line.selling_price_usd + saleCostUsd)),
+                      priceTo: money(
+                        round2(target.line.selling_price_usd + saleCostUsd),
+                      ),
                     })}
                   </p>
                 )}
                 {blocked && (
-                  <p className="text-red-400 text-xs pt-1" data-testid="self-charge-burned-warning">
+                  <p
+                    className="text-red-400 text-xs pt-1"
+                    data-testid="self-charge-burned-warning"
+                  >
                     {t("katsh.lineBurned", { n: projection?.lapseDays })}
                   </p>
                 )}
                 {!blocked && (projection?.owedApplied ?? 0) > 0 && (
-                  <p className="text-amber-400 text-xs pt-1" data-testid="self-charge-owed-payoff-notice">
+                  <p
+                    className="text-amber-400 text-xs pt-1"
+                    data-testid="self-charge-owed-payoff-notice"
+                  >
                     {(projection?.appliedDays ?? 0) > 0
                       ? t("katsh.owedPayoffSplit", {
                           owed: projection?.owedApplied,
@@ -365,7 +420,10 @@ export function ChargeLineModal({
                   </p>
                 )}
                 {!blocked && projection?.capped && (
-                  <p className="text-amber-400 text-xs pt-1" data-testid="self-charge-capped-warning">
+                  <p
+                    className="text-amber-400 text-xs pt-1"
+                    data-testid="self-charge-capped-warning"
+                  >
                     {t("katsh.validityCapped", {
                       applied: projection.appliedDays,
                       requested: projection.requestedDays,
@@ -374,7 +432,10 @@ export function ChargeLineModal({
                   </p>
                 )}
                 {!blocked && projection?.state === "GRACE" && (
-                  <p className="text-amber-400 text-xs pt-1" data-testid="self-charge-grace-warning">
+                  <p
+                    className="text-amber-400 text-xs pt-1"
+                    data-testid="self-charge-grace-warning"
+                  >
                     {t("katsh.lineGrace", { n: projection.lapseDays })}
                   </p>
                 )}

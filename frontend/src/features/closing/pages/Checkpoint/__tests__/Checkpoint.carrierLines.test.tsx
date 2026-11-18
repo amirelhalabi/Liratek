@@ -134,7 +134,7 @@ describe("Checkpoint — MTC/Alfa per-line credits (LIRA-252 item A)", () => {
       carrier: "mtc",
       phone_number: "03123456",
       credits: 25,
-    });
+    }, expect.objectContaining({ idempotencyKey: expect.any(String) }));
 
     await waitFor(() => {
       expect(screen.getByText(/03123456/)).toBeInTheDocument();

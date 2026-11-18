@@ -25,6 +25,7 @@ import {
 } from "../middleware/auth.js";
 import { validateRequest } from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
+import { sendIdempotent } from "../middleware/idempotency.js";
 
 const router = express.Router();
 
@@ -79,25 +80,30 @@ router.post(
     try {
       const userId = (req as AuthRequest).user!.userId;
       const topUpData = req.body as DrawerTopUpCreateInput;
-      const result = getDrawerTopUpService().addTopUp(topUpData, userId);
-      if (result.success) {
-        const extraCount = topUpData.extra_currencies?.length ?? 0;
-        // Mirrors drawerTopUpHandlers.ts's drawer-topup:create audit.
-        auditRest(req, {
-          action: "create",
-          entity_type: "drawer_topup",
-          summary:
-            `Drawer top-up: $${topUpData.amount_usd} USD + ${topUpData.amount_lbp} LBP` +
-            (extraCount > 0 ? ` + ${extraCount} other currencies` : ""),
-          metadata: {
-            amount_usd: topUpData.amount_usd,
-            amount_lbp: topUpData.amount_lbp,
-            extra_currencies: topUpData.extra_currencies,
-            notes: topUpData.notes,
+      sendIdempotent(
+        req,
+        res,
+        () => getDrawerTopUpService().addTopUp(topUpData, userId),
+        {
+          onBooked: () => {
+            const extraCount = topUpData.extra_currencies?.length ?? 0;
+            // Mirrors drawerTopUpHandlers.ts's drawer-topup:create audit.
+            auditRest(req, {
+              action: "create",
+              entity_type: "drawer_topup",
+              summary:
+                `Drawer top-up: $${topUpData.amount_usd} USD + ${topUpData.amount_lbp} LBP` +
+                (extraCount > 0 ? ` + ${extraCount} other currencies` : ""),
+              metadata: {
+                amount_usd: topUpData.amount_usd,
+                amount_lbp: topUpData.amount_lbp,
+                extra_currencies: topUpData.extra_currencies,
+                notes: topUpData.notes,
+              },
+            });
           },
-        });
-      }
-      res.json(result);
+        },
+      );
     } catch (err) {
       res.json({ success: false, error: errMessage(err) });
     }
@@ -115,25 +121,27 @@ router.post(
     try {
       const userId = (req as AuthRequest).user!.userId;
       const fromDrawerData = req.body as DrawerTopUpFromDrawerInput;
-      const result = getDrawerTopUpService().topUpFromDrawer(
-        fromDrawerData,
-        userId,
-      );
-      if (result.success) {
-        // Mirrors drawerTopUpHandlers.ts's drawer-topup:create-from-drawer audit.
-        auditRest(req, {
-          action: "create",
-          entity_type: "drawer_topup",
-          summary: `Drawer transfer from ${fromDrawerData.source_drawer}: $${fromDrawerData.amount_usd} USD + ${fromDrawerData.amount_lbp} LBP`,
-          metadata: {
-            source_drawer: fromDrawerData.source_drawer,
-            amount_usd: fromDrawerData.amount_usd,
-            amount_lbp: fromDrawerData.amount_lbp,
-            notes: fromDrawerData.notes,
+      sendIdempotent(
+        req,
+        res,
+        () => getDrawerTopUpService().topUpFromDrawer(fromDrawerData, userId),
+        {
+          onBooked: () => {
+            // Mirrors drawerTopUpHandlers.ts's drawer-topup:create-from-drawer audit.
+            auditRest(req, {
+              action: "create",
+              entity_type: "drawer_topup",
+              summary: `Drawer transfer from ${fromDrawerData.source_drawer}: $${fromDrawerData.amount_usd} USD + ${fromDrawerData.amount_lbp} LBP`,
+              metadata: {
+                source_drawer: fromDrawerData.source_drawer,
+                amount_usd: fromDrawerData.amount_usd,
+                amount_lbp: fromDrawerData.amount_lbp,
+                notes: fromDrawerData.notes,
+              },
+            });
           },
-        });
-      }
-      res.json(result);
+        },
+      );
     } catch (err) {
       res.json({ success: false, error: errMessage(err) });
     }
@@ -166,31 +174,37 @@ router.post(
         notes,
         transaction_time,
       } = req.body;
-      const result = getDrawerTopUpService().transferBetweenDrawers({
-        fromDrawer,
-        toDrawer,
-        amountUsd: amount_usd,
-        amountLbp: amount_lbp,
-        notes,
-        transactionTime: transaction_time,
-        createdBy: userId,
-      });
-      if (result.success) {
-        // Mirrors drawerTopUpHandlers.ts's drawer-topup:transfer audit.
-        auditRest(req, {
-          action: "create",
-          entity_type: "drawer_transfer",
-          summary: `Drawer Transfer: ${fromDrawer} → ${toDrawer} — $${amount_usd} USD + ${amount_lbp} LBP`,
-          metadata: {
-            from_drawer: fromDrawer,
-            to_drawer: toDrawer,
-            amount_usd,
-            amount_lbp,
+      sendIdempotent(
+        req,
+        res,
+        () =>
+          getDrawerTopUpService().transferBetweenDrawers({
+            fromDrawer,
+            toDrawer,
+            amountUsd: amount_usd,
+            amountLbp: amount_lbp,
             notes,
+            transactionTime: transaction_time,
+            createdBy: userId,
+          }),
+        {
+          onBooked: () => {
+            // Mirrors drawerTopUpHandlers.ts's drawer-topup:transfer audit.
+            auditRest(req, {
+              action: "create",
+              entity_type: "drawer_transfer",
+              summary: `Drawer Transfer: ${fromDrawer} → ${toDrawer} — $${amount_usd} USD + ${amount_lbp} LBP`,
+              metadata: {
+                from_drawer: fromDrawer,
+                to_drawer: toDrawer,
+                amount_usd,
+                amount_lbp,
+                notes,
+              },
+            });
           },
-        });
-      }
-      res.json(result);
+        },
+      );
     } catch (err) {
       res.json({ success: false, error: errMessage(err) });
     }

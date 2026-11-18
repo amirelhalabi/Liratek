@@ -442,6 +442,7 @@ describe("CustomServices.insurance (LIRA-155)", () => {
             partnerId: 21,
             paid_by: "CASH",
           }),
+          expect.objectContaining({ idempotencyKey: expect.any(String) }),
         );
       });
     });
@@ -675,6 +676,7 @@ describe("CustomServices.viaPartner (LIRA-154)", () => {
             paid_by: "CASH",
             payments: expect.any(Array),
           }),
+          expect.objectContaining({ idempotencyKey: expect.any(String) }),
         );
       });
     });
@@ -734,6 +736,7 @@ describe("CustomServices.viaPartner (LIRA-154)", () => {
             partnerId: 21,
             partnerMode: "VIA",
           }),
+          expect.objectContaining({ idempotencyKey: expect.any(String) }),
         );
       });
       // FOR's "no payments forwarded" rule must NOT apply to VIA.

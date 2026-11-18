@@ -17,6 +17,7 @@ import type {
   PartnerSettleRow,
 } from "@liratek/core";
 import { useApi } from "@liratek/ui";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 
 export const PARTNER_SETTLE_KEYS = {
   all: ["partnerSettle"] as const,
@@ -102,11 +103,17 @@ export function usePartnerSettleDayDetailQuery(
 export function usePartnerSettleDaysMutation() {
   const api = useApi();
   const queryClient = useQueryClient();
+  // LIRA-401 — same key for every call until one succeeds (double tap or
+  // retry replays); a fresh key after each success. useMutation re-reads
+  // its options each render, so mutationFn always sees the current key.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
   return useMutation({
     mutationFn: (payload: PartnerSettleDaysPayload) =>
-      api.partners.settleDays(payload),
+      api.partners.settleDays(payload, { idempotencyKey }),
     onSuccess: (result) => {
       if (result.success) {
+        resetIdempotencyKey();
         void queryClient.invalidateQueries({
           queryKey: PARTNER_SETTLE_KEYS.all,
         });

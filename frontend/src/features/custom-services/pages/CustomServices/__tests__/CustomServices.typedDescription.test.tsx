@@ -349,6 +349,7 @@ describe("CustomServices — typed search text is the description", () => {
     await waitFor(() => {
       expect(mockAddCustomService).toHaveBeenCalledWith(
         expect.objectContaining({ description: "" }),
+        expect.objectContaining({ idempotencyKey: expect.any(String) }),
       );
     });
   });
@@ -368,6 +369,7 @@ describe("CustomServices — typed search text is the description", () => {
     await waitFor(() => {
       expect(mockAddCustomService).toHaveBeenCalledWith(
         expect.objectContaining({ description: "" }),
+        expect.objectContaining({ idempotencyKey: expect.any(String) }),
       );
     });
   });

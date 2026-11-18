@@ -28,6 +28,7 @@ import {
 } from "../middleware/auth.js";
 import { validateRequest, validateParams } from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
+import { sendIdempotent } from "../middleware/idempotency.js";
 
 const router = express.Router();
 
@@ -102,24 +103,26 @@ router.post(
     try {
       const userId = (req as AuthRequest).user!.userId;
       const createdBy = resolveActingUsername(userId);
-      const result = getExchangeLotService().adjustPosition(
-        req.body,
-        createdBy,
-      );
-      if (result.success) {
-        auditRest(req as AuthRequest, {
-          action: "create",
-          entity_type: "exchange_position_adjustment",
-          summary: `Exchange lot adjustment: ${req.body.qty > 0 ? "+" : ""}${req.body.qty} ${req.body.currencyCode}`,
-          metadata: {
-            currency_code: req.body.currencyCode,
-            qty: req.body.qty,
-            unit_cost_usd: req.body.unitCostUsd,
-            note: req.body.note,
+      sendIdempotent(
+        req,
+        res,
+        () => getExchangeLotService().adjustPosition(req.body, createdBy),
+        {
+          onBooked: () => {
+            auditRest(req as AuthRequest, {
+              action: "create",
+              entity_type: "exchange_position_adjustment",
+              summary: `Exchange lot adjustment: ${req.body.qty > 0 ? "+" : ""}${req.body.qty} ${req.body.currencyCode}`,
+              metadata: {
+                currency_code: req.body.currencyCode,
+                qty: req.body.qty,
+                unit_cost_usd: req.body.unitCostUsd,
+                note: req.body.note,
+              },
+            });
           },
-        });
-      }
-      res.json(result);
+        },
+      );
     } catch (err) {
       res.json({ success: false, error: errMessage(err) });
     }

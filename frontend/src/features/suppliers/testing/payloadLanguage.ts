@@ -20,7 +20,11 @@ export async function setGuardLanguage(lang: GuardLanguage): Promise<void> {
 
 /** Deep copy of mock calls, so a later run cannot mutate them. */
 export function snapshotCalls(calls: unknown[][]): unknown[][] {
-  return JSON.parse(JSON.stringify(calls)) as unknown[][];
+  // LIRA-401: the idempotency key is random per form open, so two language
+  // runs can never share it. Mask its value (its PRESENCE still compares).
+  return JSON.parse(JSON.stringify(calls), (k, v) =>
+    k === "idempotencyKey" && typeof v === "string" ? "<idempotency-key>" : v,
+  ) as unknown[][];
 }
 
 /** Ends one language run: unmount and reset storage the screen remembers. */

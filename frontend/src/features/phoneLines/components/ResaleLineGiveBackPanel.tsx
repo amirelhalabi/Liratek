@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DecimalInput, useApi, type CarrierLineEntity } from "@liratek/ui";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import {
   planLineGiveBack,
@@ -48,6 +49,10 @@ export function ResaleLineGiveBackPanel({
 }) {
   const api = useApi();
   const apiRef = useRef(api);
+  // LIRA-401: one key per entry, renewed after it is saved, so a double tap
+  // or a retry books it once.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
   apiRef.current = api;
   const { sellRate } = useSellRate();
   const { t } = useTranslation("phoneLines");
@@ -58,7 +63,9 @@ export function ResaleLineGiveBackPanel({
   const [shopLines, setShopLines] = useState<CarrierLineEntity[]>([]);
   const [shopLineId, setShopLineId] = useState<number | null>(null);
   const [kept, setKept] = useState("");
-  const [sellPriceLbp, setSellPriceLbp] = useState(DEFAULT_CREDIT_SELL_PRICE_LBP);
+  const [sellPriceLbp, setSellPriceLbp] = useState(
+    DEFAULT_CREDIT_SELL_PRICE_LBP,
+  );
   const [costRateLbp, setCostRateLbp] = useState(DEFAULT_CREDIT_COST_RATE_LBP);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -84,10 +91,12 @@ export function ResaleLineGiveBackPanel({
           ),
         );
         setSellPriceLbp(
-          Number(map.get("alfa_credit_sell_rate_lbp")) || DEFAULT_CREDIT_SELL_PRICE_LBP,
+          Number(map.get("alfa_credit_sell_rate_lbp")) ||
+            DEFAULT_CREDIT_SELL_PRICE_LBP,
         );
         setCostRateLbp(
-          Number(map.get("alfa_credit_cost_lbp")) || DEFAULT_CREDIT_COST_RATE_LBP,
+          Number(map.get("alfa_credit_cost_lbp")) ||
+            DEFAULT_CREDIT_COST_RATE_LBP,
         );
       } catch (err) {
         logger.error("Failed to load give-back sources", err);
@@ -133,11 +142,14 @@ export function ResaleLineGiveBackPanel({
     };
     setSaving(true);
     try {
-      const res = await apiRef.current.giveBackResaleLineCredit(payload);
+      const res = await apiRef.current.giveBackResaleLineCredit(payload, {
+        idempotencyKey,
+      });
       if (!res.success) {
         setError(res.error || t("giveBack.failed"));
         return;
       }
+      resetIdempotencyKey();
       onDone(res.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("giveBack.failed"));
@@ -149,7 +161,9 @@ export function ResaleLineGiveBackPanel({
   const inputClass =
     "w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm";
 
-  const newPrice = plan?.ok ? round2(line.selling_price_usd - plan.priceDropUsd) : 0;
+  const newPrice = plan?.ok
+    ? round2(line.selling_price_usd - plan.priceDropUsd)
+    : 0;
   const newCost = plan?.ok ? round2(line.cost_price_usd - plan.costDropUsd) : 0;
 
   return (
@@ -159,7 +173,10 @@ export function ResaleLineGiveBackPanel({
     >
       <div>
         <h2 className="text-white font-medium">
-          {t("giveBack.title", { number: line.phone_number, carrier: carrierLabel })}
+          {t("giveBack.title", {
+            number: line.phone_number,
+            carrier: carrierLabel,
+          })}
         </h2>
         <p className="text-xs text-slate-400">{t("giveBack.intro")}</p>
         <p className="text-xs text-slate-300 mt-1">
@@ -169,7 +186,10 @@ export function ResaleLineGiveBackPanel({
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
-          <label htmlFor="gb-kept" className="text-xs text-slate-400 block mb-1">
+          <label
+            htmlFor="gb-kept"
+            className="text-xs text-slate-400 block mb-1"
+          >
             {t("giveBack.kept")}
           </label>
           <input
@@ -182,7 +202,10 @@ export function ResaleLineGiveBackPanel({
           />
         </div>
         <div>
-          <label htmlFor="gb-shop-line" className="text-xs text-slate-400 block mb-1">
+          <label
+            htmlFor="gb-shop-line"
+            className="text-xs text-slate-400 block mb-1"
+          >
             {t("giveBack.toShopLine")}
           </label>
           <select
@@ -192,7 +215,9 @@ export function ResaleLineGiveBackPanel({
             className={inputClass}
           >
             {shopLines.length === 0 && (
-              <option value="">{t("recharge.noShopLine", { carrier: carrierLabel })}</option>
+              <option value="">
+                {t("recharge.noShopLine", { carrier: carrierLabel })}
+              </option>
             )}
             {shopLines.map((l) => (
               <option key={l.id} value={l.id}>
@@ -203,7 +228,10 @@ export function ResaleLineGiveBackPanel({
           </select>
         </div>
         <div>
-          <label htmlFor="gb-sell-price" className="text-xs text-slate-400 block mb-1">
+          <label
+            htmlFor="gb-sell-price"
+            className="text-xs text-slate-400 block mb-1"
+          >
             {t("giveBack.sellPrice")}
           </label>
           <DecimalInput
@@ -216,7 +244,10 @@ export function ResaleLineGiveBackPanel({
         </div>
       </div>
 
-      <div data-testid="give-back-preview" className="text-sm text-slate-300 space-y-0.5">
+      <div
+        data-testid="give-back-preview"
+        className="text-sm text-slate-300 space-y-0.5"
+      >
         {plan === null ? null : plan.ok ? (
           <>
             <p>
@@ -236,7 +267,9 @@ export function ResaleLineGiveBackPanel({
             </p>
             {newPrice < newCost && (
               <p className="text-red-400">
-                {t("giveBack.previewLoss", { amount: money(round2(newCost - newPrice)) })}
+                {t("giveBack.previewLoss", {
+                  amount: money(round2(newCost - newPrice)),
+                })}
               </p>
             )}
           </>
@@ -246,7 +279,9 @@ export function ResaleLineGiveBackPanel({
       </div>
 
       {error && (
-        <div className="text-red-400 text-sm bg-red-900/20 px-3 py-1.5 rounded">{error}</div>
+        <div className="text-red-400 text-sm bg-red-900/20 px-3 py-1.5 rounded">
+          {error}
+        </div>
       )}
 
       <div className="flex gap-2">

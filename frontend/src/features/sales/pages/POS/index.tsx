@@ -23,6 +23,7 @@ import { useCategorySerialLabels } from "@/features/sales/hooks/useCategoryWarra
 import type { Product, CartItem, SaleRequest } from "@liratek/ui";
 import { useSellRate } from "@/hooks/useSellRate";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { ConfirmModal } from "@liratek/ui";
@@ -73,6 +74,12 @@ export default function POS() {
     hide: hideCompletedSale,
   } = useCompletedSaleStrip(cartItems.length);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  // LIRA-401: one key per checkout open, renewed after each completed sale,
+  // so a double tap or a retry on "Complete sale" books the sale once.
+  // Drafts never send one: a draft is re-saved under the same id many times,
+  // and a replayed first reply would silently drop every later save.
+  const { key: saleIdempotencyKey, reset: resetSaleIdempotencyKey } =
+    useIdempotencyKeyWithReset(isCheckoutOpen);
 
   // Sale detail modal state
   const [selectedSaleId, setSelectedSaleId] = useState<number | null>(null);
@@ -719,9 +726,12 @@ export default function POS() {
         items: toSaleItems(cartItems),
       };
 
-      const result = await api.processSale(saleRequest);
+      const result = await api.processSale(saleRequest, {
+        idempotencyKey: saleIdempotencyKey,
+      });
 
       if (result.success) {
+        resetSaleIdempotencyKey();
         // Link to active session if exists
         if (activeSession && result.id) {
           try {

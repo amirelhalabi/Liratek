@@ -31,6 +31,7 @@ import {
   type DataTableColumn,
 } from "@liratek/ui";
 import logger from "@/utils/logger";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import {
   billsCommissionModeLine,
@@ -339,6 +340,24 @@ export default function TransactionsViewer({
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const api = useApi();
+  // LIRA-401 — one-time ticket for this page's reversal actions (web). Each
+  // action suffixes the row it targets, so a lost success reply on one row
+  // can never be replayed onto another; reset after every success.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
+  const actionOpts = useCallback(
+    (target: string | number) =>
+      idempotencyKey
+        ? {
+            // Server key pattern is /^[A-Za-z0-9-]{8,128}$/ — a checkout
+            // group id is a free string, so keep only the allowed chars.
+            idempotencyKey: `${idempotencyKey}-${String(target)
+              .replace(/[^A-Za-z0-9-]/g, "")
+              .slice(0, 60)}`,
+          }
+        : {},
+    [idempotencyKey],
+  );
   // Read `api` through a ref (rule 25) so `handlePrintReceipt` below keeps a
   // STABLE identity across renders — same hazard/pattern as
   // FeatureFlagContext.tsx: `ApiProvider` happens to pass a module-level
@@ -472,14 +491,16 @@ export default function TransactionsViewer({
     async (row: TransactionRow) => {
       if (!confirm(t("confirm.undoRefund"))) return;
       try {
-        const res = await undoItemRefund(row.id);
-        if (res.success) load();
-        else alert(describeActionFailure(res.error, "undoRefund", t));
+        const res = await undoItemRefund(row.id, actionOpts(row.id));
+        if (res.success) {
+          resetIdempotencyKey();
+          load();
+        } else alert(describeActionFailure(res.error, "undoRefund", t));
       } catch (err) {
         alert(describeActionFailure(err, "undoRefund", t));
       }
     },
-    [load, t],
+    [load, t, actionOpts, resetIdempotencyKey],
   );
 
   const doRefund = useCallback(
@@ -494,37 +515,27 @@ export default function TransactionsViewer({
       try {
         // The kept/added-change arguments ride only when present, so a
         // refund without them keeps the exact pre-existing call shape.
-        const res =
-          addedChange !== undefined
-            ? await refundTransaction(
-                id,
-                refundLegs,
-                unitExtras,
-                exchangeRate,
-                keptChange,
-                addedChange,
-              )
-            : keptChange !== undefined
-              ? await refundTransaction(
-                  id,
-                  refundLegs,
-                  unitExtras,
-                  exchangeRate,
-                  keptChange,
-                )
-              : await refundTransaction(
-                  id,
-                  refundLegs,
-                  unitExtras,
-                  exchangeRate,
-                );
-        if (res.success) load();
-        else alert(describeActionFailure(res.error, "refundTransaction", t));
+        // LIRA-401: every positional argument is passed so the one-time
+        // ticket can ride last; the adapter drops undefined keptChange /
+        // addedChange from the REST body exactly as before.
+        const res = await refundTransaction(
+          id,
+          refundLegs,
+          unitExtras,
+          exchangeRate,
+          keptChange,
+          addedChange,
+          actionOpts(id),
+        );
+        if (res.success) {
+          resetIdempotencyKey();
+          load();
+        } else alert(describeActionFailure(res.error, "refundTransaction", t));
       } catch (err) {
         alert(describeActionFailure(err, "refundTransaction", t));
       }
     },
-    [load, t],
+    [load, t, actionOpts, resetIdempotencyKey],
   );
 
   // LIRA-078: the modal that lets the operator choose the refund's return
@@ -718,14 +729,16 @@ export default function TransactionsViewer({
         : t("confirm.voidCheckoutMulti");
       if (!confirm(question)) return;
       try {
-        const res = await voidCheckoutGroup(groupId);
-        if (res.success) load();
-        else alert(describeActionFailure(res.error, "voidCheckout", t));
+        const res = await voidCheckoutGroup(groupId, actionOpts(groupId));
+        if (res.success) {
+          resetIdempotencyKey();
+          load();
+        } else alert(describeActionFailure(res.error, "voidCheckout", t));
       } catch (err) {
         alert(describeActionFailure(err, "voidCheckout", t));
       }
     },
-    [load, t],
+    [load, t, actionOpts, resetIdempotencyKey],
   );
 
   /**
@@ -741,14 +754,16 @@ export default function TransactionsViewer({
     async (sessionId: number) => {
       if (!confirm(t("confirm.voidBasket", { id: sessionId }))) return;
       try {
-        const res = await voidSessionBasket(sessionId);
-        if (res.success) load();
-        else alert(describeActionFailure(res.error, "voidBasket", t));
+        const res = await voidSessionBasket(sessionId, actionOpts(sessionId));
+        if (res.success) {
+          resetIdempotencyKey();
+          load();
+        } else alert(describeActionFailure(res.error, "voidBasket", t));
       } catch (err) {
         alert(describeActionFailure(err, "voidBasket", t));
       }
     },
-    [load, t],
+    [load, t, actionOpts, resetIdempotencyKey],
   );
 
   /** Same shape as {@link handleVoidSessionBasket} (rule 14) but keeps
@@ -757,14 +772,16 @@ export default function TransactionsViewer({
     async (sessionId: number) => {
       if (!confirm(t("confirm.refundBasket", { id: sessionId }))) return;
       try {
-        const res = await refundSessionBasket(sessionId);
-        if (res.success) load();
-        else alert(describeActionFailure(res.error, "refundBasket", t));
+        const res = await refundSessionBasket(sessionId, actionOpts(sessionId));
+        if (res.success) {
+          resetIdempotencyKey();
+          load();
+        } else alert(describeActionFailure(res.error, "refundBasket", t));
       } catch (err) {
         alert(describeActionFailure(err, "refundBasket", t));
       }
     },
-    [load, t],
+    [load, t, actionOpts, resetIdempotencyKey],
   );
 
   // LIRA-232 (SESSION_ITEM_REFUND_PLAN.md §4) — refund ONE sold-item session

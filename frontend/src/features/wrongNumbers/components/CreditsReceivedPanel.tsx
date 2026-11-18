@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useApi, type CarrierLineEntity } from "@liratek/ui";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import type {
   WrongNumberCardRow,
@@ -40,6 +41,10 @@ export function CreditsReceivedPanel({
 }) {
   const api = useApi();
   const apiRef = useRef(api);
+  // LIRA-401: one key per entry, renewed after it is saved, so a double tap
+  // or a retry on Save books it once.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
   apiRef.current = api;
   const { t } = useTranslation("wrongNumbers");
 
@@ -100,17 +105,18 @@ export function CreditsReceivedPanel({
     };
     setSaving(true);
     try {
-      const res = await apiRef.current.recordWrongNumberCredits(payload);
+      const res = await apiRef.current.recordWrongNumberCredits(payload, {
+        idempotencyKey,
+      });
       if (!res.success) {
         setError(res.error || t("credits.saveFailed"));
         return;
       }
+      resetIdempotencyKey();
       setCredits("");
       onDone();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : t("credits.saveFailed"),
-      );
+      setError(err instanceof Error ? err.message : t("credits.saveFailed"));
     } finally {
       setSaving(false);
     }

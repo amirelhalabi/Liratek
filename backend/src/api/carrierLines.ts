@@ -11,6 +11,7 @@ import {
 import type { RecordCarrierLineUsageInput } from "@liratek/core";
 import { validateRequest } from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
+import { sendIdempotent } from "../middleware/idempotency.js";
 import { logger } from "../server.js";
 
 const router = express.Router();
@@ -192,28 +193,33 @@ router.post(
       const data = req.body as RecordCarrierLineUsageInput;
       const service = getCarrierLineService();
       // Actor comes from the verified JWT ONLY — never from the body.
-      const result = service.recordUsage(data, req.user!.userId);
-      if (result.success) {
-        // Mirrors carrierLineHandlers.ts's carrier-lines:record-usage audit.
-        auditRest(req, {
-          action: "update",
-          entity_type: "carrier_line",
-          entity_id: String(data.carrierLineId),
-          summary: `Recorded $${result.data?.creditsUsed ?? 0} usage on carrier line #${data.carrierLineId}`,
-          metadata: {
-            expense_id: result.data?.expenseId,
-            transaction_id: result.data?.transactionId,
-            credits_used: result.data?.creditsUsed,
-            new_credits: result.data?.newCredits,
-          },
-        });
-      }
       // HTTP 200 even on a business rejection (line not found/archived, stale
       // `expectedCurrentCredits`, non-positive delta) — rule 19c: the frontend
       // adapter branches on `result.success`, and `requestJson` THROWS on any
       // non-2xx, which would swallow the envelope. The 400-on-failure siblings
       // below predate that contract; do not copy them here.
-      res.json(result);
+      sendIdempotent(
+        req,
+        res,
+        () => service.recordUsage(data, req.user!.userId),
+        {
+          onBooked: (result) => {
+            // Mirrors carrierLineHandlers.ts's carrier-lines:record-usage audit.
+            auditRest(req, {
+              action: "update",
+              entity_type: "carrier_line",
+              entity_id: String(data.carrierLineId),
+              summary: `Recorded $${result.data?.creditsUsed ?? 0} usage on carrier line #${data.carrierLineId}`,
+              metadata: {
+                expense_id: result.data?.expenseId,
+                transaction_id: result.data?.transactionId,
+                credits_used: result.data?.creditsUsed,
+                new_credits: result.data?.newCredits,
+              },
+            });
+          },
+        },
+      );
     } catch (error) {
       logger.error({ error }, "Record carrier line usage error");
       res.status(500).json({ success: false, error: "Failed to record usage" });
@@ -229,16 +235,22 @@ router.post(
   (req, res): void => {
     try {
       const service = getCarrierLineService();
-      const result = service.create(req.body, req.user!.userId);
-      if (result.success) {
-        // Mirrors carrierLineHandlers.ts's carrier-lines:create audit.
-        auditRest(req, {
-          action: "create",
-          entity_type: "carrier_line",
-          summary: `Added ${req.body.carrier} carrier line ${req.body.phone_number}`,
-        });
-      }
-      res.status(result.success ? 201 : 200).json(result);
+      sendIdempotent(
+        req,
+        res,
+        () => service.create(req.body, req.user!.userId),
+        {
+          onBooked: () => {
+            // Mirrors carrierLineHandlers.ts's carrier-lines:create audit.
+            auditRest(req, {
+              action: "create",
+              entity_type: "carrier_line",
+              summary: `Added ${req.body.carrier} carrier line ${req.body.phone_number}`,
+            });
+          },
+          status: (result) => (result.success ? 201 : 200),
+        },
+      );
     } catch (error) {
       logger.error({ error }, "Create carrier line error");
       res.status(500).json({ success: false, error: "Failed to create" });

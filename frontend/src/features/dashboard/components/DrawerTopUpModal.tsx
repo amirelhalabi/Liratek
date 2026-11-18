@@ -12,6 +12,7 @@ import {
 } from "@liratek/core";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { appEvents, DecimalInput, Select, useApi } from "@liratek/ui";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { useShopBase } from "@/hooks/useShopBase";
 import { useExchangeCurrencyList } from "@/hooks/useExchangeCurrencyList";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
@@ -99,6 +100,10 @@ export function DrawerTopUpModal({
   onSuccess,
 }: DrawerTopUpModalProps) {
   const api = useApi();
+  // LIRA-401: one key per open of this modal, renewed after each success, so
+  // a double tap or a retry on Confirm moves the money once.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(isOpen);
   const { t } = useTranslation("dashboard");
   const { t: tc } = useTranslation("common");
   useModalFocusFix(isOpen);
@@ -371,29 +376,39 @@ export function DrawerTopUpModal({
         // non-reversible from-drawer top-up (see the routing decision
         // comment above `primaryCashDrawerNames`).
         result = primaryCashDrawerNames.includes(selectedDrawer)
-          ? await api.transferBetweenDrawers({
-              fromDrawer: selectedDrawer,
-              toDrawer: "General",
-              amount_usd: usd,
-              amount_lbp: lbp,
-              ...(trimmedNotes ? { notes: trimmedNotes } : {}),
-            })
-          : await api.drawerTopUp.createFromDrawer({
-              amount_usd: usd,
-              amount_lbp: lbp,
-              source_drawer: selectedDrawer,
-              ...(trimmedNotes ? { notes: trimmedNotes } : {}),
-            });
+          ? await api.transferBetweenDrawers(
+              {
+                fromDrawer: selectedDrawer,
+                toDrawer: "General",
+                amount_usd: usd,
+                amount_lbp: lbp,
+                ...(trimmedNotes ? { notes: trimmedNotes } : {}),
+              },
+              { idempotencyKey },
+            )
+          : await api.drawerTopUp.createFromDrawer(
+              {
+                amount_usd: usd,
+                amount_lbp: lbp,
+                source_drawer: selectedDrawer,
+                ...(trimmedNotes ? { notes: trimmedNotes } : {}),
+              },
+              { idempotencyKey },
+            );
       } else {
-        result = await api.drawerTopUp.create({
-          amount_usd: usd,
-          amount_lbp: lbp,
-          ...(trimmedNotes ? { notes: trimmedNotes } : {}),
-          ...(extraLegs.length > 0 ? { extra_currencies: extraLegs } : {}),
-        });
+        result = await api.drawerTopUp.create(
+          {
+            amount_usd: usd,
+            amount_lbp: lbp,
+            ...(trimmedNotes ? { notes: trimmedNotes } : {}),
+            ...(extraLegs.length > 0 ? { extra_currencies: extraLegs } : {}),
+          },
+          { idempotencyKey },
+        );
       }
 
       if (result.success) {
+        resetIdempotencyKey();
         appEvents.emit("notification:show", t("topup.success"), "success");
         setAmountUsd("");
         setAmountLbp("");
@@ -429,16 +444,20 @@ export function DrawerTopUpModal({
       // Primary Cash Drawer plan §8.6 — the generalized, reversible
       // General <-> PCD cash transfer that replaces the retired
       // one-directional "fund the system float" call.
-      const result = await api.transferBetweenDrawers({
-        fromDrawer,
-        toDrawer,
-        amount_usd: usd,
-        amount_lbp: lbp,
-        ...(trimmedNotes ? { notes: trimmedNotes } : {}),
-        ...(transferTime ? { transaction_time: transferTime } : {}),
-      });
+      const result = await api.transferBetweenDrawers(
+        {
+          fromDrawer,
+          toDrawer,
+          amount_usd: usd,
+          amount_lbp: lbp,
+          ...(trimmedNotes ? { notes: trimmedNotes } : {}),
+          ...(transferTime ? { transaction_time: transferTime } : {}),
+        },
+        { idempotencyKey },
+      );
 
       if (result.success) {
+        resetIdempotencyKey();
         const parts = [
           usd > 0 ? formatDrawerAmount(usd, "USD") : null,
           lbp > 0 ? formatDrawerAmount(lbp, "LBP") : null,

@@ -11,7 +11,11 @@
  *   - check, booking and stored reply happen in one transaction.
  */
 
-import { runWithTenant, runWithoutTenant } from "../db/tenantContext.js";
+import {
+  getCurrentTenantId,
+  runWithTenant,
+  runWithoutTenant,
+} from "../db/tenantContext.js";
 import { listTenantDatabaseIds } from "../db/tenantDatabaseIds.js";
 import { authLogger } from "../utils/logger.js";
 import {
@@ -37,6 +41,9 @@ export class IdempotencyService {
     IdempotencyRepository,
     "findResponse" | "saveResponse" | "atomically" | "deleteOlderThan"
   >;
+
+  /** LIRA-401 — bookings of `runAsync` still running, by shop+user+route+key. */
+  private readonly inFlight = new Map<string, Promise<unknown>>();
 
   constructor(repo?: IdempotencyService["repo"]) {
     this.repo = repo ?? getIdempotencyRepository();
@@ -66,6 +73,54 @@ export class IdempotencyService {
       }
       return { replayed: false, result };
     });
+  }
+
+  /**
+   * LIRA-401 — `run` for a booking that awaits (session / recharge-basket
+   * checkout, session close and link). A SQLite transaction cannot stay open
+   * across an `await`, so this is NOT one transaction: the check, the booking
+   * and the stored reply are three steps. What keeps a double tap to ONE
+   * booking is the in-process "in flight" slot: a second request with the
+   * same shop + user + route + key waits for the first to finish, then
+   * replays its stored reply (or, if the first was refused, runs fresh —
+   * refusals are never stored, same as `run`). One process is enough because
+   * the web backend runs on exactly one machine (SQLite has one writer).
+   * Throws only if `book` throws; the slot is freed either way.
+   */
+  async runAsync<T extends { success: boolean }>(
+    scope: IdempotencyScope,
+    now: string,
+    book: () => Promise<T>,
+  ): Promise<IdempotentOutcome<T>> {
+    const slot = JSON.stringify([
+      getCurrentTenantId(),
+      scope.userId,
+      scope.route,
+      scope.key,
+    ]);
+    for (;;) {
+      const pending = this.inFlight.get(slot);
+      if (!pending) break;
+      // Wait for the first tap; its outcome (stored or not) is read below.
+      await pending.catch(() => undefined);
+    }
+    const stored = this.repo.findResponse(scope);
+    if (stored !== null) {
+      return { replayed: true, result: JSON.parse(stored) as T };
+    }
+    const booking = (async (): Promise<IdempotentOutcome<T>> => {
+      const result = await book();
+      if (result.success) {
+        this.repo.saveResponse(scope, JSON.stringify(result), now);
+      }
+      return { replayed: false, result };
+    })();
+    this.inFlight.set(slot, booking);
+    try {
+      return await booking;
+    } finally {
+      if (this.inFlight.get(slot) === booking) this.inFlight.delete(slot);
+    }
   }
 
   /** Deletes stored replies older than 24 h in the CURRENT database. */

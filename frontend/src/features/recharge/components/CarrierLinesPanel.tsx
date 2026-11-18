@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Check, ChevronDown, Phone, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useApi, appEvents } from "@liratek/ui";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { formatNumber } from "@liratek/ui/i18n/format";
 import { sanitizeDecimal } from "@liratek/ui/utils/number";
 import type {
@@ -95,6 +96,10 @@ export function CarrierLinesPanel({
 }: CarrierLinesPanelProps) {
   const { t } = useTranslation(["recharge", "common"]);
   const api = useApi();
+  // LIRA-401: one key per new line / usage entry, renewed after each
+  // success, so a double tap or a retry books it once.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
   // m6 fix (rule 25): `useApi()` is only stable in production because
   // `ApiProvider` happens to hand out a module-level singleton — a test's
   // `jest.mock("@liratek/ui", () => ({ useApi: () => ({...}) }))` returns a
@@ -310,14 +315,18 @@ export function CarrierLinesPanel({
       // this create path does not yet set the provider drawer to
       // getCarrierCreditsSum(carrier) — see this phase's report for detail;
       // not fixed here to avoid a second, divergent write.
-      const res = await api.createCarrierLine({
-        carrier,
-        phone_number: createPhone.trim(),
-        label: createLabel.trim() || null,
-        credits: Number(createCredits) || 0,
-        validity_expires_at: resolvedDate,
-      });
+      const res = await api.createCarrierLine(
+        {
+          carrier,
+          phone_number: createPhone.trim(),
+          label: createLabel.trim() || null,
+          credits: Number(createCredits) || 0,
+          validity_expires_at: resolvedDate,
+        },
+        { idempotencyKey: idempotencyKey && `${idempotencyKey}-new` },
+      );
       if (res.success) {
+        resetIdempotencyKey();
         setShowCreateForm(false);
         await load();
       } else {
@@ -543,17 +552,21 @@ export function CarrierLinesPanel({
     setUsageError("");
     try {
       const note = usageNote.trim();
-      const res = await api.recordCarrierLineUsage({
-        carrierLineId: line.id,
-        newCredits,
-        // Optimistic-concurrency guard: the balance this form was rendered
-        // against. The server rejects if a parallel session moved the line.
-        expectedCurrentCredits: current,
-        // Omitted, never `undefined` — the workspace runs
-        // exactOptionalPropertyTypes, and an empty note is no note.
-        ...(note ? { note } : {}),
-      });
+      const res = await api.recordCarrierLineUsage(
+        {
+          carrierLineId: line.id,
+          newCredits,
+          // Optimistic-concurrency guard: the balance this form was rendered
+          // against. The server rejects if a parallel session moved the line.
+          expectedCurrentCredits: current,
+          // Omitted, never `undefined` — the workspace runs
+          // exactOptionalPropertyTypes, and an empty note is no note.
+          ...(note ? { note } : {}),
+        },
+        { idempotencyKey: idempotencyKey && `${idempotencyKey}-u${line.id}` },
+      );
       if (res.success) {
+        resetIdempotencyKey();
         const booked = res.data?.creditsUsed ?? round2(current - newCredits);
         const msg = t("lines.usageRecorded", {
           amount: booked.toFixed(2),

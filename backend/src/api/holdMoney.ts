@@ -22,6 +22,7 @@ import {
 } from "@liratek/core";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
 import { auditRest } from "../middleware/audit.js";
+import { sendIdempotent } from "../middleware/idempotency.js";
 
 const router = express.Router();
 
@@ -98,22 +99,27 @@ router.post("/", writeGate, (req, res) => {
       return;
     }
     const userId = req.user!.userId;
-    const result = getHoldMoneyService().createHold(parsed.data, userId);
-    if (result.success) {
-      // Mirrors holdMoneyHandlers.ts's hold-money:create audit.
-      auditRest(req, {
-        action: "create",
-        entity_type: "hold_money",
-        entity_id: result.id ? String(result.id) : undefined,
-        summary: `Held money for ${parsed.data.client_name}`,
-        metadata: {
-          client_name: parsed.data.client_name,
-          usd_amount: parsed.data.usd_amount,
-          lbp_amount: parsed.data.lbp_amount,
+    sendIdempotent(
+      req,
+      res,
+      () => getHoldMoneyService().createHold(parsed.data, userId),
+      {
+        onBooked: (result) => {
+          // Mirrors holdMoneyHandlers.ts's hold-money:create audit.
+          auditRest(req, {
+            action: "create",
+            entity_type: "hold_money",
+            entity_id: result.id ? String(result.id) : undefined,
+            summary: `Held money for ${parsed.data.client_name}`,
+            metadata: {
+              client_name: parsed.data.client_name,
+              usd_amount: parsed.data.usd_amount,
+              lbp_amount: parsed.data.lbp_amount,
+            },
+          });
         },
-      });
-    }
-    res.json(result);
+      },
+    );
   } catch (err) {
     res.json({ success: false, error: errMessage(err) });
   }
@@ -149,24 +155,26 @@ router.post("/:id/collect", writeGate, (req, res) => {
       res.json({ success: false, error: parsed.error });
       return;
     }
-    const result = getHoldMoneyService().collectHold(
-      parsed.data,
-      req.user!.userId,
-    );
-    if (result.success) {
-      // Mirrors holdMoneyHandlers.ts's hold-money:collect audit.
-      auditRest(req, {
-        action: "collect",
-        entity_type: "hold_money",
-        entity_id: String(id),
-        summary: `Collected hold #${id}`,
-        metadata: {
-          usd_amount: parsed.data.usd_amount,
-          lbp_amount: parsed.data.lbp_amount,
+    sendIdempotent(
+      req,
+      res,
+      () => getHoldMoneyService().collectHold(parsed.data, req.user!.userId),
+      {
+        onBooked: () => {
+          // Mirrors holdMoneyHandlers.ts's hold-money:collect audit.
+          auditRest(req, {
+            action: "collect",
+            entity_type: "hold_money",
+            entity_id: String(id),
+            summary: `Collected hold #${id}`,
+            metadata: {
+              usd_amount: parsed.data.usd_amount,
+              lbp_amount: parsed.data.lbp_amount,
+            },
+          });
         },
-      });
-    }
-    res.json(result);
+      },
+    );
   } catch (err) {
     res.json({ success: false, error: errMessage(err) });
   }
@@ -182,19 +190,25 @@ router.post("/pickups/:pickupId/void", writeGate, (req, res) => {
       res.json({ success: false, error: parsed.error });
       return;
     }
-    const result = getHoldMoneyService().voidPickup(
-      parsed.data.pickup_id,
-      req.user!.userId,
+    sendIdempotent(
+      req,
+      res,
+      () =>
+        getHoldMoneyService().voidPickup(
+          parsed.data.pickup_id,
+          req.user!.userId,
+        ),
+      {
+        onBooked: () => {
+          auditRest(req, {
+            action: "void",
+            entity_type: "hold_money_pickup",
+            entity_id: String(pickupId),
+            summary: `Voided hold pickup #${pickupId}`,
+          });
+        },
+      },
     );
-    if (result.success) {
-      auditRest(req, {
-        action: "void",
-        entity_type: "hold_money_pickup",
-        entity_id: String(pickupId),
-        summary: `Voided hold pickup #${pickupId}`,
-      });
-    }
-    res.json(result);
   } catch (err) {
     res.json({ success: false, error: errMessage(err) });
   }

@@ -367,8 +367,6 @@ test("lira-web-065 OMT settle by amount: USD only while LBP is owed, a previewed
 
   // ONE box for both currencies; the header keeps each in its own currency.
   const box = sheet.getByTestId("supplier-account-settle-section-usd-lbp");
-  const usd = box;
-  const lbp = box;
   await expect(box.getByTestId("supplier-account-settle-owed-usd")).toHaveText(
     "$274.00",
   );

@@ -4,6 +4,7 @@ import { translateServerError } from "@liratek/ui/i18n/serverMessage";
 import { X, MinusCircle, Plus, Trash2 } from "lucide-react";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { appEvents, DecimalInput, useApi } from "@liratek/ui";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 
 interface DrawerCashoutModalProps {
@@ -23,6 +24,10 @@ export function DrawerCashoutModal({
   onSuccess,
 }: DrawerCashoutModalProps) {
   const api = useApi();
+  // LIRA-401: one key per open of this modal, renewed after each success, so
+  // a double tap or a retry on Confirm moves the money once.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(isOpen);
   const { t } = useTranslation("dashboard");
   const { t: tc } = useTranslation("common");
   useModalFocusFix(isOpen);
@@ -103,19 +108,19 @@ export function DrawerCashoutModal({
 
     setIsSubmitting(true);
     try {
-      const result = await api.drawerCashout.create({
-        amount_usd: usd,
-        amount_lbp: lbp,
-        ...(extra_currencies.length > 0 ? { extra_currencies } : {}),
-        notes: trimmedNotes,
-      });
+      const result = await api.drawerCashout.create(
+        {
+          amount_usd: usd,
+          amount_lbp: lbp,
+          ...(extra_currencies.length > 0 ? { extra_currencies } : {}),
+          notes: trimmedNotes,
+        },
+        { idempotencyKey },
+      );
 
       if (result.success) {
-        appEvents.emit(
-          "notification:show",
-          t("cashout.success"),
-          "success",
-        );
+        resetIdempotencyKey();
+        appEvents.emit("notification:show", t("cashout.success"), "success");
         resetForm();
         onSuccess();
       } else {
@@ -216,7 +221,9 @@ export function DrawerCashoutModal({
                       type="button"
                       onClick={() => handleRemoveExtra(index)}
                       className="p-2 rounded-lg text-slate-500 hover:text-white hover:bg-slate-700 transition-colors"
-                      aria-label={t("cashout.removeCurrency", { code: row.currency_code })}
+                      aria-label={t("cashout.removeCurrency", {
+                        code: row.currency_code,
+                      })}
                     >
                       <Trash2 size={16} />
                     </button>

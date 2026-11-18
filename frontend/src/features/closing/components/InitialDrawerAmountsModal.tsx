@@ -7,6 +7,7 @@ import { useModules } from "@/contexts/ModuleContext";
 import { useShopBase } from "@/hooks/useShopBase";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { useIdempotencyKey } from "@/shared/hooks/useIdempotencyKey";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import logger from "@/utils/logger";
 import { DRAWER_ORDER } from "../config/drawers";
@@ -41,6 +42,8 @@ export function InitialDrawerAmountsModal({
   const { t: tc } = useTranslation("common");
   const drawerText = useDrawerText();
   const api = useApi();
+  // LIRA-401 — mounted only while open: one key per open.
+  const idempotencyKey = useIdempotencyKey(true);
   const { isModuleEnabled } = useModules();
   const { baseSystem, loading: baseSystemLoading } = useShopBase();
   const { activeCurrencies, getDecimals } = useCurrencyContext();
@@ -208,12 +211,15 @@ export function InitialDrawerAmountsModal({
 
     // No user_id: the server books the checkpoint under the signed-in user
     // on both transports (LIRA-297).
-    const result = await api.createCheckpoint({
-      drawer_name: "AGGREGATED",
-      // i18n-exempt: stored text sent to server
-      notes: "Initial drawer amounts setup",
-      amounts: amountRows,
-    });
+    const result = await api.createCheckpoint(
+      {
+        drawer_name: "AGGREGATED",
+        // i18n-exempt: stored text sent to server
+        notes: "Initial drawer amounts setup",
+        amounts: amountRows,
+      },
+      { idempotencyKey },
+    );
 
     if (!result.success) {
       setError(translateServerError(result, t, t("initial.saveFailed")));

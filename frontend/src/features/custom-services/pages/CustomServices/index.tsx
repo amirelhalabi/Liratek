@@ -30,12 +30,7 @@ import {
   Wallet,
   Shield,
 } from "lucide-react";
-import {
-  appEvents,
-  PageHeader,
-  useApi,
-  DecimalInput,
-} from "@liratek/ui";
+import { appEvents, PageHeader, useApi, DecimalInput } from "@liratek/ui";
 import {
   INSURANCE_TYPES,
   type FulfillmentStatus,
@@ -46,6 +41,7 @@ import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
 import { useCustomServices } from "../../hooks/useCustomServices";
 import logger from "@/utils/logger";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import {
   MultiPaymentInput,
@@ -147,6 +143,10 @@ interface ServicePreset {
 
 export default function CustomServices() {
   const api = useApi();
+  // LIRA-401 — one-time ticket for the always-visible form (web): a double
+  // tap or a retry books once; a new key after every successful save.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
   const { t } = useTranslation("customServices");
   const { methods } = usePaymentMethods();
   const { activeSession, addToCart: addToSessionCart } = useSession();
@@ -779,14 +779,14 @@ export default function CustomServices() {
         return;
       }
 
-      const result = await api.addCustomService(payload);
+      const result = await api.addCustomService(
+        payload,
+        idempotencyKey ? { idempotencyKey } : {},
+      );
 
       if (result.success) {
-        appEvents.emit(
-          "notification:show",
-          t("msg.recorded"),
-          "success",
-        );
+        resetIdempotencyKey();
+        appEvents.emit("notification:show", t("msg.recorded"), "success");
         void autoPrintReceipt({
           type: "CUSTOM_SERVICE",
           sourceTable: "custom_services",
@@ -1210,7 +1210,9 @@ export default function CustomServices() {
                 <div className="p-4 rounded-xl bg-teal-400/5 border border-teal-400/20 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="block text-xs font-medium text-teal-400 uppercase tracking-wider">
-                      {isPayout ? t("form.arrivedPaidOut") : t("form.costPrice")}
+                      {isPayout
+                        ? t("form.arrivedPaidOut")
+                        : t("form.costPrice")}
                     </span>
                     {/* Currency toggle */}
                     <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
@@ -1556,7 +1558,9 @@ export default function CustomServices() {
                         {" "}
                         {t("notice.forFullBefore")}{" "}
                         <span className="font-bold">
-                          <Ltr>{formatServiceAmount(priceUsdVal, priceLbpVal)}</Ltr>
+                          <Ltr>
+                            {formatServiceAmount(priceUsdVal, priceLbpVal)}
+                          </Ltr>
                         </span>{" "}
                         {t("notice.forFullAfter")}
                       </>
@@ -1566,7 +1570,9 @@ export default function CustomServices() {
                         {" "}
                         {t("notice.forCostBefore")}{" "}
                         <span className="font-bold">
-                          <Ltr>{formatServiceAmount(costUsdVal, costLbpVal)}</Ltr>
+                          <Ltr>
+                            {formatServiceAmount(costUsdVal, costLbpVal)}
+                          </Ltr>
                         </span>
                         {t("notice.forCostAfter")}
                       </>
@@ -1599,7 +1605,9 @@ export default function CustomServices() {
                         {" "}
                         {t("notice.freeViaPartner")}{" "}
                         <span className="font-bold">
-                          <Ltr>{formatServiceAmount(costUsdVal, costLbpVal)}</Ltr>
+                          <Ltr>
+                            {formatServiceAmount(costUsdVal, costLbpVal)}
+                          </Ltr>
                         </span>
                       </>
                     )}
@@ -1613,11 +1621,15 @@ export default function CustomServices() {
                       >
                         {t("notice.viaBefore")}{" "}
                         <span className="font-bold">
-                          <Ltr>{formatServiceAmount(priceUsdVal, priceLbpVal)}</Ltr>
+                          <Ltr>
+                            {formatServiceAmount(priceUsdVal, priceLbpVal)}
+                          </Ltr>
                         </span>{" "}
                         {t("notice.viaMiddle")}{" "}
                         <span className="font-bold">
-                          <Ltr>{formatServiceAmount(costUsdVal, costLbpVal)}</Ltr>
+                          <Ltr>
+                            {formatServiceAmount(costUsdVal, costLbpVal)}
+                          </Ltr>
                         </span>
                         {t("notice.viaAfter")}
                       </ForPartnerNotice>

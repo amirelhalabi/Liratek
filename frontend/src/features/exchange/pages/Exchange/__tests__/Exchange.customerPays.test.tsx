@@ -427,7 +427,11 @@ async function openSheet() {
 
 function lastPayload() {
   expect(mockAddExchangeTransaction).toHaveBeenCalledTimes(1);
-  expect(mockAddExchangeTransaction.mock.calls[0]).toHaveLength(1);
+  // ONE payload (rule 22); LIRA-401 adds only the one-time ticket after it.
+  expect(mockAddExchangeTransaction.mock.calls[0]).toHaveLength(2);
+  expect(Object.keys(mockAddExchangeTransaction.mock.calls[0][1])).toEqual([
+    "idempotencyKey",
+  ]);
   return mockAddExchangeTransaction.mock.calls[0][0] as Record<string, unknown>;
 }
 

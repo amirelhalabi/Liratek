@@ -1,5 +1,19 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApi } from "@liratek/ui";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
+
+/**
+ * LIRA-401 — the one-time ticket a stock mutation sends (web). `useMutation`
+ * re-reads its `mutationFn` on every render, so this closure always sends the
+ * CURRENT key; suffixed with the product so one key never covers two
+ * products; renewed after each success.
+ */
+function useStockWriteKey() {
+  const { key, reset } = useIdempotencyKeyWithReset(true);
+  const optsFor = (productId: number) =>
+    key ? { idempotencyKey: `${key}-${productId}` } : {};
+  return { optsFor, reset };
+}
 
 /**
  * LIRA-077 — stock adjustment audit trail (per-product history + the
@@ -43,6 +57,7 @@ export function useOpenStockBatchesQuery(productId: number | null) {
 export function useAdjustStockMutation() {
   const api = useApi();
   const queryClient = useQueryClient();
+  const writeKey = useStockWriteKey();
 
   return useMutation({
     mutationFn: (payload: {
@@ -50,8 +65,9 @@ export function useAdjustStockMutation() {
       newQuantity?: number;
       delta?: number;
       reason: string;
-    }) => api.adjustStock(payload),
-    onSuccess: (_result, variables) => {
+    }) => api.adjustStock(payload, writeKey.optsFor(payload.id)),
+    onSuccess: (result, variables) => {
+      if (result?.success) writeKey.reset();
       queryClient.invalidateQueries({ queryKey: ["products"] });
       queryClient.invalidateQueries({
         queryKey: STOCK_ADJUSTMENT_KEYS.byProduct(variables.id),
@@ -75,6 +91,7 @@ export function useAdjustStockMutation() {
 export function useReceiveStockMutation() {
   const api = useApi();
   const queryClient = useQueryClient();
+  const writeKey = useStockWriteKey();
 
   return useMutation({
     mutationFn: (payload: {
@@ -87,8 +104,9 @@ export function useReceiveStockMutation() {
       // LIRA-087 (migration v189) — attach to an already-recorded open
       // supplier debt instead of booking a new one.
       attach_to_recorded_debt_id?: number | null;
-    }) => api.receiveStock(payload),
-    onSuccess: (_result, variables) => {
+    }) => api.receiveStock(payload, writeKey.optsFor(payload.product_id)),
+    onSuccess: (result, variables) => {
+      if (result?.success) writeKey.reset();
       queryClient.invalidateQueries({ queryKey: ["products"] });
       queryClient.invalidateQueries({
         queryKey: STOCK_ADJUSTMENT_KEYS.byProduct(variables.product_id),

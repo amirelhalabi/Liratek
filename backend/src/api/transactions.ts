@@ -46,6 +46,7 @@ import {
 import { validateParams } from "../middleware/validation.js";
 import { logger } from "../server.js";
 import { auditRest } from "../middleware/audit.js";
+import { sendIdempotent } from "../middleware/idempotency.js";
 
 const router = Router();
 
@@ -373,19 +374,29 @@ router.post(
       const id = v.data.transactionId;
       const userId = req.user?.userId ?? 1;
       const txnService = getTransactionService();
-      const reversalId = txnService.voidTransaction(id, userId);
-      // Reaching here means the void committed — voidTransaction throws on
-      // any business-rule failure (caught below as a 500), it never returns
-      // a { success: false } result. Mirrors transactionHandlers.ts's
-      // transactions:void audit (void/transaction).
-      auditRest(req, {
-        action: "void",
-        entity_type: "transaction",
-        entity_id: String(id),
-        summary: `Voided transaction #${id}`,
-        metadata: { reversalId },
-      });
-      res.json({ success: true, reversalId });
+      sendIdempotent(
+        req,
+        res,
+        () => ({
+          success: true as const,
+          reversalId: txnService.voidTransaction(id, userId),
+        }),
+        {
+          onBooked: ({ reversalId }) => {
+            // Reaching here means the void committed — voidTransaction throws on
+            // any business-rule failure (caught below as a 500), it never returns
+            // a { success: false } result. Mirrors transactionHandlers.ts's
+            // transactions:void audit (void/transaction).
+            auditRest(req, {
+              action: "void",
+              entity_type: "transaction",
+              entity_id: String(id),
+              summary: `Voided transaction #${id}`,
+              metadata: { reversalId },
+            });
+          },
+        },
+      );
     } catch (error) {
       logger.error({ error }, "Void transaction error");
       // Rule 19c: HTTP 200 even on failure — the adapter branches on
@@ -550,32 +561,42 @@ router.post(
       }
 
       const txnService = getTransactionService();
-      const refundId = txnService.refundTransaction(id, userId, {
-        refundLegs,
-        refundUnitExtras,
-        exchangeRate,
-        keptChange,
-        addedChange,
-        // LIRA-388: role derived server-side from userId (see the IPC handler).
-      });
-      // Mirrors transactionHandlers.ts's transactions:refund audit
-      // (refund/transaction) — reaching here means the refund committed
-      // (refundTransaction throws on any business-rule failure).
-      auditRest(req, {
-        action: "refund",
-        entity_type: "transaction",
-        entity_id: String(id),
-        summary: `Refunded transaction #${id}`,
-        metadata: {
-          refundId,
-          refundLegs,
-          refundUnitExtras,
-          exchangeRate,
-          keptChange,
-          addedChange,
+      sendIdempotent(
+        req,
+        res,
+        () => ({
+          success: true as const,
+          refundId: txnService.refundTransaction(id, userId, {
+            refundLegs,
+            refundUnitExtras,
+            exchangeRate,
+            keptChange,
+            addedChange,
+            // LIRA-388: role derived server-side from userId (see the IPC handler).
+          }),
+        }),
+        {
+          onBooked: ({ refundId }) => {
+            // Mirrors transactionHandlers.ts's transactions:refund audit
+            // (refund/transaction) — reaching here means the refund committed
+            // (refundTransaction throws on any business-rule failure).
+            auditRest(req, {
+              action: "refund",
+              entity_type: "transaction",
+              entity_id: String(id),
+              summary: `Refunded transaction #${id}`,
+              metadata: {
+                refundId,
+                refundLegs,
+                refundUnitExtras,
+                exchangeRate,
+                keptChange,
+                addedChange,
+              },
+            });
+          },
         },
-      });
-      res.json({ success: true, refundId });
+      );
     } catch (error) {
       logger.error({ error }, "Refund transaction error");
       // Rule 19c: HTTP 200 even on failure — the adapter branches on
@@ -602,22 +623,32 @@ router.post(
       const { groupId } = req.params as unknown as { groupId: string };
       const userId = req.user?.userId ?? 1;
       const txnService = getTransactionService();
-      const result = txnService.voidCheckoutGroup(groupId, userId);
-      // Mirrors transactionHandlers.ts's void-checkout-group audit
-      // (void/transaction_group) — reaching here means it committed
-      // (voidCheckoutGroup throws on any business-rule failure).
-      auditRest(req, {
-        action: "void",
-        entity_type: "transaction_group",
-        entity_id: groupId,
-        summary: `Voided checkout group ${groupId} (${result.memberCount} units)`,
-        metadata: {
-          memberCount: result.memberCount,
-          voidedTransactionIds: result.voidedTransactionIds,
-          reversalIds: result.reversalIds,
+      sendIdempotent(
+        req,
+        res,
+        () => ({
+          success: true as const,
+          ...txnService.voidCheckoutGroup(groupId, userId),
+        }),
+        {
+          onBooked: (result) => {
+            // Mirrors transactionHandlers.ts's void-checkout-group audit
+            // (void/transaction_group) — reaching here means it committed
+            // (voidCheckoutGroup throws on any business-rule failure).
+            auditRest(req, {
+              action: "void",
+              entity_type: "transaction_group",
+              entity_id: groupId,
+              summary: `Voided checkout group ${groupId} (${result.memberCount} units)`,
+              metadata: {
+                memberCount: result.memberCount,
+                voidedTransactionIds: result.voidedTransactionIds,
+                reversalIds: result.reversalIds,
+              },
+            });
+          },
         },
-      });
-      res.json({ success: true, ...result });
+      );
     } catch (error) {
       logger.error({ error }, "Void checkout group error");
       // Rule 19c: HTTP 200 even on failure — the adapter branches on
@@ -651,21 +682,31 @@ router.post(
       const sessionId = req.params.sessionId as unknown as number;
       const userId = req.user?.userId ?? 1;
       const txnService = getTransactionService();
-      const result = txnService.voidSessionBasket(sessionId, userId);
-      // Mirrors transactionHandlers.ts's void-session-basket audit
-      // (void/session_basket) — reaching here means it committed.
-      auditRest(req, {
-        action: "void",
-        entity_type: "session_basket",
-        entity_id: String(sessionId),
-        summary: `Voided session basket #${sessionId} (${result.itemCount} items)`,
-        metadata: {
-          itemCount: result.itemCount,
-          reversedTransactionIds: result.reversedTransactionIds,
-          reversalIds: result.reversalIds,
+      sendIdempotent(
+        req,
+        res,
+        () => ({
+          success: true as const,
+          ...txnService.voidSessionBasket(sessionId, userId),
+        }),
+        {
+          onBooked: (result) => {
+            // Mirrors transactionHandlers.ts's void-session-basket audit
+            // (void/session_basket) — reaching here means it committed.
+            auditRest(req, {
+              action: "void",
+              entity_type: "session_basket",
+              entity_id: String(sessionId),
+              summary: `Voided session basket #${sessionId} (${result.itemCount} items)`,
+              metadata: {
+                itemCount: result.itemCount,
+                reversedTransactionIds: result.reversedTransactionIds,
+                reversalIds: result.reversalIds,
+              },
+            });
+          },
         },
-      });
-      res.json({ success: true, ...result });
+      );
     } catch (error) {
       logger.error({ error }, "Void session basket error");
       // Rule 19c: HTTP 200 even on failure — the adapter branches on
@@ -688,19 +729,29 @@ router.post(
       const sessionId = req.params.sessionId as unknown as number;
       const userId = req.user?.userId ?? 1;
       const txnService = getTransactionService();
-      const result = txnService.refundSessionBasket(sessionId, userId);
-      auditRest(req, {
-        action: "refund",
-        entity_type: "session_basket",
-        entity_id: String(sessionId),
-        summary: `Refunded session basket #${sessionId} (${result.itemCount} items)`,
-        metadata: {
-          itemCount: result.itemCount,
-          reversedTransactionIds: result.reversedTransactionIds,
-          reversalIds: result.reversalIds,
+      sendIdempotent(
+        req,
+        res,
+        () => ({
+          success: true as const,
+          ...txnService.refundSessionBasket(sessionId, userId),
+        }),
+        {
+          onBooked: (result) => {
+            auditRest(req, {
+              action: "refund",
+              entity_type: "session_basket",
+              entity_id: String(sessionId),
+              summary: `Refunded session basket #${sessionId} (${result.itemCount} items)`,
+              metadata: {
+                itemCount: result.itemCount,
+                reversedTransactionIds: result.reversedTransactionIds,
+                reversalIds: result.reversalIds,
+              },
+            });
+          },
         },
-      });
-      res.json({ success: true, ...result });
+      );
     } catch (error) {
       logger.error({ error }, "Refund session basket error");
       // Rule 19c: HTTP 200 even on failure — the adapter branches on
@@ -756,34 +807,44 @@ router.post(
       // userId always comes from the JWT, never the client body — rule 19c.
       const userId = req.user?.userId ?? 1;
       const txnService = getTransactionService();
-      const result = txnService.refundSessionBasketItem({
-        ...parsed.data,
-        userId,
-      });
-      // Mirrors transactionHandlers.ts's transactions:refund-session-basket-
-      // item audit (refund/session_basket_item) — reaching here means the
-      // refund committed (refundSessionBasketItem throws on any
-      // business-rule failure).
-      auditRest(req, {
-        action: "refund",
-        entity_type: "session_basket_item",
-        entity_id: String(parsed.data.transactionId),
-        summary: `Refunded session #${parsed.data.sessionId} item (txn #${parsed.data.transactionId})`,
-        metadata: {
-          sessionId: parsed.data.sessionId,
-          transactionId: parsed.data.transactionId,
-          saleItemId: parsed.data.saleItemId,
-          quantity: parsed.data.quantity,
-          refundTransactionId: result.refundTransactionId,
-          itemAmountUsd: result.itemAmountUsd,
-          itemAmountLbp: result.itemAmountLbp,
-          accountReductionUsd: result.accountReductionUsd,
-          accountReductionLbp: result.accountReductionLbp,
-          remainderUsd: result.remainderUsd,
-          remainderLbp: result.remainderLbp,
+      sendIdempotent(
+        req,
+        res,
+        () => ({
+          success: true as const,
+          ...txnService.refundSessionBasketItem({
+            ...parsed.data,
+            userId,
+          }),
+        }),
+        {
+          onBooked: (result) => {
+            // Mirrors transactionHandlers.ts's transactions:refund-session-basket-
+            // item audit (refund/session_basket_item) — reaching here means the
+            // refund committed (refundSessionBasketItem throws on any
+            // business-rule failure).
+            auditRest(req, {
+              action: "refund",
+              entity_type: "session_basket_item",
+              entity_id: String(parsed.data.transactionId),
+              summary: `Refunded session #${parsed.data.sessionId} item (txn #${parsed.data.transactionId})`,
+              metadata: {
+                sessionId: parsed.data.sessionId,
+                transactionId: parsed.data.transactionId,
+                saleItemId: parsed.data.saleItemId,
+                quantity: parsed.data.quantity,
+                refundTransactionId: result.refundTransactionId,
+                itemAmountUsd: result.itemAmountUsd,
+                itemAmountLbp: result.itemAmountLbp,
+                accountReductionUsd: result.accountReductionUsd,
+                accountReductionLbp: result.accountReductionLbp,
+                remainderUsd: result.remainderUsd,
+                remainderLbp: result.remainderLbp,
+              },
+            });
+          },
         },
-      });
-      res.json({ success: true, ...result });
+      );
     } catch (error) {
       logger.error({ error }, "Refund session basket item error");
       res.json({ success: false, error: (error as Error).message });

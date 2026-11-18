@@ -159,12 +159,16 @@ describe("Suppliers page — Record Debt (LIRA-087)", () => {
     fireEvent.click(within(modal).getByText("Record debt"));
 
     await waitFor(() => expect(mockRecordSupplierDebt).toHaveBeenCalled());
-    expect(mockRecordSupplierDebt).toHaveBeenCalledWith({
-      supplier_id: 5,
-      amount_usd: 50,
-      amount_lbp: 0,
-      note: "20 units incoming",
-    });
+    expect(mockRecordSupplierDebt).toHaveBeenCalledWith(
+      {
+        supplier_id: 5,
+        amount_usd: 50,
+        amount_lbp: 0,
+        note: "20 units incoming",
+      },
+      // LIRA-401: the write carries an idempotency key.
+      expect.objectContaining({ idempotencyKey: expect.any(String) }),
+    );
 
     // Modal closes on success.
     await waitFor(() =>
@@ -178,9 +182,7 @@ describe("Suppliers page — Record Debt (LIRA-087)", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Products" }));
     fireEvent.click((await screen.findAllByText("Acme Distributors"))[0]);
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Record Debt" }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Record Debt" }));
 
     const modalTitle = await screen.findByText(
       "Record Debt — Acme Distributors",

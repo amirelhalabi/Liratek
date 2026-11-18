@@ -5,6 +5,7 @@ import { useFormat } from "@/i18n/useFormat";
 import logger from "@/utils/logger";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
 import { UsdLbpTotalChips } from "@/shared/components/UsdLbpTotalChips";
 import { usdLbpTotals } from "@/shared/utils/usdLbpTotals";
@@ -1007,6 +1008,14 @@ export default function Services() {
     };
   }, [provider, activeSession, api, loadData, t]);
 
+  // LIRA-401: the form is always on screen, so one key per payment: the
+  // same key for every submit/retry until one succeeds (a double tap or a
+  // retry books once), then a fresh key for the next customer.
+  const {
+    key: serviceIdempotencyKey,
+    reset: resetServiceIdempotencyKey,
+  } = useIdempotencyKeyWithReset(true);
+
   // Submits the built OMT/Whish payload and handles the result — factored
   // out of handleSubmit (Primary Cash Drawer plan §8.5, owner decision #11)
   // so the exact same payload can be retried, unmodified, after the operator
@@ -1015,9 +1024,12 @@ export default function Services() {
   // current form state — so a retry submits precisely what was rejected.
   const submitOMTPayload = useCallback(
     async (payload: CreateFinancialServicePayload, linkTotal: number) => {
-      const result = await api.addOMTTransaction(payload);
+      const result = await api.addOMTTransaction(payload, {
+        idempotencyKey: serviceIdempotencyKey,
+      });
 
       if (result.success) {
+        resetServiceIdempotencyKey();
         // Link to active session if exists
         if (activeSession && result.id) {
           try {
@@ -1093,6 +1105,8 @@ export default function Services() {
       loadData,
       resetSaveAsClient,
       t,
+      serviceIdempotencyKey,
+      resetServiceIdempotencyKey,
     ],
   );
 

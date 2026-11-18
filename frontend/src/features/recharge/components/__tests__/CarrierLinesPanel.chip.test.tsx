@@ -187,7 +187,7 @@ describe("CarrierLinesPanel — selected-line chip + chevron picker (LIRA-328)",
         carrierLineId: 2,
         newCredits: 6,
         expectedCurrentCredits: 10,
-      }),
+      }, expect.objectContaining({ idempotencyKey: expect.any(String) })),
     );
   });
 

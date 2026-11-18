@@ -19,6 +19,7 @@ import { printSaleReceipt } from "@/features/sales/utils/printSaleReceipt";
 import SendOnWhatsAppButton from "@/features/sales/components/SendOnWhatsAppButton";
 import { useShopInfo } from "@/hooks/useShopName";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { useIdempotencyKey } from "@/shared/hooks/useIdempotencyKey";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { localDay } from "@/shared/utils/localDay";
 import {
@@ -115,6 +116,10 @@ export default function SaleDetailModal({
   const [refundTarget, setRefundTarget] = useState<
     { kind: "sale" } | { kind: "item"; item: SaleItem; quantity: number } | null
   >(null);
+  // LIRA-401: one key per open of the refund popup, so a double tap or a
+  // retry on its Confirm refunds once. The popup closes after every attempt
+  // (`setRefundTarget(null)`), so the next refund always gets a new key.
+  const refundIdempotencyKey = useIdempotencyKey(refundTarget !== null);
   const [refundModalLegs, setRefundModalLegs] = useState<
     TransactionPaymentLeg[]
   >([]);
@@ -465,30 +470,17 @@ export default function SaleDetailModal({
     setRefunding(true);
     try {
       if (refundTarget.kind === "sale") {
-        const result =
-          addedChange !== undefined
-            ? await api.refundSale(
-                saleId,
-                refundLegs,
-                unitExtras,
-                exchangeRate,
-                keptChange,
-                addedChange,
-              )
-            : keptChange !== undefined
-              ? await api.refundSale(
-                  saleId,
-                  refundLegs,
-                  unitExtras,
-                  exchangeRate,
-                  keptChange,
-                )
-              : await api.refundSale(
-                  saleId,
-                  refundLegs,
-                  unitExtras,
-                  exchangeRate,
-                );
+        // One call shape: absent extras ride as `undefined`, which the
+        // adapter treats exactly like an omitted argument.
+        const result = await api.refundSale(
+          saleId,
+          refundLegs,
+          unitExtras,
+          exchangeRate,
+          keptChange,
+          addedChange,
+          { idempotencyKey: refundIdempotencyKey },
+        );
         if (result.success) {
           appEvents.emit(
             "notification:show",
@@ -511,25 +503,16 @@ export default function SaleDetailModal({
         }
       } else {
         const { item, quantity } = refundTarget;
-        const result =
-          keptChange !== undefined
-            ? await api.refundSaleItem(
-                saleId,
-                item.id,
-                quantity,
-                refundLegs,
-                unitExtras,
-                exchangeRate,
-                keptChange,
-              )
-            : await api.refundSaleItem(
-                saleId,
-                item.id,
-                quantity,
-                refundLegs,
-                unitExtras,
-                exchangeRate,
-              );
+        const result = await api.refundSaleItem(
+          saleId,
+          item.id,
+          quantity,
+          refundLegs,
+          unitExtras,
+          exchangeRate,
+          keptChange,
+          { idempotencyKey: refundIdempotencyKey },
+        );
         if (result.success) {
           appEvents.emit(
             "notification:show",

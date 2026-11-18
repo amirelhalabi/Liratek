@@ -192,7 +192,7 @@ describe("DrawerTopUpModal — From Drawer mode routing", () => {
         toDrawer: "General",
         amount_usd: 50,
         amount_lbp: 0,
-      });
+      }, expect.objectContaining({ idempotencyKey: expect.any(String) }));
     });
     expect(mockCreateFromDrawer).not.toHaveBeenCalled();
   });
@@ -210,7 +210,7 @@ describe("DrawerTopUpModal — From Drawer mode routing", () => {
         toDrawer: "General",
         amount_usd: 0,
         amount_lbp: 90000,
-      });
+      }, expect.objectContaining({ idempotencyKey: expect.any(String) }));
     });
     expect(mockCreateFromDrawer).not.toHaveBeenCalled();
   });
@@ -227,7 +227,7 @@ describe("DrawerTopUpModal — From Drawer mode routing", () => {
         amount_usd: 20,
         amount_lbp: 0,
         source_drawer: "PettyCash",
-      });
+      }, expect.objectContaining({ idempotencyKey: expect.any(String) }));
     });
     expect(mockTransferBetweenDrawers).not.toHaveBeenCalled();
   });

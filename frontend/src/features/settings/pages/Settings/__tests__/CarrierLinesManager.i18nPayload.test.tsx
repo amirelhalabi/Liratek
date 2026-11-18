@@ -99,7 +99,16 @@ async function runFlow(credits: string): Promise<unknown[][]> {
   await waitFor(() => expect(mockSetPrimary).toHaveBeenCalledTimes(1));
 
   const calls = [
-    ...mockCreate.mock.calls.map((c) => ["create", ...c]),
+    // LIRA-401: the create's one-time key is random per form open; compare
+    // its presence, not its value.
+    ...mockCreate.mock.calls.map((c) => [
+      "create",
+      ...c.map((arg: unknown) =>
+        arg && typeof arg === "object" && "idempotencyKey" in arg
+          ? { ...arg, idempotencyKey: "<idempotency-key>" }
+          : arg,
+      ),
+    ]),
     ...mockUpdate.mock.calls.map((c) => ["update", ...c]),
     ...mockSetPrimary.mock.calls.map((c) => ["primary", ...c]),
   ];
@@ -133,6 +142,7 @@ describe("CarrierLinesManager — payloads are identical in English and Arabic",
           validity_expires_at: "2027-01-15",
           notes: "spare SIM",
         },
+        { idempotencyKey: "<idempotency-key>" },
       ],
       [
         "update",

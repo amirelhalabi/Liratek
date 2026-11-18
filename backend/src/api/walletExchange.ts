@@ -24,6 +24,7 @@ import {
 } from "../middleware/auth.js";
 import { validateRequest } from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
+import { sendIdempotent } from "../middleware/idempotency.js";
 
 /**
  * Audit-summary label for the converted amount — twin of the same helper in
@@ -71,25 +72,30 @@ router.post(
   (req, res) => {
     try {
       const userId = (req as AuthRequest).user!.userId;
-      const result = getWalletExchangeService().exchange(req.body, userId);
-      if (result.success) {
-        // Mirrors walletExchangeHandlers.ts's wallet-exchange:create audit
-        // (create/wallet_exchange).
-        auditRest(req as AuthRequest, {
-          action: "create",
-          entity_type: "wallet_exchange",
-          summary: `${String(req.body.drawerName).replace("_", " ")} Exchange: ${formatMoneyAmount(Number(req.body.amountIn), String(req.body.fromCurrency))} → ${outLabel(result.amountOut, String(req.body.toCurrency))}`,
-          metadata: {
-            drawer_name: req.body.drawerName,
-            from_currency: req.body.fromCurrency,
-            to_currency: req.body.toCurrency,
-            amount_in: req.body.amountIn,
-            amount_out: result.amountOut,
-            rate: req.body.rate,
+      sendIdempotent(
+        req,
+        res,
+        () => getWalletExchangeService().exchange(req.body, userId),
+        {
+          onBooked: (result) => {
+            // Mirrors walletExchangeHandlers.ts's wallet-exchange:create audit
+            // (create/wallet_exchange).
+            auditRest(req as AuthRequest, {
+              action: "create",
+              entity_type: "wallet_exchange",
+              summary: `${String(req.body.drawerName).replace("_", " ")} Exchange: ${formatMoneyAmount(Number(req.body.amountIn), String(req.body.fromCurrency))} → ${outLabel(result.amountOut, String(req.body.toCurrency))}`,
+              metadata: {
+                drawer_name: req.body.drawerName,
+                from_currency: req.body.fromCurrency,
+                to_currency: req.body.toCurrency,
+                amount_in: req.body.amountIn,
+                amount_out: result.amountOut,
+                rate: req.body.rate,
+              },
+            });
           },
-        });
-      }
-      res.json(result);
+        },
+      );
     } catch (err) {
       res.json({ success: false, error: errMessage(err) });
     }

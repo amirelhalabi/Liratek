@@ -37,6 +37,10 @@ export const SESSION_CHANGED_EVENT = "liratek:session-changed";
  */
 export const TRIAL_ENDED_EVENT = "liratek:trial-ended";
 
+/** LIRA-401: the header the server's replay guard reads (backend
+ * `IDEMPOTENCY_HEADER`, LIRA-289). */
+export const IDEMPOTENCY_KEY_HEADER = "idempotency-key";
+
 // ── Storage keys ────────────────────────────────────────────────────────────
 // liratek.jwt          — localStorage, the normal (non-impersonation) login
 //                         session. Shared across every tab of this origin.
@@ -278,7 +282,11 @@ export async function requestFile(
   }
   const type = res.headers?.get("Content-Type") ?? "";
   if (type.includes("application/json")) {
-    const data = (await res.json()) as { success?: boolean; error?: string; message?: string } | null;
+    const data = (await res.json()) as {
+      success?: boolean;
+      error?: string;
+      message?: string;
+    } | null;
     return {
       success: false,
       error: data?.error || data?.message || `Request failed (${res.status})`,
@@ -358,6 +366,13 @@ export async function requestJson<T>(
     method?: HttpMethod;
     body?: unknown;
     auth?: boolean;
+    /**
+     * LIRA-401: one-time ticket for a money write. Sent as the
+     * `idempotency-key` header (the server's `IDEMPOTENCY_HEADER`) so a retry
+     * or a double tap with the SAME key is booked once. Only ever sent on a
+     * write — a GET never carries it, whatever the caller passes.
+     */
+    idempotencyKey?: string | undefined;
   },
 ): Promise<T> {
   const url = `${getBaseUrl()}${path.startsWith("/") ? "" : "/"}${path}`;
@@ -372,6 +387,9 @@ export async function requestJson<T>(
     // "we never sent one", AND so a late 401 belonging to an OLD session cannot
     // discard a newer one — see the !res.ok branch below.
     const { headers, sentToken } = buildRequestHeaders(options?.auth !== false);
+    if (options?.idempotencyKey && method !== "GET") {
+      headers[IDEMPOTENCY_KEY_HEADER] = options.idempotencyKey;
+    }
 
     const res = await fetch(url, {
       method,

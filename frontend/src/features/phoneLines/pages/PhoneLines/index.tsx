@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useApi } from "@liratek/ui";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import {
   classifyLineStatus,
@@ -47,6 +48,10 @@ export default function PhoneLines() {
   const api = useApi();
   // rule 25: read api through a ref, never put it in a dependency array.
   const apiRef = useRef(api);
+  // LIRA-401: one key per entry, renewed after it is saved, so a double tap
+  // or a retry books it once.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
   apiRef.current = api;
   const { t } = useTranslation("phoneLines");
 
@@ -147,11 +152,14 @@ export default function PhoneLines() {
     };
     setSaving(true);
     try {
-      const res = await apiRef.current.writeOffResaleLine(payload);
+      const res = await apiRef.current.writeOffResaleLine(payload, {
+        idempotencyKey,
+      });
       if (!res.success) {
         setError(res.error || t("page.writeOffFailed"));
         return;
       }
+      resetIdempotencyKey();
       setNotice(
         t("page.writtenOff", {
           number: writeOffRow.phone_number ?? "",
@@ -161,9 +169,7 @@ export default function PhoneLines() {
       setWriteOffRow(null);
       await load(showSold);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : t("page.writeOffFailed"),
-      );
+      setError(err instanceof Error ? err.message : t("page.writeOffFailed"));
     } finally {
       setSaving(false);
     }
@@ -179,9 +185,7 @@ export default function PhoneLines() {
         <Phone className="w-6 h-6 text-violet-400" />
         <div>
           <h1 className="text-2xl font-bold text-white">{t("page.title")}</h1>
-          <p className="text-sm text-slate-400">
-            {t("page.intro")}
-          </p>
+          <p className="text-sm text-slate-400">{t("page.intro")}</p>
         </div>
       </div>
 
@@ -280,7 +284,9 @@ export default function PhoneLines() {
             <div className="border border-red-700/60 rounded-lg p-4 bg-red-950/30 space-y-3">
               <p className="text-sm text-slate-200">
                 {t("page.lostBefore", { number: writeOffRow.phone_number })}
-                <span className="font-semibold">{money(writeOffRow.cost_price_usd)}</span>
+                <span className="font-semibold">
+                  {money(writeOffRow.cost_price_usd)}
+                </span>
                 {t("page.lostAfter")}
               </p>
               <div className="flex gap-2">
@@ -306,12 +312,24 @@ export default function PhoneLines() {
             <table className="w-full text-sm">
               <thead className="bg-slate-900 text-slate-400 text-xs uppercase">
                 <tr>
-                  <th className="text-start px-4 py-3">{t("page.colNumber")}</th>
-                  <th className="text-start px-4 py-3">{t("page.colCarrier")}</th>
-                  <th className="text-start px-4 py-3">{t("page.colCredit")}</th>
-                  <th className="text-start px-4 py-3">{t("page.colExpiry")}</th>
-                  <th className="text-start px-4 py-3">{t("page.colStatus")}</th>
-                  <th className="text-start px-4 py-3">{t("page.colCostPrice")}</th>
+                  <th className="text-start px-4 py-3">
+                    {t("page.colNumber")}
+                  </th>
+                  <th className="text-start px-4 py-3">
+                    {t("page.colCarrier")}
+                  </th>
+                  <th className="text-start px-4 py-3">
+                    {t("page.colCredit")}
+                  </th>
+                  <th className="text-start px-4 py-3">
+                    {t("page.colExpiry")}
+                  </th>
+                  <th className="text-start px-4 py-3">
+                    {t("page.colStatus")}
+                  </th>
+                  <th className="text-start px-4 py-3">
+                    {t("page.colCostPrice")}
+                  </th>
                   <th className="text-start px-4 py-3"></th>
                 </tr>
               </thead>
@@ -344,11 +362,14 @@ export default function PhoneLines() {
                           warningDays={RESALE_LINE_EXPIRY_WARNING_DAYS}
                         />
                       ) : (
-                        <span className="text-xs text-slate-400">{t("page.sold")}</span>
+                        <span className="text-xs text-slate-400">
+                          {t("page.sold")}
+                        </span>
                       )}
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-slate-300">
-                      {money(row.cost_price_usd)} / {money(row.selling_price_usd)}
+                      {money(row.cost_price_usd)} /{" "}
+                      {money(row.selling_price_usd)}
                     </td>
                     <td className="px-4 py-3 text-end space-x-1 whitespace-nowrap">
                       {row.is_unsold === 1 && row.carrier && !isLost(row) && (
@@ -364,20 +385,23 @@ export default function PhoneLines() {
                           {t("page.recharge")}
                         </button>
                       )}
-                      {row.is_unsold === 1 && row.carrier && !isLost(row) && (row.credits ?? 0) > 0 && (
-                        <button
-                          data-testid={`resale-line-give-back-${row.product_id}`}
-                          onClick={() => {
-                            setNotice("");
-                            setEdit(null);
-                            setRechargeRow(null);
-                            setGiveBackRow(row);
-                          }}
-                          className="px-2 py-0.5 bg-sky-900/40 hover:bg-sky-900/60 text-sky-200 rounded text-xs"
-                        >
-                          {t("page.giveBack")}
-                        </button>
-                      )}
+                      {row.is_unsold === 1 &&
+                        row.carrier &&
+                        !isLost(row) &&
+                        (row.credits ?? 0) > 0 && (
+                          <button
+                            data-testid={`resale-line-give-back-${row.product_id}`}
+                            onClick={() => {
+                              setNotice("");
+                              setEdit(null);
+                              setRechargeRow(null);
+                              setGiveBackRow(row);
+                            }}
+                            className="px-2 py-0.5 bg-sky-900/40 hover:bg-sky-900/60 text-sky-200 rounded text-xs"
+                          >
+                            {t("page.giveBack")}
+                          </button>
+                        )}
                       {isLost(row) && (
                         <button
                           data-testid={`resale-line-writeoff-${row.product_id}`}
@@ -404,7 +428,10 @@ export default function PhoneLines() {
                 ))}
                 {!loading && visible.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-6 text-center text-slate-500">
+                    <td
+                      colSpan={7}
+                      className="px-4 py-6 text-center text-slate-500"
+                    >
                       {t("page.empty")}
                     </td>
                   </tr>
@@ -418,14 +445,20 @@ export default function PhoneLines() {
               <h2 className="text-white font-medium">{t("page.details")}</h2>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label htmlFor="rl-carrier" className="text-xs text-slate-400 block mb-1">
+                  <label
+                    htmlFor="rl-carrier"
+                    className="text-xs text-slate-400 block mb-1"
+                  >
                     {t("page.carrier")}
                   </label>
                   <select
                     id="rl-carrier"
                     value={edit.carrier}
                     onChange={(e) =>
-                      setEdit({ ...edit, carrier: e.target.value as "" | "mtc" | "alfa" })
+                      setEdit({
+                        ...edit,
+                        carrier: e.target.value as "" | "mtc" | "alfa",
+                      })
                     }
                     className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm"
                   >
@@ -435,19 +468,27 @@ export default function PhoneLines() {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="rl-expiry" className="text-xs text-slate-400 block mb-1">
+                  <label
+                    htmlFor="rl-expiry"
+                    className="text-xs text-slate-400 block mb-1"
+                  >
                     {t("page.expiryDate")}
                   </label>
                   <input
                     id="rl-expiry"
                     type="date"
                     value={edit.expiry}
-                    onChange={(e) => setEdit({ ...edit, expiry: e.target.value })}
+                    onChange={(e) =>
+                      setEdit({ ...edit, expiry: e.target.value })
+                    }
                     className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm"
                   />
                 </div>
                 <div>
-                  <label htmlFor="rl-credits" className="text-xs text-slate-400 block mb-1">
+                  <label
+                    htmlFor="rl-credits"
+                    className="text-xs text-slate-400 block mb-1"
+                  >
                     {t("page.creditUsd")}
                   </label>
                   <input
@@ -456,7 +497,10 @@ export default function PhoneLines() {
                     inputMode="decimal"
                     value={edit.credits}
                     onChange={(e) =>
-                      setEdit({ ...edit, credits: normalizeDigits(e.target.value) })
+                      setEdit({
+                        ...edit,
+                        credits: normalizeDigits(e.target.value),
+                      })
                     }
                     className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm"
                   />

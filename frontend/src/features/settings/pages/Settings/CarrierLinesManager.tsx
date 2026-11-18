@@ -14,6 +14,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import { useApi } from "@liratek/ui";
+import { useIdempotencyKey } from "@/shared/hooks/useIdempotencyKey";
 import type { CarrierLineEntity } from "@liratek/ui";
 import { SHOP_LINE_EXPIRY_WARNING_DAYS } from "@liratek/core";
 import { LineStatusChip } from "@/features/phoneLines/components/LineStatusChip";
@@ -42,6 +43,9 @@ export default function CarrierLinesManager() {
   const [lines, setLines] = useState<CarrierLineEntity[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  // LIRA-401: one key per open of the add/edit form (a double tap on Save
+  // creates the line once). Only the create is a guarded write.
+  const createLineIdempotencyKey = useIdempotencyKey(showForm);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<FormData>(EMPTY_FORM);
   const [error, setError] = useState("");
@@ -102,7 +106,9 @@ export default function CarrierLinesManager() {
     try {
       const res = editingId
         ? await api.updateCarrierLine(editingId, payload)
-        : await api.createCarrierLine(payload);
+        : await api.createCarrierLine(payload, {
+            idempotencyKey: createLineIdempotencyKey,
+          });
       if (!res.success) {
         setError(res.error || t("carrierLines.saveFailed"));
         return;
@@ -173,9 +179,7 @@ export default function CarrierLinesManager() {
           <h3 className="text-white font-semibold">
             {t("carrierLines.title")}
           </h3>
-          <p className="text-slate-400 text-sm">
-            {t("carrierLines.intro")}
-          </p>
+          <p className="text-slate-400 text-sm">{t("carrierLines.intro")}</p>
         </div>
         <button
           onClick={openCreate}
@@ -199,9 +203,7 @@ export default function CarrierLinesManager() {
               <th className="py-2 px-3">{t("carrierLines.col.phone")}</th>
               <th className="py-2 px-3">{t("crud.col.label")}</th>
               <th className="py-2 px-3">{t("carrierLines.col.credits")}</th>
-              <th className="py-2 px-3">
-                {t("carrierLines.col.validity")}
-              </th>
+              <th className="py-2 px-3">{t("carrierLines.col.validity")}</th>
               <th className="py-2 px-3">{t("carrierLines.col.status")}</th>
               <th className="py-2 px-3">{t("crud.col.active")}</th>
               <th className="py-2 px-3">{t("crud.col.actions")}</th>

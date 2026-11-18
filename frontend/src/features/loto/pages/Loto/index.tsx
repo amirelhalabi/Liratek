@@ -10,6 +10,7 @@ import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { localDay } from "@/shared/utils/localDay";
 import { addDaysToDateString, type LotoSellPayload } from "@liratek/core";
 import { appEvents, useApi, PageHeader, DecimalInput } from "@liratek/ui";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import {
   MultiPaymentInput,
   PaymentNoteField,
@@ -58,6 +59,11 @@ interface TodayStats {
 
 export function LotoPage() {
   const api = useApi();
+  // LIRA-401 — one key per always-visible form; the same key rides every
+  // retry/double tap until a submit succeeds, then a fresh key.
+  const sellKey = useIdempotencyKeyWithReset(true);
+  const prizeKey = useIdempotencyKeyWithReset(true);
+  const checkpointKey = useIdempotencyKeyWithReset(true);
   const { t } = useTranslation("loto");
   const { activeSession, addToCart: addToSessionCart } = useSession();
   // LIRA-069 W1.d — auto-print on a successful STANDALONE ticket sale
@@ -237,15 +243,19 @@ export function LotoPage() {
         return;
       }
 
-      const result = await lotoApi.checkpoint.create({
-        checkpoint_date: today,
-        period_start: periodStart,
-        period_end: today,
-        // i18n-exempt: stored text sent to server (checkpoint note)
-        note: `Manual checkpoint for ${new Date().toLocaleDateString()}`,
-      });
+      const result = await lotoApi.checkpoint.create(
+        {
+          checkpoint_date: today,
+          period_start: periodStart,
+          period_end: today,
+          // i18n-exempt: stored text sent to server (checkpoint note)
+          note: `Manual checkpoint for ${new Date().toLocaleDateString()}`,
+        },
+        { idempotencyKey: checkpointKey.key },
+      );
 
       if (result.success) {
+        checkpointKey.reset();
         appEvents.emit(
           "notification:show",
           t("msg.checkpointCreated"),
@@ -441,14 +451,13 @@ export function LotoPage() {
     setIsSubmitting(true);
 
     try {
-      const result = await lotoApi.sell(ticketData);
+      const result = await lotoApi.sell(ticketData, {
+        idempotencyKey: sellKey.key,
+      });
 
       if (result.success) {
-        appEvents.emit(
-          "notification:show",
-          t("msg.ticketSold"),
-          "success",
-        );
+        sellKey.reset();
+        appEvents.emit("notification:show", t("msg.ticketSold"), "success");
         if (!forPartner) {
           void autoPrintReceipt({
             type: "LOTO",
@@ -523,14 +532,13 @@ export function LotoPage() {
     setIsSubmittingCashPrize(true);
 
     try {
-      const result = await lotoApi.cashPrize.create(prizeData);
+      const result = await lotoApi.cashPrize.create(prizeData, {
+        idempotencyKey: prizeKey.key,
+      });
 
       if (result.success) {
-        appEvents.emit(
-          "notification:show",
-          t("msg.prizeRecorded"),
-          "success",
-        );
+        prizeKey.reset();
+        appEvents.emit("notification:show", t("msg.prizeRecorded"), "success");
         // Reset form
         setCashPrizeTicketNumber("");
         setCashPrizeAmount("");
@@ -569,7 +577,9 @@ export function LotoPage() {
             >
               <ClipboardCheck size={16} />
               <span className="font-medium">
-                {isCreatingCheckpoint ? t("header.creating") : t("header.checkpoint")}
+                {isCreatingCheckpoint
+                  ? t("header.creating")
+                  : t("header.checkpoint")}
               </span>
             </button>
             <button
@@ -848,7 +858,9 @@ export function LotoPage() {
                   disabled={isSubmittingCashPrize || !cashPrizeAmount}
                   className="w-full py-3.5 bg-yellow-500 hover:bg-yellow-600 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold rounded-lg transition-all mt-6 shadow-lg hover:shadow-yellow-500/20"
                 >
-                  {isSubmittingCashPrize ? t("prize.recording") : t("prize.submit")}
+                  {isSubmittingCashPrize
+                    ? t("prize.recording")
+                    : t("prize.submit")}
                 </button>
               </div>
             </div>

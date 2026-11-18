@@ -14,6 +14,7 @@ import {
   clientDay,
 } from "@liratek/core";
 import { auditRest } from "../middleware/audit.js";
+import { sendIdempotent } from "../middleware/idempotency.js";
 import { logger } from "../server.js";
 
 const router = express.Router();
@@ -120,30 +121,35 @@ router.post(
   (req, res): void => {
     try {
       const service = getCustomServiceService();
-      const result = service.advanceFulfillmentStatus(
-        req.body.id,
-        req.body.fulfillment_status,
+      // LIRA-401: the reply is reshaped inside the guard, so a replay sends
+      // exactly the first reply. Rule 19(c) envelope parity — see the POST
+      // "/" route below: HTTP 200 even on a business rejection (illegal
+      // transition, not found), never a 4xx that would replace the
+      // operator-facing reason with a generic network error.
+      sendIdempotent(
+        req,
+        res,
+        () => {
+          const result = service.advanceFulfillmentStatus(
+            req.body.id,
+            req.body.fulfillment_status,
+          );
+          return result.success
+            ? { success: true as const, data: result.entity }
+            : result;
+        },
+        {
+          onBooked: () =>
+            // Mirrors customServiceHandlers.ts's
+            // custom-services:advance-fulfillment audit.
+            auditRest(req, {
+              action: "advance_fulfillment",
+              entity_type: "custom_service",
+              entity_id: String(req.body.id),
+              summary: `Custom service #${req.body.id} fulfilment -> ${req.body.fulfillment_status}`,
+            }),
+        },
       );
-
-      if (!result.success) {
-        // Rule 19(c) envelope parity — see the POST "/" route below: HTTP
-        // 200 even on a business rejection (illegal transition, not found),
-        // never a 4xx that would replace the operator-facing reason with a
-        // generic network error.
-        res.json(result);
-        return;
-      }
-
-      // Mirrors customServiceHandlers.ts's custom-services:advance-fulfillment
-      // audit.
-      auditRest(req, {
-        action: "advance_fulfillment",
-        entity_type: "custom_service",
-        entity_id: String(req.body.id),
-        summary: `Custom service #${req.body.id} fulfilment -> ${req.body.fulfillment_status}`,
-      });
-
-      res.json({ success: true, data: result.entity });
     } catch (error) {
       logger.error({ error }, "Advance custom service fulfilment error");
       res
@@ -282,32 +288,28 @@ router.post(
   (req, res): void => {
     try {
       const service = getCustomServiceService();
-      const result = service.addService(req.body);
-
-      if (!result.success) {
-        // Rule 19(c) envelope parity: a BUSINESS failure answers HTTP 200 with
-        // { success:false, error } exactly as the IPC channel does. The adapter
-        // branches on result.success, never on the status code, and
-        // requestJson throws on a non-2xx — so a 400 here replaced the
-        // operator-facing reason (e.g. "a via-partner service needs a partner")
-        // with a generic network error. 4xx stays for genuine protocol faults
-        // (malformed id, missing auth), not for a rule the service rejected.
-        res.json(result);
-        return;
-      }
-
-      // Mirrors customServiceHandlers.ts's custom-services:add audit.
-      auditRest(req, {
-        action: "create",
-        entity_type: "custom_service",
-        summary: `Custom service: ${req.body.description}`,
-        metadata: {
-          description: req.body.description,
-          paid_by: req.body.paid_by,
-        },
+      // LIRA-401: a repeated Idempotency-Key replays the first reply.
+      //
+      // Rule 19(c) envelope parity: a BUSINESS failure answers HTTP 200 with
+      // { success:false, error } exactly as the IPC channel does. The adapter
+      // branches on result.success, never on the status code, and
+      // requestJson throws on a non-2xx — so a 400 here replaced the
+      // operator-facing reason (e.g. "a via-partner service needs a partner")
+      // with a generic network error. 4xx stays for genuine protocol faults
+      // (malformed id, missing auth), not for a rule the service rejected.
+      sendIdempotent(req, res, () => service.addService(req.body), {
+        onBooked: () =>
+          // Mirrors customServiceHandlers.ts's custom-services:add audit.
+          auditRest(req, {
+            action: "create",
+            entity_type: "custom_service",
+            summary: `Custom service: ${req.body.description}`,
+            metadata: {
+              description: req.body.description,
+              paid_by: req.body.paid_by,
+            },
+          }),
       });
-
-      res.json(result);
     } catch (error) {
       logger.error({ error }, "Create custom service error");
       res

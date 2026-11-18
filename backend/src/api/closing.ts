@@ -8,6 +8,7 @@ import { Router, type Response } from "express";
 import { requireAuth, requireRole, AuthRequest } from "../middleware/auth.js";
 import { validateRequest, validateQuery } from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
+import { sendIdempotent } from "../middleware/idempotency.js";
 import {
   getClosingService,
   createCheckpointSchema,
@@ -247,17 +248,22 @@ router.post(
   (req: AuthRequest, res) => {
     try {
       const user_id = req.user!.userId;
-      const result = closingService.createCheckpoint({ ...req.body, user_id });
-      if (result.success) {
-        // Mirrors dbHandlers.ts's closing:create-checkpoint audit.
-        auditRest(req, {
-          action: "create_checkpoint",
-          entity_type: "daily_closings",
-          entity_id: String(result.id ?? ""),
-          summary: `Checkpoint created: ${req.body.drawer_name}`,
-        });
-      }
-      res.json(result);
+      sendIdempotent(
+        req,
+        res,
+        () => closingService.createCheckpoint({ ...req.body, user_id }),
+        {
+          onBooked: (result) => {
+            // Mirrors dbHandlers.ts's closing:create-checkpoint audit.
+            auditRest(req, {
+              action: "create_checkpoint",
+              entity_type: "daily_closings",
+              entity_id: String(result.id ?? ""),
+              summary: `Checkpoint created: ${req.body.drawer_name}`,
+            });
+          },
+        },
+      );
     } catch (error) {
       logger.error({ error }, "Create checkpoint error");
       res
@@ -337,20 +343,27 @@ function differenceWriteRoute(op: "close" | "reopen") {
         difference_id: body.difference_id,
         userId: req.user!.userId,
       };
-      const result =
-        op === "close"
-          ? closingService.closeCheckpointDifference(input)
-          : closingService.reopenCheckpointDifference(input);
-      if (result.success) {
-        // Mirrors dbHandlers.ts's closing:close-difference / reopen-difference audit.
-        auditRest(req, {
-          action: `${op}_checkpoint_difference`,
-          entity_type: "checkpoint_differences",
-          entity_id: String(input.difference_id),
-          summary: `Checkpoint difference ${op === "close" ? "closed" : "reopened"}: #${input.difference_id}`,
-        });
-      }
-      res.json(result);
+      // LIRA-401: closing a "Short" difference books a shortage expense, so
+      // a repeated Idempotency-Key replays the first reply (reopen shares
+      // this handler and gets the same guard).
+      sendIdempotent(
+        req,
+        res,
+        () =>
+          op === "close"
+            ? closingService.closeCheckpointDifference(input)
+            : closingService.reopenCheckpointDifference(input),
+        {
+          onBooked: () =>
+            // Mirrors dbHandlers.ts's closing:close-difference / reopen-difference audit.
+            auditRest(req, {
+              action: `${op}_checkpoint_difference`,
+              entity_type: "checkpoint_differences",
+              entity_id: String(input.difference_id),
+              summary: `Checkpoint difference ${op === "close" ? "closed" : "reopened"}: #${input.difference_id}`,
+            }),
+        },
+      );
     } catch (error) {
       logger.error({ error }, `Checkpoint difference ${op} error`);
       res.json({

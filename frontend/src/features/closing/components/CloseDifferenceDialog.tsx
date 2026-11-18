@@ -22,6 +22,7 @@ import {
 import { useFormat } from "@/i18n/useFormat";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { directionKey, formatShopMoney } from "../utils/differenceDisplay";
+import { useIdempotencyKey } from "@/shared/hooks/useIdempotencyKey";
 
 interface CloseDifferenceDialogProps {
   difference: CheckpointDifferenceView;
@@ -42,6 +43,8 @@ export function CloseDifferenceDialog({
   const { t: tc } = useTranslation("common");
   const fmt = useFormat();
   const api = useApi();
+  // LIRA-401 — mounted only while open: one key per open.
+  const idempotencyKey = useIdempotencyKey(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,7 +67,9 @@ export function CloseDifferenceDialog({
       const payload: CloseCheckpointDifferenceInput = {
         difference_id: difference.id,
       };
-      const result = await api.closeCheckpointDifference(payload);
+      const result = await api.closeCheckpointDifference(payload, {
+        idempotencyKey,
+      });
       if (result.success) onDone(result.data);
       else setError(result.error ?? t("save.unexpected"));
     } catch (err) {

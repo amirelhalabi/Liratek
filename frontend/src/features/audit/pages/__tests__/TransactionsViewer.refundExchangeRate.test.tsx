@@ -104,7 +104,9 @@ jest.mock("@/features/audit/components/RefundMethodModal", () => ({
       <span data-testid="refund-modal-booked-rate-source">
         {bookedRateSource ?? ""}
       </span>
-      <button onClick={() => onConfirm(undefined)}>Confirm Refund (stub)</button>
+      <button onClick={() => onConfirm(undefined)}>
+        Confirm Refund (stub)
+      </button>
       <button onClick={() => onConfirm(undefined, undefined, 92000)}>
         Confirm Refund With Rate (stub)
       </button>
@@ -258,6 +260,11 @@ describe("TransactionsViewer — generic 'Refund' passes/forwards the SERVER's r
         undefined,
         undefined,
         92000,
+        // LIRA-401: every positional argument now rides so the one-time
+        // ticket can come last.
+        undefined,
+        undefined,
+        expect.objectContaining({ idempotencyKey: expect.any(String) }),
       ),
     );
   });
@@ -282,6 +289,9 @@ describe("TransactionsViewer — generic 'Refund' passes/forwards the SERVER's r
         undefined,
         undefined,
         undefined,
+        undefined,
+        undefined,
+        expect.objectContaining({ idempotencyKey: expect.any(String) }),
       ),
     );
   });

@@ -62,6 +62,7 @@ import {
   type ServiceProviderEntity,
 } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { useIdempotencyKey } from "@/shared/hooks/useIdempotencyKey";
 import { TableModal } from "@/shared/components/TableModal";
 import { DayRangeFilter } from "@/shared/components/DayRangeFilter";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
@@ -416,6 +417,9 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
   const [discountAmount, setDiscountAmount] = useState("");
   const [discountReason, setDiscountReason] = useState("");
   const api = useApi();
+  // LIRA-401 — mounted only while open: one key per open, so a double
+  // tap or a retry books once and the next open is a new payment.
+  const idempotencyKey = useIdempotencyKey(true);
   // Settlements convert at the BUY side (owner decision 2026-07-06), same as
   // every other MultiPaymentInput in the app — inert here in practice since
   // legs are locked to one currency, but kept real (not the 89000 fallback)
@@ -520,47 +524,50 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
       const settlementMethod = useClientAccount
         ? "CLIENT_ACCOUNT"
         : (validLines[0]?.method ?? "CASH");
-      const result = await api.partners.settle({
-        partnerId: partner.id,
-        amount: parsedAmount,
-        currency,
-        settlementMethod,
-        ...(notes.trim() ? { notes: notes.trim() } : {}),
-        // Paper (CLIENT_ACCOUNT) settles show no payment input — no rate.
-        ...(!useClientAccount && usedRate > 0
-          ? { exchange_rate: usedRate }
-          : {}),
-        ...(!useClientAccount && validLines.length > 0
-          ? {
-              // ONE payload (rule 22): paid legs + change handed back
-              // (LIRA-313, `direction: "OUT"`).
-              payments: [
-                ...validLines.map((l) => ({
-                  method: l.method,
-                  currency_code: l.currencyCode,
-                  amount: l.amount,
-                })),
-                ...validReturnLegs.map((l) => ({
-                  method: l.method,
-                  currency_code: l.currencyCode,
-                  amount: l.amount,
-                  direction: "OUT" as const,
-                })),
-              ],
-            }
-          : {}),
-        ...(parsedDiscount > 0
-          ? {
-              discount: {
-                amount_usd: currency === "USD" ? parsedDiscount : 0,
-                amount_lbp: currency === "LBP" ? parsedDiscount : 0,
-                ...(discountReason.trim()
-                  ? { reason: discountReason.trim() }
-                  : {}),
-              },
-            }
-          : {}),
-      });
+      const result = await api.partners.settle(
+        {
+          partnerId: partner.id,
+          amount: parsedAmount,
+          currency,
+          settlementMethod,
+          ...(notes.trim() ? { notes: notes.trim() } : {}),
+          // Paper (CLIENT_ACCOUNT) settles show no payment input — no rate.
+          ...(!useClientAccount && usedRate > 0
+            ? { exchange_rate: usedRate }
+            : {}),
+          ...(!useClientAccount && validLines.length > 0
+            ? {
+                // ONE payload (rule 22): paid legs + change handed back
+                // (LIRA-313, `direction: "OUT"`).
+                payments: [
+                  ...validLines.map((l) => ({
+                    method: l.method,
+                    currency_code: l.currencyCode,
+                    amount: l.amount,
+                  })),
+                  ...validReturnLegs.map((l) => ({
+                    method: l.method,
+                    currency_code: l.currencyCode,
+                    amount: l.amount,
+                    direction: "OUT" as const,
+                  })),
+                ],
+              }
+            : {}),
+          ...(parsedDiscount > 0
+            ? {
+                discount: {
+                  amount_usd: currency === "USD" ? parsedDiscount : 0,
+                  amount_lbp: currency === "LBP" ? parsedDiscount : 0,
+                  ...(discountReason.trim()
+                    ? { reason: discountReason.trim() }
+                    : {}),
+                },
+              }
+            : {}),
+        },
+        { idempotencyKey },
+      );
       if (result.success) {
         appEvents.emit(
           "notification:show",
@@ -797,6 +804,9 @@ function RecordTxModal({ partner, onClose, onRecorded }: RecordTxModalProps) {
   const [moveCash, setMoveCash] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const api = useApi();
+  // LIRA-401 — mounted only while open: one key per open, so a double
+  // tap or a retry books once and the next open is a new payment.
+  const idempotencyKey = useIdempotencyKey(true);
 
   const parsedAmount = parseFloat(amount) || 0;
   const isValid = parsedAmount > 0;
@@ -812,15 +822,18 @@ function RecordTxModal({ partner, onClose, onRecorded }: RecordTxModalProps) {
     }
     setSubmitting(true);
     try {
-      const result = await api.partners.recordTransaction({
-        partnerId: partner.id,
-        transactionType: txType,
-        amount: parsedAmount,
-        currency,
-        direction,
-        ...(notes.trim() ? { notes: notes.trim() } : {}),
-        ...(moveCash ? { moveCash: true } : {}),
-      });
+      const result = await api.partners.recordTransaction(
+        {
+          partnerId: partner.id,
+          transactionType: txType,
+          amount: parsedAmount,
+          currency,
+          direction,
+          ...(notes.trim() ? { notes: notes.trim() } : {}),
+          ...(moveCash ? { moveCash: true } : {}),
+        },
+        { idempotencyKey },
+      );
       if (result.success) {
         appEvents.emit("notification:show", t("record.recorded"), "success");
         onRecorded();
@@ -990,6 +1003,9 @@ function WriteOffModal({ partner, onClose, onWrittenOff }: WriteOffModalProps) {
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const api = useApi();
+  // LIRA-401 — mounted only while open: one key per open, so a double
+  // tap or a retry books once and the next open is a new payment.
+  const idempotencyKey = useIdempotencyKey(true);
 
   const owedInCurrency = Math.max(
     0,
@@ -1012,12 +1028,15 @@ function WriteOffModal({ partner, onClose, onWrittenOff }: WriteOffModalProps) {
     }
     setSubmitting(true);
     try {
-      const result = await api.partners.writeOff({
-        partnerId: partner.id,
-        amount_usd: currency === "USD" ? parsedAmount : 0,
-        amount_lbp: currency === "LBP" ? parsedAmount : 0,
-        ...(reason.trim() ? { reason: reason.trim() } : {}),
-      });
+      const result = await api.partners.writeOff(
+        {
+          partnerId: partner.id,
+          amount_usd: currency === "USD" ? parsedAmount : 0,
+          amount_lbp: currency === "LBP" ? parsedAmount : 0,
+          ...(reason.trim() ? { reason: reason.trim() } : {}),
+        },
+        { idempotencyKey },
+      );
       if (result.success) {
         appEvents.emit("notification:show", t("writeOff.done"), "success");
         onWrittenOff();

@@ -499,10 +499,13 @@ describe("CustomServices.insuranceFulfillmentHistory (LIRA-155)", () => {
       fireEvent.click(within(row).getByText("Mark Issued"));
 
       await waitFor(() => {
-        expect(mockAdvanceCustomServiceFulfillment).toHaveBeenCalledWith({
-          id: 1,
-          fulfillment_status: "ISSUED",
-        });
+        expect(mockAdvanceCustomServiceFulfillment).toHaveBeenCalledWith(
+          {
+            id: 1,
+            fulfillment_status: "ISSUED",
+          },
+          expect.objectContaining({ idempotencyKey: expect.any(String) }),
+        );
       });
     });
 
@@ -521,7 +524,16 @@ describe("CustomServices.insuranceFulfillmentHistory (LIRA-155)", () => {
           "custom_services",
           1,
         );
-        expect(refundTransaction).toHaveBeenCalledWith(777);
+        // LIRA-401: the one-time ticket rides as the last argument.
+        expect(refundTransaction).toHaveBeenCalledWith(
+          777,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          expect.objectContaining({ idempotencyKey: expect.any(String) }),
+        );
       });
       expect(mockDeleteCustomService).not.toHaveBeenCalled();
     });

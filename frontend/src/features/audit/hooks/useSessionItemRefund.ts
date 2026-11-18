@@ -30,6 +30,7 @@ import type {
   RefundUnitExtraOverride,
 } from "../refundLegOverride";
 import { localDay } from "@/shared/utils/localDay";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 
 /**
  * LIRA-236 round-2/final review, finding F11 (LOW, rule 21) — `unitExtras`
@@ -121,6 +122,21 @@ export function useSessionItemRefund(
   // callback actually runs.
   const apiRef = useRef(api);
   apiRef.current = api;
+  // LIRA-401 — one-time ticket for the refund write (web). Read through a ref
+  // like `api` so the stable callbacks below always send the CURRENT key; the
+  // member/line suffix keeps one key from ever covering two different items.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
+  const idempotencyKeyRef = useRef(idempotencyKey);
+  idempotencyKeyRef.current = idempotencyKey;
+  const refundOpts = (target: SessionItemRefundTarget) => {
+    const key = idempotencyKeyRef.current;
+    return key
+      ? {
+          idempotencyKey: `${key}-${target.transactionId}-${target.saleItemId ?? "all"}`,
+        }
+      : {};
+  };
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [preview, setPreview] = useState<SessionItemRefundPreviewState | null>(
@@ -166,10 +182,14 @@ export function useSessionItemRefund(
             quantity: target.quantity,
             clientDay: localDay(),
           };
-          const done =
-            await apiRef.current.refundSessionBasketItem(exactPayload);
-          if (done.success) onRefundedRef.current();
-          else
+          const done = await apiRef.current.refundSessionBasketItem(
+            exactPayload,
+            refundOpts(target),
+          );
+          if (done.success) {
+            resetIdempotencyKey();
+            onRefundedRef.current();
+          } else
             appEvents.emit(
               "notification:show",
               done.error || "Refund failed",
@@ -331,8 +351,12 @@ export function useSessionItemRefund(
             payload.customerPayments = addedChange.customerPayments;
           }
         }
-        const res = await apiRef.current.refundSessionBasketItem(payload);
+        const res = await apiRef.current.refundSessionBasketItem(
+          payload,
+          refundOpts(preview.target),
+        );
         if (res.success) {
+          resetIdempotencyKey();
           onRefunded();
         } else {
           appEvents.emit(

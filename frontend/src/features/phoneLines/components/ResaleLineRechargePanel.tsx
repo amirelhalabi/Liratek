@@ -13,7 +13,12 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useApi, type CarrierLineEntity, type MobileServiceItemEntity } from "@liratek/ui";
+import {
+  useApi,
+  type CarrierLineEntity,
+  type MobileServiceItemEntity,
+} from "@liratek/ui";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import { formatNumber } from "@liratek/ui/i18n/format";
 import {
@@ -53,6 +58,10 @@ export function ResaleLineRechargePanel({
 }) {
   const api = useApi();
   const apiRef = useRef(api);
+  // LIRA-401: one key per entry, renewed after it is saved, so a double tap
+  // or a retry books it once.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
   apiRef.current = api;
   const { sellRate } = useSellRate();
   const { t } = useTranslation("phoneLines");
@@ -164,11 +173,14 @@ export function ResaleLineRechargePanel({
 
     setSaving(true);
     try {
-      const res = await apiRef.current.rechargeResaleLine(payload);
+      const res = await apiRef.current.rechargeResaleLine(payload, {
+        idempotencyKey,
+      });
       if (!res.success) {
         setError(res.error || t("recharge.failed"));
         return;
       }
+      resetIdempotencyKey();
       onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("recharge.failed"));
@@ -189,9 +201,7 @@ export function ResaleLineRechargePanel({
             carrier: carrierLabel,
           })}
         </h2>
-        <p className="text-xs text-slate-400">
-          {t("recharge.intro")}
-        </p>
+        <p className="text-xs text-slate-400">{t("recharge.intro")}</p>
       </div>
 
       <div role="tablist" className="flex gap-2">
@@ -219,7 +229,10 @@ export function ResaleLineRechargePanel({
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {source !== "CARD" && (
           <div>
-            <label htmlFor="rr-shop-line" className="text-xs text-slate-400 block mb-1">
+            <label
+              htmlFor="rr-shop-line"
+              className="text-xs text-slate-400 block mb-1"
+            >
               {t("recharge.fromShopLine")}
             </label>
             <select
@@ -246,29 +259,56 @@ export function ResaleLineRechargePanel({
         {source === "DAYS" && (
           <>
             <div>
-              <label htmlFor="rr-days" className="text-xs text-slate-400 block mb-1">
+              <label
+                htmlFor="rr-days"
+                className="text-xs text-slate-400 block mb-1"
+              >
                 {t("recharge.days")}
               </label>
-              <input id="rr-days" type="text" inputMode="numeric" value={days}
-                onChange={(e) => setDays(normalizeDigits(e.target.value))} className={inputClass} />
+              <input
+                id="rr-days"
+                type="text"
+                inputMode="numeric"
+                value={days}
+                onChange={(e) => setDays(normalizeDigits(e.target.value))}
+                className={inputClass}
+              />
             </div>
             <div>
-              <label htmlFor="rr-days-cost" className="text-xs text-slate-400 block mb-1">
+              <label
+                htmlFor="rr-days-cost"
+                className="text-xs text-slate-400 block mb-1"
+              >
                 {t("recharge.daysCost")}
               </label>
-              <input id="rr-days-cost" type="text" inputMode="decimal" value={daysCost}
-                onChange={(e) => setDaysCost(normalizeDigits(e.target.value))} className={inputClass} />
+              <input
+                id="rr-days-cost"
+                type="text"
+                inputMode="decimal"
+                value={daysCost}
+                onChange={(e) => setDaysCost(normalizeDigits(e.target.value))}
+                className={inputClass}
+              />
             </div>
           </>
         )}
 
         {source === "SHOP_LINE_CREDIT" && (
           <div>
-            <label htmlFor="rr-credits" className="text-xs text-slate-400 block mb-1">
+            <label
+              htmlFor="rr-credits"
+              className="text-xs text-slate-400 block mb-1"
+            >
               {t("recharge.creditToMove")}
             </label>
-            <input id="rr-credits" type="text" inputMode="decimal" value={credits}
-              onChange={(e) => setCredits(normalizeDigits(e.target.value))} className={inputClass} />
+            <input
+              id="rr-credits"
+              type="text"
+              inputMode="decimal"
+              value={credits}
+              onChange={(e) => setCredits(normalizeDigits(e.target.value))}
+              className={inputClass}
+            />
             {smsFee > 0 && (
               <p className="text-xs text-slate-400 mt-1">
                 {t("recharge.smsFee", { amount: money(smsFee) })}
@@ -279,15 +319,23 @@ export function ResaleLineRechargePanel({
 
         {source === "CARD" && (
           <div className="sm:col-span-2">
-            <label htmlFor="rr-card" className="text-xs text-slate-400 block mb-1">
+            <label
+              htmlFor="rr-card"
+              className="text-xs text-slate-400 block mb-1"
+            >
               {t("recharge.card")}
             </label>
-            <select id="rr-card" value={cardId ?? ""}
-              onChange={(e) => setCardId(Number(e.target.value) || null)} className={inputClass}>
+            <select
+              id="rr-card"
+              value={cardId ?? ""}
+              onChange={(e) => setCardId(Number(e.target.value) || null)}
+              className={inputClass}
+            >
               <option value="">{t("recharge.choose")}</option>
               {cards.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.provider === "WHISH_APP" ? "Whish App" : c.provider} {carrierLabel} {c.label} — {formatNumber(c.cost_lbp)} LBP
+                  {c.provider === "WHISH_APP" ? "Whish App" : c.provider}{" "}
+                  {carrierLabel} {c.label} — {formatNumber(c.cost_lbp)} LBP
                 </option>
               ))}
             </select>
@@ -302,7 +350,9 @@ export function ResaleLineRechargePanel({
               from: money(line.cost_price_usd),
               to: money(round2(line.cost_price_usd + previewCost)),
             })}{" "}
-            {t("recharge.previewPrice", { from: money(line.selling_price_usd) })}{" "}
+            {t("recharge.previewPrice", {
+              from: money(line.selling_price_usd),
+            })}{" "}
             {money(round2(line.selling_price_usd + previewCost))}
           </>
         ) : (
@@ -311,16 +361,24 @@ export function ResaleLineRechargePanel({
       </p>
 
       {error && (
-        <div className="text-red-400 text-sm bg-red-900/20 px-3 py-1.5 rounded">{error}</div>
+        <div className="text-red-400 text-sm bg-red-900/20 px-3 py-1.5 rounded">
+          {error}
+        </div>
       )}
 
       <div className="flex gap-2">
-        <button data-testid="recharge-save" onClick={handleSave} disabled={saving}
-          className="px-4 py-1.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded text-sm">
+        <button
+          data-testid="recharge-save"
+          onClick={handleSave}
+          disabled={saving}
+          className="px-4 py-1.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded text-sm"
+        >
           {saving ? t("recharge.recharging") : t("recharge.submit")}
         </button>
-        <button onClick={onCancel}
-          className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-sm">
+        <button
+          onClick={onCancel}
+          className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-sm"
+        >
           {t("recharge.cancel")}
         </button>
       </div>

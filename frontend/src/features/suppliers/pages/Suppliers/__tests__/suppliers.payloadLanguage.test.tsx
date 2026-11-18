@@ -478,6 +478,8 @@ const SCENARIOS: Scenario[] = [
           amount_usd: 0,
           amount_lbp: -150000,
         },
+        // LIRA-401: the write carries an idempotency key (masked).
+        { idempotencyKey: "<idempotency-key>" },
       ]);
     },
   },
@@ -535,6 +537,8 @@ const SCENARIOS: Scenario[] = [
           amount_lbp: 0,
           transaction_time: new Date("2026-10-26T13:44").toISOString(),
         },
+        // LIRA-401: the write carries an idempotency key (masked).
+        { idempotencyKey: "<idempotency-key>" },
       ]);
     },
   },

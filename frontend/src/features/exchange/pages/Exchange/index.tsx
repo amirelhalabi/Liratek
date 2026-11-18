@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import logger from "@/utils/logger";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import {
   ArrowRightLeft,
   ArrowRight,
@@ -356,6 +357,10 @@ function CurrencySelector({
 
 export default function Exchange() {
   const api = useApi();
+  // LIRA-401 — one-time ticket for the always-visible form (web): a double
+  // tap or a retry books once; a new key after every successful exchange.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
   const { t } = useTranslation("exchange");
   const { t: tc } = useTranslation("common");
   const { activeSession, addToCart } = useSession();
@@ -1465,9 +1470,13 @@ export default function Exchange() {
         return;
       }
 
-      const result = await api.addExchangeTransaction(payload);
+      const result = await api.addExchangeTransaction(
+        payload,
+        idempotencyKey ? { idempotencyKey } : {},
+      );
 
       if (result.success) {
+        resetIdempotencyKey();
         appEvents.emit("notification:show", t("toast.processed"), "success");
         resetForm();
         loadHistory();
@@ -2315,8 +2324,8 @@ export default function Exchange() {
                   : inBasket
                     ? t("submit.addToBasket")
                     : canSplitPayout
-                    ? t("submit.payout")
-                    : t("submit.confirm")}
+                      ? t("submit.payout")
+                      : t("submit.confirm")}
               </button>
             </div>
 

@@ -9,6 +9,7 @@ import {
   maintenanceUpdateMetadataSchema,
 } from "@liratek/core";
 import { auditRest } from "../middleware/audit.js";
+import { sendIdempotent } from "../middleware/idempotency.js";
 import { logger } from "../server.js";
 
 const maintenanceService = new MaintenanceService();
@@ -46,26 +47,26 @@ router.post(
   validateRequest(saveMaintenanceJobSchema),
   async (req, res): Promise<void> => {
     try {
-      const result = maintenanceService.saveJob(req.body, req.user!.userId);
-
-      if (!result.success) {
-        // Rule 19c: a service refusal is HTTP 200 + the IPC-identical
-        // `{ success: false, error }` — the adapter branches on `success`,
-        // and requestJson throws on a non-2xx (LIRA-263).
-        res.status(200).json(result);
-        return;
-      }
-
-      // Mirrors maintenanceHandlers.ts's maintenance:save audit (action
-      // branches on whether an id was supplied — create vs update).
-      auditRest(req, {
-        action: req.body.id ? "update" : "create",
-        entity_type: "maintenance_job",
-        entity_id: String(req.body.id ?? result.id ?? ""),
-        summary: `${req.body.id ? "Updated" : "Created"} maintenance job: ${req.body.device_name}`,
-      });
-
-      res.json(result);
+      // LIRA-401: a repeated Idempotency-Key replays the first save (a job
+      // save can book a deposit / debt). Rule 19c: a service refusal is HTTP
+      // 200 + the IPC-identical `{ success: false, error }` — the adapter
+      // branches on `success`, and requestJson throws on a non-2xx (LIRA-263).
+      sendIdempotent(
+        req,
+        res,
+        () => maintenanceService.saveJob(req.body, req.user!.userId),
+        {
+          onBooked: (result) =>
+            // Mirrors maintenanceHandlers.ts's maintenance:save audit (action
+            // branches on whether an id was supplied — create vs update).
+            auditRest(req, {
+              action: req.body.id ? "update" : "create",
+              entity_type: "maintenance_job",
+              entity_id: String(req.body.id ?? result.id ?? ""),
+              summary: `${req.body.id ? "Updated" : "Created"} maintenance job: ${req.body.device_name}`,
+            }),
+        },
+      );
     } catch (error) {
       logger.error({ error }, "Save maintenance job error");
       res.status(200).json({ success: false, error: "Failed to save job" });

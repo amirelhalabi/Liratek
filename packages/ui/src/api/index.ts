@@ -3,6 +3,7 @@ export type {
   ApiUser,
   ExpenseListRow,
   ApiResult,
+  WriteOptions,
   ApiMeResult,
   ProductWriteResult,
   ProcessSaleResult,

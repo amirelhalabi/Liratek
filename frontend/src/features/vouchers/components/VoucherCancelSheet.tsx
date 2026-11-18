@@ -8,6 +8,7 @@ import type { Voucher } from "@/types/electron";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
 import { localDay } from "@/shared/utils/localDay";
+import { useIdempotencyKey } from "@/shared/hooks/useIdempotencyKey";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import {
   legsMatch,
@@ -42,6 +43,8 @@ export function VoucherCancelSheet({
   onCancelled,
 }: VoucherCancelSheetProps) {
   const api = useApi();
+  // LIRA-401 — mounted only while open: one key per open of the sheet.
+  const idempotencyKey = useIdempotencyKey(true);
   const { t } = useTranslation(["vouchers", "common"]);
   const { methods } = usePaymentMethods();
   const { buyRate } = useSellRate();
@@ -49,19 +52,30 @@ export function VoucherCancelSheet({
   const cashUsd = parts.cash.usd;
   const cashLbp = parts.cash.lbp;
   const hasCash = !parts.legacy && (cashUsd > 0 || cashLbp > 0);
-  const hasAccount = !parts.legacy && (parts.account.usd > 0 || parts.account.lbp > 0);
-  const payoutCurrency: "USD" | "LBP" = cashUsd > 0 || cashLbp <= 0 ? "USD" : "LBP";
+  const hasAccount =
+    !parts.legacy && (parts.account.usd > 0 || parts.account.lbp > 0);
+  const payoutCurrency: "USD" | "LBP" =
+    cashUsd > 0 || cashLbp <= 0 ? "USD" : "LBP";
 
-  const allowedMethods = useMemo(() => voucherRefundMethodOptions(methods), [methods]);
+  const allowedMethods = useMemo(
+    () => voucherRefundMethodOptions(methods),
+    [methods],
+  );
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
-  const [effectiveRate, setEffectiveRate] = useState<number | undefined>(undefined);
+  const [effectiveRate, setEffectiveRate] = useState<number | undefined>(
+    undefined,
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const rate = effectiveRate ?? buyRate;
   // Built ONCE and used for both the coverage check and the payload (rule 22).
-  const payoutLegs = useMemo(() => toVoucherRefundLegs(paymentLines), [paymentLines]);
-  const covered = !hasCash || legsMatch(payoutLegs, { usd: cashUsd, lbp: cashLbp }, rate);
+  const payoutLegs = useMemo(
+    () => toVoucherRefundLegs(paymentLines),
+    [paymentLines],
+  );
+  const covered =
+    !hasCash || legsMatch(payoutLegs, { usd: cashUsd, lbp: cashLbp }, rate);
   const canConfirm = !submitting && covered;
 
   const handleConfirm = async () => {
@@ -69,11 +83,15 @@ export function VoucherCancelSheet({
     setSubmitting(true);
     setError(null);
     try {
-      const res = await api.vouchers.cancel(voucher.id, {
-        payments: hasCash ? payoutLegs : [],
-        ...(rate > 0 ? { exchange_rate: rate } : {}),
-        client_day: localDay(),
-      });
+      const res = await api.vouchers.cancel(
+        voucher.id,
+        {
+          payments: hasCash ? payoutLegs : [],
+          ...(rate > 0 ? { exchange_rate: rate } : {}),
+          client_day: localDay(),
+        },
+        { idempotencyKey },
+      );
       if (res.success) {
         onCancelled();
         onClose();
@@ -104,10 +122,13 @@ export function VoucherCancelSheet({
         <div className="flex items-start justify-between mb-4">
           <div>
             <h3 className="text-xl font-bold text-white">
-              {t("cancel.title")} <Ltr className="font-mono">{voucher.code}</Ltr>
+              {t("cancel.title")}{" "}
+              <Ltr className="font-mono">{voucher.code}</Ltr>
             </h3>
             {voucher.client_name && (
-              <p className="text-xs text-slate-400 mt-1">{voucher.client_name}</p>
+              <p className="text-xs text-slate-400 mt-1">
+                {voucher.client_name}
+              </p>
             )}
           </div>
           <button
@@ -143,8 +164,12 @@ export function VoucherCancelSheet({
                   </label>
                   <MultiPaymentInput
                     totals={[
-                      ...(cashUsd > 0 ? [{ amount: cashUsd, currency: "USD" }] : []),
-                      ...(cashLbp > 0 ? [{ amount: cashLbp, currency: "LBP" }] : []),
+                      ...(cashUsd > 0
+                        ? [{ amount: cashUsd, currency: "USD" }]
+                        : []),
+                      ...(cashLbp > 0
+                        ? [{ amount: cashLbp, currency: "LBP" }]
+                        : []),
                     ]}
                     side="buy"
                     payer="payout"
@@ -178,7 +203,8 @@ export function VoucherCancelSheet({
           >
             {submitting ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin" /> {t("cancel.processing")}
+                <Loader2 className="w-4 h-4 animate-spin" />{" "}
+                {t("cancel.processing")}
               </>
             ) : (
               t("cancel.confirm")

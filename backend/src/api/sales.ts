@@ -28,6 +28,7 @@ import {
   salesDateRangeSchema,
 } from "@liratek/core";
 import { emitEvent } from "../websocket/io.js";
+import { guardIdempotent, sendIdempotent } from "../middleware/idempotency.js";
 import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
@@ -175,31 +176,38 @@ router.post(
   validateRequest(saleProcessSchema),
   (req, res) => {
     const service = getSalesService();
-    const result = service.processSale(req.body, req.user!.userId);
+    // LIRA-401: a repeated Idempotency-Key replays the first reply; the
+    // socket event and the audit run only for a fresh booking.
+    sendIdempotent(
+      req,
+      res,
+      () => service.processSale(req.body, req.user!.userId),
+      {
+        onBooked: (result) => {
+          // Inside authenticateJWT's runWithTenant() scope (router.use above,
+          // this handler is fully synchronous) — getCurrentTenantId() resolves
+          // to the requesting tenant, never a guess.
+          emitEvent(getCurrentTenantId(), "sales:processed", {
+            id: result.id,
+            at: new Date().toISOString(),
+          });
 
-    if (result.success) {
-      // Inside authenticateJWT's runWithTenant() scope (router.use above,
-      // this handler is fully synchronous) — getCurrentTenantId() resolves
-      // to the requesting tenant, never a guess.
-      emitEvent(getCurrentTenantId(), "sales:processed", {
-        id: result.id,
-        at: new Date().toISOString(),
-      });
-
-      // Mirrors salesHandlers.ts's sales:process audit (create/sale) — only
-      // a sale that actually committed is audited (a guarded/failed sale,
-      // e.g. out of stock, returns { success:false } and is rolled back).
-      auditRest(req, {
-        action: "create",
-        entity_type: "sale",
-        entity_id: String(result.id ?? ""),
-        summary: `Processed sale (status: ${req.body.status})`,
-        metadata: {
-          status: req.body.status,
-          itemCount: req.body.items?.length,
+          // Mirrors salesHandlers.ts's sales:process audit (create/sale) — only
+          // a sale that actually committed is audited (a guarded/failed sale,
+          // e.g. out of stock, returns { success:false } and is rolled back).
+          auditRest(req, {
+            action: "create",
+            entity_type: "sale",
+            entity_id: String(result.id ?? ""),
+            summary: `Processed sale (status: ${req.body.status})`,
+            metadata: {
+              status: req.body.status,
+              itemCount: req.body.items?.length,
+            },
+          });
         },
-      });
-    }
+      },
+    );
 
     // Rule 19c: HTTP 200 even on a business-rule failure (e.g. out of stock)
     // — the adapter branches on `result.success`, never on status code. This
@@ -209,7 +217,6 @@ router.post(
     // resolved value, so a business-rule refusal was swallowed into a
     // generic "unexpected error" toast on web while desktop (which never
     // throws on IPC) showed the real reason.
-    res.json(result);
   },
 );
 
@@ -253,33 +260,45 @@ router.post("/:id/refund", requireRole(["admin"]), (req, res) => {
   try {
     const userId = req.user!.userId;
     const txnService = getTransactionService();
-    const refundId = txnService.refundBySaleId(parsed.data.saleId, userId, {
-      refundLegs: parsed.data.refundLegs,
-      refundUnitExtras: parsed.data.unitExtras,
-      exchangeRate: parsed.data.exchangeRate,
-      keptChange: parsed.data.keptChange
-        ? {
-            usd: parsed.data.keptChange.kept_change_usd,
-            lbp: parsed.data.keptChange.kept_change_lbp,
-          }
-        : undefined,
-      addedChange: parsed.data.addedChange,
-    });
-    // Mirrors salesHandlers.ts's sales:refund audit (refund/sale).
-    auditRest(req, {
-      action: "refund",
-      entity_type: "sale",
-      entity_id: String(parsed.data.saleId),
-      summary: `Refunded sale #${parsed.data.saleId}`,
-      metadata: {
-        refundId,
-        refundLegs: parsed.data.refundLegs,
-        unitExtras: parsed.data.unitExtras,
-        exchangeRate: parsed.data.exchangeRate,
-        keptChange: parsed.data.keptChange,
+    // LIRA-401: the refund runs inside the guard, so a replayed key answers
+    // with the first refund's reply instead of "already refunded".
+    sendIdempotent(
+      req,
+      res,
+      () => ({
+        success: true as const,
+        refundId: txnService.refundBySaleId(parsed.data.saleId, userId, {
+          refundLegs: parsed.data.refundLegs,
+          refundUnitExtras: parsed.data.unitExtras,
+          exchangeRate: parsed.data.exchangeRate,
+          keptChange: parsed.data.keptChange
+            ? {
+                usd: parsed.data.keptChange.kept_change_usd,
+                lbp: parsed.data.keptChange.kept_change_lbp,
+              }
+            : undefined,
+          addedChange: parsed.data.addedChange,
+        }),
+      }),
+      {
+        onBooked: ({ refundId }) => {
+          // Mirrors salesHandlers.ts's sales:refund audit (refund/sale).
+          auditRest(req, {
+            action: "refund",
+            entity_type: "sale",
+            entity_id: String(parsed.data.saleId),
+            summary: `Refunded sale #${parsed.data.saleId}`,
+            metadata: {
+              refundId,
+              refundLegs: parsed.data.refundLegs,
+              unitExtras: parsed.data.unitExtras,
+              exchangeRate: parsed.data.exchangeRate,
+              keptChange: parsed.data.keptChange,
+            },
+          });
+        },
       },
-    });
-    res.json({ success: true, refundId });
+    );
   } catch (err) {
     res.json({
       success: false,
@@ -320,37 +339,46 @@ router.post("/:id/refund-item", requireRole(["admin"]), (req, res) => {
   try {
     const userId = req.user!.userId;
     const service = getSalesService();
-    const result = service.refundSaleItem({
-      saleId: parsed.data.saleId,
-      saleItemId: parsed.data.saleItemId,
-      refundQuantity: parsed.data.refundQuantity,
-      refundLegs: parsed.data.refundLegs,
-      unitExtras: parsed.data.unitExtras,
-      exchangeRate: parsed.data.exchangeRate,
-      keptChange: parsed.data.keptChange
-        ? {
-            usd: parsed.data.keptChange.kept_change_usd,
-            lbp: parsed.data.keptChange.kept_change_lbp,
-          }
-        : undefined,
-      userId,
-    });
-    // Mirrors salesHandlers.ts's sales:refund-item audit (refund/sale_item)
-    // — unconditional, same as the IPC handler (not gated on result.success).
-    auditRest(req, {
-      action: "refund",
-      entity_type: "sale_item",
-      entity_id: String(parsed.data.saleItemId),
-      summary: `Refunded ${parsed.data.refundQuantity}x item #${parsed.data.saleItemId} from sale #${parsed.data.saleId}`,
-      metadata: {
+    // LIRA-401: guarded. The audit below used to run on every call, success
+    // or not (IPC parity); it now runs once per fresh booking, success or
+    // not — never on a replay.
+    const outcome = guardIdempotent(req, res, () =>
+      service.refundSaleItem({
         saleId: parsed.data.saleId,
+        saleItemId: parsed.data.saleItemId,
         refundQuantity: parsed.data.refundQuantity,
         refundLegs: parsed.data.refundLegs,
         unitExtras: parsed.data.unitExtras,
         exchangeRate: parsed.data.exchangeRate,
-        keptChange: parsed.data.keptChange,
-      },
-    });
+        keptChange: parsed.data.keptChange
+          ? {
+              usd: parsed.data.keptChange.kept_change_usd,
+              lbp: parsed.data.keptChange.kept_change_lbp,
+            }
+          : undefined,
+        userId,
+      }),
+    );
+    if (!outcome) return;
+    const { replayed, result } = outcome;
+    if (!replayed) {
+      // Mirrors salesHandlers.ts's sales:refund-item audit (refund/sale_item)
+      // — unconditional, same as the IPC handler (not gated on result.success).
+      auditRest(req, {
+        action: "refund",
+        entity_type: "sale_item",
+        entity_id: String(parsed.data.saleItemId),
+        summary: `Refunded ${parsed.data.refundQuantity}x item #${parsed.data.saleItemId} from sale #${parsed.data.saleId}`,
+        metadata: {
+          saleId: parsed.data.saleId,
+          refundQuantity: parsed.data.refundQuantity,
+          refundLegs: parsed.data.refundLegs,
+          unitExtras: parsed.data.unitExtras,
+          exchangeRate: parsed.data.exchangeRate,
+          keptChange: parsed.data.keptChange,
+        },
+      });
+    }
     // Rule 19c envelope parity: HTTP 200 even on a business-rule failure —
     // the frontend adapter branches on result.success, not the status code.
     res.json(result);
@@ -382,21 +410,26 @@ router.post("/undo-item-refund", requireRole(["admin"]), (req, res) => {
   try {
     const userId = req.user!.userId;
     const service = getSalesService();
-    const result = service.undoItemRefund({
-      refundTransactionId: parsed.data.refundTransactionId,
-      userId,
-    });
-    if (result.success) {
-      auditRest(req, {
-        action: "refund",
-        entity_type: "transaction",
-        entity_id: String(parsed.data.refundTransactionId),
-        summary: `Undid refund #${parsed.data.refundTransactionId}`,
-        metadata: { refundTransactionId: parsed.data.refundTransactionId },
-      });
-    }
     // Rule 19c envelope parity: HTTP 200 even on a business-rule failure.
-    res.json(result);
+    sendIdempotent(
+      req,
+      res,
+      () =>
+        service.undoItemRefund({
+          refundTransactionId: parsed.data.refundTransactionId,
+          userId,
+        }),
+      {
+        onBooked: () =>
+          auditRest(req, {
+            action: "refund",
+            entity_type: "transaction",
+            entity_id: String(parsed.data.refundTransactionId),
+            summary: `Undid refund #${parsed.data.refundTransactionId}`,
+            metadata: { refundTransactionId: parsed.data.refundTransactionId },
+          }),
+      },
+    );
   } catch (err) {
     res.json({
       success: false,

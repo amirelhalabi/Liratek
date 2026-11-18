@@ -78,6 +78,7 @@ import {
   useRechargeBasketCheckout,
   useRechargePartnerOrder,
 } from "../hooks/useRechargeBasketCheckout";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import {
   basketEntries,
   basketItemCount,
@@ -657,6 +658,19 @@ function KatshFormInner({
   } = useCatalogBasket();
   const checkoutBasket = useRechargeBasketCheckout();
   const submitPartnerOrder = useRechargePartnerOrder();
+  // LIRA-401 — one key per payment on this always-visible form, renewed after
+  // a fully successful submit. The items call and each bill get their own
+  // deterministic suffix (`-items`, `-b<bill id>`), so a retry after a bill
+  // failed replays what was already booked instead of booking it twice.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
+  const callIdempotencyKey = (suffix: string) =>
+    idempotencyKey
+      ? `${idempotencyKey}-${suffix.replace(/[^A-Za-z0-9-]/g, "")}`.slice(
+          0,
+          128,
+        )
+      : undefined;
   // LIRA-327: staged bills live in the basket too (each under the tab it was
   // added on), so they survive tab switches and are paid with everything.
   const { bills, setBills, billLines } = useBasketBills();
@@ -1653,67 +1667,70 @@ function KatshFormInner({
       const hasTelecomReturns = telecomCreditReturnsLines.length > 0;
 
       try {
-        const result = await api.addOMTTransaction({
-          ...buildCatalogSalePayload({
-            // LIRA-326: the cart's own provider, never the tab's.
-            provider: saleProvider,
-            lines: catalogLines,
-            paidByMethod: finalPaymentMethod,
-            payments: paymentsPayload,
-          }),
-          // Web-only on top of the shared cart: the discount lowers what the
-          // customer pays (and the margin) …
-          amount: discountedTotal,
-          commission: aggregatedCommission,
-          // LIRA-329: … and is kept as typed on the sale's details.
-          ...(discount > 0
-            ? { typedDiscount: { amount: discount, currency: "LBP" } }
-            : {}),
-          // … and the carrier's checkout total covers the WHOLE checkout
-          // (items + bills), not just this cart.
-          checkoutTotal:
-            paymentsPayload !== undefined ? checkoutTotal : undefined,
-          // Payment-Legs Integrity plan (Wave 9 + false-reject fix): the
-          // rate this form's own PaymentSheet/MultiPaymentInput actually
-          // converted tender at — captured live via onExchangeRateChange
-          // (falls back to the `exchangeRate` prop if the sheet never fired,
-          // e.g. no legs at all), so the repository reconciles legs at the
-          // SAME rate the till used instead of falling back to its own
-          // (sell-side) stamped rate.
-          tender_exchange_rate:
-            paymentsPayload !== undefined
-              ? (effectiveRate ?? exchangeRate)
-              : undefined,
-          // Kept change rides the legs-carrying items txn (lira-095 convention).
-          ...(keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
-            ? {
-                kept_change_usd: keptChange.usd,
-                kept_change_lbp: keptChange.lbp,
-              }
-            : {}),
-          // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): the aggregated items
-          // call is always the checkout's carrier when it exists (bills only
-          // ever carry legs when there are NO items — see itemsCarriedLegs
-          // below).
-          ...(useSplitGroup
-            ? {
-                split_group: splitGroupId,
-                split_role: "carrier" as const,
-                split_units: totalCheckoutUnits,
-              }
-            : {}),
-          // LIRA-090 §6.2: per-line credit-return array for the aggregated cart.
-          ...(hasTelecomReturns
-            ? { telecomCreditReturns: telecomCreditReturnsLines }
-            : {}),
-          // LIRA-319: the items call is the checkout's carrier.
-          ...extraField,
-          clientId: resolvedClientId || undefined,
-          clientName: clientName || undefined,
-          // LIRA-366: the cashier's own note.
-          typedNote: typedNote || undefined,
-          transaction_time: transactionTime,
-        });
+        const result = await api.addOMTTransaction(
+          {
+            ...buildCatalogSalePayload({
+              // LIRA-326: the cart's own provider, never the tab's.
+              provider: saleProvider,
+              lines: catalogLines,
+              paidByMethod: finalPaymentMethod,
+              payments: paymentsPayload,
+            }),
+            // Web-only on top of the shared cart: the discount lowers what the
+            // customer pays (and the margin) …
+            amount: discountedTotal,
+            commission: aggregatedCommission,
+            // LIRA-329: … and is kept as typed on the sale's details.
+            ...(discount > 0
+              ? { typedDiscount: { amount: discount, currency: "LBP" } }
+              : {}),
+            // … and the carrier's checkout total covers the WHOLE checkout
+            // (items + bills), not just this cart.
+            checkoutTotal:
+              paymentsPayload !== undefined ? checkoutTotal : undefined,
+            // Payment-Legs Integrity plan (Wave 9 + false-reject fix): the
+            // rate this form's own PaymentSheet/MultiPaymentInput actually
+            // converted tender at — captured live via onExchangeRateChange
+            // (falls back to the `exchangeRate` prop if the sheet never fired,
+            // e.g. no legs at all), so the repository reconciles legs at the
+            // SAME rate the till used instead of falling back to its own
+            // (sell-side) stamped rate.
+            tender_exchange_rate:
+              paymentsPayload !== undefined
+                ? (effectiveRate ?? exchangeRate)
+                : undefined,
+            // Kept change rides the legs-carrying items txn (lira-095 convention).
+            ...(keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
+              ? {
+                  kept_change_usd: keptChange.usd,
+                  kept_change_lbp: keptChange.lbp,
+                }
+              : {}),
+            // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): the aggregated items
+            // call is always the checkout's carrier when it exists (bills only
+            // ever carry legs when there are NO items — see itemsCarriedLegs
+            // below).
+            ...(useSplitGroup
+              ? {
+                  split_group: splitGroupId,
+                  split_role: "carrier" as const,
+                  split_units: totalCheckoutUnits,
+                }
+              : {}),
+            // LIRA-090 §6.2: per-line credit-return array for the aggregated cart.
+            ...(hasTelecomReturns
+              ? { telecomCreditReturns: telecomCreditReturnsLines }
+              : {}),
+            // LIRA-319: the items call is the checkout's carrier.
+            ...extraField,
+            clientId: resolvedClientId || undefined,
+            clientName: clientName || undefined,
+            // LIRA-366: the cashier's own note.
+            typedNote: typedNote || undefined,
+            transaction_time: transactionTime,
+          },
+          { idempotencyKey: callIdempotencyKey("items") },
+        );
 
         if (result?.success) {
           allSucceeded = true;
@@ -1754,56 +1771,59 @@ function KatshFormInner({
         const bill = pendingBills[i];
         const isCarrier = !itemsCarriedLegs && i === 0;
         try {
-          const billResult = await api.addOMTTransaction({
-            // LIRA-327: the bill's OWN provider (the tab it was added on).
-            provider: bill.provider,
-            serviceType: "BILL",
-            amount: bill.amount,
-            cost: bill.amount,
-            price: bill.amount,
-            currency: bill.currency,
-            commission: 0,
-            paidByMethod: finalPaymentMethod,
-            payments: isCarrier ? paymentsPayload : undefined,
-            checkoutTotal:
-              isCarrier && paymentsPayload !== undefined
-                ? checkoutTotal
-                : undefined,
-            // Payment-Legs Integrity plan (Wave 9 + false-reject fix) — see
-            // the items branch above for the full rationale.
-            tender_exchange_rate:
-              isCarrier && paymentsPayload !== undefined
-                ? (effectiveRate ?? exchangeRate)
-                : undefined,
-            // Kept change rides the legs-carrying first bill (no items case).
-            ...(isCarrier &&
-            keptChange &&
-            (keptChange.usd > 0 || keptChange.lbp > 0)
-              ? {
-                  kept_change_usd: keptChange.usd,
-                  kept_change_lbp: keptChange.lbp,
-                }
-              : {}),
-            deferPayment: isCarrier ? undefined : true,
-            // LIRA-319: only the carrier bill (no items) takes the extra.
-            ...(isCarrier ? extraField : {}),
-            // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+) — see the items
-            // branch above for the full rationale.
-            ...(useSplitGroup
-              ? {
-                  split_group: splitGroupId,
-                  split_role: isCarrier
-                    ? ("carrier" as const)
-                    : ("sibling" as const),
-                  split_units: totalCheckoutUnits,
-                }
-              : {}),
-            clientId: resolvedClientId || undefined,
-            clientName: clientName || undefined,
-            // LIRA-366: every bill row carries the cashier's note too.
-            typedNote: typedNote || undefined,
-            transaction_time: transactionTime,
-          });
+          const billResult = await api.addOMTTransaction(
+            {
+              // LIRA-327: the bill's OWN provider (the tab it was added on).
+              provider: bill.provider,
+              serviceType: "BILL",
+              amount: bill.amount,
+              cost: bill.amount,
+              price: bill.amount,
+              currency: bill.currency,
+              commission: 0,
+              paidByMethod: finalPaymentMethod,
+              payments: isCarrier ? paymentsPayload : undefined,
+              checkoutTotal:
+                isCarrier && paymentsPayload !== undefined
+                  ? checkoutTotal
+                  : undefined,
+              // Payment-Legs Integrity plan (Wave 9 + false-reject fix) — see
+              // the items branch above for the full rationale.
+              tender_exchange_rate:
+                isCarrier && paymentsPayload !== undefined
+                  ? (effectiveRate ?? exchangeRate)
+                  : undefined,
+              // Kept change rides the legs-carrying first bill (no items case).
+              ...(isCarrier &&
+              keptChange &&
+              (keptChange.usd > 0 || keptChange.lbp > 0)
+                ? {
+                    kept_change_usd: keptChange.usd,
+                    kept_change_lbp: keptChange.lbp,
+                  }
+                : {}),
+              deferPayment: isCarrier ? undefined : true,
+              // LIRA-319: only the carrier bill (no items) takes the extra.
+              ...(isCarrier ? extraField : {}),
+              // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+) — see the items
+              // branch above for the full rationale.
+              ...(useSplitGroup
+                ? {
+                    split_group: splitGroupId,
+                    split_role: isCarrier
+                      ? ("carrier" as const)
+                      : ("sibling" as const),
+                    split_units: totalCheckoutUnits,
+                  }
+                : {}),
+              clientId: resolvedClientId || undefined,
+              clientName: clientName || undefined,
+              // LIRA-366: every bill row carries the cashier's note too.
+              typedNote: typedNote || undefined,
+              transaction_time: transactionTime,
+            },
+            { idempotencyKey: callIdempotencyKey(`b${bill.id}`) },
+          );
           if (billResult?.success) {
             if (isCarrier) carrierSourceId = billResult.id;
           } else {
@@ -1837,6 +1857,7 @@ function KatshFormInner({
     }
 
     if (allSucceeded) {
+      resetIdempotencyKey();
       appEvents.emit(
         "notification:show",
         "Bills processed successfully",

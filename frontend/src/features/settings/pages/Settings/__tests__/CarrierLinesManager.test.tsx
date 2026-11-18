@@ -84,6 +84,7 @@ describe("CarrierLinesManager", () => {
           carrier: "mtc",
           phone_number: "70999999",
         }),
+        expect.objectContaining({ idempotencyKey: expect.any(String) }),
       ),
     );
   });

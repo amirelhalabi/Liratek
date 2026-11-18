@@ -358,8 +358,20 @@ export type RestoreErrorCode =
 /** A refusal: `code` when the server sends one (else `error` may itself be
  * the code); `shopName` only with `OTHER_SHOP`. */
 export type RestoreResult<T> =
-  | { success: true; data: T; error?: undefined; code?: undefined; shopName?: undefined }
-  | { success: false; data?: undefined; error?: string; code?: string; shopName?: string };
+  | {
+      success: true;
+      data: T;
+      error?: undefined;
+      code?: undefined;
+      shopName?: undefined;
+    }
+  | {
+      success: false;
+      data?: undefined;
+      error?: string;
+      code?: string;
+      shopName?: string;
+    };
 
 export type RestoreBeforeCopy = {
   restoreId: number;
@@ -987,6 +999,17 @@ export type ApiResult = {
   id?: number;
 };
 
+/**
+ * LIRA-401 — per-call options for a money write. `idempotencyKey` is sent as
+ * the `idempotency-key` header on the web (REST) transport so a retry or a
+ * double tap with the same key is booked once; the desktop (IPC) transport
+ * ignores it. Generate keys with `useIdempotencyKey` (frontend
+ * `shared/hooks/useIdempotencyKey.ts`).
+ */
+export interface WriteOptions {
+  idempotencyKey?: string | undefined;
+}
+
 export type ApiMeResult = ApiResult & {
   user?: ApiUser;
 };
@@ -1176,6 +1199,7 @@ export type MobileServiceItemEntity = {
 export type LotoCheckpointApi = {
   create: (
     data: LotoCheckpointCreatePayload,
+    opts?: WriteOptions,
   ) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
   get: (
     id: number,
@@ -1200,12 +1224,15 @@ export type LotoCheckpointApi = {
     id: number,
     settledAt?: string,
     settlementId?: number,
+    opts?: WriteOptions,
   ) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
   settle: (
     data: LotoCheckpointSettlePayload,
+    opts?: WriteOptions,
   ) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
   settleBatch: (
     data: LotoCheckpointsSettleBatchPayload,
+    opts?: WriteOptions,
   ) => Promise<{ success: boolean; checkpoints?: any[]; error?: string }>;
   getTotalSalesUnsettled: () => Promise<{
     success: boolean;
@@ -1231,6 +1258,7 @@ export type LotoCheckpointApi = {
 export type LotoCashPrizeApi = {
   create: (
     data: LotoCashPrizePayload,
+    opts?: WriteOptions,
   ) => Promise<{ success: boolean; prize?: any; error?: string }>;
   getByDateRange: (
     from: string,
@@ -1245,6 +1273,7 @@ export type LotoCashPrizeApi = {
     id: number,
     reimbursedDate?: string,
     settlementId?: number,
+    opts?: WriteOptions,
   ) => Promise<{ success: boolean; prize?: any; error?: string }>;
   getTotalUnreimbursed: () => Promise<{
     success: boolean;
@@ -1256,11 +1285,15 @@ export type LotoCashPrizeApi = {
 export type LotoFeesApi = {
   create: (
     data: LotoFeePayload,
+    opts?: WriteOptions,
   ) => Promise<{ success: boolean; fee?: any; error?: string }>;
   get: (
     year: number,
   ) => Promise<{ success: boolean; fees?: any[]; error?: string }>;
-  pay: (id: number) => Promise<{ success: boolean; fee?: any; error?: string }>;
+  pay: (
+    id: number,
+    opts?: WriteOptions,
+  ) => Promise<{ success: boolean; fee?: any; error?: string }>;
 };
 
 export type LotoSettingsApi = {
@@ -1278,6 +1311,7 @@ export type LotoSettingsApi = {
 export type LotoApi = {
   sell: (
     data: LotoSellPayload,
+    opts?: WriteOptions,
   ) => Promise<{ success: boolean; ticket?: any; error?: string }>;
   get: (
     id: number,
@@ -1517,11 +1551,13 @@ export type ApiAdapter = {
    *  injected server-side by both transports, never sent by the client. */
   receiveStock: (
     payload: ReceiveStockPayload,
+    opts?: WriteOptions,
   ) => Promise<{ success: boolean; error?: string; batch_id?: number }>;
   /** LIRA-077: set-absolute (newQuantity) or delta stock correction, always
    *  with a reason for the stock_adjustments audit trail. */
   adjustStock: (
     payload: StockAdjustPayload,
+    opts?: WriteOptions,
   ) => Promise<{ success: boolean; error?: string }>;
   /** LIRA-077: adjustment history — one product, or the most recent across
    *  all products when productId is omitted. */
@@ -1610,7 +1646,10 @@ export type ApiAdapter = {
   deleteDraft: (
     saleId: number,
   ) => Promise<{ success: boolean; error?: string }>;
-  processSale: (payload: SaleProcessPayload) => Promise<ProcessSaleResult>;
+  processSale: (
+    payload: SaleProcessPayload,
+    opts?: WriteOptions,
+  ) => Promise<ProcessSaleResult>;
   /** LIRA-296 SF-2 — completed/refunded sales between two shop days
    *  (inclusive). Read: the raw row array; a refusal throws. */
   getSalesByDateRange: (
@@ -1643,6 +1682,7 @@ export type ApiAdapter = {
     keptChange?: SaleRefundPayload["keptChange"],
     /** LIRA-342 — the customer gave change back. */
     addedChange?: SaleRefundPayload["addedChange"],
+    opts?: WriteOptions,
   ) => Promise<{ success: boolean; refundId?: number; error?: string }>;
   /** Refund a specific line item off a sale, by quantity (admin only).
    *  LIRA-231: same optional `refundLegs` override, validated against THIS
@@ -1658,6 +1698,7 @@ export type ApiAdapter = {
     exchangeRate?: number,
     /** Owner decision 2026-10-07 — refund kept change. */
     keptChange?: SaleRefundItemPayload["keptChange"],
+    opts?: WriteOptions,
   ) => Promise<{ success: boolean; refundId?: number; error?: string }>;
   /** LIRA-147 — admin-only "Undo refund" for a standalone per-item refund.
    *  `refundTransactionId` is the REFUND row's own transaction id —
@@ -1665,6 +1706,7 @@ export type ApiAdapter = {
    *  row's own metadata. */
   undoItemRefund: (
     refundTransactionId: SaleUndoItemRefundInput["refundTransactionId"],
+    opts?: WriteOptions,
   ) => Promise<{ success: boolean; undoId?: number; error?: string }>;
   /**
    * LIRA-231 — POS refund preview (both refund buttons): the sale's (or,
@@ -1728,7 +1770,10 @@ export type ApiAdapter = {
    * makes that class of drift impossible: if the schema changes, this type
    * changes with it.
    */
-  addRepayment: (payload: AddRepaymentPayload) => Promise<ApiResult>;
+  addRepayment: (
+    payload: AddRepaymentPayload,
+    opts?: WriteOptions,
+  ) => Promise<ApiResult>;
   /** LIRA-304 — open debt items for the repayment picker / preview. */
   getOpenDebtItems: (clientId: number) => Promise<OpenDebtItem[]>;
   /** LIRA-347 — one month of a client's debt items for the settle calendar
@@ -1739,6 +1784,7 @@ export type ApiAdapter = {
    *  per currency. */
   debtWriteOff: (
     payload: DebtWriteOffPayload,
+    opts?: WriteOptions,
   ) => Promise<ApiResult & { id?: number }>;
   getClientBalance: (clientId: number) => Promise<{
     success: boolean;
@@ -1749,13 +1795,16 @@ export type ApiAdapter = {
    *  (rule 21), incl. the payout kept change keptChangeUSD/keptChangeLBP. */
   cashOut: (
     payload: DebtCashOutPayload,
+    opts?: WriteOptions,
   ) => Promise<{ success: boolean; id?: number; error?: string }>;
   addAccountEntry: (
     payload: DebtAccountEntryPayload,
+    opts?: WriteOptions,
   ) => Promise<{ success: boolean; id?: number; error?: string }>;
   /** Consume a client's prepaid credit balance (IPC: debt.useCredit). */
   consumeCredit: (
     payload: DebtUseCreditPayload,
+    opts?: WriteOptions,
   ) => Promise<{ success: boolean; id?: number; error?: string }>;
   /** Edit a debt_ledger row's note (IPC: debt.updateMetadata). */
   updateDebtMetadata: (
@@ -1772,7 +1821,10 @@ export type ApiAdapter = {
     limit?: number,
     opts?: { all?: boolean },
   ) => Promise<any[]>;
-  addExchangeTransaction: (payload: ExchangeSubmitPayload) => Promise<
+  addExchangeTransaction: (
+    payload: ExchangeSubmitPayload,
+    opts?: WriteOptions,
+  ) => Promise<
     ApiResult & {
       id?: number;
       /** The server-authoritative final `transactions.profit_usd` for this
@@ -1806,6 +1858,7 @@ export type ApiAdapter = {
    *  change back, not-returned claim). Write envelope. */
   addExpense: (
     payload: CreateExpenseRequest,
+    opts?: WriteOptions,
   ) => Promise<ApiResult & { id?: number }>;
   deleteExpense: (id: number) => Promise<ApiResult>;
   /** LIRA-262 — record that the shop used one of its own items (inventory
@@ -1813,6 +1866,7 @@ export type ApiAdapter = {
    *  cost; no cash moves. Write envelope. */
   addStockExpense: (
     payload: CreateStockExpenseInput,
+    opts?: WriteOptions,
   ) => Promise<ApiResult & { id?: number }>;
   /** Edit non-financial metadata (description/category/note) on an expense
    *  row (the History modal's inline edit). */
@@ -1870,7 +1924,10 @@ export type ApiAdapter = {
   }>;
   /** Payload derived from `createRechargeSchema` (rule 21) — LIRA-185 #1
    *  added `discount`; a hand-typed copy would not have it. */
-  processRecharge: (payload: CreateRechargePayload) => Promise<ApiResult>;
+  processRecharge: (
+    payload: CreateRechargePayload,
+    opts?: WriteOptions,
+  ) => Promise<ApiResult>;
   /** Funding-source drawer balances for the top-up modal opened by
    *  `handleTopUpClick` — feeds all four top-up arms below. Previously a
    *  raw, unguarded `window.api.recharge.getDrawerBalances()` call with no
@@ -1878,18 +1935,28 @@ export type ApiAdapter = {
   getRechargeDrawerBalances: () => Promise<RechargeDrawerBalance[]>;
   /** Generic drawer-to-drawer top-up into a provider drawer (desktop's only
    *  path to `OMT_App` — CARRIER_LINES_VALIDITY_PLAN.md §8.3). */
-  topUpApp: (payload: TopUpAppPayload) => Promise<ApiResult>;
+  topUpApp: (
+    payload: TopUpAppPayload,
+    opts?: WriteOptions,
+  ) => Promise<ApiResult>;
   /** Katsh/iPick/OMT App: the supplier extends credit — no source drawer
    *  moves (D2/D4 — OMT App's default funding path, LIRA-190). */
-  topUpFromSupplier: (payload: TopUpFromSupplierPayload) => Promise<ApiResult>;
+  topUpFromSupplier: (
+    payload: TopUpFromSupplierPayload,
+    opts?: WriteOptions,
+  ) => Promise<ApiResult>;
   /** OMT open-credit account (LIRA-192) — the mirror of topUpFromSupplier:
    *  OMT_App wallet balance leaves, the OMT account is credited principal +
    *  commission (recognised as profit at settlement, wave 2). Admin only. */
   cashoutToSupplier: (
     payload: RechargeCashoutPayload,
+    opts?: WriteOptions,
   ) => Promise<{ success: boolean; error?: string; commission?: number }>;
   /** Whish App: a partner extends credit — no source drawer moves. */
-  topUpFromPartner: (payload: TopUpFromPartnerPayload) => Promise<ApiResult>;
+  topUpFromPartner: (
+    payload: TopUpFromPartnerPayload,
+    opts?: WriteOptions,
+  ) => Promise<ApiResult>;
   /**
    * Whish App: a client transfers credits, the shop pays out via
    * `payments[]` legs. Payload type is `TopUpFromClientInput`, derived from
@@ -1898,7 +1965,10 @@ export type ApiAdapter = {
    * is required, and `clientId` must be declared here for rule 11
    * propagation to typecheck end to end.
    */
-  topUpFromClient: (payload: TopUpFromClientInput) => Promise<ApiResult>;
+  topUpFromClient: (
+    payload: TopUpFromClientInput,
+    opts?: WriteOptions,
+  ) => Promise<ApiResult>;
   /** Edit non-financial metadata (phone number / client name / note) on a
    *  recharge row — the History modal's inline edit (LIRA-109; IPC:
    *  recharge.updateMetadata). Was the last raw `window.api.recharge.*` call
@@ -1925,10 +1995,14 @@ export type ApiAdapter = {
    *  the primary cash drawer may go negative. */
   addOMTTransaction: (
     payload: CreateFinancialServicePayload,
+    opts?: WriteOptions,
   ) => Promise<ApiResult & { id?: number; code?: string; details?: unknown }>;
   /** LIRA-326 — Mobile Recharge basket of 2+ providers, paid once; recorded
    *  as an automatic walk-in customer session. */
-  rechargeBasketCheckout: (payload: RechargeBasketCheckoutPayload) => Promise<
+  rechargeBasketCheckout: (
+    payload: RechargeBasketCheckoutPayload,
+    opts?: WriteOptions,
+  ) => Promise<
     ApiResult & {
       sessionId?: number;
       checkoutTotalUsd?: number;
@@ -1940,6 +2014,7 @@ export type ApiAdapter = {
    *  provider's partner sales booked in one all-or-nothing submit. */
   rechargePartnerOrder: (
     payload: RechargePartnerOrderPayload,
+    opts?: WriteOptions,
   ) => Promise<ApiResult & { ids?: number[] }>;
   /** A single financial_services record by id — the Debts page's
    *  service-backed debt-detail "eye" button. Raw read (null when missing). */
@@ -1960,6 +2035,7 @@ export type ApiAdapter = {
    *  `code: "INSUFFICIENT_DRAWER_FUNDS"` if `fromDrawer` lacks funds. */
   transferBetweenDrawers: (
     data: CreateDrawerTransferPayload,
+    opts?: WriteOptions,
   ) => Promise<ApiResult & { id?: number; code?: string; details?: unknown }>;
 
   // ---------------------------------------------------------------------------
@@ -1968,6 +2044,7 @@ export type ApiAdapter = {
   getMaintenanceJobs: (statusFilter?: string) => Promise<any[]>;
   saveMaintenanceJob: (
     payload: SaveMaintenanceJobPayload,
+    opts?: WriteOptions,
   ) => Promise<ApiResult & { id?: number }>;
   deleteMaintenanceJob: (id: number) => Promise<ApiResult>;
   // LIRA-176 phase 6 — one job's status transition history. Reads return the
@@ -2020,6 +2097,7 @@ export type ApiAdapter = {
   ) => Promise<ApiResult>;
   createCheckpoint: (
     data: CreateCheckpointPayload,
+    opts?: WriteOptions,
   ) => Promise<{ success: boolean; id?: number; error?: string }>;
   /** LIRA-335 — `open_only` keeps only checkpoints with an open difference;
    *  each record carries its `differences`, and `open_count` is how many are
@@ -2040,6 +2118,7 @@ export type ApiAdapter = {
   /** LIRA-335 — admin only; the actor is the signed-in user. */
   closeCheckpointDifference: (
     input: CloseCheckpointDifferenceInput,
+    opts?: WriteOptions,
   ) => Promise<{
     success: boolean;
     data?: CheckpointDifferenceView;
@@ -2271,6 +2350,7 @@ export type ApiAdapter = {
   addSupplierLedgerEntry: (
     supplierId: number,
     data: Omit<SupplierLedgerEntryPayload, "supplier_id">,
+    opts?: WriteOptions,
   ) => Promise<ApiResult & { id?: number }>;
   getUnsettledTransactions: (provider: string) => Promise<any[]>;
   /** Payload derived from the core `supplierSettleSchema` (rule 21) —
@@ -2278,10 +2358,12 @@ export type ApiAdapter = {
    *  2026-10-07, stamped on SUPPLIER_SETTLEMENT). */
   settleTransactions: (
     data: SupplierSettleInput,
+    opts?: WriteOptions,
   ) => Promise<ApiResult & { id?: number }>;
   /** Pay a supplier down / record a supplier paying us, via payment legs. */
   recordSupplierCashflow: (
     data: SupplierCashflowPayload,
+    opts?: WriteOptions,
   ) => Promise<ApiResult & { id?: number }>;
   /**
    * OMT open-credit account settlement (LIRA-189, CONTRACT_W2.md §2.1) — ONE
@@ -2300,6 +2382,7 @@ export type ApiAdapter = {
   settleSupplierAccount: (
     accountSupplierId: number,
     data: Omit<SupplierSettleAccountPayload, "account_supplier_id">,
+    opts?: WriteOptions,
   ) => Promise<ApiResult & { id?: number }>;
   /**
    * LIRA-344 — Remove credit: close one open OMT account credit OMT will not
@@ -2310,6 +2393,7 @@ export type ApiAdapter = {
   removeSupplierAccountCredit: (
     accountSupplierId: number,
     data: Omit<RemoveAccountCreditPayload, "account_supplier_id">,
+    opts?: WriteOptions,
   ) => Promise<
     ApiResult & { id?: number; transaction_id?: number; expense_id?: number }
   >;
@@ -2352,11 +2436,17 @@ export type ApiAdapter = {
    * success (no `success` wrapper) and only `{ success: false, error }` on
    * failure — this passes the result through unchanged, it does not reshape.
    */
-  createSupplierPurchase: (data: SupplierPurchaseCreatePayload) => Promise<any>;
+  createSupplierPurchase: (
+    data: SupplierPurchaseCreatePayload,
+    opts?: WriteOptions,
+  ) => Promise<any>;
   /** LIRA-087 (migration v189) — record a supplier debt without a product
    *  line yet; a later `receiveStock` call can attach products to it via
    *  `attach_to_recorded_debt_id`. */
-  recordSupplierDebt: (data: SupplierRecordDebtPayload) => Promise<{
+  recordSupplierDebt: (
+    data: SupplierRecordDebtPayload,
+    opts?: WriteOptions,
+  ) => Promise<{
     success: boolean;
     ledgerEntryId?: number;
     transactionId?: number;
@@ -2484,13 +2574,18 @@ export type ApiAdapter = {
   /** Recharge a line held for sale; its cost is added to its cost and price. */
   rechargeResaleLine: (
     data: RechargeResaleLineInput,
+    opts?: WriteOptions,
   ) => Promise<ResaleLineRechargeResult>;
   /** Give part of a line held for sale's credit back to a shop line (LIRA-337). */
   giveBackResaleLineCredit: (
     data: GiveBackResaleLineInput,
+    opts?: WriteOptions,
   ) => Promise<ResaleLineGiveBackResult>;
   /** Admin: write off a LOST line held for sale (books its cost as a loss). */
-  writeOffResaleLine: (data: WriteOffResaleLineInput) => Promise<{
+  writeOffResaleLine: (
+    data: WriteOffResaleLineInput,
+    opts?: WriteOptions,
+  ) => Promise<{
     success: boolean;
     data?: { expense_id: number };
     error?: string;
@@ -2510,10 +2605,12 @@ export type ApiAdapter = {
   /** Record a card recharged onto the wrong number (its cost is a loss). */
   recordWrongNumber: (
     data: RecordWrongNumberInput,
+    opts?: WriteOptions,
   ) => Promise<WrongNumberResult<RecordWrongNumberResultData>>;
   /** Credits sent back for a wrong-number card, on a chosen shop line. */
   recordWrongNumberCredits: (
     data: WrongNumberCreditsInput,
+    opts?: WriteOptions,
   ) => Promise<WrongNumberResult<WrongNumberCreditsResultData>>;
 
   // ---------------------------------------------------------------------------
@@ -2526,6 +2623,7 @@ export type ApiAdapter = {
   getAdminCarrierLines: () => Promise<CarrierLineEntity[]>;
   createCarrierLine: (
     data: CarrierLineCreatePayload,
+    opts?: WriteOptions,
   ) => Promise<CarrierLineWriteResult>;
   updateCarrierLine: (
     id: number,
@@ -2555,6 +2653,7 @@ export type ApiAdapter = {
    *  come back as `{ success: false, error }`, never as a throw. */
   recordCarrierLineUsage: (
     data: CarrierLineUsagePayload,
+    opts?: WriteOptions,
   ) => Promise<CarrierLineUsageResult>;
   /** v184 (#28, LIRA-218) — the "days still to send" list: every PENDING
    *  delivery, across every line. Read-only. */
@@ -2618,7 +2717,10 @@ export type ApiAdapter = {
    *  line. No customer is debited; debits the iPick/Katsh LBP drawer.
    *  Admin or staff only. Send `client_day` (the shop's own `localDay()`) —
    *  the server's day is not trustworthy on web (rule 27). */
-  selfChargeTelecomItem: (data: SelfChargeTelecomItemPayload) => Promise<{
+  selfChargeTelecomItem: (
+    data: SelfChargeTelecomItemPayload,
+    opts?: WriteOptions,
+  ) => Promise<{
     success: boolean;
     data?: {
       transactionId: number;
@@ -2655,6 +2757,7 @@ export type ApiAdapter = {
   // ---------------------------------------------------------------------------
   startSession: (
     data: StartSessionInput,
+    opts?: WriteOptions,
   ) => Promise<ApiResult & { sessionId?: number }>;
   getActiveSession: () => Promise<any>;
   getSessionDetails: (sessionId: number) => Promise<any>;
@@ -2662,12 +2765,13 @@ export type ApiAdapter = {
     sessionId: number,
     data: UpdateSessionInput,
   ) => Promise<ApiResult>;
-  closeSession: (sessionId: number) => Promise<ApiResult>;
+  closeSession: (sessionId: number, opts?: WriteOptions) => Promise<ApiResult>;
   listSessions: (limit?: number, offset?: number) => Promise<any>;
   /** Payload = the core schema's input (rule 21) — carries profitUsd /
    *  profitLbp, which this hand-written type used to omit. */
   linkTransactionToSession: (
     data: LinkSessionTransactionInput,
+    opts?: WriteOptions,
   ) => Promise<ApiResult & { linked: boolean }>;
 
   /** Nested namespace mirroring window.api.session (read + cart + checkout),
@@ -2695,10 +2799,14 @@ export type ApiAdapter = {
     cartAdd: (
       sessionId: number,
       item: SessionCartAddInput,
+      opts?: WriteOptions,
     ) => Promise<{ success: boolean; id?: number; error?: string }>;
     cartRemove: (sessionId: number, itemId: string) => Promise<ApiResult>;
     cartClear: (sessionId: number) => Promise<ApiResult>;
-    checkout: (data: SessionCheckoutPayload) => Promise<any>;
+    checkout: (
+      data: SessionCheckoutPayload,
+      opts?: WriteOptions,
+    ) => Promise<any>;
   };
 
   /** Hold money — cash held in / collected out on the customer's behalf
@@ -2715,15 +2823,18 @@ export type ApiAdapter = {
     }>;
     create: (
       data: HoldMoneyCreateInput,
+      opts?: WriteOptions,
     ) => Promise<{ success: boolean; id?: number; error?: string }>;
     pickups: (
       holdMoneyId: number,
     ) => Promise<{ success: boolean; data?: any[]; error?: string }>;
     collect: (
       data: HoldMoneyCollectPayload,
+      opts?: WriteOptions,
     ) => Promise<{ success: boolean; id?: number; error?: string }>;
     voidPickup: (
       pickupId: number,
+      opts?: WriteOptions,
     ) => Promise<{ success: boolean; id?: number; error?: string }>;
   };
 
@@ -2792,6 +2903,7 @@ export type ApiAdapter = {
     activate: (id: number) => Promise<{ success: boolean; error?: string }>;
     recordTransaction: (
       data: PartnerRecordTransactionPayload,
+      opts?: WriteOptions,
     ) => Promise<{ success: boolean; data?: any; error?: string }>;
     /** Payload derived from the core `partnerSettleSchema` (rule 21):
      *  CQ-10 bundled `discount`, CQ-11 split `payments[]` (legs locked to
@@ -2799,12 +2911,14 @@ export type ApiAdapter = {
      *  2026-10-07 — stamped on the PARTNER_SETTLEMENT row). */
     settle: (
       data: PartnerSettleInput,
+      opts?: WriteOptions,
     ) => Promise<{ success: boolean; data?: any; error?: string }>;
     /** CQ-10: standalone partner write-off (admin-only) — we forgive what
      *  the partner owes us; capped server-side at the outstanding balance
      *  per currency. */
     writeOff: (
       data: PartnerWriteOffPayload,
+      opts?: WriteOptions,
     ) => Promise<{ success: boolean; id?: number; error?: string }>;
     /** LIRA-346 — the settle queue: open day rows + open account rows
      *  (partner credit, overpay, ↺). Signed: + the partner owes the shop. */
@@ -2822,6 +2936,7 @@ export type ApiAdapter = {
     /** LIRA-346 — settle the picked days (also "settle old history"). */
     settleDays: (
       data: PartnerSettleDaysPayload,
+      opts?: WriteOptions,
     ) => Promise<{ success: boolean; id?: number; error?: string }>;
   };
 
@@ -2840,6 +2955,7 @@ export type ApiAdapter = {
     ) => Promise<{ success: boolean; vouchers?: any[]; error?: string }>;
     create: (
       data: VoucherCreatePayload,
+      opts?: WriteOptions,
     ) => Promise<{ success: boolean; voucher?: any; error?: string }>;
     validate: (
       code: string,
@@ -2850,6 +2966,7 @@ export type ApiAdapter = {
     cancel: (
       id: number,
       data?: VoucherCancelPayload,
+      opts?: WriteOptions,
     ) => Promise<{ success: boolean; voucher?: any; error?: string }>;
   };
 
@@ -2859,9 +2976,11 @@ export type ApiAdapter = {
      *  in currencies other than USD/LBP. Never sent by createFromDrawer. */
     create: (
       data: DrawerTopUpCreatePayload,
+      opts?: WriteOptions,
     ) => Promise<{ success: boolean; id?: number; error?: string }>;
     createFromDrawer: (
       data: DrawerTopUpFromDrawerPayload,
+      opts?: WriteOptions,
     ) => Promise<{ success: boolean; id?: number; error?: string }>;
     getSourceDrawers: () => Promise<{
       success: boolean;
@@ -2877,6 +2996,7 @@ export type ApiAdapter = {
   drawerCashout: {
     create: (
       data: CreateDrawerCashoutPayload,
+      opts?: WriteOptions,
     ) => Promise<{ success: boolean; id?: number; error?: string }>;
     getHistory: (
       limit?: number,
@@ -2886,7 +3006,10 @@ export type ApiAdapter = {
   /** Wallet exchange — convert a provider wallet's OWN USD balance to LBP
    *  (or vice versa), OMT App / Whish App only, never General. */
   walletExchange: {
-    create: (data: CreateWalletExchangePayload) => Promise<{
+    create: (
+      data: CreateWalletExchangePayload,
+      opts?: WriteOptions,
+    ) => Promise<{
       success: boolean;
       id?: number;
       amountOut?: number;
@@ -2938,6 +3061,7 @@ export type ApiAdapter = {
     }>;
     adjust: (
       data: AdjustLotPositionPayload,
+      opts?: WriteOptions,
     ) => Promise<{ success: boolean; data?: any; error?: string }>;
   };
 
@@ -3023,6 +3147,7 @@ export type ApiAdapter = {
   /** Rule 21: the core schema's input type (createCustomServiceSchema). */
   addCustomService: (
     data: CreateCustomServicePayload,
+    opts?: WriteOptions,
   ) => Promise<ApiResult & { id?: number }>;
   deleteCustomService: (id: number) => Promise<ApiResult>;
   /** LIRA-155 — advance an insurance-style custom service's fulfilment
@@ -3030,6 +3155,7 @@ export type ApiAdapter = {
    *  an illegal/not-found transition answers { success: false, error }. */
   advanceCustomServiceFulfillment: (
     data: UpdateCustomServiceFulfillmentPayload,
+    opts?: WriteOptions,
   ) => Promise<{ success: boolean; data?: unknown; error?: string }>;
   /** LIRA-083 — set a custom service's WORK status (Received/In_Progress/
    *  Ready/Delivered). Separate axis from fulfillment above and from the
@@ -3087,7 +3213,10 @@ export type ApiAdapter = {
     sourceId: number,
   ) => Promise<any>;
   getClientTransactions: (clientId: number, limit?: number) => Promise<any[]>;
-  voidTransaction: (id: number) => Promise<ApiResult & { reversalId?: number }>;
+  voidTransaction: (
+    id: number,
+    opts?: WriteOptions,
+  ) => Promise<ApiResult & { reversalId?: number }>;
   /** LIRA-078: `refundLegs` is optional — omit for the default reversal
    *  (mirrors the original payment legs verbatim); pass one entry per
    *  currency to let the operator choose the return method (method-override
@@ -3108,6 +3237,7 @@ export type ApiAdapter = {
     /** LIRA-342 — the customer gave change back (with a `refundLegs`
      *  override in one currency; the server checks it). */
     addedChange?: RefundAddedChangeInput,
+    opts?: WriteOptions,
   ) => Promise<ApiResult & { refundId?: number }>;
   /** LIRA-236 — the Transactions-page refund modal's `bookedRate`/
    *  `bookedRateSource` default (the transaction's own recorded rate, else
@@ -3122,7 +3252,10 @@ export type ApiAdapter = {
   >;
   /** CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): void every non-voided
    *  member of a multi-unit split checkout in ONE transaction. */
-  voidCheckoutGroup: (groupId: string) => Promise<
+  voidCheckoutGroup: (
+    groupId: string,
+    opts?: WriteOptions,
+  ) => Promise<
     ApiResult & {
       groupId?: string;
       memberCount?: number;
@@ -3134,7 +3267,10 @@ export type ApiAdapter = {
    *  item in a customer-session basket, plus its pooled cash leg(s) and
    *  pooled debt, in ONE transaction. Replaces the "Basket item — see
    *  admin to reverse" dead end. Mirrors voidCheckoutGroup above (rule 14). */
-  voidSessionBasket: (sessionId: number) => Promise<
+  voidSessionBasket: (
+    sessionId: number,
+    opts?: WriteOptions,
+  ) => Promise<
     ApiResult & {
       sessionId?: number;
       itemCount?: number;
@@ -3142,7 +3278,10 @@ export type ApiAdapter = {
       reversalIds?: number[];
     }
   >;
-  refundSessionBasket: (sessionId: number) => Promise<
+  refundSessionBasket: (
+    sessionId: number,
+    opts?: WriteOptions,
+  ) => Promise<
     ApiResult & {
       sessionId?: number;
       itemCount?: number;
@@ -3156,6 +3295,7 @@ export type ApiAdapter = {
    *  item, reducing the basket's outstanding account charge first. */
   refundSessionBasketItem: (
     payload: SessionItemRefundPayload,
+    opts?: WriteOptions,
   ) => Promise<
     | ({ success: true } & RefundSessionBasketItemResult)
     | { success: false; error?: string }

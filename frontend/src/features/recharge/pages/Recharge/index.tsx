@@ -14,6 +14,7 @@ import logger from "@/utils/logger";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { localDay } from "@/shared/utils/localDay";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { PROVIDER_BRANDS } from "@/shared/brand/providerBrands";
 import { appEvents, useApi } from "@liratek/ui";
 import type { ResaleLineRow } from "@liratek/core";
@@ -507,6 +508,18 @@ export default function MobileRecharge() {
   const [topUpClientId, setTopUpClientId] = useState<number | null>(null);
   // LIRA-192 (D12): "Cash Out to OMT" — OMT App only.
   const [showCashoutModal, setShowCashoutModal] = useState(false);
+  // LIRA-401 — idempotency keys for this page's money writes.
+  //  - sale: the always-visible Telecom / Alfa Gift / crypto forms; one key
+  //    per payment, renewed after a success, each form with its own suffix
+  //    (`-t`, `-g`, `-c`) so one form can never replay another's reply;
+  //  - top-up / cash-out: one key per opening of the modal (renewed after a
+  //    success too, in case the modal stays open).
+  const { key: saleIdempotencyKey, reset: resetSaleIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
+  const { key: topUpIdempotencyKey, reset: resetTopUpIdempotencyKey } =
+    useIdempotencyKeyWithReset(showTopUpModal);
+  const { key: cashoutIdempotencyKey, reset: resetCashoutIdempotencyKey } =
+    useIdempotencyKeyWithReset(showCashoutModal);
   const [drawerBalances, setDrawerBalances] = useState<
     Array<{
       name: string;
@@ -1054,95 +1067,103 @@ export default function MobileRecharge() {
 
     setIsSubmitting(true);
     try {
-      const result = await api.processRecharge({
-        provider: activeProvider,
-        ...carrierLineField,
-        // Phase 6 (D7/D8): a shop-line match on the Credit tab, with the
-        // checkbox left ON, flips the submitted type to CREDIT_BUYBACK —
-        // everything else about this payload (amount = credits gained,
-        // price = payout amount, payments = the payout legs) is unchanged;
-        // processCreditBuyback reinterprets the same fields per its own
-        // contract. Owner note #21: with the checkbox unticked instead, it
-        // flips to SHOP_LINE_USE (case 2) — an ordinary sale payload, just a
-        // distinct `type` so the SMS fee stays off and history reads right.
-        // `deriveSubmittedRechargeType` returns `string`; its inputs are the
-        // telecom tab types, so the result is always a schema type.
-        type: submittedRechargeType as CreateRechargePayload["type"],
-        phoneNumber: rechargePhoneNumber(rechargeType, phoneNumber),
-        amount,
-        cost,
-        price,
-        ...discountField,
-        ...extraField,
-        default_price_to_client: defaultPriceToClient,
-        currency: "LBP",
-        // CARRIER_LINES_VALIDITY_PLAN.md Phase 7: derive from the pay sheet's
-        // OWN legs on every submit — never the (now-removed) dropdown's
-        // `paidBy` state alone, which never advanced past a single-leg
-        // self-heal and stayed stale on a split.
-        paid_by_method: derivePaidByMethod(paymentLines, paidBy),
-        // A buy-back is a payout: never a change (OUT) leg, even one left in
-        // state by an earlier sale on this tab (owner decisions 2026-10-07).
-        payments:
-          paymentLines.length > 0
-            ? toCamelLegs(paymentLines, isBuyback ? [] : returnLegs)
+      const result = await api.processRecharge(
+        {
+          provider: activeProvider,
+          ...carrierLineField,
+          // Phase 6 (D7/D8): a shop-line match on the Credit tab, with the
+          // checkbox left ON, flips the submitted type to CREDIT_BUYBACK —
+          // everything else about this payload (amount = credits gained,
+          // price = payout amount, payments = the payout legs) is unchanged;
+          // processCreditBuyback reinterprets the same fields per its own
+          // contract. Owner note #21: with the checkbox unticked instead, it
+          // flips to SHOP_LINE_USE (case 2) — an ordinary sale payload, just a
+          // distinct `type` so the SMS fee stays off and history reads right.
+          // `deriveSubmittedRechargeType` returns `string`; its inputs are the
+          // telecom tab types, so the result is always a schema type.
+          type: submittedRechargeType as CreateRechargePayload["type"],
+          phoneNumber: rechargePhoneNumber(rechargeType, phoneNumber),
+          amount,
+          cost,
+          price,
+          ...discountField,
+          ...extraField,
+          default_price_to_client: defaultPriceToClient,
+          currency: "LBP",
+          // CARRIER_LINES_VALIDITY_PLAN.md Phase 7: derive from the pay sheet's
+          // OWN legs on every submit — never the (now-removed) dropdown's
+          // `paidBy` state alone, which never advanced past a single-leg
+          // self-heal and stayed stale on a split.
+          paid_by_method: derivePaidByMethod(paymentLines, paidBy),
+          // A buy-back is a payout: never a change (OUT) leg, even one left in
+          // state by an earlier sale on this tab (owner decisions 2026-10-07).
+          payments:
+            paymentLines.length > 0
+              ? toCamelLegs(paymentLines, isBuyback ? [] : returnLegs)
+              : undefined,
+          // Payment-Legs Integrity plan (false-reject fix): the rate the
+          // PaymentSheet actually used for its conversions — falls back to the
+          // static buyRate if the sheet never fired an update (e.g. no legs).
+          // Only meaningful (and only sent) when there are legs to reconcile.
+          tender_exchange_rate:
+            paymentLines.length > 0
+              ? (telecomTenderRate ?? exchangeRate)
+              : undefined,
+          clientId: resolvedClientId || undefined,
+          clientName: telecomClientName || undefined,
+          ...detailFields,
+          // T3 keep-change: kept amounts join the recharge profit stamp — only
+          // when reported in the same mode as this submit (sale vs buy-back).
+          ...(keptChange &&
+          keptChange.payout === isBuyback &&
+          (keptChange.usd > 0 || keptChange.lbp > 0)
+            ? {
+                kept_change_usd: keptChange.usd,
+                kept_change_lbp: keptChange.lbp,
+              }
+            : {}),
+          // LIRA-334: the buy-back payout round-up — a buy-back only, and only
+          // when it was reported in payout mode.
+          ...(isBuyback &&
+          telecomRoundUp &&
+          telecomRoundUp.payout &&
+          (telecomRoundUp.usd > 0 || telecomRoundUp.lbp > 0)
+            ? {
+                rounding_given_usd: telecomRoundUp.usd,
+                rounding_given_lbp: telecomRoundUp.lbp,
+              }
+            : {}),
+          // LIRA-336: the change the customer added on the buy-back, with its
+          // non-zero lines — never one without the other (see
+          // `sentBuybackAddedChange`).
+          ...(sentBuybackAddedChange
+            ? {
+                added_change_usd: sentBuybackAddedChange.usd,
+                added_change_lbp: sentBuybackAddedChange.lbp,
+                customerPayments: sentBuybackCustomerLines.map((l) => ({
+                  method: l.method,
+                  currencyCode: l.currencyCode,
+                  amount: l.amount,
+                })),
+              }
+            : {}),
+          transaction_time: telecomTransactionTime,
+          // The shop's own calendar day, not the server's (untrustworthy on
+          // web): decides the DAYS-sale validity decrement, the CREDIT_BUYBACK
+          // credit movement, and a redeemed GIFT_CARD voucher's expiry check.
+          client_day: localDay(),
+        },
+        {
+          idempotencyKey: saleIdempotencyKey
+            ? `${saleIdempotencyKey}-t`
             : undefined,
-        // Payment-Legs Integrity plan (false-reject fix): the rate the
-        // PaymentSheet actually used for its conversions — falls back to the
-        // static buyRate if the sheet never fired an update (e.g. no legs).
-        // Only meaningful (and only sent) when there are legs to reconcile.
-        tender_exchange_rate:
-          paymentLines.length > 0
-            ? (telecomTenderRate ?? exchangeRate)
-            : undefined,
-        clientId: resolvedClientId || undefined,
-        clientName: telecomClientName || undefined,
-        ...detailFields,
-        // T3 keep-change: kept amounts join the recharge profit stamp — only
-        // when reported in the same mode as this submit (sale vs buy-back).
-        ...(keptChange &&
-        keptChange.payout === isBuyback &&
-        (keptChange.usd > 0 || keptChange.lbp > 0)
-          ? {
-              kept_change_usd: keptChange.usd,
-              kept_change_lbp: keptChange.lbp,
-            }
-          : {}),
-        // LIRA-334: the buy-back payout round-up — a buy-back only, and only
-        // when it was reported in payout mode.
-        ...(isBuyback &&
-        telecomRoundUp &&
-        telecomRoundUp.payout &&
-        (telecomRoundUp.usd > 0 || telecomRoundUp.lbp > 0)
-          ? {
-              rounding_given_usd: telecomRoundUp.usd,
-              rounding_given_lbp: telecomRoundUp.lbp,
-            }
-          : {}),
-        // LIRA-336: the change the customer added on the buy-back, with its
-        // non-zero lines — never one without the other (see
-        // `sentBuybackAddedChange`).
-        ...(sentBuybackAddedChange
-          ? {
-              added_change_usd: sentBuybackAddedChange.usd,
-              added_change_lbp: sentBuybackAddedChange.lbp,
-              customerPayments: sentBuybackCustomerLines.map((l) => ({
-                method: l.method,
-                currencyCode: l.currencyCode,
-                amount: l.amount,
-              })),
-            }
-          : {}),
-        transaction_time: telecomTransactionTime,
-        // The shop's own calendar day, not the server's (untrustworthy on
-        // web): decides the DAYS-sale validity decrement, the CREDIT_BUYBACK
-        // credit movement, and a redeemed GIFT_CARD voucher's expiry check.
-        client_day: localDay(),
-      });
+        },
+      );
       if (result && !result.success) {
         alert(result.error || t("page.rechargeFailed"));
         return;
       }
+      resetSaleIdempotencyKey();
 
       // Link to active customer session
       if (activeSession && result?.id) {
@@ -1216,6 +1237,8 @@ export default function MobileRecharge() {
       setIsSubmitting(false);
     }
   }, [
+    saleIdempotencyKey,
+    resetSaleIdempotencyKey,
     t,
     activeProvider,
     telecomAmount,
@@ -1360,16 +1383,21 @@ export default function MobileRecharge() {
     }) => {
       if (!topUpData) return;
 
-      const result = await api.topUpApp({
-        provider: topUpData.provider,
-        amount: data.amount,
-        currency: data.currency,
-        sourceDrawer: data.sourceDrawer,
-      });
+      const result = await api.topUpApp(
+        {
+          provider: topUpData.provider,
+          amount: data.amount,
+          currency: data.currency,
+          sourceDrawer: data.sourceDrawer,
+        },
+        { idempotencyKey: topUpIdempotencyKey },
+      );
 
       if (!result.success) {
         throw new Error(result.error || "Top-up failed");
       }
+
+      resetTopUpIdempotencyKey();
 
       if (activeConfig?.formMode === "financial") {
         loadFinancialData();
@@ -1395,7 +1423,16 @@ export default function MobileRecharge() {
         "success",
       );
     },
-    [topUpData, activeConfig, loadFinancialData, loadDrawerBalances, api, t],
+    [
+      topUpData,
+      activeConfig,
+      loadFinancialData,
+      loadDrawerBalances,
+      api,
+      t,
+      topUpIdempotencyKey,
+      resetTopUpIdempotencyKey,
+    ],
   );
 
   // Katsh/iPick/OMT App: supplier extends credit — no cash leaves any drawer.
@@ -1412,15 +1449,20 @@ export default function MobileRecharge() {
       )
         return;
 
-      const result = await api.topUpFromSupplier({
-        provider: topUpData.provider as "iPick" | "Katsh" | "OMT_APP",
-        amount: data.amount,
-        currency: data.currency,
-      });
+      const result = await api.topUpFromSupplier(
+        {
+          provider: topUpData.provider as "iPick" | "Katsh" | "OMT_APP",
+          amount: data.amount,
+          currency: data.currency,
+        },
+        { idempotencyKey: topUpIdempotencyKey },
+      );
 
       if (!result.success) {
         throw new Error(result.error || "Top-up failed");
       }
+
+      resetTopUpIdempotencyKey();
 
       loadFinancialData();
       loadDrawerBalances();
@@ -1435,7 +1477,15 @@ export default function MobileRecharge() {
         "success",
       );
     },
-    [topUpData, loadFinancialData, loadDrawerBalances, api, t],
+    [
+      topUpData,
+      loadFinancialData,
+      loadDrawerBalances,
+      api,
+      t,
+      topUpIdempotencyKey,
+      resetTopUpIdempotencyKey,
+    ],
   );
 
   // LIRA-192: "Cash Out to OMT" — OMT_App wallet balance goes DOWN, the OMT
@@ -1444,15 +1494,20 @@ export default function MobileRecharge() {
   // recognised at account settlement (D14, wave 2).
   const handleCashoutConfirm = useCallback(
     async (data: { amount: number; currency: "USD" | "LBP" }) => {
-      const result = await api.cashoutToSupplier({
-        provider: "OMT_APP",
-        amount: data.amount,
-        currency: data.currency,
-      });
+      const result = await api.cashoutToSupplier(
+        {
+          provider: "OMT_APP",
+          amount: data.amount,
+          currency: data.currency,
+        },
+        { idempotencyKey: cashoutIdempotencyKey },
+      );
 
       if (!result.success) {
         throw new Error(result.error || "Cash-out failed");
       }
+
+      resetCashoutIdempotencyKey();
 
       loadFinancialData();
       loadDrawerBalances();
@@ -1463,7 +1518,14 @@ export default function MobileRecharge() {
         "success",
       );
     },
-    [loadFinancialData, loadDrawerBalances, api, t],
+    [
+      loadFinancialData,
+      loadDrawerBalances,
+      api,
+      t,
+      cashoutIdempotencyKey,
+      resetCashoutIdempotencyKey,
+    ],
   );
 
   // Whish App: top up from a partner's credit line
@@ -1473,15 +1535,19 @@ export default function MobileRecharge() {
       amount: number;
       currency: "USD" | "LBP";
     }) => {
-      const result = await api.topUpFromPartner({
-        provider: "WHISH_APP",
-        partnerId: data.partnerId,
-        amount: data.amount,
-        currency: data.currency,
-      });
+      const result = await api.topUpFromPartner(
+        {
+          provider: "WHISH_APP",
+          partnerId: data.partnerId,
+          amount: data.amount,
+          currency: data.currency,
+        },
+        { idempotencyKey: topUpIdempotencyKey },
+      );
       if (!result.success) {
         throw new Error(result.error || "Top-up failed");
       }
+      resetTopUpIdempotencyKey();
       loadFinancialData();
       loadDrawerBalances();
       appEvents.emit(
@@ -1493,7 +1559,14 @@ export default function MobileRecharge() {
         "success",
       );
     },
-    [loadFinancialData, loadDrawerBalances, api, t],
+    [
+      loadFinancialData,
+      loadDrawerBalances,
+      api,
+      t,
+      topUpIdempotencyKey,
+      resetTopUpIdempotencyKey,
+    ],
   );
 
   // Whish App: buy credits from a client (client transfers credits, shop pays
@@ -1502,10 +1575,13 @@ export default function MobileRecharge() {
   // forwarded verbatim to the adapter, never rebuilt per transport (rule 22).
   const handleTopUpConfirmClient = useCallback(
     async (data: TopUpFromClientInput) => {
-      const result = await api.topUpFromClient(data);
+      const result = await api.topUpFromClient(data, {
+        idempotencyKey: topUpIdempotencyKey,
+      });
       if (!result.success) {
         throw new Error(result.error || "Top-up failed");
       }
+      resetTopUpIdempotencyKey();
       loadFinancialData();
       loadDrawerBalances();
       appEvents.emit(
@@ -1517,7 +1593,14 @@ export default function MobileRecharge() {
         "success",
       );
     },
-    [loadFinancialData, loadDrawerBalances, api, t],
+    [
+      loadFinancialData,
+      loadDrawerBalances,
+      api,
+      t,
+      topUpIdempotencyKey,
+      resetTopUpIdempotencyKey,
+    ],
   );
 
   const resetGiftForm = useCallback(() => {
@@ -1612,55 +1695,63 @@ export default function MobileRecharge() {
 
     setIsSubmitting(true);
     try {
-      const result = await api.processRecharge({
-        provider: "Alfa",
-        type: "ALFA_GIFT",
-        ...carrierLineField,
-        amount,
-        cost,
-        price,
-        ...discountField,
-        ...extraField,
-        currency: "LBP",
-        // CARRIER_LINES_VALIDITY_PLAN.md Phase 7: see handleTelecomSubmit's
-        // identical comment above — derive from the sheet's legs, not the
-        // removed dropdown's `paidBy` state alone.
-        paid_by_method: derivePaidByMethod(paymentLines, paidBy),
-        payments:
-          paymentLines.length > 0
-            ? toCamelLegs(paymentLines, returnLegs)
+      const result = await api.processRecharge(
+        {
+          provider: "Alfa",
+          type: "ALFA_GIFT",
+          ...carrierLineField,
+          amount,
+          cost,
+          price,
+          ...discountField,
+          ...extraField,
+          currency: "LBP",
+          // CARRIER_LINES_VALIDITY_PLAN.md Phase 7: see handleTelecomSubmit's
+          // identical comment above — derive from the sheet's legs, not the
+          // removed dropdown's `paidBy` state alone.
+          paid_by_method: derivePaidByMethod(paymentLines, paidBy),
+          payments:
+            paymentLines.length > 0
+              ? toCamelLegs(paymentLines, returnLegs)
+              : undefined,
+          // Payment-Legs Integrity plan (false-reject fix): same rate-capture
+          // as handleTelecomSubmit — the PaymentSheet (via CardGridPayView)
+          // reports its actual rate through the same onEffectiveRateChange/
+          // telecomTenderRate wiring, since only one of the two flows is ever
+          // mounted at a time (gated by rechargeType).
+          tender_exchange_rate:
+            paymentLines.length > 0
+              ? (telecomTenderRate ?? exchangeRate)
+              : undefined,
+          clientId: resolvedClientId || undefined,
+          clientName: telecomClientName || undefined,
+          ...detailFields,
+          // Kept change (owner decision 2026-10-06 — automatic, no button):
+          // change the cashier did not hand back joins the recharge profit
+          // stamp, same as handleTelecomSubmit. The gift sheet shares the
+          // telecom sheet's `keptChange` state (only one is ever mounted).
+          ...(keptChange &&
+          !keptChange.payout &&
+          (keptChange.usd > 0 || keptChange.lbp > 0)
+            ? {
+                kept_change_usd: keptChange.usd,
+                kept_change_lbp: keptChange.lbp,
+              }
+            : {}),
+          transaction_time: telecomTransactionTime,
+          client_day: localDay(),
+        },
+        {
+          idempotencyKey: saleIdempotencyKey
+            ? `${saleIdempotencyKey}-g`
             : undefined,
-        // Payment-Legs Integrity plan (false-reject fix): same rate-capture
-        // as handleTelecomSubmit — the PaymentSheet (via CardGridPayView)
-        // reports its actual rate through the same onEffectiveRateChange/
-        // telecomTenderRate wiring, since only one of the two flows is ever
-        // mounted at a time (gated by rechargeType).
-        tender_exchange_rate:
-          paymentLines.length > 0
-            ? (telecomTenderRate ?? exchangeRate)
-            : undefined,
-        clientId: resolvedClientId || undefined,
-        clientName: telecomClientName || undefined,
-        ...detailFields,
-        // Kept change (owner decision 2026-10-06 — automatic, no button):
-        // change the cashier did not hand back joins the recharge profit
-        // stamp, same as handleTelecomSubmit. The gift sheet shares the
-        // telecom sheet's `keptChange` state (only one is ever mounted).
-        ...(keptChange &&
-        !keptChange.payout &&
-        (keptChange.usd > 0 || keptChange.lbp > 0)
-          ? {
-              kept_change_usd: keptChange.usd,
-              kept_change_lbp: keptChange.lbp,
-            }
-          : {}),
-        transaction_time: telecomTransactionTime,
-        client_day: localDay(),
-      });
+        },
+      );
       if (result && !result.success) {
         alert(result.error || t("page.alfaGiftFailed"));
         return;
       }
+      resetSaleIdempotencyKey();
       appEvents.emit("notification:show", t("page.alfaGiftDone"), "success");
       void autoPrintReceipt({
         type: "RECHARGE",
@@ -1689,6 +1780,8 @@ export default function MobileRecharge() {
       setIsSubmitting(false);
     }
   }, [
+    saleIdempotencyKey,
+    resetSaleIdempotencyKey,
     t,
     giftTierKey,
     giftAmountUsd,
@@ -1882,90 +1975,97 @@ export default function MobileRecharge() {
 
     setIsSubmitting(true);
     try {
-      const result = await api.addOMTTransaction({
-        // The GROSS wallet amount with the fee-included toggle already
-        // folded in (computed above) — the repo contract. The raw input
-        // (`parseFloat(cryptoAmount)`) here made a fee-on-top RECEIVE book
-        // a payout `fee` short of what the sheet collected, and a
-        // fee-included SEND overcharge the books by `fee` — the session
-        // cart path above always used the folded value.
-        ...cryptoServiceFields,
-        paidByMethod: isSplitPayment ? "MULTI" : paidByMethod,
-        payments: useCryptoStructuredPayments
-          ? toCamelLegs(cryptoPaymentLines, cryptoChangeLegs)
-          : undefined,
-        // The rate the sheet ACTUALLY converted tender at (this page seeds
-        // it with the BUY rate — a cross-currency payout leg would
-        // false-reject against the stamped sell rate without this).
-        ...(useCryptoStructuredPayments
-          ? { tender_exchange_rate: cryptoTenderRate ?? exchangeRate }
-          : {}),
-        // LIRA-269 follow-up: a SEND tells the server what the customer
-        // really pays (after the sheet's discount, the same helper as
-        // `commission`), so the cash legs are reconciled against it and the
-        // fee booked cannot disagree with the cash taken in. USD: the
-        // Binance cash side is always dollars.
-        ...(cryptoType === "SEND" && useCryptoStructuredPayments
-          ? { checkoutTotal: { usd: sendCustomerPays, lbp: 0 } }
-          : {}),
-        // LIRA-319: the extra on a crypto SEND (never a cash-out).
-        ...(cryptoType === "SEND" && cryptoExtra > 0
-          ? { extra_usd: cryptoExtra }
-          : {}),
-        ...(cryptoType === "RECEIVE" && derivedCashoutMethod !== "CASH"
-          ? { cashoutMethod: derivedCashoutMethod }
-          : {}),
-        // LIRA-321 (US4): the customer's side as `customerPayments` (never
-        // `feePayments`) — the USDT line plus the fee line when the fee is
-        // paid separately — with the fee mode stated and any forgiven part
-        // (USD). Absent for SEND, a session and a partner transaction.
-        ...(sentCustomerLines.length > 0
-          ? {
-              customerPayments: sentCustomerLines.map((l) => ({
-                method: l.method,
-                currencyCode: l.currencyCode,
-                amount: l.amount,
-              })),
-              ...(cryptoFeeCollectedSeparately && commission > 0
-                ? { feeCollectedSeparately: true }
-                : {}),
-              customer_waived_amount: cryptoCustomerForgiven,
-              // An LBP cash line converts at the till's rate.
-              tender_exchange_rate: cryptoTenderRate ?? exchangeRate,
-            }
-          : {}),
-        // T3 keep-change: kept amounts join the profit stamp.
-        ...(cryptoKeptChange &&
-        cryptoKeptChange.payout === (cryptoType === "RECEIVE") &&
-        (cryptoKeptChange.usd > 0 || cryptoKeptChange.lbp > 0)
-          ? {
-              kept_change_usd: cryptoKeptChange.usd,
-              kept_change_lbp: cryptoKeptChange.lbp,
-            }
-          : {}),
-        // LIRA-334: the cash-out round-up (see `cryptoRoundUpApplies`).
-        ...(cryptoRoundUpApplies &&
-        cryptoRoundUp &&
-        cryptoRoundUp.payout &&
-        (cryptoRoundUp.usd > 0 || cryptoRoundUp.lbp > 0)
-          ? {
-              rounding_given_usd: cryptoRoundUp.usd,
-              rounding_given_lbp: cryptoRoundUp.lbp,
-            }
-          : {}),
-        // LIRA-336: the change the customer added (its lines are already in
-        // `customerPayments` above) — same walk-in cash payout gate.
-        ...(cryptoRoundUpApplies &&
-        sentCustomerLines.length > 0 &&
-        cryptoAddedChange &&
-        cryptoAddedChange.payout &&
-        (cryptoAddedChange.usd > 0 || cryptoAddedChange.lbp > 0)
-          ? {
-              added_change_usd: cryptoAddedChange.usd,
-              added_change_lbp: cryptoAddedChange.lbp,
-            }
-          : {}),
-      });
+      const result = await api.addOMTTransaction(
+        {
+          // The GROSS wallet amount with the fee-included toggle already
+          // folded in (computed above) — the repo contract. The raw input
+          // (`parseFloat(cryptoAmount)`) here made a fee-on-top RECEIVE book
+          // a payout `fee` short of what the sheet collected, and a
+          // fee-included SEND overcharge the books by `fee` — the session
+          // cart path above always used the folded value.
+          ...cryptoServiceFields,
+          paidByMethod: isSplitPayment ? "MULTI" : paidByMethod,
+          payments: useCryptoStructuredPayments
+            ? toCamelLegs(cryptoPaymentLines, cryptoChangeLegs)
+            : undefined,
+          // The rate the sheet ACTUALLY converted tender at (this page seeds
+          // it with the BUY rate — a cross-currency payout leg would
+          // false-reject against the stamped sell rate without this).
+          ...(useCryptoStructuredPayments
+            ? { tender_exchange_rate: cryptoTenderRate ?? exchangeRate }
+            : {}),
+          // LIRA-269 follow-up: a SEND tells the server what the customer
+          // really pays (after the sheet's discount, the same helper as
+          // `commission`), so the cash legs are reconciled against it and the
+          // fee booked cannot disagree with the cash taken in. USD: the
+          // Binance cash side is always dollars.
+          ...(cryptoType === "SEND" && useCryptoStructuredPayments
+            ? { checkoutTotal: { usd: sendCustomerPays, lbp: 0 } }
+            : {}),
+          // LIRA-319: the extra on a crypto SEND (never a cash-out).
+          ...(cryptoType === "SEND" && cryptoExtra > 0
+            ? { extra_usd: cryptoExtra }
+            : {}),
+          ...(cryptoType === "RECEIVE" && derivedCashoutMethod !== "CASH"
+            ? { cashoutMethod: derivedCashoutMethod }
+            : {}),
+          // LIRA-321 (US4): the customer's side as `customerPayments` (never
+          // `feePayments`) — the USDT line plus the fee line when the fee is
+          // paid separately — with the fee mode stated and any forgiven part
+          // (USD). Absent for SEND, a session and a partner transaction.
+          ...(sentCustomerLines.length > 0
+            ? {
+                customerPayments: sentCustomerLines.map((l) => ({
+                  method: l.method,
+                  currencyCode: l.currencyCode,
+                  amount: l.amount,
+                })),
+                ...(cryptoFeeCollectedSeparately && commission > 0
+                  ? { feeCollectedSeparately: true }
+                  : {}),
+                customer_waived_amount: cryptoCustomerForgiven,
+                // An LBP cash line converts at the till's rate.
+                tender_exchange_rate: cryptoTenderRate ?? exchangeRate,
+              }
+            : {}),
+          // T3 keep-change: kept amounts join the profit stamp.
+          ...(cryptoKeptChange &&
+          cryptoKeptChange.payout === (cryptoType === "RECEIVE") &&
+          (cryptoKeptChange.usd > 0 || cryptoKeptChange.lbp > 0)
+            ? {
+                kept_change_usd: cryptoKeptChange.usd,
+                kept_change_lbp: cryptoKeptChange.lbp,
+              }
+            : {}),
+          // LIRA-334: the cash-out round-up (see `cryptoRoundUpApplies`).
+          ...(cryptoRoundUpApplies &&
+          cryptoRoundUp &&
+          cryptoRoundUp.payout &&
+          (cryptoRoundUp.usd > 0 || cryptoRoundUp.lbp > 0)
+            ? {
+                rounding_given_usd: cryptoRoundUp.usd,
+                rounding_given_lbp: cryptoRoundUp.lbp,
+              }
+            : {}),
+          // LIRA-336: the change the customer added (its lines are already in
+          // `customerPayments` above) — same walk-in cash payout gate.
+          ...(cryptoRoundUpApplies &&
+          sentCustomerLines.length > 0 &&
+          cryptoAddedChange &&
+          cryptoAddedChange.payout &&
+          (cryptoAddedChange.usd > 0 || cryptoAddedChange.lbp > 0)
+            ? {
+                added_change_usd: cryptoAddedChange.usd,
+                added_change_lbp: cryptoAddedChange.lbp,
+              }
+            : {}),
+        },
+        {
+          idempotencyKey: saleIdempotencyKey
+            ? `${saleIdempotencyKey}-c`
+            : undefined,
+        },
+      );
 
       // LIRA-247: `addOMTTransaction` can RESOLVE `{success:false, error}`
       // (a business-rule refusal) rather than throw — this branch was
@@ -1976,6 +2076,7 @@ export default function MobileRecharge() {
         alert(result.error || t("page.cryptoFailed"));
         return;
       }
+      resetSaleIdempotencyKey();
 
       // Link to active customer session
       if (activeSession && result?.id) {
@@ -2027,6 +2128,8 @@ export default function MobileRecharge() {
       setIsSubmitting(false);
     }
   }, [
+    saleIdempotencyKey,
+    resetSaleIdempotencyKey,
     t,
     cryptoType,
     cryptoAmount,

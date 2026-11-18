@@ -37,6 +37,10 @@ import {
   type AuthRequest,
 } from "../middleware/auth.js";
 import { auditRest } from "../middleware/audit.js";
+import {
+  sendIdempotent,
+  sendIdempotentAsync,
+} from "../middleware/idempotency.js";
 import { validateRequest } from "../middleware/validation.js";
 
 const router = Router();
@@ -174,23 +178,30 @@ router.post(
       const { customer_name, customer_phone, customer_notes } =
         req.body as StartSessionInput;
       const authUser = (req as AuthRequest).user;
-      const result = await sessionService.startSession({
-        customer_name,
-        customer_phone,
-        customer_notes,
-        started_by: authUser?.username || "unknown",
-        user_id: authUser?.userId,
-      });
-      if (result.success) {
-        // Mirrors sessionHandlers.ts's session:start audit
-        // (create/customer_session).
-        auditRest(req as AuthRequest, {
-          action: "create",
-          entity_type: "customer_session",
-          summary: `Started customer session${customer_name ? ` for "${customer_name}"` : ""}`,
-        });
-      }
-      res.json(result);
+      // Owner follow-up to LIRA-401: a repeated Idempotency-Key replays the
+      // first start instead of opening a second session.
+      await sendIdempotentAsync(
+        req,
+        res,
+        () =>
+          sessionService.startSession({
+            customer_name,
+            customer_phone,
+            customer_notes,
+            started_by: authUser?.username || "unknown",
+            user_id: authUser?.userId,
+          }),
+        {
+          onBooked: () =>
+            // Mirrors sessionHandlers.ts's session:start audit
+            // (create/customer_session).
+            auditRest(req as AuthRequest, {
+              action: "create",
+              entity_type: "customer_session",
+              summary: `Started customer session${customer_name ? ` for "${customer_name}"` : ""}`,
+            }),
+        },
+      );
     } catch (err) {
       res.json({ success: false, error: errMessage(err) });
     }
@@ -213,24 +224,31 @@ router.post("/checkout", writeGate, async (req: Request, res: Response) => {
     const authUser = (req as AuthRequest).user;
     // Stamp the AUTHENTICATED operator on every record checkout creates
     // (items, payments, client registration) — never the wire-supplied userId.
-    const result = await getSessionCheckoutService().checkout(
+    // LIRA-401: the checkout awaits, so the guard holds a second tap with
+    // the same key until the first finishes, then replays its reply.
+    await sendIdempotentAsync(
+      req,
+      res,
+      () =>
+        getSessionCheckoutService().checkout(
+          {
+            ...(parsed.data as unknown as CheckoutRequest),
+            ...(authUser ? { userId: authUser.userId } : {}),
+          },
+          { username: authUser?.username || "unknown" },
+        ),
       {
-        ...(parsed.data as unknown as CheckoutRequest),
-        ...(authUser ? { userId: authUser.userId } : {}),
+        onBooked: (result) =>
+          // Mirrors sessionHandlers.ts's session:checkout audit
+          // (update/customer_session).
+          auditRest(req as AuthRequest, {
+            action: "update",
+            entity_type: "customer_session",
+            entity_id: String(parsed.data.sessionId),
+            summary: `Session checkout: ${result.itemCount} items, USD ${(result.checkoutTotalUsd ?? 0).toFixed(2)}, LBP ${(result.checkoutTotalLbp ?? 0).toFixed(0)}`,
+          }),
       },
-      { username: authUser?.username || "unknown" },
     );
-    if (result.success) {
-      // Mirrors sessionHandlers.ts's session:checkout audit
-      // (update/customer_session).
-      auditRest(req as AuthRequest, {
-        action: "update",
-        entity_type: "customer_session",
-        entity_id: String(parsed.data.sessionId),
-        summary: `Session checkout: ${result.itemCount} items, USD ${(result.checkoutTotalUsd ?? 0).toFixed(2)}, LBP ${(result.checkoutTotalLbp ?? 0).toFixed(0)}`,
-      });
-    }
-    res.json(result);
   } catch (err) {
     res.json({ success: false, error: errMessage(err) });
   }
@@ -259,25 +277,27 @@ router.post(
         });
         return;
       }
-      const result = sessionId
-        ? await sessionService.linkTransactionToSession(
-            sessionId,
-            transactionType,
-            transactionId,
-            amountUsd || 0,
-            amountLbp || 0,
-            profitUsd ?? 0,
-            profitLbp ?? 0,
-          )
-        : await sessionService.linkTransactionToActiveSession(
-            transactionType,
-            transactionId,
-            amountUsd || 0,
-            amountLbp || 0,
-            profitUsd ?? 0,
-            profitLbp ?? 0,
-          );
-      res.json(result);
+      // LIRA-401: a repeated Idempotency-Key replays the first link.
+      await sendIdempotentAsync(req, res, () =>
+        sessionId
+          ? sessionService.linkTransactionToSession(
+              sessionId,
+              transactionType,
+              transactionId,
+              amountUsd || 0,
+              amountLbp || 0,
+              profitUsd ?? 0,
+              profitLbp ?? 0,
+            )
+          : sessionService.linkTransactionToActiveSession(
+              transactionType,
+              transactionId,
+              amountUsd || 0,
+              amountLbp || 0,
+              profitUsd ?? 0,
+              profitLbp ?? 0,
+            ),
+      );
     } catch (err) {
       res.json({ success: false, error: errMessage(err) });
     }
@@ -316,7 +336,9 @@ router.post(
       const userId = (req as AuthRequest).user?.userId;
       // LIRA-306 T081 (rule 13): the service method IPC and the offline
       // replay call; same envelope (pinned by sessionsCart.pin.api.test).
-      res.json(
+      // LIRA-401: a repeated Idempotency-Key replays the first add instead
+      // of putting the same line in the basket twice.
+      sendIdempotent(req, res, () =>
         sessionService.addCartItem(id, req.body as SessionCartAddInput, userId),
       );
     } catch (err) {
@@ -410,18 +432,23 @@ router.post("/:id/close", writeGate, async (req: Request, res: Response) => {
       return;
     }
     const username = (req as AuthRequest).user?.username || "unknown";
-    const result = await sessionService.closeSession(id, username);
-    if (result.success) {
-      // Mirrors sessionHandlers.ts's session:close audit
-      // (update/customer_session).
-      auditRest(req as AuthRequest, {
-        action: "update",
-        entity_type: "customer_session",
-        entity_id: String(id),
-        summary: `Closed customer session #${id}`,
-      });
-    }
-    res.json(result);
+    // LIRA-401: a repeated Idempotency-Key replays the first close.
+    await sendIdempotentAsync(
+      req,
+      res,
+      () => sessionService.closeSession(id, username),
+      {
+        onBooked: () =>
+          // Mirrors sessionHandlers.ts's session:close audit
+          // (update/customer_session).
+          auditRest(req as AuthRequest, {
+            action: "update",
+            entity_type: "customer_session",
+            entity_id: String(id),
+            summary: `Closed customer session #${id}`,
+          }),
+      },
+    );
   } catch (err) {
     res.json({ success: false, error: errMessage(err) });
   }

@@ -202,18 +202,21 @@ describe("AdjustStockModal — delta/set math + submission payload", () => {
     fireEvent.click(screen.getByRole("button", { name: "Apply Adjustment" }));
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
-    expect(mockReceiveStock).toHaveBeenCalledWith({
-      product_id: 42,
-      quantity: 20,
-      unit_cost_usd: 0,
-      supplier: null,
-      is_old_stock: false,
-      reason: "Physical recount",
-      // LIRA-087 (migration v189) — no supplier on this fixture, so no
-      // recorded-debt picker renders and this stays null (book-a-new-debt,
-      // today's unchanged default).
-      attach_to_recorded_debt_id: null,
-    });
+    expect(mockReceiveStock).toHaveBeenCalledWith(
+      {
+        product_id: 42,
+        quantity: 20,
+        unit_cost_usd: 0,
+        supplier: null,
+        is_old_stock: false,
+        reason: "Physical recount",
+        // LIRA-087 (migration v189) — no supplier on this fixture, so no
+        // recorded-debt picker renders and this stays null (book-a-new-debt,
+        // today's unchanged default).
+        attach_to_recorded_debt_id: null,
+      },
+      expect.objectContaining({ idempotencyKey: expect.any(String) }),
+    );
     expect(mockAdjustStock).not.toHaveBeenCalled();
   });
 
@@ -234,11 +237,14 @@ describe("AdjustStockModal — delta/set math + submission payload", () => {
     fireEvent.click(screen.getByRole("button", { name: "Apply Adjustment" }));
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
-    expect(mockAdjustStock).toHaveBeenCalledWith({
-      id: 42,
-      delta: -2,
-      reason: "Damaged units",
-    });
+    expect(mockAdjustStock).toHaveBeenCalledWith(
+      {
+        id: 42,
+        delta: -2,
+        reason: "Damaged units",
+      },
+      expect.objectContaining({ idempotencyKey: expect.any(String) }),
+    );
   });
 
   it("shows the service error and does not call onSuccess when the API reports failure", async () => {
@@ -657,19 +663,16 @@ describe("AdjustStockModal — attach to a recorded debt (LIRA-087)", () => {
     jest.clearAllMocks();
     mockGetStockAdjustments.mockResolvedValue([]);
     mockGetOpenStockBatches.mockResolvedValue([]);
-    mockGetSuppliers.mockResolvedValue([
-      { id: 7, name: "Acme Distributors" },
-    ]);
+    mockGetSuppliers.mockResolvedValue([{ id: 7, name: "Acme Distributors" }]);
   });
 
   it("does not render the picker when the supplier has no open recorded debts", async () => {
     mockGetOpenRecordedSupplierDebts.mockResolvedValue([]);
     renderModal({ supplier: "Acme Distributors" });
 
-    fireEvent.change(
-      screen.getByPlaceholderText("0"),
-      { target: { value: "15" } },
-    );
+    fireEvent.change(screen.getByPlaceholderText("0"), {
+      target: { value: "15" },
+    });
     await waitFor(() => expect(mockGetSuppliers).toHaveBeenCalled());
     expect(
       screen.queryByText("Attach to a recorded debt (optional)"),
@@ -683,10 +686,9 @@ describe("AdjustStockModal — attach to a recorded debt (LIRA-087)", () => {
     mockReceiveStock.mockResolvedValue({ success: true, batch_id: 1 });
     const { onSuccess } = renderModal({ supplier: "Acme Distributors" });
 
-    fireEvent.change(
-      screen.getByPlaceholderText("0"),
-      { target: { value: "15" } },
-    );
+    fireEvent.change(screen.getByPlaceholderText("0"), {
+      target: { value: "15" },
+    });
 
     expect(
       await screen.findByText("Attach to a recorded debt (optional)"),
@@ -721,6 +723,7 @@ describe("AdjustStockModal — attach to a recorded debt (LIRA-087)", () => {
         is_old_stock: false,
         supplier: "Acme Distributors",
       }),
+      expect.objectContaining({ idempotencyKey: expect.any(String) }),
     );
   });
 });

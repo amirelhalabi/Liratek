@@ -5,6 +5,7 @@ import { sanitizeDecimal } from "@liratek/ui/utils/number";
 import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import logger from "@/utils/logger";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { Phone, User, Search, X, CreditCard } from "lucide-react";
 import {
   ServiceTypeTabs,
@@ -348,6 +349,9 @@ export function TelecomForm({
 }: TelecomFormProps) {
   const { t } = useTranslation("recharge");
   const api = useApi();
+  // LIRA-401 — one key per For Partner submit, renewed after a success.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
   const { activeSession } = useSession();
 
   // Shop-day 2026-10-16: in a customer session the Credit phone starts with
@@ -776,32 +780,35 @@ export function TelecomForm({
 
     setIsSubmittingPartner(true);
     try {
-      const result = await api.processRecharge({
-        provider: isMTC ? "MTC" : "Alfa",
-        ...(carrierLineId ? { carrier_line_id: carrierLineId } : {}),
-        // `RechargeType` also lists the internal TOP_UP, which this form's
-        // tabs never produce (rule 21: payload checked against the schema).
-        type: rechargeType as CreateRechargePayload["type"],
-        phoneNumber: rechargePhoneNumber(rechargeType, phoneNumber),
-        amount,
-        cost,
-        price,
-        currency: "LBP",
-        // LIRA-329: the Days cost and price as typed in USD.
-        ...(rechargeType === "DAYS"
-          ? daysTypedUsdField(telecomDaysCostUsd, daysPriceUsdInput)
-          : {}),
-        // No counter payment at all in partner mode — the backend rejects
-        // any leg here (payment-leg-contract: IN legs only, and partner mode
-        // must have none).
-        payments: [],
-        partnerId: selectedPartnerId,
-        partnerMode: "FOR" as const,
-        // The shop's own calendar day, not the server's (untrustworthy on
-        // web): decides the DAYS-sale validity decrement when
-        // rechargeType === "DAYS".
-        client_day: localDay(),
-      });
+      const result = await api.processRecharge(
+        {
+          provider: isMTC ? "MTC" : "Alfa",
+          ...(carrierLineId ? { carrier_line_id: carrierLineId } : {}),
+          // `RechargeType` also lists the internal TOP_UP, which this form's
+          // tabs never produce (rule 21: payload checked against the schema).
+          type: rechargeType as CreateRechargePayload["type"],
+          phoneNumber: rechargePhoneNumber(rechargeType, phoneNumber),
+          amount,
+          cost,
+          price,
+          currency: "LBP",
+          // LIRA-329: the Days cost and price as typed in USD.
+          ...(rechargeType === "DAYS"
+            ? daysTypedUsdField(telecomDaysCostUsd, daysPriceUsdInput)
+            : {}),
+          // No counter payment at all in partner mode — the backend rejects
+          // any leg here (payment-leg-contract: IN legs only, and partner mode
+          // must have none).
+          payments: [],
+          partnerId: selectedPartnerId,
+          partnerMode: "FOR" as const,
+          // The shop's own calendar day, not the server's (untrustworthy on
+          // web): decides the DAYS-sale validity decrement when
+          // rechargeType === "DAYS".
+          client_day: localDay(),
+        },
+        { idempotencyKey },
+      );
       if (result && !result.success) {
         appEvents.emit(
           "notification:show",
@@ -810,6 +817,7 @@ export function TelecomForm({
         );
         return;
       }
+      resetIdempotencyKey();
 
       appEvents.emit(
         "notification:show",

@@ -148,8 +148,22 @@ function resetApi() {
 /** Every call the screen made to a write/report api, in order. */
 function captured() {
   return {
-    createCheckpoint: mockApi.createCheckpoint.mock.calls,
-    createCarrierLine: mockApi.createCarrierLine.mock.calls,
+    // LIRA-401: the idempotency key is random per form open; compare its
+    // presence, not its value.
+    createCheckpoint: mockApi.createCheckpoint.mock.calls.map((call) =>
+      call.map((arg: unknown) =>
+        arg && typeof arg === "object" && "idempotencyKey" in arg
+          ? { ...arg, idempotencyKey: "<idempotency-key>" }
+          : arg,
+      ),
+    ),
+    createCarrierLine: mockApi.createCarrierLine.mock.calls.map((call) =>
+      call.map((arg: unknown) =>
+        arg && typeof arg === "object" && "idempotencyKey" in arg
+          ? { ...arg, idempotencyKey: "<idempotency-key>" }
+          : arg,
+      ),
+    ),
     setDrawerCurrencies: mockApi.setDrawerCurrencies.mock.calls,
     getDailyStatsSnapshot: mockApi.getDailyStatsSnapshot.mock.calls,
     // The PDF file name ends in Date.now(); the rest must match exactly.

@@ -235,6 +235,10 @@ describe("SaleDetailModal — LIRA-231 refund-method-override wiring", () => {
         undefined,
         undefined,
         undefined,
+        undefined,
+        undefined,
+        // LIRA-401: the refund popup's one-time key rides last.
+        expect.objectContaining({ idempotencyKey: expect.any(String) }),
       ),
     );
   });
@@ -289,6 +293,9 @@ describe("SaleDetailModal — LIRA-231 refund-method-override wiring", () => {
         undefined,
         [{ unit_id: 77, is_defective: true }],
         undefined,
+        undefined,
+        undefined,
+        expect.objectContaining({ idempotencyKey: expect.any(String) }),
       ),
     );
   });
@@ -324,7 +331,15 @@ describe("SaleDetailModal — LIRA-231 refund-method-override wiring", () => {
     fireEvent.click(screen.getByText("Confirm Refund With Rate (stub)"));
 
     await waitFor(() =>
-      expect(mockRefundSale).toHaveBeenCalledWith(4, undefined, undefined, 92000),
+      expect(mockRefundSale).toHaveBeenCalledWith(
+        4,
+        undefined,
+        undefined,
+        92000,
+        undefined,
+        undefined,
+        expect.objectContaining({ idempotencyKey: expect.any(String) }),
+      ),
     );
   });
 
@@ -465,6 +480,8 @@ describe("SaleDetailModal — LIRA-231 refund-method-override wiring", () => {
         undefined,
         undefined,
         undefined,
+        undefined,
+        expect.objectContaining({ idempotencyKey: expect.any(String) }),
       ),
     );
   });
@@ -522,6 +539,8 @@ describe("SaleDetailModal — LIRA-231 refund-method-override wiring", () => {
         undefined,
         [{ unit_id: 88, is_defective: true }],
         undefined,
+        undefined,
+        expect.objectContaining({ idempotencyKey: expect.any(String) }),
       ),
     );
   });
@@ -563,6 +582,8 @@ describe("SaleDetailModal — LIRA-231 refund-method-override wiring", () => {
         undefined,
         undefined,
         92000,
+        undefined,
+        expect.objectContaining({ idempotencyKey: expect.any(String) }),
       ),
     );
   });

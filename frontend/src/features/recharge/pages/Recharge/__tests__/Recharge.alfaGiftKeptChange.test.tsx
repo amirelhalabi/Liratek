@@ -207,7 +207,11 @@ describe("Recharge page — Alfa Gift kept change", () => {
     fireEvent.click(screen.getByTestId("submit-gift"));
 
     await waitFor(() => expect(mockProcessRecharge).toHaveBeenCalledTimes(1));
-    expect(mockProcessRecharge.mock.calls[0]).toHaveLength(1);
+    // ONE payload; the only other argument is the LIRA-401 write options.
+    expect(mockProcessRecharge.mock.calls[0]).toHaveLength(2);
+    expect(mockProcessRecharge.mock.calls[0][1]).toEqual({
+      idempotencyKey: expect.stringMatching(/^[A-Za-z0-9-]{8,128}$/),
+    });
     const p = createRechargeSchema.parse(mockProcessRecharge.mock.calls[0][0]);
     expect(p.type).toBe("ALFA_GIFT");
     expect(p.kept_change_usd).toBe(0);

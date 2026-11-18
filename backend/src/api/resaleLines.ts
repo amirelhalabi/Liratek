@@ -26,6 +26,7 @@ import {
 } from "../middleware/auth.js";
 import { validateRequest, validateQuery } from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
+import { sendIdempotent } from "../middleware/idempotency.js";
 
 const router = express.Router();
 
@@ -98,20 +99,26 @@ router.post(
         });
         return;
       }
-      const result = getResaleLineService().writeOff(
-        req.body,
-        (req as AuthRequest).user!.userId,
+      sendIdempotent(
+        req,
+        res,
+        () =>
+          getResaleLineService().writeOff(
+            req.body,
+            (req as AuthRequest).user!.userId,
+          ),
+        {
+          onBooked: (result) => {
+            auditRest(req as AuthRequest, {
+              action: "create",
+              entity_type: "resale_line",
+              entity_id: String(req.body.product_id),
+              summary: `Wrote off lost phone line (product #${req.body.product_id})`,
+              metadata: { expense_id: result.data.expense_id },
+            });
+          },
+        },
       );
-      if (result.success) {
-        auditRest(req as AuthRequest, {
-          action: "create",
-          entity_type: "resale_line",
-          entity_id: String(req.body.product_id),
-          summary: `Wrote off lost phone line (product #${req.body.product_id})`,
-          metadata: { expense_id: result.data.expense_id },
-        });
-      }
-      res.json(result);
     } catch (err) {
       res.json({ success: false, error: errMessage(err) });
     }
@@ -133,23 +140,29 @@ router.post(
         });
         return;
       }
-      const result = getResaleLineService().recharge(
-        req.body,
-        (req as AuthRequest).user!.userId,
-      );
-      if (result.success) {
-        auditRest(req as AuthRequest, {
-          action: "create",
-          entity_type: "resale_line",
-          entity_id: String(req.body.product_id),
-          summary: `Recharged line for sale (product #${req.body.product_id}, ${req.body.source})`,
-          metadata: {
-            transaction_id: result.data.transaction_id,
-            cost_usd: result.data.cost_usd,
+      sendIdempotent(
+        req,
+        res,
+        () =>
+          getResaleLineService().recharge(
+            req.body,
+            (req as AuthRequest).user!.userId,
+          ),
+        {
+          onBooked: (result) => {
+            auditRest(req as AuthRequest, {
+              action: "create",
+              entity_type: "resale_line",
+              entity_id: String(req.body.product_id),
+              summary: `Recharged line for sale (product #${req.body.product_id}, ${req.body.source})`,
+              metadata: {
+                transaction_id: result.data.transaction_id,
+                cost_usd: result.data.cost_usd,
+              },
+            });
           },
-        });
-      }
-      res.json(result);
+        },
+      );
     } catch (err) {
       res.json({ success: false, error: errMessage(err) });
     }
@@ -172,24 +185,30 @@ router.post(
         });
         return;
       }
-      const result = getResaleLineService().giveBack(
-        req.body,
-        (req as AuthRequest).user!.userId,
-      );
-      if (result.success) {
-        auditRest(req as AuthRequest, {
-          action: "create",
-          entity_type: "resale_line",
-          entity_id: String(req.body.product_id),
-          summary: `Gave credit back from line for sale (product #${req.body.product_id}, +$${result.data.credits_sent} to a shop line)`,
-          metadata: {
-            transaction_id: result.data.transaction_id,
-            credits_sent: result.data.credits_sent,
-            price_drop_usd: result.data.price_drop_usd,
+      sendIdempotent(
+        req,
+        res,
+        () =>
+          getResaleLineService().giveBack(
+            req.body,
+            (req as AuthRequest).user!.userId,
+          ),
+        {
+          onBooked: (result) => {
+            auditRest(req as AuthRequest, {
+              action: "create",
+              entity_type: "resale_line",
+              entity_id: String(req.body.product_id),
+              summary: `Gave credit back from line for sale (product #${req.body.product_id}, +$${result.data.credits_sent} to a shop line)`,
+              metadata: {
+                transaction_id: result.data.transaction_id,
+                credits_sent: result.data.credits_sent,
+                price_drop_usd: result.data.price_drop_usd,
+              },
+            });
           },
-        });
-      }
-      res.json(result);
+        },
+      );
     } catch (err) {
       res.json({ success: false, error: errMessage(err) });
     }

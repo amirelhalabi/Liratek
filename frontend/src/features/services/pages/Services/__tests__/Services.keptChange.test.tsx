@@ -244,7 +244,12 @@ describe("Services page — kept change on an OMT/Whish system SEND", () => {
     fireEvent.click(screen.getByRole("button", { name: /Record Send/i }));
 
     await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
-    expect(mockAddOMTTransaction.mock.calls[0]).toHaveLength(1);
+    // ONE payload (rule 22); the only other argument is LIRA-401's
+    // per-call options carrying the one-time key — never a second payload.
+    expect(mockAddOMTTransaction.mock.calls[0]).toHaveLength(2);
+    expect(Object.keys(mockAddOMTTransaction.mock.calls[0][1])).toEqual([
+      "idempotencyKey",
+    ]);
     const parsed = createFinancialServiceSchema.parse(
       mockAddOMTTransaction.mock.calls[0][0],
     );

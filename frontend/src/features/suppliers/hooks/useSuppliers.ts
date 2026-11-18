@@ -8,6 +8,7 @@ import {
 import { useApi } from "@liratek/ui";
 import { normaliseCoveredTypes, type OmtCoveredType } from "@liratek/core";
 import { unwrapIpc } from "@/shared/api/unwrapIpc";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import type {
   SupplierArchiveInput,
   SupplierCashflowPayload,
@@ -517,8 +518,26 @@ export function useSupplierAccountTransactionsQuery(
 
 // ── Mutations ─────────────────────────────────────────────────────────────────
 
+/**
+ * LIRA-401 — one idempotency key per money-write mutation hook. Every call
+ * (a double tap, a retry after a lost reply) carries the SAME key until a
+ * call succeeds; then the next payment gets a fresh key. A reply that says
+ * `success: false` keeps the key, so the retry replays rather than books.
+ * `useMutation` re-reads its options on every render, so `mutationFn`
+ * always sees the current key.
+ */
+function useWriteKey() {
+  const { key: idempotencyKey, reset } = useIdempotencyKeyWithReset(true);
+  const resetOnSuccess = (result: unknown) => {
+    if ((result as { success?: boolean } | null | undefined)?.success !== false)
+      reset();
+  };
+  return { idempotencyKey, resetOnSuccess };
+}
+
 export function useAddLedgerEntryMutation(supplierId: number | null) {
   const api = useApi();
+  const { idempotencyKey, resetOnSuccess } = useWriteKey();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -526,8 +545,9 @@ export function useAddLedgerEntryMutation(supplierId: number | null) {
     // (`entry_type: string`, optional amounts) accepted payloads both
     // transports' supplierLedgerEntrySchema rejects.
     mutationFn: (payload: SupplierLedgerEntryPayload) =>
-      api.addSupplierLedgerEntry(supplierId!, payload),
-    onSuccess: () => {
+      api.addSupplierLedgerEntry(supplierId!, payload, { idempotencyKey }),
+    onSuccess: (result) => {
+      resetOnSuccess(result);
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.all });
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.balances });
       if (supplierId) {
@@ -585,6 +605,7 @@ export function useOpenRecordedDebtsQuery(supplierId: number | null) {
 /** LIRA-087 — record a supplier debt without a product line yet. */
 export function useRecordSupplierDebtMutation(supplierId: number | null) {
   const api = useApi();
+  const { idempotencyKey, resetOnSuccess } = useWriteKey();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: {
@@ -592,8 +613,9 @@ export function useRecordSupplierDebtMutation(supplierId: number | null) {
       amount_usd: number;
       amount_lbp: number;
       note?: string | null;
-    }) => api.recordSupplierDebt(data),
-    onSuccess: () => {
+    }) => api.recordSupplierDebt(data, { idempotencyKey }),
+    onSuccess: (result) => {
+      resetOnSuccess(result);
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.all });
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.balances });
       queryClient.invalidateQueries({
@@ -613,14 +635,16 @@ export function useRecordSupplierDebtMutation(supplierId: number | null) {
 
 export function useCreatePurchaseMutation(supplierId: number | null) {
   const api = useApi();
+  const { idempotencyKey, resetOnSuccess } = useWriteKey();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: {
       supplier_id: number;
       total_usd: number;
       note?: string;
-    }) => api.createSupplierPurchase(data),
-    onSuccess: () => {
+    }) => api.createSupplierPurchase(data, { idempotencyKey }),
+    onSuccess: (result) => {
+      resetOnSuccess(result);
       if (supplierId) {
         queryClient.invalidateQueries({
           queryKey: SUPPLIER_KEYS.purchases(supplierId),
@@ -639,14 +663,16 @@ export function useSupplierCashflowMutation(
   provider: string | null,
 ) {
   const api = useApi();
+  const { idempotencyKey, resetOnSuccess } = useWriteKey();
   const queryClient = useQueryClient();
 
   return useMutation({
     // LIRA-313 (rule 21) — the core schema's input type: the hand-written
     // copy lacked the per-leg `direction` that marks change handed back.
     mutationFn: (data: SupplierCashflowPayload) =>
-      api.recordSupplierCashflow(data),
-    onSuccess: () => {
+      api.recordSupplierCashflow(data, { idempotencyKey }),
+    onSuccess: (result) => {
+      resetOnSuccess(result);
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.all });
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.balances });
       queryClient.invalidateQueries({
@@ -685,14 +711,16 @@ export function useSupplierLedgerEntryMutation(
   provider: string | null,
 ) {
   const api = useApi();
+  const { idempotencyKey, resetOnSuccess } = useWriteKey();
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (data: SupplierLedgerEntryPayload) => {
       const { supplier_id, ...rest } = data;
-      return api.addSupplierLedgerEntry(supplier_id, rest);
+      return api.addSupplierLedgerEntry(supplier_id, rest, { idempotencyKey });
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      resetOnSuccess(result);
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.all });
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.balances });
       queryClient.invalidateQueries({
@@ -743,12 +771,15 @@ export function useSettleTransactionsMutation(
   provider: string | null,
 ) {
   const api = useApi();
+  const { idempotencyKey, resetOnSuccess } = useWriteKey();
   const queryClient = useQueryClient();
 
   return useMutation({
     // Payload derived from the core supplierSettleSchema (rule 21).
-    mutationFn: (data: SupplierSettleInput) => api.settleTransactions(data),
-    onSuccess: () => {
+    mutationFn: (data: SupplierSettleInput) =>
+      api.settleTransactions(data, { idempotencyKey }),
+    onSuccess: (result) => {
+      resetOnSuccess(result);
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.all });
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.balances });
       if (supplierId) {
@@ -800,6 +831,7 @@ export function useSettleSupplierAccountMutation(
   accountSupplierId: number | null,
 ) {
   const api = useApi();
+  const { idempotencyKey, resetOnSuccess } = useWriteKey();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -811,9 +843,12 @@ export function useSettleSupplierAccountMutation(
           ),
         );
       }
-      return api.settleSupplierAccount(accountSupplierId, data);
+      return api.settleSupplierAccount(accountSupplierId, data, {
+        idempotencyKey,
+      });
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      resetOnSuccess(result);
       // The batch can touch any/all of the account's children at once — none
       // of the per-child query keys are known here (only the account parent
       // id is), so invalidate broadly by prefix rather than enumerating
@@ -825,7 +860,9 @@ export function useSettleSupplierAccountMutation(
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.all });
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.balances });
       // LIRA-345 — a product supplier settles here too.
-      queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.productBalances });
+      queryClient.invalidateQueries({
+        queryKey: SUPPLIER_KEYS.productBalances,
+      });
       queryClient.invalidateQueries({ queryKey: ["supplier-ledger"] });
       queryClient.invalidateQueries({ queryKey: ["supplier-unsettled"] });
       queryClient.invalidateQueries({
@@ -863,6 +900,7 @@ export function useRemoveSupplierAccountCreditMutation(
   accountSupplierId: number | null,
 ) {
   const api = useApi();
+  const { idempotencyKey, resetOnSuccess } = useWriteKey();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -876,9 +914,12 @@ export function useRemoveSupplierAccountCreditMutation(
           ),
         );
       }
-      return api.removeSupplierAccountCredit(accountSupplierId, data);
+      return api.removeSupplierAccountCredit(accountSupplierId, data, {
+        idempotencyKey,
+      });
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      resetOnSuccess(result);
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.all });
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.balances });
       queryClient.invalidateQueries({ queryKey: ["supplier-ledger"] });

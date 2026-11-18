@@ -14,6 +14,7 @@ import {
   updateExchangeMetadataSchema,
 } from "@liratek/core";
 import { auditRest } from "../middleware/audit.js";
+import { sendIdempotent } from "../middleware/idempotency.js";
 
 const router = express.Router();
 
@@ -69,26 +70,26 @@ router.post(
     // API-currency trade never reached the DB correctly on web. Mirrors the
     // IPC handler's exact call: addDirectTransaction trusts the full
     // already-computed payload, exactly like desktop.
-    const result = service.addDirectTransaction(req.body);
-    if (result.success) {
-      // Mirrors exchangeHandlers.ts's exchange:add-transaction audit.
-      auditRest(req, {
-        action: "create",
-        entity_type: "exchange_transaction",
-        summary: `Exchange ${req.body.amountIn} ${req.body.fromCurrency} → ${req.body.toCurrency}`,
-        metadata: {
-          fromCurrency: req.body.fromCurrency,
-          toCurrency: req.body.toCurrency,
-          amountIn: req.body.amountIn,
-        },
-      });
-    }
     // Rule 19c: HTTP 200 always — the frontend adapter branches on
     // `result.success`, never on status code. `result` already carries the
     // exact envelope shape ExchangeOpResult defines (id/realizedProfitUsd/
     // lotCoveredQty/lotMarketQty on success, error on failure), identical to
     // what the IPC handler returns — no reshaping needed.
-    res.json(result);
+    sendIdempotent(req, res, () => service.addDirectTransaction(req.body), {
+      onBooked: () => {
+        // Mirrors exchangeHandlers.ts's exchange:add-transaction audit.
+        auditRest(req, {
+          action: "create",
+          entity_type: "exchange_transaction",
+          summary: `Exchange ${req.body.amountIn} ${req.body.fromCurrency} → ${req.body.toCurrency}`,
+          metadata: {
+            fromCurrency: req.body.fromCurrency,
+            toCurrency: req.body.toCurrency,
+            amountIn: req.body.amountIn,
+          },
+        });
+      },
+    });
   },
 );
 

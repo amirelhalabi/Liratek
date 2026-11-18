@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import logger from "@/utils/logger";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { Plus, History, Package, X } from "lucide-react";
 import {
   STOCK_EXPENSE_CATALOG_PROVIDERS,
@@ -69,6 +70,11 @@ const MANUAL_EXPENSE_CATEGORIES = EXPENSE_CATEGORIES.filter(
 
 export default function Expenses() {
   const api = useApi();
+  // LIRA-401 — one-time ticket for the always-visible form (web): a double
+  // tap or a retry books once; a new key after every successful save.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
+  const writeOpts = idempotencyKey ? { idempotencyKey } : {};
   const { t } = useTranslation("expenses");
   // Expenses are a Money-OUT flow (shop pays out) — buy rate.
   const { buyRate: exchangeRate } = useSellRate();
@@ -188,7 +194,9 @@ export default function Expenses() {
   const handleAddWrongNumber = async (pick: StockPick) => {
     if (pick.source === "INVENTORY") return;
     const payload: RecordWrongNumberInput = {
-      provider: STOCK_EXPENSE_CATALOG_PROVIDERS[pick.source] as RecordWrongNumberInput["provider"],
+      provider: STOCK_EXPENSE_CATALOG_PROVIDERS[
+        pick.source
+      ] as RecordWrongNumberInput["provider"],
       mobile_service_item_id: pick.item_id,
       // Optional (LIRA-325): sent only when typed.
       ...(wrongNumber.trim() ? { wrong_number: wrongNumber.trim() } : {}),
@@ -198,13 +206,10 @@ export default function Expenses() {
         : {}),
     };
     try {
-      const result = await api.recordWrongNumber(payload);
+      const result = await api.recordWrongNumber(payload, writeOpts);
       if (result.success) {
-        appEvents.emit(
-          "notification:show",
-          t("toast.wrongNumber"),
-          "success",
-        );
+        resetIdempotencyKey();
+        appEvents.emit("notification:show", t("toast.wrongNumber"), "success");
         resetForm();
         loadTodayExpenses();
       } else {
@@ -234,13 +239,10 @@ export default function Expenses() {
       transaction_time: transactionTime,
     };
     try {
-      const result = await api.addStockExpense(payload);
+      const result = await api.addStockExpense(payload, writeOpts);
       if (result.success) {
-        appEvents.emit(
-          "notification:show",
-          t("toast.stockUse"),
-          "success",
-        );
+        resetIdempotencyKey();
+        appEvents.emit("notification:show", t("toast.stockUse"), "success");
         resetForm();
         loadTodayExpenses();
       } else {
@@ -328,14 +330,11 @@ export default function Expenses() {
     };
 
     try {
-      const result = await api.addExpense(payload);
+      const result = await api.addExpense(payload, writeOpts);
 
       if (result.success) {
-        appEvents.emit(
-          "notification:show",
-          t("toast.recorded"),
-          "success",
-        );
+        resetIdempotencyKey();
+        appEvents.emit("notification:show", t("toast.recorded"), "success");
         resetForm();
         loadTodayExpenses();
       } else {
@@ -488,7 +487,10 @@ export default function Expenses() {
                         })}
                   </p>
                   {stockPick.carrier && (
-                    <div className="space-y-2" data-testid="expense-wrong-number">
+                    <div
+                      className="space-y-2"
+                      data-testid="expense-wrong-number"
+                    >
                       <label className="flex items-center gap-2 text-sm text-slate-300">
                         <input
                           type="checkbox"

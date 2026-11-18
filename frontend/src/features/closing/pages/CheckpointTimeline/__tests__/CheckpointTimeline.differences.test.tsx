@@ -398,9 +398,11 @@ describe("Checkpoint Timeline — details window resolution block (LIRA-335)", (
         within(details).getByRole("button", { name: "Reopen" }),
       ).toBeTruthy(),
     );
-    expect(mockApi.closeCheckpointDifference).toHaveBeenCalledWith({
-      difference_id: 103,
-    });
+    expect(mockApi.closeCheckpointDifference).toHaveBeenCalledWith(
+      { difference_id: 103 },
+      // LIRA-401: the write carries an idempotency key.
+      expect.objectContaining({ idempotencyKey: expect.any(String) }),
+    );
     expect(details.textContent).toContain("Drawer shortage expense");
     expect(details.textContent).not.toContain("#4801");
     expect(screen.queryByText("Close as short")).toBeNull();

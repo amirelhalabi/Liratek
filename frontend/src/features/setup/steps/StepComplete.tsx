@@ -6,12 +6,16 @@ import { CheckCircle, Loader2 } from "lucide-react";
 import { appEvents, useApi } from "@liratek/ui";
 import { isElectron } from "@/api/backendApi";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
+import { useIdempotencyKey } from "@/shared/hooks/useIdempotencyKey";
 
 export default function StepComplete() {
   const { payload, resetWizard, setStep } = useSetup();
   const { t } = useTranslation("setup");
   const { login, clearSetupRequired, clearFreshSignIn } = useAuth();
   const api = useApi();
+  // LIRA-401 — the setup baseline checkpoint is booked once per wizard
+  // finish: a second tap on Launch replays instead of booking it again.
+  const idempotencyKey = useIdempotencyKey(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -81,18 +85,21 @@ export default function StepComplete() {
       const CARRIER_DRAWER_NAMES = new Set(["MTC", "Alfa"]);
       // No user_id: the server books the checkpoint under the signed-in
       // user on both transports (LIRA-297).
-      await api.createCheckpoint({
-        drawer_name: "AGGREGATED",
-        notes: "Initial drawer amounts from setup",
-        amounts: (payload.drawer_amounts ?? [])
-          .filter((d) => !CARRIER_DRAWER_NAMES.has(d.drawer_name))
-          .map((d) => ({
-            drawer_name: d.drawer_name,
-            currency_code: d.currency_code,
-            expected_amount: d.amount,
-            physical_amount: d.amount,
-          })),
-      });
+      await api.createCheckpoint(
+        {
+          drawer_name: "AGGREGATED",
+          notes: "Initial drawer amounts from setup",
+          amounts: (payload.drawer_amounts ?? [])
+            .filter((d) => !CARRIER_DRAWER_NAMES.has(d.drawer_name))
+            .map((d) => ({
+              drawer_name: d.drawer_name,
+              currency_code: d.currency_code,
+              expected_amount: d.amount,
+              physical_amount: d.amount,
+            })),
+        },
+        { idempotencyKey },
+      );
 
       // Refresh all module/feature-flag contexts so they pick up the
       // values the user just configured (instead of the seeded defaults)

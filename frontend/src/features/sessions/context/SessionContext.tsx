@@ -14,6 +14,7 @@ import { subscribeToInvalidation } from "@/api/realtime";
 import { POLL_MS, isTabVisible } from "@/api/pollingCadence";
 import type { CartItem, CartTotals } from "../types/cart";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import {
   isExchangeBasketLine,
   sessionBasketCustomerAmount,
@@ -155,6 +156,24 @@ function rememberSession(id: number | null): void {
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const api = useApi();
+  // LIRA-401 — one-time ticket for this provider's writes (web). Read through
+  // a ref so the memoised callbacks below keep their identity yet always send
+  // the CURRENT key. Every write suffixes what it targets (the session's
+  // cart, the session, the linked transaction), so one key never covers two
+  // different kinds of write; each success renews the key.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
+  const idempotencyKeyRef = useRef(idempotencyKey);
+  idempotencyKeyRef.current = idempotencyKey;
+  const writeOpts = useCallback((target: string) => {
+    const key = idempotencyKeyRef.current;
+    return key ? { idempotencyKey: `${key}-${target}` } : {};
+  }, []);
+  // LIRA-401 — a double tap on "Add to basket" must send the SAME key AND the
+  // same line id: a fresh `randomUUID()` per tap would make every tap a new
+  // line on the server and on screen. The line id is therefore kept for as
+  // long as the key is (until a successful add renews the key).
+  const pendingCartLineRef = useRef<{ key: string; id: string } | null>(null);
   const { flags } = useFeatureFlags();
   const { isAuthenticated } = useAuth();
   const [activeSession, setActiveSessionState] =
@@ -215,11 +234,20 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const addToCart = useCallback(
     async (item: Omit<CartItem, "id">): Promise<boolean> => {
       if (!activeSession) return false;
+      const sessionId = activeSession.id;
+      const currentKey = idempotencyKeyRef.current;
+      let lineId: string;
+      if (currentKey && pendingCartLineRef.current?.key === currentKey) {
+        lineId = pendingCartLineRef.current.id;
+      } else {
+        lineId = crypto.randomUUID();
+        if (currentKey)
+          pendingCartLineRef.current = { key: currentKey, id: lineId };
+      }
       const newItem: CartItem = withCustomerAmount({
         ...item,
-        id: crypto.randomUUID(),
+        id: lineId,
       });
-      const sessionId = activeSession.id;
 
       // Persist to DB. A line the server refused (or never received) must not
       // appear on screen: the on-screen basket would then disagree with the
@@ -228,15 +256,19 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       // here and only refused later, failing the whole checkout. Tell the
       // cashier at add time instead, like the rest of the page does.
       try {
-        const result = await api.session.cartAdd(sessionId, {
-          item_id: newItem.id,
-          module: newItem.module,
-          label: newItem.label,
-          amount: newItem.amount,
-          currency: newItem.currency,
-          form_data: JSON.stringify(newItem.formData),
-          ipc_channel: newItem.ipcChannel,
-        });
+        const result = await api.session.cartAdd(
+          sessionId,
+          {
+            item_id: newItem.id,
+            module: newItem.module,
+            label: newItem.label,
+            amount: newItem.amount,
+            currency: newItem.currency,
+            form_data: JSON.stringify(newItem.formData),
+            ipc_channel: newItem.ipcChannel,
+          },
+          writeOpts(`cart-${sessionId}`),
+        );
         if (!result?.success) {
           logger.error("Server refused cart item:", result?.error);
           alert(getApiErrorMessage(result, ADD_TO_BASKET_FAILED));
@@ -248,13 +280,18 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         return false;
       }
 
-      setCartItems((prev) => [...prev, newItem]);
+      // A replayed double tap answers with the first tap's reply for the
+      // same line id: show the line once.
+      setCartItems((prev) =>
+        prev.some((line) => line.id === newItem.id) ? prev : [...prev, newItem],
+      );
+      resetIdempotencyKey();
       logger.info(
         `Added item to cart: ${item.module} - ${item.label} (session ${sessionId})`,
       );
       return true;
     },
-    [activeSession],
+    [activeSession, writeOpts, resetIdempotencyKey],
   );
 
   const removeFromCart = useCallback(
@@ -426,8 +463,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       if (startingRef.current) return;
       startingRef.current = true;
       try {
-        const result = await api.startSession(data);
+        const result = await api.startSession(data, writeOpts("start"));
         if (result.success && result.sessionId) {
+          resetIdempotencyKey();
           // Refresh the list to get the new session
           const updatedData = await api.session.getActiveSessions();
           if (updatedData.success && updatedData.sessions) {
@@ -452,7 +490,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         startingRef.current = false;
       }
     },
-    [refreshActiveSessions, setActiveSession],
+    [refreshActiveSessions, setActiveSession, writeOpts, resetIdempotencyKey],
   );
 
   const switchToSession = useCallback(
@@ -469,8 +507,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     if (!activeSession) return;
 
     try {
-      const result = await api.closeSession(activeSession.id);
+      const result = await api.closeSession(
+        activeSession.id,
+        writeOpts(`close-${activeSession.id}`),
+      );
       if (result.success) {
+        resetIdempotencyKey();
         // Clear cart for this session
         await api.session.cartClear(activeSession.id);
         setActiveSession(null);
@@ -484,13 +526,23 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       logger.error("Failed to close session:", err);
       throw err;
     }
-  }, [activeSession, refreshActiveSessions, setActiveSession]);
+  }, [
+    activeSession,
+    refreshActiveSessions,
+    setActiveSession,
+    writeOpts,
+    resetIdempotencyKey,
+  ]);
 
   const closeSession = useCallback(
     async (sessionId: number) => {
       try {
-        const result = await api.closeSession(sessionId);
+        const result = await api.closeSession(
+          sessionId,
+          writeOpts(`close-${sessionId}`),
+        );
         if (result.success) {
+          resetIdempotencyKey();
           // Clear cart for closed session
           await api.session.cartClear(sessionId);
           await refreshActiveSessions();
@@ -508,7 +560,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         throw err;
       }
     },
-    [activeSession, refreshActiveSessions, setActiveSession],
+    [
+      activeSession,
+      refreshActiveSessions,
+      setActiveSession,
+      writeOpts,
+      resetIdempotencyKey,
+    ],
   );
 
   const deleteSession = useCallback(
@@ -573,10 +631,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        const result = await api.linkTransactionToSession({
-          ...data,
-          sessionId: activeSession.id,
-        });
+        const result = await api.linkTransactionToSession(
+          {
+            ...data,
+            sessionId: activeSession.id,
+          },
+          writeOpts(`link-${data.transactionId}`),
+        );
         // The link is now schema-validated on both transports (LIRA-297
         // item 3): a refused payload must leave a trace, not vanish.
         if (!result?.success) {
@@ -588,7 +649,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         logger.error("Failed to link transaction:", err);
       }
     },
-    [activeSession, refreshSessionTransactions],
+    [activeSession, refreshSessionTransactions, writeOpts],
   );
 
   // -------------------------------------------------------------------------

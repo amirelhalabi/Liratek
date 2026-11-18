@@ -33,6 +33,7 @@ import { generateClosingReport } from "../utils/closingReportGenerator";
 import { useShopBase } from "@/hooks/useShopBase";
 import { localDay } from "@/shared/utils/localDay";
 import { useSellRate } from "@/hooks/useSellRate";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 
 /** Save-button styling per overall status. */
 export const SAVE_STYLES: Record<VarianceStatus, string> = {
@@ -238,6 +239,9 @@ export function useDrawerCheckpoint({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
+  // LIRA-401: one key per new shop line, renewed after it is added.
+  const { key: addLineIdempotencyKey, reset: resetAddLineIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
   const handleAddLine = async () => {
     if (!carrier) return;
     const phone = newLinePhone.trim();
@@ -249,17 +253,21 @@ export function useDrawerCheckpoint({
     setAddLineError(null);
     try {
       const credits = parseFloat(newLineCredits) || 0;
-      const result = await api.createCarrierLine({
-        carrier,
-        phone_number: phone,
-        credits,
-      });
+      const result = await api.createCarrierLine(
+        {
+          carrier,
+          phone_number: phone,
+          credits,
+        },
+        { idempotencyKey: addLineIdempotencyKey },
+      );
       if (!result.success) {
         setAddLineError(
           translateServerError(result, t, t("save.addLineFailed")),
         );
         return;
       }
+      resetAddLineIdempotencyKey();
       setNewLinePhone("");
       setNewLineCredits("");
       await loadCarrierLines();
@@ -395,6 +403,11 @@ export function useDrawerCheckpoint({
     });
   })();
 
+  // LIRA-401 — same key for every retry/double tap of this drawer's save
+  // until one succeeds, then a fresh key for the next count.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
+
   const handleSave = async () => {
     setSaving(true);
     setSaveError(null);
@@ -441,12 +454,15 @@ export function useDrawerCheckpoint({
         }));
       }
       if (notes) checkpointData.notes = notes;
-      const result = await api.createCheckpoint(checkpointData);
+      const result = await api.createCheckpoint(checkpointData, {
+        idempotencyKey,
+      });
 
       if (!result.success) {
         setSaveError(translateServerError(result, t, t("save.failed")));
         return;
       }
+      resetIdempotencyKey();
 
       if (result.id != null) {
         try {
@@ -549,7 +565,8 @@ export function useDrawerCheckpoint({
     const codes = drawerCurrencies.map((c) => c.code);
     if (!codes.includes("USD") || !codes.includes("LBP")) return null;
     const expected = (code: string) => getExpectedValue(drawer, code);
-    const counted = (code: string) => drawerAmounts.amounts[drawer]?.[code] ?? 0;
+    const counted = (code: string) =>
+      drawerAmounts.amounts[drawer]?.[code] ?? 0;
     const used = ["USD", "LBP"].filter(
       (c) => Math.abs(expected(c)) > 0.004 || Math.abs(counted(c)) > 0.004,
     );

@@ -20,6 +20,7 @@ import {
   MultiPaymentInput,
   type PaymentLine,
 } from "@liratek/ui";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import type { Client } from "@liratek/ui";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
@@ -102,6 +103,10 @@ function formatLbp(n: number): string {
  */
 export function HoldMoneySection() {
   const api = useApi();
+  // LIRA-401: one key per hold / pickup void, renewed after each success, so
+  // a double tap or a retry books it once. A void is suffixed with its pickup.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
   const { t } = useTranslation("customServices");
   const { formatDateTime } = useFormat();
   const { methods } = usePaymentMethods();
@@ -223,8 +228,11 @@ export function HoldMoneySection() {
     }
     setVoidingPickupId(pickup.id);
     try {
-      const res = await api.holdMoney.voidPickup(pickup.id);
+      const res = await api.holdMoney.voidPickup(pickup.id, {
+        idempotencyKey: idempotencyKey && `${idempotencyKey}-v${pickup.id}`,
+      });
       if (res.success) {
+        resetIdempotencyKey();
         appEvents.emit("notification:show", t("hold.pickupVoided"), "success");
         appEvents.emit("holdMoney:changed");
         await loadPickups(pickup.hold_money_id);
@@ -269,46 +277,38 @@ export function HoldMoneySection() {
 
   const handleHold = useCallback(async () => {
     if (!clientName.trim()) {
-      appEvents.emit(
-        "notification:show",
-        t("hold.nameRequired"),
-        "warning",
-      );
+      appEvents.emit("notification:show", t("hold.nameRequired"), "warning");
       return;
     }
     if (usdAmount <= 0 && lbpAmount <= 0) {
-      appEvents.emit(
-        "notification:show",
-        t("hold.amountRequired"),
-        "warning",
-      );
+      appEvents.emit("notification:show", t("hold.amountRequired"), "warning");
       return;
     }
     if (!legsHaveMethods) {
-      appEvents.emit(
-        "notification:show",
-        t("hold.methodRequired"),
-        "warning",
-      );
+      appEvents.emit("notification:show", t("hold.methodRequired"), "warning");
       return;
     }
     setIsSubmitting(true);
     try {
       const trimmedPhone = phoneNumber.trim();
       const trimmedNote = note.trim();
-      const res = await api.holdMoney.create({
-        client_name: clientName.trim(),
-        usd_amount: usdAmount,
-        lbp_amount: lbpAmount,
-        ...(trimmedPhone ? { phone_number: trimmedPhone } : {}),
-        ...(clientId ? { client_id: clientId } : {}),
-        ...(trimmedNote ? { notes: trimmedNote } : {}),
-        ...(paymentLines.length > 0 || returnLegs.length > 0
-          ? { payments: toHoldMoneyLegs(paymentLines, returnLegs) }
-          : {}),
-        ...(effectiveRate ? { exchange_rate: effectiveRate } : {}),
-      });
+      const res = await api.holdMoney.create(
+        {
+          client_name: clientName.trim(),
+          usd_amount: usdAmount,
+          lbp_amount: lbpAmount,
+          ...(trimmedPhone ? { phone_number: trimmedPhone } : {}),
+          ...(clientId ? { client_id: clientId } : {}),
+          ...(trimmedNote ? { notes: trimmedNote } : {}),
+          ...(paymentLines.length > 0 || returnLegs.length > 0
+            ? { payments: toHoldMoneyLegs(paymentLines, returnLegs) }
+            : {}),
+          ...(effectiveRate ? { exchange_rate: effectiveRate } : {}),
+        },
+        { idempotencyKey },
+      );
       if (res.success) {
+        resetIdempotencyKey();
         appEvents.emit(
           "notification:show",
           t("hold.held", { name: clientName.trim() }),
@@ -461,9 +461,7 @@ export function HoldMoneySection() {
             />
           </div>
         </div>
-        <p className="text-[11px] text-slate-500">
-          {t("hold.amountHint")}
-        </p>
+        <p className="text-[11px] text-slate-500">{t("hold.amountHint")}</p>
       </div>
 
       {/* Payment method — how the held cash is being handed over */}

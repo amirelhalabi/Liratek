@@ -26,6 +26,7 @@ import {
 } from "../middleware/auth.js";
 import { validateRequest, validateQuery } from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
+import { sendIdempotent } from "../middleware/idempotency.js";
 
 const router = express.Router();
 
@@ -80,23 +81,29 @@ router.post(
   validateRequest(recordWrongNumberSchema),
   (req, res) => {
     try {
-      const result = getWrongNumberService().recordWrongNumber(
-        req.body,
-        (req as AuthRequest).user!.userId,
-      );
-      if (result.success) {
-        auditRest(req as AuthRequest, {
-          action: "create",
-          entity_type: "wrong_number_card",
-          entity_id: String(result.data.id),
-          summary: `Wrong number${req.body.wrong_number ? ` ${req.body.wrong_number}` : ""} (${req.body.provider} card)`,
-          metadata: {
-            expense_transaction_id: result.data.expense_transaction_id,
-            sale_transaction_id: req.body.sale_transaction_id ?? null,
+      sendIdempotent(
+        req,
+        res,
+        () =>
+          getWrongNumberService().recordWrongNumber(
+            req.body,
+            (req as AuthRequest).user!.userId,
+          ),
+        {
+          onBooked: (result) => {
+            auditRest(req as AuthRequest, {
+              action: "create",
+              entity_type: "wrong_number_card",
+              entity_id: String(result.data.id),
+              summary: `Wrong number${req.body.wrong_number ? ` ${req.body.wrong_number}` : ""} (${req.body.provider} card)`,
+              metadata: {
+                expense_transaction_id: result.data.expense_transaction_id,
+                sale_transaction_id: req.body.sale_transaction_id ?? null,
+              },
+            });
           },
-        });
-      }
-      res.json(result);
+        },
+      );
     } catch (err) {
       res.json({ success: false, error: errMessage(err) });
     }
@@ -117,23 +124,29 @@ router.post(
         });
         return;
       }
-      const result = getWrongNumberService().recordCreditsReceived(
-        req.body,
-        (req as AuthRequest).user!.userId,
-      );
-      if (result.success) {
-        auditRest(req as AuthRequest, {
-          action: "create",
-          entity_type: "wrong_number_card",
-          entity_id: String(req.body.wrong_number_card_id),
-          summary: `Credits received $${req.body.amount_usd} (wrong-number card #${req.body.wrong_number_card_id})`,
-          metadata: {
-            transaction_id: result.data.transaction_id,
-            carrier_line_id: req.body.carrier_line_id,
+      sendIdempotent(
+        req,
+        res,
+        () =>
+          getWrongNumberService().recordCreditsReceived(
+            req.body,
+            (req as AuthRequest).user!.userId,
+          ),
+        {
+          onBooked: (result) => {
+            auditRest(req as AuthRequest, {
+              action: "create",
+              entity_type: "wrong_number_card",
+              entity_id: String(req.body.wrong_number_card_id),
+              summary: `Credits received $${req.body.amount_usd} (wrong-number card #${req.body.wrong_number_card_id})`,
+              metadata: {
+                transaction_id: result.data.transaction_id,
+                carrier_line_id: req.body.carrier_line_id,
+              },
+            });
           },
-        });
-      }
-      res.json(result);
+        },
+      );
     } catch (err) {
       res.json({ success: false, error: errMessage(err) });
     }

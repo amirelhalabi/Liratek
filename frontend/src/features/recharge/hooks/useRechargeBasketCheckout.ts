@@ -6,14 +6,15 @@
  * adapter (`useApi().rechargeBasketCheckout`, rule 19). The server records it
  * as an automatic walk-in customer session, one sale per provider.
  *
- * Rule 25: `api` and the operator are read through refs, so the returned
- * function has a stable identity.
+ * Rule 25: `api` and the operator are read through refs. The returned
+ * function changes identity only when its idempotency key changes (LIRA-401).
  */
 import { useCallback, useEffect, useRef } from "react";
 import { useApi } from "@liratek/ui";
 import { useOptionalAuth } from "@/features/auth/context/AuthContext";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import logger from "@/utils/logger";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import {
   buildBasketCheckoutPayload,
   buildPartnerOrderPayload,
@@ -32,6 +33,10 @@ export function useRechargeBasketCheckout(): (
   const apiRef = useRef(api);
   const userId = useOptionalAuth()?.user?.id;
   const userIdRef = useRef(userId);
+  // LIRA-401 — one key per basket payment; renewed after a success. In the
+  // callback's deps so a submit never sends an already-used key.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
   // Synced after render (react-hooks/refs); the callback only runs later,
   // from a click, so it always sees the latest values.
   useEffect(() => {
@@ -39,33 +44,41 @@ export function useRechargeBasketCheckout(): (
     userIdRef.current = userId;
   }, [api, userId]);
 
-  return useCallback(async (input) => {
-    const operator = userIdRef.current;
-    if (!operator) {
-      return {
-        success: false,
-        error: "Sign in again to take this payment.",
-      };
-    }
-    try {
-      const payload = buildBasketCheckoutPayload({
-        ...input,
-        userId: operator,
-      });
-      const result = await apiRef.current.rechargeBasketCheckout(payload);
-      if (result?.success) return { success: true };
-      return {
-        success: false,
-        error: result?.error || "Failed to process payment",
-      };
-    } catch (err) {
-      logger.error("Recharge basket checkout failed:", err);
-      return {
-        success: false,
-        error: getApiErrorMessage(err, "Failed to process payment"),
-      };
-    }
-  }, []);
+  return useCallback(
+    async (input) => {
+      const operator = userIdRef.current;
+      if (!operator) {
+        return {
+          success: false,
+          error: "Sign in again to take this payment.",
+        };
+      }
+      try {
+        const payload = buildBasketCheckoutPayload({
+          ...input,
+          userId: operator,
+        });
+        const result = await apiRef.current.rechargeBasketCheckout(payload, {
+          idempotencyKey,
+        });
+        if (result?.success) {
+          resetIdempotencyKey();
+          return { success: true };
+        }
+        return {
+          success: false,
+          error: result?.error || "Failed to process payment",
+        };
+      } catch (err) {
+        logger.error("Recharge basket checkout failed:", err);
+        return {
+          success: false,
+          error: getApiErrorMessage(err, "Failed to process payment"),
+        };
+      }
+    },
+    [idempotencyKey, resetIdempotencyKey],
+  );
 }
 
 export type PartnerOrderResult =
@@ -84,30 +97,48 @@ export function useRechargePartnerOrder(): (
   const apiRef = useRef(api);
   const userId = useOptionalAuth()?.user?.id;
   const userIdRef = useRef(userId);
+  // LIRA-401 — one key per basket payment; renewed after a success. In the
+  // callback's deps so a submit never sends an already-used key.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
   useEffect(() => {
     apiRef.current = api;
     userIdRef.current = userId;
   }, [api, userId]);
 
-  return useCallback(async (input) => {
-    const operator = userIdRef.current;
-    if (!operator) {
-      return { success: false, error: "Sign in again to submit this order." };
-    }
-    try {
-      const payload = buildPartnerOrderPayload({ ...input, userId: operator });
-      const result = await apiRef.current.rechargePartnerOrder(payload);
-      if (result?.success) return { success: true };
-      return {
-        success: false,
-        error: result?.error || "Failed to process partner transaction",
-      };
-    } catch (err) {
-      logger.error("Recharge partner order failed:", err);
-      return {
-        success: false,
-        error: getApiErrorMessage(err, "Failed to process partner transaction"),
-      };
-    }
-  }, []);
+  return useCallback(
+    async (input) => {
+      const operator = userIdRef.current;
+      if (!operator) {
+        return { success: false, error: "Sign in again to submit this order." };
+      }
+      try {
+        const payload = buildPartnerOrderPayload({
+          ...input,
+          userId: operator,
+        });
+        const result = await apiRef.current.rechargePartnerOrder(payload, {
+          idempotencyKey,
+        });
+        if (result?.success) {
+          resetIdempotencyKey();
+          return { success: true };
+        }
+        return {
+          success: false,
+          error: result?.error || "Failed to process partner transaction",
+        };
+      } catch (err) {
+        logger.error("Recharge partner order failed:", err);
+        return {
+          success: false,
+          error: getApiErrorMessage(
+            err,
+            "Failed to process partner transaction",
+          ),
+        };
+      }
+    },
+    [idempotencyKey, resetIdempotencyKey],
+  );
 }

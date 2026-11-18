@@ -33,6 +33,7 @@ import {
 } from "@liratek/core";
 import { logger } from "../server.js";
 import { auditRest } from "../middleware/audit.js";
+import { guardIdempotent, sendIdempotent } from "../middleware/idempotency.js";
 
 const router = Router();
 const supplierService = getSupplierService();
@@ -601,34 +602,39 @@ router.post(
   validateRequest(supplierLedgerEntrySchema),
   (req: AuthRequest, res) => {
     try {
-      const result = supplierService.addLedgerEntry({
-        ...req.body,
-        created_by: req.user?.userId || 1,
-      });
-
-      if (result.success) {
-        logger.info(
-          {
-            supplier_id: req.body.supplier_id,
-            entry_type: req.body.entry_type,
+      // LIRA-401: a repeated Idempotency-Key replays the first entry.
+      sendIdempotent(
+        req,
+        res,
+        () =>
+          supplierService.addLedgerEntry({
+            ...req.body,
+            created_by: req.user?.userId || 1,
+          }),
+        {
+          onBooked: () => {
+            logger.info(
+              {
+                supplier_id: req.body.supplier_id,
+                entry_type: req.body.entry_type,
+              },
+              "Supplier ledger entry added",
+            );
+            // Mirrors supplierHandlers.ts's suppliers:add-ledger-entry audit
+            // (create/supplier_ledger).
+            auditRest(req, {
+              action: "create",
+              entity_type: "supplier_ledger",
+              summary: `Supplier ledger ${req.body.entry_type}: $${req.body.amount_usd} + ${req.body.amount_lbp} LBP`,
+              metadata: {
+                supplier_id: req.body.supplier_id,
+                entry_type: req.body.entry_type,
+              },
+            });
           },
-          "Supplier ledger entry added",
-        );
-        // Mirrors supplierHandlers.ts's suppliers:add-ledger-entry audit
-        // (create/supplier_ledger).
-        auditRest(req, {
-          action: "create",
-          entity_type: "supplier_ledger",
-          summary: `Supplier ledger ${req.body.entry_type}: $${req.body.amount_usd} + ${req.body.amount_lbp} LBP`,
-          metadata: {
-            supplier_id: req.body.supplier_id,
-            entry_type: req.body.entry_type,
-          },
-        });
-        res.json(result);
-      } else {
-        res.status(400).json(result);
-      }
+          status: (result) => (result.success ? 200 : 400),
+        },
+      );
     } catch (error) {
       logger.error({ error }, "Add supplier ledger entry error");
       res
@@ -652,24 +658,30 @@ router.post(
   validateRequest(supplierSettleSchema),
   (req: AuthRequest, res) => {
     try {
-      const result = supplierService.settleTransactions({
-        ...req.body,
-        created_by: req.user!.userId,
-      });
-      if (result.success) {
-        // Mirrors supplierHandlers.ts's suppliers:settle-transactions audit
-        // (settle/supplier_settlement).
-        auditRest(req, {
-          action: "settle",
-          entity_type: "supplier_settlement",
-          summary: `Settled ${req.body.financial_service_ids.length} transactions for supplier #${req.body.supplier_id}`,
-          metadata: {
-            supplier_id: req.body.supplier_id,
-            count: req.body.financial_service_ids.length,
+      sendIdempotent(
+        req,
+        res,
+        () =>
+          supplierService.settleTransactions({
+            ...req.body,
+            created_by: req.user!.userId,
+          }),
+        {
+          onBooked: () => {
+            // Mirrors supplierHandlers.ts's suppliers:settle-transactions audit
+            // (settle/supplier_settlement).
+            auditRest(req, {
+              action: "settle",
+              entity_type: "supplier_settlement",
+              summary: `Settled ${req.body.financial_service_ids.length} transactions for supplier #${req.body.supplier_id}`,
+              metadata: {
+                supplier_id: req.body.supplier_id,
+                count: req.body.financial_service_ids.length,
+              },
+            });
           },
-        });
-      }
-      res.json(result);
+        },
+      );
     } catch (error) {
       logger.error({ error }, "Settle supplier transactions error");
       res
@@ -697,21 +709,27 @@ router.post(
   validateRequest(supplierSettleAccountSchema),
   (req: AuthRequest, res) => {
     try {
-      const result = supplierService.settleAccount({
-        ...req.body,
-        created_by: req.user!.userId,
-      });
-      if (result.success) {
-        // Mirrors supplierHandlers.ts's suppliers:settle-account audit
-        // (settle/supplier_account_settlement).
-        // LIRA-322 — both payload shapes, same text as the IPC handler.
-        auditRest(req, {
-          action: "settle",
-          entity_type: "supplier_account_settlement",
-          ...describeSettleAccountForAudit(req.body),
-        });
-      }
-      res.json(result);
+      sendIdempotent(
+        req,
+        res,
+        () =>
+          supplierService.settleAccount({
+            ...req.body,
+            created_by: req.user!.userId,
+          }),
+        {
+          onBooked: () => {
+            // Mirrors supplierHandlers.ts's suppliers:settle-account audit
+            // (settle/supplier_account_settlement).
+            // LIRA-322 — both payload shapes, same text as the IPC handler.
+            auditRest(req, {
+              action: "settle",
+              entity_type: "supplier_account_settlement",
+              ...describeSettleAccountForAudit(req.body),
+            });
+          },
+        },
+      );
     } catch (error) {
       logger.error({ error }, "Settle supplier account error");
       res
@@ -737,25 +755,31 @@ router.post(
   validateRequest(removeAccountCreditSchema),
   (req: AuthRequest, res) => {
     try {
-      const result = supplierService.removeAccountCredit({
-        ...req.body,
-        created_by: req.user!.userId,
-      });
-      if (result.success) {
-        // Mirrors supplierHandlers.ts's suppliers:remove-account-credit audit.
-        auditRest(req, {
-          action: "remove_credit",
-          entity_type: "supplier_account_settlement",
-          entity_id: String(result.transaction_id ?? result.id ?? ""),
-          summary: `Removed OMT credit row #${req.body.ledger_row_id} on account #${req.body.account_supplier_id}: ${req.body.reason}`,
-          metadata: {
-            account_supplier_id: req.body.account_supplier_id,
-            ledger_row_id: req.body.ledger_row_id,
-            removed: req.body.expected_remaining,
+      sendIdempotent(
+        req,
+        res,
+        () =>
+          supplierService.removeAccountCredit({
+            ...req.body,
+            created_by: req.user!.userId,
+          }),
+        {
+          onBooked: (result) => {
+            // Mirrors supplierHandlers.ts's suppliers:remove-account-credit audit.
+            auditRest(req, {
+              action: "remove_credit",
+              entity_type: "supplier_account_settlement",
+              entity_id: String(result.transaction_id ?? result.id ?? ""),
+              summary: `Removed OMT credit row #${req.body.ledger_row_id} on account #${req.body.account_supplier_id}: ${req.body.reason}`,
+              metadata: {
+                account_supplier_id: req.body.account_supplier_id,
+                ledger_row_id: req.body.ledger_row_id,
+                removed: req.body.expected_remaining,
+              },
+            });
           },
-        });
-      }
-      res.json(result);
+        },
+      );
     } catch (error) {
       logger.error({ error }, "Remove OMT account credit error");
       res
@@ -778,24 +802,30 @@ router.post(
   validateRequest(supplierCashflowSchema),
   (req: AuthRequest, res) => {
     try {
-      const result = supplierService.recordSupplierCashflow({
-        ...req.body,
-        created_by: req.user!.userId,
-      });
-      if (result.success) {
-        // Mirrors supplierHandlers.ts's suppliers:record-cashflow audit
-        // (action="pay"|"receive" / supplier_cashflow).
-        auditRest(req, {
-          action: req.body.direction === "PAY" ? "pay" : "receive",
-          entity_type: "supplier_cashflow",
-          summary: `Supplier #${req.body.supplier_id} ${req.body.direction === "PAY" ? "paid" : "paid us"} (${req.body.payments.length} leg${req.body.payments.length === 1 ? "" : "s"})`,
-          metadata: {
-            supplier_id: req.body.supplier_id,
-            direction: req.body.direction,
+      sendIdempotent(
+        req,
+        res,
+        () =>
+          supplierService.recordSupplierCashflow({
+            ...req.body,
+            created_by: req.user!.userId,
+          }),
+        {
+          onBooked: () => {
+            // Mirrors supplierHandlers.ts's suppliers:record-cashflow audit
+            // (action="pay"|"receive" / supplier_cashflow).
+            auditRest(req, {
+              action: req.body.direction === "PAY" ? "pay" : "receive",
+              entity_type: "supplier_cashflow",
+              summary: `Supplier #${req.body.supplier_id} ${req.body.direction === "PAY" ? "paid" : "paid us"} (${req.body.payments.length} leg${req.body.payments.length === 1 ? "" : "s"})`,
+              metadata: {
+                supplier_id: req.body.supplier_id,
+                direction: req.body.direction,
+              },
+            });
           },
-        });
-      }
-      res.json(result);
+        },
+      );
     } catch (error) {
       logger.error({ error }, "Record supplier cashflow error");
       res
@@ -900,15 +930,27 @@ router.post(
   validateRequest(supplierPurchaseCreateSchema),
   (req: AuthRequest, res) => {
     try {
-      const result = supplierService.createPurchase({
-        ...req.body,
-        created_by: req.user!.userId,
-      });
       // createPurchase returns the raw created SupplierPurchase entity on
       // success (no `success` key at all) or `{ success: false, error }` on
       // a business-rule failure — "not explicitly false" is therefore the
       // correct success test here, not `result.success === true`.
-      if (!("success" in result && result.success === false)) {
+      //
+      // LIRA-401: the guard stores only replies with `success: true`, so the
+      // raw entity is carried inside `{ success: true, purchase }` through
+      // the guard and unwrapped again before sending — the wire reply stays
+      // the raw entity (IPC parity), a replay sends the same entity.
+      const outcome = guardIdempotent(req, res, () => {
+        const created = supplierService.createPurchase({
+          ...req.body,
+          created_by: req.user!.userId,
+        });
+        return "success" in created && created.success === false
+          ? created
+          : { success: true as const, purchase: created };
+      });
+      if (!outcome) return;
+      const { replayed, result } = outcome;
+      if (!replayed && result.success) {
         // Mirrors supplierHandlers.ts's suppliers:purchase-create audit
         // (create/supplier_purchase).
         auditRest(req, {
@@ -921,7 +963,7 @@ router.post(
           },
         });
       }
-      res.json(result);
+      res.json("purchase" in result ? result.purchase : result);
     } catch (error) {
       logger.error({ error }, "Create supplier purchase error");
       res
@@ -944,24 +986,30 @@ router.post(
   validateRequest(supplierRecordDebtSchema),
   (req: AuthRequest, res) => {
     try {
-      const result = supplierService.recordDebt({
-        ...req.body,
-        created_by: req.user!.userId,
-      });
-      if (result.success) {
-        auditRest(req, {
-          action: "create",
-          entity_type: "supplier_ledger",
-          entity_id: String(result.ledgerEntryId ?? ""),
-          summary: `Recorded debt for supplier #${req.body.supplier_id}: $${Number(req.body.amount_usd).toFixed(2)} + ${Number(req.body.amount_lbp).toLocaleString()} LBP`,
-          metadata: {
-            supplier_id: req.body.supplier_id,
-            amount_usd: req.body.amount_usd,
-            amount_lbp: req.body.amount_lbp,
+      sendIdempotent(
+        req,
+        res,
+        () =>
+          supplierService.recordDebt({
+            ...req.body,
+            created_by: req.user!.userId,
+          }),
+        {
+          onBooked: (result) => {
+            auditRest(req, {
+              action: "create",
+              entity_type: "supplier_ledger",
+              entity_id: String(result.ledgerEntryId ?? ""),
+              summary: `Recorded debt for supplier #${req.body.supplier_id}: $${Number(req.body.amount_usd).toFixed(2)} + ${Number(req.body.amount_lbp).toLocaleString()} LBP`,
+              metadata: {
+                supplier_id: req.body.supplier_id,
+                amount_usd: req.body.amount_usd,
+                amount_lbp: req.body.amount_lbp,
+              },
+            });
           },
-        });
-      }
-      res.json(result);
+        },
+      );
     } catch (error) {
       logger.error({ error }, "Record supplier debt error");
       res

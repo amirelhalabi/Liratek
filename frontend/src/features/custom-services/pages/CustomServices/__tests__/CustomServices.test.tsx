@@ -372,6 +372,7 @@ describe("CustomServices Page", () => {
           cost_usd: 5,
           price_usd: 10,
         }),
+        expect.objectContaining({ idempotencyKey: expect.any(String) }),
       );
     });
 
@@ -427,6 +428,7 @@ describe("CustomServices Page", () => {
           price_lbp: 0,
           paid_by: "CASH",
         }),
+        expect.objectContaining({ idempotencyKey: expect.any(String) }),
       );
     });
 
@@ -496,6 +498,7 @@ describe("CustomServices Page", () => {
           description: "Rate test service",
           exchange_rate: 91000,
         }),
+        expect.objectContaining({ idempotencyKey: expect.any(String) }),
       );
     });
   });
@@ -680,6 +683,7 @@ describe("CustomServices Page", () => {
           partnerId: 7,
           partnerMode: "FOR",
         }),
+        expect.objectContaining({ idempotencyKey: expect.any(String) }),
       );
     });
   });
@@ -718,6 +722,7 @@ describe("CustomServices Page", () => {
     await waitFor(() => {
       expect(mockAddCustomService).toHaveBeenCalledWith(
         expect.objectContaining({ partnerId: 13 }),
+        expect.objectContaining({ idempotencyKey: expect.any(String) }),
       );
     });
   });

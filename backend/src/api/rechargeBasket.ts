@@ -23,6 +23,10 @@ import {
   type AuthRequest,
 } from "../middleware/auth.js";
 import { auditRest } from "../middleware/audit.js";
+import {
+  sendIdempotent,
+  sendIdempotentAsync,
+} from "../middleware/idempotency.js";
 
 const router = Router();
 
@@ -65,23 +69,30 @@ router.post("/checkout", writeGate, async (req: Request, res: Response) => {
       res.json({ success: false, error: `Validation failed: ${msg}` });
       return;
     }
-    const result = await getRechargeBasketService().checkout(
+    // LIRA-401: the checkout awaits, so the guard holds a second tap with
+    // the same key until the first finishes, then replays its reply.
+    await sendIdempotentAsync(
+      req,
+      res,
+      () =>
+        getRechargeBasketService().checkout(
+          {
+            ...(parsed.data as unknown as RechargeBasketCheckoutRequest),
+            userId: authUser?.userId ?? 0,
+          },
+          { username: authUser?.username || "unknown" },
+        ),
       {
-        ...(parsed.data as unknown as RechargeBasketCheckoutRequest),
-        userId: authUser?.userId ?? 0,
+        onBooked: (result) =>
+          // Mirrors rechargeBasketHandlers.ts's audit (create/customer_session).
+          auditRest(req as AuthRequest, {
+            action: "create",
+            entity_type: "customer_session",
+            entity_id: String(result.sessionId),
+            summary: `Mobile Recharge basket: ${result.results?.length ?? 0} items, USD ${(result.checkoutTotalUsd ?? 0).toFixed(2)}, LBP ${(result.checkoutTotalLbp ?? 0).toFixed(0)}`,
+          }),
       },
-      { username: authUser?.username || "unknown" },
     );
-    if (result.success) {
-      // Mirrors rechargeBasketHandlers.ts's audit (create/customer_session).
-      auditRest(req as AuthRequest, {
-        action: "create",
-        entity_type: "customer_session",
-        entity_id: String(result.sessionId),
-        summary: `Mobile Recharge basket: ${result.results?.length ?? 0} items, USD ${(result.checkoutTotalUsd ?? 0).toFixed(2)}, LBP ${(result.checkoutTotalLbp ?? 0).toFixed(0)}`,
-      });
-    }
-    res.json(result);
   } catch (err) {
     res.json({
       success: false,
@@ -106,20 +117,25 @@ router.post("/partner-order", writeGate, (req: Request, res: Response) => {
       res.json({ success: false, error: `Validation failed: ${msg}` });
       return;
     }
-    const result = getRechargePartnerOrderService().submit({
-      ...parsed.data,
-      userId: authUser?.userId ?? 0,
-    });
-    if (result.success) {
-      // Mirrors rechargeBasketHandlers.ts's partner-order audit.
-      auditRest(req as AuthRequest, {
-        action: "create",
-        entity_type: "financial_transaction",
-        summary: `Mobile Recharge partner order: ${result.ids?.length ?? 0} sales for partner ${parsed.data.partnerId}`,
-        metadata: { partnerId: parsed.data.partnerId, ids: result.ids },
-      });
-    }
-    res.json(result);
+    sendIdempotent(
+      req,
+      res,
+      () =>
+        getRechargePartnerOrderService().submit({
+          ...parsed.data,
+          userId: authUser?.userId ?? 0,
+        }),
+      {
+        onBooked: (result) =>
+          // Mirrors rechargeBasketHandlers.ts's partner-order audit.
+          auditRest(req as AuthRequest, {
+            action: "create",
+            entity_type: "financial_transaction",
+            summary: `Mobile Recharge partner order: ${result.ids?.length ?? 0} sales for partner ${parsed.data.partnerId}`,
+            metadata: { partnerId: parsed.data.partnerId, ids: result.ids },
+          }),
+      },
+    );
   } catch (err) {
     res.json({
       success: false,

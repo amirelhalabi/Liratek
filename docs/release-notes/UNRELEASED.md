@@ -372,6 +372,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 🌐 Web app
 
+- Every money entry on the web app (sales, recharges, transfers, repayments, settlements, refunds and more) is now sent with a one-time ticket, so a retry or a double tap books it once.
 - The side menu's scroll bar only shows while your pointer is over the menu, and takes no space otherwise.
 - Refreshing the page no longer sends you back to the sign-in screen when several people use the same login at once. If the app can't check your sign-in right away, it tries again for a few seconds before showing the sign-in screen.
 - New shops now start with a free 14-day trial. You can see how many days are left at the top of every page and in the phone app, and contact us on WhatsApp to activate. When a trial ends you can still sign in, see and export everything; nothing is deleted.
@@ -443,6 +444,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 📒 Accounts
 
+- On the Accounts page, "Confirm" on a repayment or cash-out now locks while the payment is being saved, so a second tap can no longer book the same payment twice.
 - A sale with an extra charge put on the account now settles in full: from now on, paying what the customer owes marks the sale paid including the extra, and the sale's profit and its extra then appear on the Profits page. Before, the extra stayed "still owing" on the sale forever and its profit never showed, even after the customer had paid everything.
 - Cash-in and cash-out on a customer account, and manual account entries, can be refunded from Transactions. Both the drawer and the customer's balance go back. A cash-in whose credit was already spent is refused, showing how much is left.
 - Accounts: Settle Debt now opens with nothing ticked. Tick the item the customer is paying for and the amount fills in; you can still change it: less pays part of that item, more pays the next items. With nothing ticked, the oldest debts are paid first. Amounts stay in the item's own currency ($ or LBP), so paying a lira item no longer touches a dollar sale.

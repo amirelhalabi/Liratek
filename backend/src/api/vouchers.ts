@@ -10,6 +10,7 @@ import {
 } from "@liratek/core";
 import type { AuthRequest } from "../middleware/auth.js";
 import { auditRest } from "../middleware/audit.js";
+import { sendIdempotent } from "../middleware/idempotency.js";
 
 const VOUCHER_STATUSES = [
   "pending",
@@ -59,24 +60,29 @@ router.post(
   validateRequest(voucherCreateSchema),
   (req, res) => {
     const userId = (req as AuthRequest).user!.userId;
-    const result = getVoucherService().createVoucher(req.body, userId);
-
-    // Only on success: a rejected create changed nothing, and an audit row for
-    // it would misrepresent the trail.
-    if (result.success && result.voucher) {
-      auditRest(req, {
-        action: "create",
-        entity_type: "voucher",
-        entity_id: String(result.voucher.id),
-        summary: `Created voucher ${result.voucher.code}`,
-        new_values: {
-          code: result.voucher.code,
-          amount: result.voucher.amount,
+    // LIRA-401: a repeated Idempotency-Key replays the first sale.
+    sendIdempotent(
+      req,
+      res,
+      () => getVoucherService().createVoucher(req.body, userId),
+      {
+        // Only on success: a rejected create changed nothing, and an audit
+        // row for it would misrepresent the trail.
+        onBooked: (result) => {
+          if (!result.voucher) return;
+          auditRest(req, {
+            action: "create",
+            entity_type: "voucher",
+            entity_id: String(result.voucher.id),
+            summary: `Created voucher ${result.voucher.code}`,
+            new_values: {
+              code: result.voucher.code,
+              amount: result.voucher.amount,
+            },
+          });
         },
-      });
-    }
-
-    res.json(result);
+      },
+    );
   },
 );
 
@@ -104,32 +110,37 @@ router.post(
   adminGate,
   validateRequest(voucherCancelSchema),
   (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isFinite(id)) {
-    res.status(400).json({ success: false, error: "Invalid voucher id" });
-    return;
-  }
-  const userId = (req as AuthRequest).user!.userId;
-  const result = getVoucherService().cancelVoucher(
-    id,
-    req.body as VoucherCancelInput,
-    userId,
-  );
-
-  // Cancelling voids stored value, so this is the voucher event most worth
-  // being able to attribute later.
-  if (result.success) {
-    auditRest(req, {
-      action: "cancel",
-      entity_type: "voucher",
-      entity_id: String(id),
-      summary: result.voucher
-        ? `Cancelled voucher ${result.voucher.code}`
-        : `Cancelled voucher #${id}`,
-    });
-  }
-
-  res.json(result);
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      res.status(400).json({ success: false, error: "Invalid voucher id" });
+      return;
+    }
+    const userId = (req as AuthRequest).user!.userId;
+    // LIRA-401: a repeated Idempotency-Key replays the first cancel (and its
+    // refund legs) instead of answering "already cancelled".
+    sendIdempotent(
+      req,
+      res,
+      () =>
+        getVoucherService().cancelVoucher(
+          id,
+          req.body as VoucherCancelInput,
+          userId,
+        ),
+      {
+        // Cancelling voids stored value, so this is the voucher event most worth
+        // being able to attribute later.
+        onBooked: (result) =>
+          auditRest(req, {
+            action: "cancel",
+            entity_type: "voucher",
+            entity_id: String(id),
+            summary: result.voucher
+              ? `Cancelled voucher ${result.voucher.code}`
+              : `Cancelled voucher #${id}`,
+          }),
+      },
+    );
   },
 );
 

@@ -28,6 +28,7 @@ import {
 import { useAuth } from "@/features/auth/context/AuthContext";
 import type { Voucher } from "@/types/electron";
 import { localDay } from "@/shared/utils/localDay";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { useTranslation } from "react-i18next";
 import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { useFormat } from "@/i18n/useFormat";
@@ -65,6 +66,10 @@ export function VouchersPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const api = useApi();
+  // LIRA-401 — the sell form stays on screen: same key for every retry or
+  // double tap until a sale succeeds, then a fresh key.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
   // Rule 25 — effects read `api` through a ref so a churning useApi()
   // identity never re-fires them (pattern: FeatureFlagContext.tsx).
   const apiRef = useRef(api);
@@ -205,10 +210,8 @@ export function VouchersPage() {
 
     const name = clientQuery.trim();
     const phone = clientPhone.trim();
-    if (!name)
-      return { ok: false, error: t("form.errNameOrClient") };
-    if (!phone)
-      return { ok: false, error: t("form.errPhone") };
+    if (!name) return { ok: false, error: t("form.errNameOrClient") };
+    if (!phone) return { ok: false, error: t("form.errPhone") };
 
     const created = await api.createClient({
       full_name: name,
@@ -282,21 +285,25 @@ export function VouchersPage() {
       }
 
       // ONE payload (rule 22); the legs are the same ones Save was gated on.
-      const result = await api.vouchers.create({
-        clientId: resolved.clientId,
-        amount: amountVal,
-        currency,
-        expiryDate: expiryDate || null,
-        // LIRA-366: the cashier's note travels as `typedNote` (trimmed by
-        // the schema; blank is dropped).
-        typedNote: note,
-        payments: saleLegs,
-        ...(saleRate > 0 ? { exchange_rate: saleRate } : {}),
-        // LIRA-365: the discount rides its own field; core books it as a
-        // "Discount given" expense.
-        ...(discountGiven > 0 ? { discount_amount: discountGiven } : {}),
-      });
+      const result = await api.vouchers.create(
+        {
+          clientId: resolved.clientId,
+          amount: amountVal,
+          currency,
+          expiryDate: expiryDate || null,
+          // LIRA-366: the cashier's note travels as `typedNote` (trimmed by
+          // the schema; blank is dropped).
+          typedNote: note,
+          payments: saleLegs,
+          ...(saleRate > 0 ? { exchange_rate: saleRate } : {}),
+          // LIRA-365: the discount rides its own field; core books it as a
+          // "Discount given" expense.
+          ...(discountGiven > 0 ? { discount_amount: discountGiven } : {}),
+        },
+        { idempotencyKey },
+      );
 
+      if (result.success) resetIdempotencyKey();
       if (result.success && result.voucher) {
         setCreatedVoucher(result.voucher);
         resetForm();
@@ -585,7 +592,8 @@ export function VouchersPage() {
             >
               {submitting ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" /> {t("form.creating")}
+                  <Loader2 className="w-4 h-4 animate-spin" />{" "}
+                  {t("form.creating")}
                 </>
               ) : (
                 t("form.title")
@@ -681,16 +689,16 @@ export function VouchersPage() {
                     </button>
                     {isAdmin &&
                       (v.status === "pending" || v.status === "expired") && (
-                      <button
-                        type="button"
-                        data-testid={`voucher-cancel-${v.id}`}
-                        onClick={() => setCancelTarget(v)}
-                        className="text-[10px] px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-300 transition-colors whitespace-nowrap inline-flex items-center gap-1"
-                        title={t("list.cancelTitle")}
-                      >
-                        <Ban size={12} /> {t("common:actions.cancel")}
-                      </button>
-                    )}
+                        <button
+                          type="button"
+                          data-testid={`voucher-cancel-${v.id}`}
+                          onClick={() => setCancelTarget(v)}
+                          className="text-[10px] px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-300 transition-colors whitespace-nowrap inline-flex items-center gap-1"
+                          title={t("list.cancelTitle")}
+                        >
+                          <Ban size={12} /> {t("common:actions.cancel")}
+                        </button>
+                      )}
                     <span className="text-xs font-mono text-emerald-400">
                       <Ltr>{formatVoucherAmount(v)}</Ltr>
                     </span>

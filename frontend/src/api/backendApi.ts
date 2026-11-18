@@ -10,6 +10,8 @@ import {
   requestRawBody,
 } from "./httpClient";
 import { decodeJwtPayload } from "@/shared/utils/jwt";
+// LIRA-401 — per-call write options (idempotency key, web transport only).
+import type { WriteOptions } from "@liratek/ui";
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
 // LIRA-306 T093 — maintenance metadata edit payload (rule 21).
@@ -1435,6 +1437,7 @@ export type StockAdjustmentEntity = {
  */
 export async function adjustStock(
   payload: StockAdjustPayload,
+  opts?: WriteOptions,
 ): Promise<{ success: boolean; error?: string }> {
   if (isElectron()) {
     return getElectronApi().inventory.adjustStock(payload);
@@ -1443,7 +1446,7 @@ export async function adjustStock(
     const { id, ...body } = payload;
     return await requestJson<{ success: boolean; error?: string }>(
       `/api/inventory/products/${id}/stock`,
-      { method: "POST", body },
+      { method: "POST", idempotencyKey: opts?.idempotencyKey, body },
     );
   } catch (err) {
     const e = err as { message?: string };
@@ -1574,12 +1577,14 @@ export type ProcessSaleResult = {
 
 export async function processSale(
   payload: SaleProcessPayload,
+  opts?: WriteOptions,
 ): Promise<ProcessSaleResult> {
   if (isElectron()) {
     return (window as any).api.sales.process(payload);
   }
   return requestJson<ProcessSaleResult>(`/api/sales/process`, {
     method: "POST",
+    idempotencyKey: opts?.idempotencyKey,
     body: payload,
   });
 }
@@ -1681,6 +1686,7 @@ export async function refundSale(
   /** LIRA-342 — the customer gave change back (type derived from
    *  `saleRefundSchema`, rule 21); rides only when present. */
   addedChange?: SaleRefundPayload["addedChange"],
+  opts?: WriteOptions,
 ): Promise<{ success: boolean; refundId?: number; error?: string }> {
   return ipcOrHttp(
     async () =>
@@ -1712,6 +1718,7 @@ export async function refundSale(
         `/api/sales/${saleId}/refund`,
         {
           method: "POST",
+          idempotencyKey: opts?.idempotencyKey,
           body:
             refundLegs ||
             unitExtras ||
@@ -1759,6 +1766,7 @@ export async function refundSaleItem(
    *  `saleRefundItemSchema`, rule 21); rides only when present, so every
    *  existing call is unchanged. */
   keptChange?: SaleRefundItemPayload["keptChange"],
+  opts?: WriteOptions,
 ): Promise<{ success: boolean; refundId?: number; error?: string }> {
   return ipcOrHttp(
     async () =>
@@ -1785,6 +1793,7 @@ export async function refundSaleItem(
         `/api/sales/${saleId}/refund-item`,
         {
           method: "POST",
+          idempotencyKey: opts?.idempotencyKey,
           body: {
             saleItemId,
             refundQuantity,
@@ -1804,6 +1813,7 @@ export async function refundSaleItem(
  *  own metadata. Type derived from `SaleUndoItemRefundInput` (rule 21). */
 export async function undoItemRefund(
   refundTransactionId: SaleUndoItemRefundInput["refundTransactionId"],
+  opts?: WriteOptions,
 ): Promise<{ success: boolean; undoId?: number; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().sales.undoItemRefund(refundTransactionId),
@@ -1812,6 +1822,7 @@ export async function undoItemRefund(
         `/api/sales/undo-item-refund`,
         {
           method: "POST",
+          idempotencyKey: opts?.idempotencyKey,
           body: { refundTransactionId },
         },
       ),
@@ -2010,13 +2021,16 @@ export async function getDebtMonthRows(
   );
 }
 
-export async function addRepayment(payload: AddRepaymentPayload) {
+export async function addRepayment(
+  payload: AddRepaymentPayload,
+  opts?: WriteOptions,
+) {
   if (isElectron()) {
     return (window as any).api.debt.addRepayment(payload);
   }
   return requestJson<{ success: boolean; error?: string }>(
     `/api/debts/repayments`,
-    { method: "POST", body: payload },
+    { method: "POST", idempotencyKey: opts?.idempotencyKey, body: payload },
   );
 }
 
@@ -2024,13 +2038,16 @@ export async function addRepayment(payload: AddRepaymentPayload) {
 // movement. Envelope { success, id?, error? }.
 // Payload derived from core's debtWriteOffSchema (rule 21) — validated
 // identically on both IPC and REST; no per-transport field translation.
-export async function debtWriteOff(payload: DebtWriteOffPayload) {
+export async function debtWriteOff(
+  payload: DebtWriteOffPayload,
+  opts?: WriteOptions,
+) {
   return ipcOrHttp(
     async () => getElectronApi().debt.writeOff(payload),
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         `/api/debts/write-off`,
-        { method: "POST", body: payload },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: payload },
       ),
   );
 }
@@ -2049,25 +2066,31 @@ export async function getClientBalance(clientId: number) {
 }
 
 // Cash out a client's prepaid credit (drawer OUT).
-export async function debtCashOut(payload: DebtCashOutPayload) {
+export async function debtCashOut(
+  payload: DebtCashOutPayload,
+  opts?: WriteOptions,
+) {
   return ipcOrHttp(
     async () => getElectronApi().debt.cashOut(payload),
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         `/api/debts/cash-out`,
-        { method: "POST", body: payload },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: payload },
       ),
   );
 }
 
 // Manual till-moving account credit/debt entry.
-export async function debtAccountEntry(payload: DebtAccountEntryPayload) {
+export async function debtAccountEntry(
+  payload: DebtAccountEntryPayload,
+  opts?: WriteOptions,
+) {
   return ipcOrHttp(
     async () => getElectronApi().debt.addAccountEntry(payload),
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         `/api/debts/account-entry`,
-        { method: "POST", body: payload },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: payload },
       ),
   );
 }
@@ -2076,13 +2099,16 @@ export async function debtAccountEntry(payload: DebtAccountEntryPayload) {
 // DebtService.useCredit). CQ-9: no REST route existed for this before; zero
 // frontend call sites today (grepped — nothing calls
 // window.api.debt.useCredit), added for transport parity ahead of a caller.
-export async function debtUseCredit(payload: DebtUseCreditPayload) {
+export async function debtUseCredit(
+  payload: DebtUseCreditPayload,
+  opts?: WriteOptions,
+) {
   return ipcOrHttp(
     async () => getElectronApi().debt.useCredit(payload),
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         `/api/debts/use-credit`,
-        { method: "POST", body: payload },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: payload },
       ),
   );
 }
@@ -2229,25 +2255,29 @@ export async function partnersActivate(id: number) {
 
 export async function partnersRecordTransaction(
   payload: PartnerRecordTransactionPayload,
+  opts?: WriteOptions,
 ) {
   return ipcOrHttp(
     async () => getElectronApi().partners.recordTransaction(payload),
     async () =>
       requestJson<{ success: boolean; data?: any; error?: string }>(
         `/api/partners/transactions`,
-        { method: "POST", body: payload },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: payload },
       ),
   );
 }
 
 // Payload derived from the core partnerSettleSchema (rule 21).
-export async function partnersSettle(payload: PartnerSettleInput) {
+export async function partnersSettle(
+  payload: PartnerSettleInput,
+  opts?: WriteOptions,
+) {
   return ipcOrHttp(
     async () => getElectronApi().partners.settle(payload),
     async () =>
       requestJson<{ success: boolean; data?: any; error?: string }>(
         `/api/partners/settle`,
-        { method: "POST", body: payload },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: payload },
       ),
   );
 }
@@ -2305,26 +2335,32 @@ export async function partnersGetSettleDayDetail(
 }
 
 // Payload derived from the core partnerSettleDaysSchema (rule 21).
-export async function partnersSettleDays(payload: PartnerSettleDaysPayload) {
+export async function partnersSettleDays(
+  payload: PartnerSettleDaysPayload,
+  opts?: WriteOptions,
+) {
   return ipcOrHttp(
     async () => getElectronApi().partners.settleDays(payload),
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         `/api/partners/settle-days`,
-        { method: "POST", body: payload },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: payload },
       ),
   );
 }
 
 // Standalone partner write-off (CQ-10, admin-only) — we forgive what the
 // partner owes us. Envelope { success, id?, error? }.
-export async function partnerWriteOff(payload: PartnerWriteOffPayload) {
+export async function partnerWriteOff(
+  payload: PartnerWriteOffPayload,
+  opts?: WriteOptions,
+) {
   return ipcOrHttp(
     async () => getElectronApi().partners.writeOff(payload),
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         `/api/partners/write-off`,
-        { method: "POST", body: payload },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: payload },
       ),
   );
 }
@@ -2361,13 +2397,16 @@ export async function vouchersGetAll(
   );
 }
 
-export async function vouchersCreate(payload: VoucherCreatePayload) {
+export async function vouchersCreate(
+  payload: VoucherCreatePayload,
+  opts?: WriteOptions,
+) {
   return ipcOrHttp(
     async () => getElectronApi().vouchers.create(payload),
     async () =>
       requestJson<{ success: boolean; voucher?: any; error?: string }>(
         `/api/vouchers`,
-        { method: "POST", body: payload },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: payload },
       ),
   );
 }
@@ -2385,13 +2424,21 @@ export async function vouchersValidate(code: string, day?: string) {
 
 // LIRA-339: `data` = refund legs / rate / shop day (core voucherCancelSchema,
 // rule 21). Omitted → the server refunds the cash part in cash.
-export async function vouchersCancel(id: number, data?: VoucherCancelPayload) {
+export async function vouchersCancel(
+  id: number,
+  data?: VoucherCancelPayload,
+  opts?: WriteOptions,
+) {
   return ipcOrHttp(
     async () => getElectronApi().vouchers.cancel(id, data),
     async () =>
       requestJson<{ success: boolean; voucher?: any; error?: string }>(
         `/api/vouchers/${id}/cancel`,
-        { method: "POST", body: data ?? {} },
+        {
+          method: "POST",
+          idempotencyKey: opts?.idempotencyKey,
+          body: data ?? {},
+        },
       ),
   );
 }
@@ -2439,7 +2486,10 @@ export async function getExchangeHistory(
   return res.history;
 }
 
-export async function addExchangeTransaction(payload: ExchangeSubmitPayload) {
+export async function addExchangeTransaction(
+  payload: ExchangeSubmitPayload,
+  opts?: WriteOptions,
+) {
   if (isElectron()) {
     return (window as any).api.exchange.addTransaction(payload);
   }
@@ -2461,7 +2511,11 @@ export async function addExchangeTransaction(payload: ExchangeSubmitPayload) {
     realizedProfitUsd?: number;
     lotCoveredQty?: number;
     lotMarketQty?: number;
-  }>(`/api/exchange/transactions`, { method: "POST", body: payload });
+  }>(`/api/exchange/transactions`, {
+    method: "POST",
+    idempotencyKey: opts?.idempotencyKey,
+    body: payload,
+  });
 }
 
 // Edit non-financial metadata (client name / note) on an exchange row — the
@@ -2511,13 +2565,14 @@ export async function getExpenseHistory(): Promise<ExpenseListRow[]> {
  *  not-returned claim, ONE shape for both transports (rule 22). */
 export async function addExpense(
   payload: CreateExpenseRequest,
+  opts?: WriteOptions,
 ): Promise<{ success: boolean; id?: number; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().expenses.add(payload),
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         `/api/expenses`,
-        { method: "POST", body: payload },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: payload },
       ),
   );
 }
@@ -2538,13 +2593,14 @@ export async function deleteExpense(id: number) {
 // amount, the server derives the cost. Returns the write envelope.
 export async function addStockExpense(
   payload: CreateStockExpenseInput,
+  opts?: WriteOptions,
 ): Promise<{ success: boolean; id?: number; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().expenses.addStockUse(payload),
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         `/api/expenses/stock-use`,
-        { method: "POST", body: payload },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: payload },
       ),
   );
 }
@@ -2880,7 +2936,10 @@ export async function getRechargeTodayStats(
   return res.stats;
 }
 
-export async function processRecharge(payload: CreateRechargePayload) {
+export async function processRecharge(
+  payload: CreateRechargePayload,
+  opts?: WriteOptions,
+) {
   if (isElectron()) {
     return (window as any).api.recharge.process(payload);
   }
@@ -2888,6 +2947,7 @@ export async function processRecharge(payload: CreateRechargePayload) {
     `/api/recharge/process`,
     {
       method: "POST",
+      idempotencyKey: opts?.idempotencyKey,
       body: payload,
     },
   );
@@ -2920,7 +2980,7 @@ export async function getRechargeDrawerBalances(): Promise<
   return res.balances;
 }
 
-export async function topUpApp(payload: TopUpAppPayload) {
+export async function topUpApp(payload: TopUpAppPayload, opts?: WriteOptions) {
   if (isElectron()) {
     return (window as any).api.recharge.topUpApp(payload);
   }
@@ -2928,6 +2988,7 @@ export async function topUpApp(payload: TopUpAppPayload) {
     `/api/recharge/top-up-app`,
     {
       method: "POST",
+      idempotencyKey: opts?.idempotencyKey,
       body: payload,
     },
   );
@@ -2937,7 +2998,10 @@ export async function topUpApp(payload: TopUpAppPayload) {
 // (Katsh/iPick supplier credit, Whish App via partner, Whish App from a
 // client) close the same rule-19 gap `topUpApp` above already had a (dead)
 // REST branch for.
-export async function topUpFromSupplier(payload: TopUpFromSupplierPayload) {
+export async function topUpFromSupplier(
+  payload: TopUpFromSupplierPayload,
+  opts?: WriteOptions,
+) {
   if (isElectron()) {
     return (window as any).api.recharge.topUpFromSupplier(payload);
   }
@@ -2945,6 +3009,7 @@ export async function topUpFromSupplier(payload: TopUpFromSupplierPayload) {
     `/api/recharge/top-up-from-supplier`,
     {
       method: "POST",
+      idempotencyKey: opts?.idempotencyKey,
       body: payload,
     },
   );
@@ -2953,7 +3018,10 @@ export async function topUpFromSupplier(payload: TopUpFromSupplierPayload) {
 // OMT open-credit account (LIRA-192) — the mirror of topUpFromSupplier:
 // OMT_App wallet balance leaves, the OMT account is credited principal +
 // commission (recognised as profit at settlement, wave 2). Admin only.
-export async function cashoutToSupplier(payload: RechargeCashoutPayload) {
+export async function cashoutToSupplier(
+  payload: RechargeCashoutPayload,
+  opts?: WriteOptions,
+) {
   if (isElectron()) {
     return (window as any).api.recharge.cashoutToSupplier(payload);
   }
@@ -2961,12 +3029,16 @@ export async function cashoutToSupplier(payload: RechargeCashoutPayload) {
     `/api/recharge/cashout-to-supplier`,
     {
       method: "POST",
+      idempotencyKey: opts?.idempotencyKey,
       body: payload,
     },
   );
 }
 
-export async function topUpFromPartner(payload: TopUpFromPartnerPayload) {
+export async function topUpFromPartner(
+  payload: TopUpFromPartnerPayload,
+  opts?: WriteOptions,
+) {
   if (isElectron()) {
     return (window as any).api.recharge.topUpFromPartner(payload);
   }
@@ -2974,6 +3046,7 @@ export async function topUpFromPartner(payload: TopUpFromPartnerPayload) {
     `/api/recharge/top-up-from-partner`,
     {
       method: "POST",
+      idempotencyKey: opts?.idempotencyKey,
       body: payload,
     },
   );
@@ -2987,7 +3060,10 @@ export async function topUpFromPartner(payload: TopUpFromPartnerPayload) {
  * SAME payload object is forwarded to whichever transport `isElectron()`
  * picks — never a second, per-transport literal (rule 22).
  */
-export async function topUpFromClient(payload: TopUpFromClientInput) {
+export async function topUpFromClient(
+  payload: TopUpFromClientInput,
+  opts?: WriteOptions,
+) {
   if (isElectron()) {
     return (window as any).api.recharge.topUpFromClient(payload);
   }
@@ -2995,6 +3071,7 @@ export async function topUpFromClient(payload: TopUpFromClientInput) {
     `/api/recharge/top-up-from-client`,
     {
       method: "POST",
+      idempotencyKey: opts?.idempotencyKey,
       body: payload,
     },
   );
@@ -3062,6 +3139,7 @@ export async function getOMTAnalytics(
 
 export async function addOMTTransaction(
   payload: CreateFinancialServicePayload,
+  opts?: WriteOptions,
 ) {
   if (isElectron()) {
     return (window as any).api.omt.addTransaction(payload);
@@ -3081,6 +3159,7 @@ export async function addOMTTransaction(
     details?: unknown;
   }>(`/api/services/transactions`, {
     method: "POST",
+    idempotencyKey: opts?.idempotencyKey,
     body: payload,
   });
 }
@@ -3151,7 +3230,10 @@ export async function getMaintenanceJobs(statusFilter?: string) {
   return res.jobs;
 }
 
-export async function saveMaintenanceJob(payload: SaveMaintenanceJobPayload) {
+export async function saveMaintenanceJob(
+  payload: SaveMaintenanceJobPayload,
+  opts?: WriteOptions,
+) {
   if (isElectron()) {
     return (window as any).api.maintenance.save(payload);
   }
@@ -3159,6 +3241,7 @@ export async function saveMaintenanceJob(payload: SaveMaintenanceJobPayload) {
     `/api/maintenance/jobs`,
     {
       method: "POST",
+      idempotencyKey: opts?.idempotencyKey,
       body: payload,
     },
   );
@@ -3449,6 +3532,7 @@ export async function getOpenDifferencesAfter(
  *  signed-in user on both transports. */
 export async function closeCheckpointDifference(
   input: CloseCheckpointDifferenceInput,
+  opts?: WriteOptions,
 ): Promise<{
   success: boolean;
   data?: CheckpointDifferenceView;
@@ -3461,7 +3545,11 @@ export async function closeCheckpointDifference(
         success: boolean;
         data?: CheckpointDifferenceView;
         error?: string;
-      }>("/api/closing/differences/close", { method: "POST", body: input }),
+      }>("/api/closing/differences/close", {
+        method: "POST",
+        idempotencyKey: opts?.idempotencyKey,
+        body: input,
+      }),
   );
 }
 
@@ -3791,9 +3879,7 @@ export async function revokePairedPc(
 // is a clear refusal, still routed through ipcOrHttp (rule 19/22). The query
 // type comes from the core schema (rule 21); `stamp` is the browser's local
 // time for the file name (rule 27).
-export async function downloadShopBackup(
-  query: ShopBackupPayload,
-): Promise<{
+export async function downloadShopBackup(query: ShopBackupPayload): Promise<{
   success: boolean;
   data?: { blob: Blob; fileName: string };
   error?: string;
@@ -3805,9 +3891,7 @@ export async function downloadShopBackup(
   }>(
     async () => ({ success: false, error: WEB_ONLY }),
     async () => {
-      const qs = query.stamp
-        ? `?stamp=${encodeURIComponent(query.stamp)}`
-        : "";
+      const qs = query.stamp ? `?stamp=${encodeURIComponent(query.stamp)}` : "";
       const res = await requestFile(`/api/backup/download${qs}`);
       if (!res.success) return res;
       return {
@@ -3829,7 +3913,9 @@ export async function downloadShopBackup(
 // Same desktop refusal as downloadShopBackup, still through ipcOrHttp (rule
 // 19/22). Payload types come from the core schemas (rule 21);
 // `clientTzOffsetMin` is the browser's own offset (rule 27).
-export async function getRestorePoints(): Promise<RestoreResult<RestorePoints>> {
+export async function getRestorePoints(): Promise<
+  RestoreResult<RestorePoints>
+> {
   return ipcOrHttp<RestoreResult<RestorePoints>>(
     async () => ({ success: false, error: WEB_ONLY }),
     async () => requestJson(`/api/restore/points`),
@@ -3899,13 +3985,16 @@ export async function cancelRestore(
 
 // Create a unified checkpoint (money write — drawer_balances + payments
 // journal reconciliation). Envelope { success, id?, error? }.
-export async function createCheckpoint(payload: CreateCheckpointPayload) {
+export async function createCheckpoint(
+  payload: CreateCheckpointPayload,
+  opts?: WriteOptions,
+) {
   return ipcOrHttp(
     async () => getElectronApi().closing.createCheckpoint(payload),
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         "/api/closing/checkpoint",
-        { method: "POST", body: payload },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: payload },
       ),
   );
 }
@@ -4224,6 +4313,7 @@ export async function setSupplierArchived(data: SupplierArchiveInput) {
 export async function addSupplierLedgerEntry(
   supplierId: number,
   data: Omit<SupplierLedgerEntryPayload, "supplier_id">,
+  opts?: WriteOptions,
 ) {
   return ipcOrHttp(
     async () =>
@@ -4236,6 +4326,7 @@ export async function addSupplierLedgerEntry(
         `/api/suppliers/${supplierId}/ledger`,
         {
           method: "POST",
+          idempotencyKey: opts?.idempotencyKey,
           body: data,
         },
       ),
@@ -4255,13 +4346,16 @@ export async function getUnsettledTransactions(provider: string) {
 }
 
 // Payload derived from the core supplierSettleSchema (rule 21).
-export async function settleTransactions(data: SupplierSettleInput) {
+export async function settleTransactions(
+  data: SupplierSettleInput,
+  opts?: WriteOptions,
+) {
   return ipcOrHttp(
     async () => getElectronApi().suppliers.settleTransactions(data),
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         `/api/suppliers/${data.supplier_id}/settle`,
-        { method: "POST", body: data },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: data },
       ),
   );
 }
@@ -4277,6 +4371,7 @@ export async function settleTransactions(data: SupplierSettleInput) {
 export async function settleSupplierAccount(
   accountSupplierId: number,
   data: Omit<SupplierSettleAccountPayload, "account_supplier_id">,
+  opts?: WriteOptions,
 ) {
   return ipcOrHttp(
     async () =>
@@ -4287,7 +4382,7 @@ export async function settleSupplierAccount(
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         `/api/suppliers/${accountSupplierId}/settle-account`,
-        { method: "POST", body: data },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: data },
       ),
   );
 }
@@ -4300,6 +4395,7 @@ export async function settleSupplierAccount(
 export async function removeSupplierAccountCredit(
   accountSupplierId: number,
   data: Omit<RemoveAccountCreditPayload, "account_supplier_id">,
+  opts?: WriteOptions,
 ) {
   return ipcOrHttp(
     async () =>
@@ -4316,6 +4412,7 @@ export async function removeSupplierAccountCredit(
         error?: string;
       }>(`/api/suppliers/${accountSupplierId}/remove-account-credit`, {
         method: "POST",
+        idempotencyKey: opts?.idempotencyKey,
         body: data,
       }),
   );
@@ -4325,13 +4422,16 @@ export async function removeSupplierAccountCredit(
 // (CQ-9 — this had NO dual-mode wrapper at all before, so it was `undefined`
 // in the browser; useSuppliers.ts called window.api.suppliers.recordCashflow
 // directly).
-export async function recordSupplierCashflow(data: SupplierCashflowPayload) {
+export async function recordSupplierCashflow(
+  data: SupplierCashflowPayload,
+  opts?: WriteOptions,
+) {
   return ipcOrHttp(
     async () => getElectronApi().suppliers.recordCashflow(data),
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         `/api/suppliers/${data.supplier_id}/cashflow`,
-        { method: "POST", body: data },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: data },
       ),
   );
 }
@@ -4355,13 +4455,14 @@ export async function recordSupplierCashflow(data: SupplierCashflowPayload) {
 // in the path, not the payload — the payload itself still sends the rest.
 export async function receiveStock(
   payload: ReceiveStockPayload,
+  opts?: WriteOptions,
 ): Promise<{ success: boolean; error?: string; batch_id?: number }> {
   return ipcOrHttp(
     async () => getElectronApi().inventory.receiveStock(payload),
     async () =>
       requestJson<{ success: boolean; error?: string; batch_id?: number }>(
         `/api/inventory/products/${payload.product_id}/receive-stock`,
-        { method: "POST", body: payload },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: payload },
       ),
   );
 }
@@ -4514,12 +4615,14 @@ export async function getSupplierPurchases(supplierId: number) {
 // useCreatePurchaseMutation hook already expected from the Electron path.
 export async function createSupplierPurchase(
   data: SupplierPurchaseCreatePayload,
+  opts?: WriteOptions,
 ) {
   return ipcOrHttp(
     async () => getElectronApi().suppliers.createPurchase(data),
     async () =>
       requestJson<any>(`/api/suppliers/${data.supplier_id}/purchases`, {
         method: "POST",
+        idempotencyKey: opts?.idempotencyKey,
         body: data,
       }),
   );
@@ -4533,6 +4636,7 @@ export async function createSupplierPurchase(
 // contract).
 export async function recordSupplierDebt(
   data: SupplierRecordDebtPayload,
+  opts?: WriteOptions,
 ): Promise<{
   success: boolean;
   ledgerEntryId?: number;
@@ -4549,6 +4653,7 @@ export async function recordSupplierDebt(
         error?: string;
       }>(`/api/suppliers/${data.supplier_id}/record-debt`, {
         method: "POST",
+        idempotencyKey: opts?.idempotencyKey,
         body: data,
       }),
   );
@@ -4739,8 +4844,7 @@ export async function getRecentActivity(limit: number = 100) {
 /** LIRA-348 — `day_from` / `day_to` (the operator's days) and the keyset
  *  cursor `before` come from the shared core schema (rule 21). */
 export interface TransactionFiltersParam
-  extends TransactionPageFiltersInput,
-    TransactionSaleDrillFiltersInput {
+  extends TransactionPageFiltersInput, TransactionSaleDrillFiltersInput {
   type?: string;
   status?: string;
   user_id?: number;
@@ -4769,7 +4873,11 @@ export interface TransactionFiltersParam
  */
 export async function getTransactionSummary(
   payload: TransactionSummaryInput,
-): Promise<{ success: boolean; data?: TransactionSummaryResult; error?: string }> {
+): Promise<{
+  success: boolean;
+  data?: TransactionSummaryResult;
+  error?: string;
+}> {
   return ipcOrHttp(
     async () => getElectronApi().transactions.summary(payload),
     async () =>
@@ -4931,13 +5039,13 @@ export async function getClientTransactions(
   return res.transactions || [];
 }
 
-export async function voidTransaction(id: number) {
+export async function voidTransaction(id: number, opts?: WriteOptions) {
   if (isElectron()) {
     return (window as any).api.transactions.void(id);
   }
   return requestJson<{ success: boolean; reversalId?: number; error?: string }>(
     `/api/transactions/${id}/void`,
-    { method: "POST" },
+    { method: "POST", idempotencyKey: opts?.idempotencyKey },
   );
 }
 
@@ -5014,6 +5122,7 @@ export async function refundTransaction(
    *  positional argument, or the REST body's `addedChange` key (one core
    *  schema, `refundAddedChangeSchema`). Rides only when present. */
   addedChange?: RefundAddedChangeInput,
+  opts?: WriteOptions,
 ) {
   if (isElectron()) {
     return addedChange !== undefined
@@ -5037,6 +5146,7 @@ export async function refundTransaction(
     `/api/transactions/${id}/refund`,
     {
       method: "POST",
+      idempotencyKey: opts?.idempotencyKey,
       body:
         refundLegs || unitExtras || exchangeRate || keptChange || addedChange
           ? {
@@ -5069,13 +5179,14 @@ export interface VoidCheckoutGroupResult {
  */
 export async function voidCheckoutGroup(
   groupId: string,
+  opts?: WriteOptions,
 ): Promise<VoidCheckoutGroupResult> {
   if (isElectron()) {
     return (window as any).api.transactions.voidCheckoutGroup(groupId);
   }
   return requestJson<VoidCheckoutGroupResult>(
     `/api/transactions/checkout-group/${encodeURIComponent(groupId)}/void`,
-    { method: "POST" },
+    { method: "POST", idempotencyKey: opts?.idempotencyKey },
   );
 }
 
@@ -5099,13 +5210,14 @@ export interface SessionBasketReversalResult {
  */
 export async function voidSessionBasket(
   sessionId: number,
+  opts?: WriteOptions,
 ): Promise<SessionBasketReversalResult> {
   if (isElectron()) {
     return (window as any).api.transactions.voidSessionBasket(sessionId);
   }
   return requestJson<SessionBasketReversalResult>(
     `/api/transactions/session-basket/${encodeURIComponent(String(sessionId))}/void`,
-    { method: "POST" },
+    { method: "POST", idempotencyKey: opts?.idempotencyKey },
   );
 }
 
@@ -5113,13 +5225,14 @@ export async function voidSessionBasket(
  *  original item ACTIVE and creates a REFUND row per item. */
 export async function refundSessionBasket(
   sessionId: number,
+  opts?: WriteOptions,
 ): Promise<SessionBasketReversalResult> {
   if (isElectron()) {
     return (window as any).api.transactions.refundSessionBasket(sessionId);
   }
   return requestJson<SessionBasketReversalResult>(
     `/api/transactions/session-basket/${encodeURIComponent(String(sessionId))}/refund`,
-    { method: "POST" },
+    { method: "POST", idempotencyKey: opts?.idempotencyKey },
   );
 }
 
@@ -5135,6 +5248,7 @@ export async function refundSessionBasket(
  */
 export async function refundSessionBasketItem(
   payload: SessionItemRefundPayload,
+  opts?: WriteOptions,
 ): Promise<
   | ({ success: true } & RefundSessionBasketItemResult)
   | { success: false; error?: string }
@@ -5148,7 +5262,7 @@ export async function refundSessionBasketItem(
         | { success: false; error?: string }
       >(
         `/api/transactions/session-basket/${encodeURIComponent(String(sessionId))}/items/refund`,
-        { method: "POST", body },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body },
       );
     },
   );
@@ -6107,7 +6221,10 @@ export async function getConfiguredDrawerNames(): Promise<string[]> {
   );
 }
 
-export async function startSession(data: StartSessionInput) {
+export async function startSession(
+  data: StartSessionInput,
+  opts?: WriteOptions,
+) {
   return ipcOrHttp(
     async () => {
       const api = getElectronApi();
@@ -6122,6 +6239,7 @@ export async function startSession(data: StartSessionInput) {
         "/api/sessions/start",
         {
           method: "POST",
+          idempotencyKey: opts?.idempotencyKey,
           body: data,
         },
       ),
@@ -6198,7 +6316,7 @@ export async function updateSession(
   );
 }
 
-export async function closeSession(sessionId: number) {
+export async function closeSession(sessionId: number, opts?: WriteOptions) {
   return ipcOrHttp(
     async () => {
       const api = getElectronApi();
@@ -6213,6 +6331,7 @@ export async function closeSession(sessionId: number) {
         `/api/sessions/${sessionId}/close`,
         {
           method: "POST",
+          idempotencyKey: opts?.idempotencyKey,
         },
       ),
   );
@@ -6243,6 +6362,7 @@ export async function listSessions(limit = 50, offset = 0) {
 
 export async function linkTransactionToSession(
   data: LinkSessionTransactionInput,
+  opts?: WriteOptions,
 ) {
   return ipcOrHttp(
     async () => {
@@ -6257,6 +6377,7 @@ export async function linkTransactionToSession(
         "/api/sessions/link-transaction",
         {
           method: "POST",
+          idempotencyKey: opts?.idempotencyKey,
           body: data,
         },
       ),
@@ -6347,13 +6468,14 @@ export async function sessionCartGet(sessionId: number) {
 export async function sessionCartAdd(
   sessionId: number,
   item: SessionCartAddInput,
+  opts?: WriteOptions,
 ) {
   return ipcOrHttp(
     async () => getElectronApi().session.cartAdd(sessionId, item),
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         `/api/sessions/${sessionId}/cart`,
-        { method: "POST", body: item },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: item },
       ),
   );
 }
@@ -6382,13 +6504,16 @@ export async function sessionCartClear(sessionId: number) {
 
 // Basket checkout — dual-mode. Both transports feed the same core
 // SessionCheckoutService (WP4). REST route: POST /api/sessions/checkout.
-export async function processSessionCheckout(data: SessionCheckoutPayload) {
+export async function processSessionCheckout(
+  data: SessionCheckoutPayload,
+  opts?: WriteOptions,
+) {
   return ipcOrHttp(
     async () => getElectronApi().session.checkout(data),
     async () =>
       requestJson<{ success: boolean; error?: string }>(
         "/api/sessions/checkout",
-        { method: "POST", body: data },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: data },
       ),
   );
 }
@@ -6398,6 +6523,7 @@ export async function processSessionCheckout(data: SessionCheckoutPayload) {
 // walk-in customer session. Writes return the envelope.
 export async function rechargeBasketCheckout(
   data: RechargeBasketCheckoutPayload,
+  opts?: WriteOptions,
 ) {
   return ipcOrHttp(
     async () => getElectronApi().rechargeBasket.checkout(data),
@@ -6409,13 +6535,20 @@ export async function rechargeBasketCheckout(
         checkoutTotalLbp?: number;
         itemCount?: number;
         error?: string;
-      }>("/api/recharge-basket/checkout", { method: "POST", body: data }),
+      }>("/api/recharge-basket/checkout", {
+        method: "POST",
+        idempotencyKey: opts?.idempotencyKey,
+        body: data,
+      }),
   );
 }
 
 // ── LIRA-327: basket-wide For Partner submit (dual-mode) ──
 // Every provider's partner sales in one all-or-nothing write; the envelope.
-export async function rechargePartnerOrder(data: RechargePartnerOrderPayload) {
+export async function rechargePartnerOrder(
+  data: RechargePartnerOrderPayload,
+  opts?: WriteOptions,
+) {
   return ipcOrHttp(
     async () => getElectronApi().rechargeBasket.partnerOrder(data),
     async () =>
@@ -6425,6 +6558,7 @@ export async function rechargePartnerOrder(data: RechargePartnerOrderPayload) {
         error?: string;
       }>("/api/recharge-basket/partner-order", {
         method: "POST",
+        idempotencyKey: opts?.idempotencyKey,
         body: data,
       }),
   );
@@ -6456,13 +6590,16 @@ export async function holdMoneyActive() {
   );
 }
 
-export async function holdMoneyCreate(data: HoldMoneyCreateInput) {
+export async function holdMoneyCreate(
+  data: HoldMoneyCreateInput,
+  opts?: WriteOptions,
+) {
   return ipcOrHttp(
     async () => getElectronApi().holdMoney.create(data),
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         "/api/hold-money",
-        { method: "POST", body: data },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: data },
       ),
   );
 }
@@ -6482,25 +6619,31 @@ export async function holdMoneyPickups(holdMoneyId: number) {
 /** LIRA-214 (migration v183) — collect part or all of a hold. Omitting
  *  usd_amount/lbp_amount defaults each to the hold's full remaining
  *  balance in that currency. */
-export async function holdMoneyCollect(data: HoldMoneyCollectPayload) {
+export async function holdMoneyCollect(
+  data: HoldMoneyCollectPayload,
+  opts?: WriteOptions,
+) {
   return ipcOrHttp(
     async () => getElectronApi().holdMoney.collect(data),
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         `/api/hold-money/${data.id}/collect`,
-        { method: "POST", body: data },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: data },
       ),
   );
 }
 
 /** Void (reverse) one pickup event — the rule-20 reversal owner. */
-export async function holdMoneyVoidPickup(pickupId: number) {
+export async function holdMoneyVoidPickup(
+  pickupId: number,
+  opts?: WriteOptions,
+) {
   return ipcOrHttp(
     async () => getElectronApi().holdMoney.voidPickup(pickupId),
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         `/api/hold-money/pickups/${pickupId}/void`,
-        { method: "POST" },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey },
       ),
   );
 }
@@ -6636,26 +6779,30 @@ export async function drawerTopUpHistory(limit?: number) {
   );
 }
 
-export async function drawerTopUpCreate(data: DrawerTopUpCreatePayload) {
+export async function drawerTopUpCreate(
+  data: DrawerTopUpCreatePayload,
+  opts?: WriteOptions,
+) {
   return ipcOrHttp(
     async () => getElectronApi().drawerTopUp.create(data),
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         "/api/drawer-topup",
-        { method: "POST", body: data },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: data },
       ),
   );
 }
 
 export async function drawerTopUpCreateFromDrawer(
   data: DrawerTopUpFromDrawerPayload,
+  opts?: WriteOptions,
 ) {
   return ipcOrHttp(
     async () => getElectronApi().drawerTopUp.createFromDrawer(data),
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         "/api/drawer-topup/from-drawer",
-        { method: "POST", body: data },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: data },
       ),
   );
 }
@@ -6673,6 +6820,7 @@ export async function drawerTopUpCreateFromDrawer(
  *  pre-checked). */
 export async function transferBetweenDrawers(
   data: CreateDrawerTransferPayload,
+  opts?: WriteOptions,
 ) {
   return ipcOrHttp(
     async () => getElectronApi().drawerTopUp.transfer(data),
@@ -6683,19 +6831,26 @@ export async function transferBetweenDrawers(
         error?: string;
         code?: string;
         details?: unknown;
-      }>("/api/drawer-topup/transfer", { method: "POST", body: data }),
+      }>("/api/drawer-topup/transfer", {
+        method: "POST",
+        idempotencyKey: opts?.idempotencyKey,
+        body: data,
+      }),
   );
 }
 
 // ── Drawer cash-out (dual-mode) — pull physical cash OUT of the General drawer ──
 
-export async function drawerCashoutCreate(data: CreateDrawerCashoutPayload) {
+export async function drawerCashoutCreate(
+  data: CreateDrawerCashoutPayload,
+  opts?: WriteOptions,
+) {
   return ipcOrHttp(
     async () => getElectronApi().drawerCashout.create(data),
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         "/api/drawer-cashout",
-        { method: "POST", body: data },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: data },
       ),
   );
 }
@@ -6715,7 +6870,10 @@ export async function drawerCashoutHistory(limit?: number) {
 // ── Wallet exchange (dual-mode) — convert a provider wallet's OWN USD balance
 // to LBP or vice versa (OMT App / Whish App only, never General) ──
 
-export async function walletExchangeCreate(data: CreateWalletExchangePayload) {
+export async function walletExchangeCreate(
+  data: CreateWalletExchangePayload,
+  opts?: WriteOptions,
+) {
   return ipcOrHttp(
     async () => getElectronApi().walletExchange.create(data),
     async () =>
@@ -6724,7 +6882,11 @@ export async function walletExchangeCreate(data: CreateWalletExchangePayload) {
         id?: number;
         amountOut?: number;
         error?: string;
-      }>("/api/wallet-exchange", { method: "POST", body: data }),
+      }>("/api/wallet-exchange", {
+        method: "POST",
+        idempotencyKey: opts?.idempotencyKey,
+        body: data,
+      }),
   );
 }
 
@@ -6894,7 +7056,10 @@ export async function getLotBreakdown(
   );
 }
 
-export async function adjustLotPosition(data: AdjustLotPositionPayload) {
+export async function adjustLotPosition(
+  data: AdjustLotPositionPayload,
+  opts?: WriteOptions,
+) {
   return ipcOrHttp(
     async () => getElectronApi().exchangeLots.adjust(data),
     async () =>
@@ -6936,7 +7101,11 @@ export async function adjustLotPosition(data: AdjustLotPositionPayload) {
           };
         };
         error?: string;
-      }>("/api/exchange-lots/adjust", { method: "POST", body: data }),
+      }>("/api/exchange-lots/adjust", {
+        method: "POST",
+        idempotencyKey: opts?.idempotencyKey,
+        body: data,
+      }),
   );
 }
 
@@ -7510,6 +7679,7 @@ export async function getCustomServiceById(id: number): Promise<any> {
 // voucher_code, which the page sends).
 export async function addCustomService(
   data: CreateCustomServicePayload,
+  opts?: WriteOptions,
 ): Promise<{ success: boolean; id?: number; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().customServices.add(data),
@@ -7518,6 +7688,7 @@ export async function addCustomService(
         `/api/custom-services`,
         {
           method: "POST",
+          idempotencyKey: opts?.idempotencyKey,
           body: data,
         },
       ),
@@ -7545,6 +7716,7 @@ export async function deleteCustomService(
 // { success: false, error } from the server, not a thrown exception.
 export async function advanceCustomServiceFulfillment(
   data: UpdateCustomServiceFulfillmentPayload,
+  opts?: WriteOptions,
 ): Promise<{ success: boolean; data?: unknown; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().customServices.advanceFulfillment(data),
@@ -7553,6 +7725,7 @@ export async function advanceCustomServiceFulfillment(
         `/api/custom-services/fulfillment`,
         {
           method: "POST",
+          idempotencyKey: opts?.idempotencyKey,
           body: data,
         },
       ),
@@ -7640,6 +7813,7 @@ export async function updateCustomServiceMetadata(
 
 export async function lotoSell(
   data: LotoSellPayload,
+  opts?: WriteOptions,
 ): Promise<{ success: boolean; ticket?: any; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().loto.sell(data),
@@ -7648,6 +7822,7 @@ export async function lotoSell(
         `/api/loto/sell`,
         {
           method: "POST",
+          idempotencyKey: opts?.idempotencyKey,
           body: data,
         },
       ),
@@ -7794,6 +7969,7 @@ export async function lotoSettlement(
 
 export async function lotoFeesCreate(
   data: LotoFeePayload,
+  opts?: WriteOptions,
 ): Promise<{ success: boolean; fee?: any; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().loto.fees.create(data),
@@ -7802,6 +7978,7 @@ export async function lotoFeesCreate(
         `/api/loto/fees`,
         {
           method: "POST",
+          idempotencyKey: opts?.idempotencyKey,
           body: data,
         },
       ),
@@ -7822,6 +7999,7 @@ export async function lotoFeesGet(
 
 export async function lotoFeesPay(
   id: number,
+  opts?: WriteOptions,
 ): Promise<{ success: boolean; fee?: any; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().loto.fees.pay(id),
@@ -7830,6 +8008,7 @@ export async function lotoFeesPay(
         `/api/loto/fees/${id}/pay`,
         {
           method: "POST",
+          idempotencyKey: opts?.idempotencyKey,
         },
       ),
   );
@@ -7872,6 +8051,7 @@ export async function lotoSettingsUpdate(
 
 export async function lotoCashPrizeCreate(
   data: LotoCashPrizePayload,
+  opts?: WriteOptions,
 ): Promise<{ success: boolean; prize?: any; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().loto.cashPrize.create(data),
@@ -7880,6 +8060,7 @@ export async function lotoCashPrizeCreate(
         `/api/loto/cash-prizes`,
         {
           method: "POST",
+          idempotencyKey: opts?.idempotencyKey,
           body: data,
         },
       ),
@@ -7917,6 +8098,7 @@ export async function lotoCashPrizeMarkReimbursed(
   id: number,
   reimbursedDate?: string,
   settlementId?: number,
+  opts?: WriteOptions,
 ): Promise<{ success: boolean; prize?: any; error?: string }> {
   return ipcOrHttp(
     async () =>
@@ -7930,6 +8112,7 @@ export async function lotoCashPrizeMarkReimbursed(
         `/api/loto/cash-prizes/${id}/reimburse`,
         {
           method: "POST",
+          idempotencyKey: opts?.idempotencyKey,
           body: { reimbursedDate, settlementId },
         },
       ),
@@ -7954,6 +8137,7 @@ export async function lotoCashPrizeGetTotalUnreimbursed(): Promise<{
 
 export async function lotoCheckpointCreate(
   data: LotoCheckpointCreatePayload,
+  opts?: WriteOptions,
 ): Promise<{ success: boolean; checkpoint?: any; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().loto.checkpoint.create(data),
@@ -7962,6 +8146,7 @@ export async function lotoCheckpointCreate(
         `/api/loto/checkpoints`,
         {
           method: "POST",
+          idempotencyKey: opts?.idempotencyKey,
           body: data,
         },
       ),
@@ -8040,6 +8225,7 @@ export async function lotoCheckpointMarkSettled(
   id: number,
   settledAt?: string,
   settlementId?: number,
+  opts?: WriteOptions,
 ): Promise<{ success: boolean; checkpoint?: any; error?: string }> {
   return ipcOrHttp(
     async () =>
@@ -8049,6 +8235,7 @@ export async function lotoCheckpointMarkSettled(
         `/api/loto/checkpoints/${id}/settle`,
         {
           method: "POST",
+          idempotencyKey: opts?.idempotencyKey,
           body: { settledAt, settlementId },
         },
       ),
@@ -8057,6 +8244,7 @@ export async function lotoCheckpointMarkSettled(
 
 export async function lotoCheckpointSettle(
   data: LotoCheckpointSettlePayload,
+  opts?: WriteOptions,
 ): Promise<{ success: boolean; checkpoint?: any; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().loto.checkpoint.settle(data),
@@ -8065,6 +8253,7 @@ export async function lotoCheckpointSettle(
         `/api/loto/checkpoints/${data.id}/settle`,
         {
           method: "POST",
+          idempotencyKey: opts?.idempotencyKey,
           body: data,
         },
       ),
@@ -8073,6 +8262,7 @@ export async function lotoCheckpointSettle(
 
 export async function lotoCheckpointSettleBatch(
   data: LotoCheckpointsSettleBatchPayload,
+  opts?: WriteOptions,
 ): Promise<{ success: boolean; checkpoints?: any[]; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().loto.checkpoint.settleBatch(data),
@@ -8081,6 +8271,7 @@ export async function lotoCheckpointSettleBatch(
         `/api/loto/checkpoints/settle-batch`,
         {
           method: "POST",
+          idempotencyKey: opts?.idempotencyKey,
           body: data,
         },
       ),
@@ -8655,6 +8846,7 @@ export async function saveResaleLine(
 /** Admin: write off a LOST line held for sale (books its cost as a loss). */
 export async function writeOffResaleLine(
   data: WriteOffResaleLineInput,
+  opts?: WriteOptions,
 ): Promise<{
   success: boolean;
   data?: { expense_id: number };
@@ -8669,6 +8861,7 @@ export async function writeOffResaleLine(
         error?: string;
       }>(`/api/resale-lines/${data.product_id}/write-off`, {
         method: "POST",
+        idempotencyKey: opts?.idempotencyKey,
         body: data,
       }),
   );
@@ -8678,13 +8871,14 @@ export async function writeOffResaleLine(
  *  card); its cost is added to the line's cost and price (LIRA-309). */
 export async function rechargeResaleLine(
   data: RechargeResaleLineInput,
+  opts?: WriteOptions,
 ): Promise<ResaleLineRechargeResult> {
   return ipcOrHttp(
     async () => getElectronApi().resaleLines.recharge(data),
     async () =>
       requestJson<ResaleLineRechargeResult>(
         `/api/resale-lines/${data.product_id}/recharge`,
-        { method: "POST", body: data },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: data },
       ),
   );
 }
@@ -8693,13 +8887,14 @@ export async function rechargeResaleLine(
  *  and cost drop (LIRA-337). */
 export async function giveBackResaleLineCredit(
   data: GiveBackResaleLineInput,
+  opts?: WriteOptions,
 ): Promise<ResaleLineGiveBackResult> {
   return ipcOrHttp(
     async () => getElectronApi().resaleLines.giveBack(data),
     async () =>
       requestJson<ResaleLineGiveBackResult>(
         `/api/resale-lines/${data.product_id}/give-back`,
-        { method: "POST", body: data },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: data },
       ),
   );
 }
@@ -8760,13 +8955,14 @@ export async function getWrongNumberSaleCard(
  *  (stock-use expense); the sale, if any, stays as it is. */
 export async function recordWrongNumber(
   data: RecordWrongNumberInput,
+  opts?: WriteOptions,
 ): Promise<WrongNumberResult<RecordWrongNumberResultData>> {
   return ipcOrHttp(
     async () => getElectronApi().wrongNumbers.record(data),
     async () =>
       requestJson<WrongNumberResult<RecordWrongNumberResultData>>(
         "/api/wrong-numbers",
-        { method: "POST", body: data },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: data },
       ),
   );
 }
@@ -8774,13 +8970,14 @@ export async function recordWrongNumber(
 /** Credits sent back for a wrong-number card, on a chosen shop line. */
 export async function recordWrongNumberCredits(
   data: WrongNumberCreditsInput,
+  opts?: WriteOptions,
 ): Promise<WrongNumberResult<WrongNumberCreditsResultData>> {
   return ipcOrHttp(
     async () => getElectronApi().wrongNumbers.credits(data),
     async () =>
       requestJson<WrongNumberResult<WrongNumberCreditsResultData>>(
         `/api/wrong-numbers/${data.wrong_number_card_id}/credits`,
-        { method: "POST", body: data },
+        { method: "POST", idempotencyKey: opts?.idempotencyKey, body: data },
       ),
   );
 }
@@ -8838,12 +9035,14 @@ export async function getAdminCarrierLines(): Promise<CarrierLineEntity[]> {
 
 export async function createCarrierLine(
   data: CarrierLineCreatePayload,
+  opts?: WriteOptions,
 ): Promise<CarrierLineWriteResult> {
   return ipcOrHttp(
     async () => getElectronApi().carrierLines.create(data),
     async () =>
       requestJson<CarrierLineWriteResult>(`/api/carrier-lines`, {
         method: "POST",
+        idempotencyKey: opts?.idempotencyKey,
         body: data,
       }),
   );
@@ -8932,12 +9131,14 @@ export type CarrierLineUsageResult = {
  *  `{ success: false, error }`, never as a throw. */
 export async function recordCarrierLineUsage(
   data: CarrierLineUsagePayload,
+  opts?: WriteOptions,
 ): Promise<CarrierLineUsageResult> {
   return ipcOrHttp(
     async () => getElectronApi().carrierLines.recordUsage(data),
     async () =>
       requestJson<CarrierLineUsageResult>(`/api/carrier-lines/record-usage`, {
         method: "POST",
+        idempotencyKey: opts?.idempotencyKey,
         body: data,
       }),
   );
@@ -9226,6 +9427,7 @@ export type SelfChargeTelecomItemResult = {
  *  trustworthy on web and decides the validity-extension outcome (rule 27). */
 export async function selfChargeTelecomItem(
   data: SelfChargeTelecomItemPayload,
+  opts?: WriteOptions,
 ): Promise<{
   success: boolean;
   data?: SelfChargeTelecomItemResult;
@@ -9238,7 +9440,11 @@ export async function selfChargeTelecomItem(
         success: boolean;
         data?: SelfChargeTelecomItemResult;
         error?: string;
-      }>(`/api/services/self-charge`, { method: "POST", body: data }),
+      }>(`/api/services/self-charge`, {
+        method: "POST",
+        idempotencyKey: opts?.idempotencyKey,
+        body: data,
+      }),
   );
 }
 

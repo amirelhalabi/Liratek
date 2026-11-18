@@ -8857,3 +8857,23 @@ Needs: a dry-run mode that lists what it would delete; a guard test that a live 
 
 **What users will notice:** see the two bullets in `UNRELEASED.md`.
 
+---
+
+## LIRA-401: Duplicate repayment on Accounts — Confirm lock + one-time ticket on every money write — BUILT 2026-11-18
+
+**Ask (owner 2026-11-18, Corner Tech):** "sometimes the settlement is being computed twice … non idempotency … cornertech is facing this multiple times" — RAMI MAHMOUD(ALBEN) got the same $350 repayment twice and cancelled one.
+
+**Verified on production (read-only REST):** client 9963: `DEBT_REPAYMENT` 18982 + 18983, $350 cash, same second 14:04:14 on 2026-11-18, identical payload; second refunded by hand. Same the day before: client 9959, $400, 18728 + 18729 at 15:09:32. Only two same-second pairs among 328 real repayments; other near pairs are 31–94 s apart (manual re-entries).
+
+**Cause:** (1) Debts page renders `CounterpartySettleModal` without `isSubmitting`, so Confirm stays clickable during the request (Suppliers/Partners/RefundMethodModal pass it; Debts was the only one missing). (2) No web form sends an `Idempotency-Key`; the LIRA-289 server guard exists on 2 routes only and never engages for the web app.
+
+**Owner decisions 2026-11-18:** build fix 1 (Debts Confirm lock, both transports) + fix 3 (one key per form open, sent on every money POST, every money route guarded server-side). Skip fix 2 (in-flight body dedupe in `requestJson`: it would merge two legit identical payments). Built in worktree `.claude/worktrees/lira-400` by three parallel Opus agents (A backend, B frontend plumbing + pages, C Debts + key hook). Spec: `specs/401-idempotent-money-writes/spec.md`.
+
+**Built:** (1) Debts: `repaySubmitting` state + ref guard in `handleProcessRepayment`, `isSubmitting` on the `CounterpartySettleModal` (repay and cash-out). (2) `useIdempotencyKey` / `useIdempotencyKeyWithReset` / `idempotencyOpts` (`frontend/src/shared/hooks/useIdempotencyKey.ts`): one key per form open, same key on retry, new key after a successful submit on always-visible forms. `requestJson({ idempotencyKey })` sends the `idempotency-key` header on writes; 78 adapter write functions take `opts?: WriteOptions`; every money form, modal and hook sends a key (per-item suffixes where one submit makes several calls; session cart-add also keeps one line id per attempt). Backend: `guardIdempotent` / `guardIdempotentAsync` + `idempotencyRoute(req)` (route pattern + sorted URL params) in `backend/src/middleware/idempotency.ts`; `IdempotencyService.runAsync` (in-flight slot, for the 5 routes whose service awaits); the 78 money routes listed in `backend/src/api/idempotentMoneyRoutes.ts` are wrapped, a guard test fails on any listed route without the wrapper. Offline replay untouched (it dedupes per event itself). Full decisions + open questions in the spec.
+
+**Tests (rule 17):** proven failing first — frontend `Debts.lira401DoubleSubmit` (4 failed: 3 calls instead of 1, no key), backend `idempotency.allMoneyRoutes.api` + `idempotency.guard` (125 of 193 rows failed before the first 62 routes, 49 of 321 before the 16 extra routes; 328/328 after), core `IdempotencyService` runAsync cases (5 failed before). Written after the code, not proven failing-first: hook test (7), `httpClient.idempotencyKey` (3), `Services.lira401IdempotencyKey`, `SaleDetailModal.lira401IdempotencyKey`, web e2e `lira-web-104` (REST same key → 1 row, two keys → 2 rows, Debts page double click → 1 row; green). Green in the worktree: full core suite 1046 suites / 9956 tests (`--maxWorkers=2`); backend 85 suites / 995 tests touching changed routes; frontend 322 + 278 affected suites; web e2e 007, 085, 103; `yarn typecheck` 0 errors (64 s), `yarn lint` 0 errors (37 s), transport-parity and i18n guards clean. Also fixed the pre-existing lint error in `lira-web-065` (two unused consts). Pre-existing red on main, not from this change: `Suppliers.lira371DrawerChoice`, `suppliers.payloadLanguage` (3 tests), `HoldMoney.methodsLoading` (label "Cash" vs "Cash · General", LIRA-399).
+
+**Open for the owner (from the spec):** loto `GET /checkpoints/scheduled` creates rows on a GET (unguardable, should become a POST); should a refused `sales/:id/refund-item` write an audit row; the three pre-existing red suites above.
+
+**What users will notice:** see the Accounts and Web app bullets in `UNRELEASED.md`.
+

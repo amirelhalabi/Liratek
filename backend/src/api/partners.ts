@@ -2,6 +2,7 @@ import express from "express";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
 import { validateRequest } from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
+import { sendIdempotent } from "../middleware/idempotency.js";
 import {
   getPartnerService,
   partnerCreateSchema,
@@ -232,25 +233,35 @@ router.post(
   (req, res) => {
     const userId = (req as AuthRequest).user!.userId;
     try {
-      const entry = getPartnerService().recordPartnerTransaction({
-        ...req.body,
-        userId,
-      });
-      // Mirrors partnerHandlers.ts's partners:record-transaction audit
-      // (create/partner_ledger).
-      auditRest(req, {
-        action: "create",
-        entity_type: "partner_ledger",
-        summary: `Partner #${req.body.partnerId} ${req.body.direction}: ${req.body.amount} ${req.body.currency} (${req.body.transactionType ?? "MANUAL"})`,
-        metadata: {
-          partnerId: req.body.partnerId,
-          transactionType: req.body.transactionType,
-          amount: req.body.amount,
-          currency: req.body.currency,
-          direction: req.body.direction,
+      sendIdempotent(
+        req,
+        res,
+        () => ({
+          success: true as const,
+          data: getPartnerService().recordPartnerTransaction({
+            ...req.body,
+            userId,
+          }),
+        }),
+        {
+          onBooked: () => {
+            // Mirrors partnerHandlers.ts's partners:record-transaction audit
+            // (create/partner_ledger).
+            auditRest(req, {
+              action: "create",
+              entity_type: "partner_ledger",
+              summary: `Partner #${req.body.partnerId} ${req.body.direction}: ${req.body.amount} ${req.body.currency} (${req.body.transactionType ?? "MANUAL"})`,
+              metadata: {
+                partnerId: req.body.partnerId,
+                transactionType: req.body.transactionType,
+                amount: req.body.amount,
+                currency: req.body.currency,
+                direction: req.body.direction,
+              },
+            });
+          },
         },
-      });
-      res.json({ success: true, data: entry });
+      );
     } catch (error) {
       res.json({
         success: false,
@@ -271,20 +282,30 @@ router.post(
   (req, res) => {
     const userId = (req as AuthRequest).user!.userId;
     try {
-      const entry = getPartnerService().settle({ ...req.body, userId });
-      // Mirrors partnerHandlers.ts's partners:settle audit (settle/partner_ledger).
-      auditRest(req, {
-        action: "settle",
-        entity_type: "partner_ledger",
-        summary: `Settled partner #${req.body.partnerId}: ${req.body.amount} ${req.body.currency} via ${req.body.settlementMethod}`,
-        metadata: {
-          partnerId: req.body.partnerId,
-          amount: req.body.amount,
-          currency: req.body.currency,
-          settlementMethod: req.body.settlementMethod,
+      sendIdempotent(
+        req,
+        res,
+        () => ({
+          success: true as const,
+          data: getPartnerService().settle({ ...req.body, userId }),
+        }),
+        {
+          onBooked: () => {
+            // Mirrors partnerHandlers.ts's partners:settle audit (settle/partner_ledger).
+            auditRest(req, {
+              action: "settle",
+              entity_type: "partner_ledger",
+              summary: `Settled partner #${req.body.partnerId}: ${req.body.amount} ${req.body.currency} via ${req.body.settlementMethod}`,
+              metadata: {
+                partnerId: req.body.partnerId,
+                amount: req.body.amount,
+                currency: req.body.currency,
+                settlementMethod: req.body.settlementMethod,
+              },
+            });
+          },
         },
-      });
-      res.json({ success: true, data: entry });
+      );
     } catch (error) {
       res.json({
         success: false,
@@ -304,20 +325,25 @@ router.post(
   validateRequest(partnerSettleDaysSchema),
   (req, res) => {
     const userId = (req as AuthRequest).user!.userId;
-    const result = getPartnerService().settleDays({ ...req.body, userId });
-    if (result.success) {
-      auditRest(req, {
-        action: "settle",
-        entity_type: "partner_ledger",
-        summary: `Settled picked days for partner #${req.body.partnerId} (${req.body.selections.length} rows)`,
-        metadata: {
-          partnerId: req.body.partnerId,
-          selections: req.body.selections.length,
-          transactionId: result.id,
+    sendIdempotent(
+      req,
+      res,
+      () => getPartnerService().settleDays({ ...req.body, userId }),
+      {
+        onBooked: (result) => {
+          auditRest(req, {
+            action: "settle",
+            entity_type: "partner_ledger",
+            summary: `Settled picked days for partner #${req.body.partnerId} (${req.body.selections.length} rows)`,
+            metadata: {
+              partnerId: req.body.partnerId,
+              selections: req.body.selections.length,
+              transactionId: result.id,
+            },
+          });
         },
-      });
-    }
-    res.json(result);
+      },
+    );
   },
 );
 
@@ -329,22 +355,27 @@ router.post(
   validateRequest(partnerWriteOffSchema),
   (req, res) => {
     const userId = (req as AuthRequest).user!.userId;
-    const result = getPartnerService().writeOff({ ...req.body, userId });
-    if (result.success) {
-      // Mirrors partnerHandlers.ts's partners:write-off audit
-      // (write_off/partner_write_off).
-      auditRest(req, {
-        action: "write_off",
-        entity_type: "partner_write_off",
-        summary: `Partner write-off for #${req.body.partnerId}: $${req.body.amount_usd} + ${req.body.amount_lbp} LBP`,
-        metadata: {
-          partnerId: req.body.partnerId,
-          amount_usd: req.body.amount_usd,
-          amount_lbp: req.body.amount_lbp,
+    sendIdempotent(
+      req,
+      res,
+      () => getPartnerService().writeOff({ ...req.body, userId }),
+      {
+        onBooked: () => {
+          // Mirrors partnerHandlers.ts's partners:write-off audit
+          // (write_off/partner_write_off).
+          auditRest(req, {
+            action: "write_off",
+            entity_type: "partner_write_off",
+            summary: `Partner write-off for #${req.body.partnerId}: $${req.body.amount_usd} + ${req.body.amount_lbp} LBP`,
+            metadata: {
+              partnerId: req.body.partnerId,
+              amount_usd: req.body.amount_usd,
+              amount_lbp: req.body.amount_lbp,
+            },
+          });
         },
-      });
-    }
-    res.json(result);
+      },
+    );
   },
 );
 

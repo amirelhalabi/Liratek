@@ -11,6 +11,7 @@ import {
   type PaymentLine,
   type LinesSectionState,
 } from "@liratek/ui";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { HOLD_PICKUP_EPSILON, holdPickupKeptPerCurrency } from "@liratek/core";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
@@ -58,6 +59,10 @@ export function HoldMoneyPickupSheet({
   onCollected,
 }: HoldMoneyPickupSheetProps) {
   const api = useApi();
+  // LIRA-401: one key per pickup, renewed after a success, so a double tap or
+  // a retry on Confirm pays the customer once.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
   const { t } = useTranslation("customServices");
   const { t: tc } = useTranslation("common");
   const { t: tp } = useTranslation("payment");
@@ -198,33 +203,37 @@ export function HoldMoneyPickupSheet({
     setIsSubmitting(true);
     try {
       // ONE payload (rule 22). A payout never sends OUT (change) legs.
-      const res = await api.holdMoney.collect({
-        id: hold.id,
-        usd_amount: returnUsd,
-        lbp_amount: returnLbp,
-        payments: payoutLegs,
-        exchange_rate: effectiveRate ?? buyRate,
-        ...(keptToSend && (keptToSend.usd > 0 || keptToSend.lbp > 0)
-          ? {
-              kept_change_usd: keptToSend.usd,
-              kept_change_lbp: keptToSend.lbp,
-            }
-          : {}),
-        ...(roundUpToSend && (roundUpToSend.usd > 0 || roundUpToSend.lbp > 0)
-          ? {
-              rounding_given_usd: roundUpToSend.usd,
-              rounding_given_lbp: roundUpToSend.lbp,
-            }
-          : {}),
-        ...(addedChangeToSend
-          ? {
-              customerPayments,
-              added_change_usd: addedChangeToSend.usd,
-              added_change_lbp: addedChangeToSend.lbp,
-            }
-          : {}),
-      });
+      const res = await api.holdMoney.collect(
+        {
+          id: hold.id,
+          usd_amount: returnUsd,
+          lbp_amount: returnLbp,
+          payments: payoutLegs,
+          exchange_rate: effectiveRate ?? buyRate,
+          ...(keptToSend && (keptToSend.usd > 0 || keptToSend.lbp > 0)
+            ? {
+                kept_change_usd: keptToSend.usd,
+                kept_change_lbp: keptToSend.lbp,
+              }
+            : {}),
+          ...(roundUpToSend && (roundUpToSend.usd > 0 || roundUpToSend.lbp > 0)
+            ? {
+                rounding_given_usd: roundUpToSend.usd,
+                rounding_given_lbp: roundUpToSend.lbp,
+              }
+            : {}),
+          ...(addedChangeToSend
+            ? {
+                customerPayments,
+                added_change_usd: addedChangeToSend.usd,
+                added_change_lbp: addedChangeToSend.lbp,
+              }
+            : {}),
+        },
+        { idempotencyKey },
+      );
       if (res.success) {
+        resetIdempotencyKey();
         appEvents.emit(
           "notification:show",
           isPartial
@@ -409,20 +418,18 @@ export function HoldMoneyPickupSheet({
             >
               {t("pickup.keeping")}{" "}
               <Ltr>
-              {[
-                twoCurrencyKept.usd >= EPS_USD
-                  ? `$${twoCurrencyKept.usd.toFixed(2)}`
-                  : null,
-                twoCurrencyKept.lbp >= EPS_LBP
-                  ? `${formatNumber(twoCurrencyKept.lbp)} LBP`
-                  : null,
-              ]
-                .filter(Boolean)
-                .join(" + ")}
+                {[
+                  twoCurrencyKept.usd >= EPS_USD
+                    ? `$${twoCurrencyKept.usd.toFixed(2)}`
+                    : null,
+                  twoCurrencyKept.lbp >= EPS_LBP
+                    ? `${formatNumber(twoCurrencyKept.lbp)} LBP`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" + ")}
               </Ltr>{" "}
-              {isPartial
-                ? t("pickup.asProfitPart")
-                : t("pickup.asProfitAll")}
+              {isPartial ? t("pickup.asProfitPart") : t("pickup.asProfitAll")}
             </p>
           )}
 

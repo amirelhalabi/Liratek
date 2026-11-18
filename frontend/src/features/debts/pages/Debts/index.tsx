@@ -8,6 +8,10 @@ import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { useFormat } from "@/i18n/useFormat";
 import logger from "@/utils/logger";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import {
+  idempotencyOpts,
+  useIdempotencyKey,
+} from "@/shared/hooks/useIdempotencyKey";
 import * as XLSX from "xlsx";
 import {
   Search,
@@ -45,11 +49,7 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { useSellRate } from "@/hooks/useSellRate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { DataTable } from "@liratek/ui";
-import {
-  SettleDiscountLine,
-  type Money,
-  type PaymentLine,
-} from "@liratek/ui";
+import { SettleDiscountLine, type Money, type PaymentLine } from "@liratek/ui";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { isGeneralCash } from "@/shared/utils/isGeneralCash";
@@ -254,6 +254,14 @@ export default function Debts() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showRepaymentModal, setShowRepaymentModal] = useState(false);
   useModalFocusFix(showRepaymentModal);
+  // LIRA-401 — one repayment / cash-out per click-burst. The ref guards the
+  // handler (two clicks in one tick both see the old state); the state
+  // disables Confirm while the write is in flight.
+  const repaySubmittingRef = useRef(false);
+  const [repaySubmitting, setRepaySubmitting] = useState(false);
+  // LIRA-401 — one idempotency key per open of the modal: a retry while it
+  // stays open replays on the server; the next open is a new payment.
+  const repayIdempotencyKey = useIdempotencyKey(showRepaymentModal);
   const [showCreditModal, setShowCreditModal] = useState(false);
   useModalFocusFix(showCreditModal);
   const [creditClientSearch, setCreditClientSearch] = useState("");
@@ -1170,6 +1178,8 @@ export default function Debts() {
 
   const handleProcessRepayment = async () => {
     if (!selectedClient) return;
+    // LIRA-401 — a write is already in flight: never send a second one.
+    if (repaySubmittingRef.current) return;
 
     // LIRA-318 — Confirm is disabled over this; never submit it anyway.
     if (repayForgiveBlocked) return;
@@ -1253,28 +1263,33 @@ export default function Debts() {
         if (leftUsd > 0.005) outUsd += Math.round(leftUsd * 100) / 100;
         if (leftLbp > 0.5) outLbp += Math.round(leftLbp);
       }
+      repaySubmittingRef.current = true;
+      setRepaySubmitting(true);
       try {
         // ONE payload (rule 22). Payout lines only — a payout never carries
         // OUT legs (the server refuses them), so the return-leg state is
         // not read here. The rate is ALWAYS sent: the server reconciles the
         // lines at it, and without it a cross-currency cash-out converted at
         // the sheet's buy rate would be checked at the sell rate.
-        const result = await api.cashOut({
-          clientId: selectedClient.id,
-          amountUSD: outUsd,
-          amountLBP: outLbp,
-          payments: toCamelLegs(validLines, []),
-          note: repayNote,
-          ...(Number.isFinite(cashOutRate) && cashOutRate > 0
-            ? { tender_exchange_rate: cashOutRate }
-            : {}),
-          ...(hasCashOutKept
-            ? { keptChangeUSD: cashOutKeptUsd, keptChangeLBP: cashOutKeptLbp }
-            : {}),
-          ...(repayTransactionTime
-            ? { transaction_time: repayTransactionTime }
-            : {}),
-        });
+        const result = await api.cashOut(
+          {
+            clientId: selectedClient.id,
+            amountUSD: outUsd,
+            amountLBP: outLbp,
+            payments: toCamelLegs(validLines, []),
+            note: repayNote,
+            ...(Number.isFinite(cashOutRate) && cashOutRate > 0
+              ? { tender_exchange_rate: cashOutRate }
+              : {}),
+            ...(hasCashOutKept
+              ? { keptChangeUSD: cashOutKeptUsd, keptChangeLBP: cashOutKeptLbp }
+              : {}),
+            ...(repayTransactionTime
+              ? { transaction_time: repayTransactionTime }
+              : {}),
+          },
+          idempotencyOpts(repayIdempotencyKey),
+        );
         if (result.success) {
           appEvents.emit("notification:show", "Cash out processed!", "success");
           // LIRA-212 Tier A: let TopBar's session balance badge refresh live.
@@ -1296,6 +1311,9 @@ export default function Debts() {
         // LIRA-247: a thrown ApiError (e.g. a web 403 role refusal) used to
         // be discarded here in favor of this hardcoded string.
         alert(getApiErrorMessage(error, "Failed to process cash out"));
+      } finally {
+        repaySubmittingRef.current = false;
+        setRepaySubmitting(false);
       }
       return;
     }
@@ -1354,6 +1372,8 @@ export default function Debts() {
         }
       : {};
 
+    repaySubmittingRef.current = true;
+    setRepaySubmitting(true);
     try {
       const keptFields =
         keptUsd > 0 || keptLbp > 0
@@ -1370,42 +1390,47 @@ export default function Debts() {
       // field. (amountUSD/amountLBP default to 0 in the schema, so clientId
       // is the one that surfaced.) The adapter already picks the transport;
       // the component must not choose the shape (rule 19).
-      const result = await api.addRepayment({
-        clientId: selectedClient.id,
-        amountUSD: reduceUsd,
-        amountLBP: reduceLbp,
-        payments: paymentLegs,
-        // LIRA-366: on a repayment (money in) the Note box is the cashier's
-        // typed note. A cash-out (money out, above) keeps the plain `note`.
-        typedNote: repayNote,
-        // Always sent (not only after an edit): with kept change the server
-        // reconciles the lines at this rate, and the reduction above was
-        // computed at it (buy side) — the sell-rate fallback would falsely
-        // refuse a cross-currency repayment.
-        ...(Number.isFinite(conversionRate) && conversionRate > 0
-          ? { tender_exchange_rate: conversionRate }
-          : {}),
-        ...keptFields,
-        ...discountFields,
-        // LIRA-304 — the items the cashier ticked (the server re-checks
-        // them); LIRA-308 — then the ones the amount ticked itself (`auto`).
-        ...(repaySentTargets.length > 0 ? { targets: repaySentTargets } : {}),
-        // LIRA-347 D1 — days were picked: the server refuses (nothing
-        // written) if the ticked items no longer owe what was shown. The
-        // figure comes from the ONE shared function the server uses.
-        ...(repayDayPlan && repaySentTargets.length > 0
-          ? { expectedOwed: ownTargetsOpen(repayOpenItems, repaySentTargets) }
-          : {}),
-        // LIRA-347 D2 — "Use credit".
-        ...(repayCreditUseUsd > 0 ? { creditUseUSD: repayCreditUseUsd } : {}),
-        ...(repayCreditUseLbp > 0 ? { creditUseLBP: repayCreditUseLbp } : {}),
-        // LIRA-371 — only when the choice is shown (rule 22: one payload).
-        ...(repayPreview?.choiceApplies ? { cashDrawer: repayCashDrawer } : {}),
-        ...(repayTransactionTime
-          ? { transaction_time: repayTransactionTime }
-          : {}),
-        ...(user?.id != null ? { userId: user.id } : {}),
-      });
+      const result = await api.addRepayment(
+        {
+          clientId: selectedClient.id,
+          amountUSD: reduceUsd,
+          amountLBP: reduceLbp,
+          payments: paymentLegs,
+          // LIRA-366: on a repayment (money in) the Note box is the cashier's
+          // typed note. A cash-out (money out, above) keeps the plain `note`.
+          typedNote: repayNote,
+          // Always sent (not only after an edit): with kept change the server
+          // reconciles the lines at this rate, and the reduction above was
+          // computed at it (buy side) — the sell-rate fallback would falsely
+          // refuse a cross-currency repayment.
+          ...(Number.isFinite(conversionRate) && conversionRate > 0
+            ? { tender_exchange_rate: conversionRate }
+            : {}),
+          ...keptFields,
+          ...discountFields,
+          // LIRA-304 — the items the cashier ticked (the server re-checks
+          // them); LIRA-308 — then the ones the amount ticked itself (`auto`).
+          ...(repaySentTargets.length > 0 ? { targets: repaySentTargets } : {}),
+          // LIRA-347 D1 — days were picked: the server refuses (nothing
+          // written) if the ticked items no longer owe what was shown. The
+          // figure comes from the ONE shared function the server uses.
+          ...(repayDayPlan && repaySentTargets.length > 0
+            ? { expectedOwed: ownTargetsOpen(repayOpenItems, repaySentTargets) }
+            : {}),
+          // LIRA-347 D2 — "Use credit".
+          ...(repayCreditUseUsd > 0 ? { creditUseUSD: repayCreditUseUsd } : {}),
+          ...(repayCreditUseLbp > 0 ? { creditUseLBP: repayCreditUseLbp } : {}),
+          // LIRA-371 — only when the choice is shown (rule 22: one payload).
+          ...(repayPreview?.choiceApplies
+            ? { cashDrawer: repayCashDrawer }
+            : {}),
+          ...(repayTransactionTime
+            ? { transaction_time: repayTransactionTime }
+            : {}),
+          ...(user?.id != null ? { userId: user.id } : {}),
+        },
+        idempotencyOpts(repayIdempotencyKey),
+      );
 
       if (result.success) {
         appEvents.emit(
@@ -1474,6 +1499,9 @@ export default function Debts() {
       // LIRA-247: surface the server's real refusal reason instead of this
       // hardcoded string (a thrown ApiError is a plain object, not an Error).
       alert(getApiErrorMessage(error, "Failed to process repayment"));
+    } finally {
+      repaySubmittingRef.current = false;
+      setRepaySubmitting(false);
     }
   };
 
@@ -3042,6 +3070,7 @@ export default function Debts() {
             }
             onCancel={() => setShowRepaymentModal(false)}
             onConfirm={handleProcessRepayment}
+            isSubmitting={repaySubmitting}
             confirmLabel={
               repayMode === "cashout"
                 ? t("repay.confirmCashOut")

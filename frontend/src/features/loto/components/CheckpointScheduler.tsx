@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { appEvents, useApi } from "@liratek/ui";
 import { AlertTriangle, CheckCircle } from "lucide-react";
 import { localDay } from "@/shared/utils/localDay";
+import { useIdempotencyKey } from "@/shared/hooks/useIdempotencyKey";
 
 interface CheckpointSchedulerProps {
   onCheckpointCreated?: (checkpoint: any) => void;
@@ -14,6 +15,8 @@ export function CheckpointScheduler({
   const api = useApi();
   const { t } = useTranslation("loto");
   const [showPopup, setShowPopup] = useState(false);
+  // LIRA-401 — one key per popup open: a double tap books one checkpoint.
+  const idempotencyKey = useIdempotencyKey(showPopup);
   const [isProcessing, setIsProcessing] = useState(false);
   const [lastCheckpoint, setLastCheckpoint] = useState<any>(null);
 
@@ -83,7 +86,9 @@ export function CheckpointScheduler({
         note: `Scheduled checkpoint for ${new Date().toLocaleDateString()}`,
       };
 
-      const result = await api.loto.checkpoint.create(checkpointData);
+      const result = await api.loto.checkpoint.create(checkpointData, {
+        idempotencyKey,
+      });
       if (result.success) {
         appEvents.emit(
           "notification:show",
@@ -123,9 +128,7 @@ export function CheckpointScheduler({
               <h3 className="text-lg font-bold text-white mb-2">
                 {t("scheduler.title")}
               </h3>
-              <p className="text-slate-300 mb-4">
-                {t("scheduler.body")}
-              </p>
+              <p className="text-slate-300 mb-4">{t("scheduler.body")}</p>
 
               <div className="flex gap-3">
                 <button

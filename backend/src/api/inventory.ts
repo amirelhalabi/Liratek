@@ -21,6 +21,7 @@ import {
 } from "@liratek/core";
 import { validateRequest, validateQuery } from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
+import { sendIdempotent } from "../middleware/idempotency.js";
 
 function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Unknown error";
@@ -582,26 +583,32 @@ router.post(
     const userId = req.user!.userId;
 
     const service = getInventoryService();
-    const result =
-      delta !== undefined
-        ? service.adjustStockDelta(id, delta, reason, userId)
-        : service.adjustStock(id, newQuantity as number, reason, userId);
-
-    if (result.success) {
-      // Mirrors inventoryHandlers.ts's inventory:adjust-stock audit.
-      auditRest(req, {
-        action: "update",
-        entity_type: "product",
-        entity_id: String(id),
-        summary:
-          delta !== undefined
-            ? `Adjusted stock for product #${id} by ${delta > 0 ? "+" : ""}${delta} (${reason})`
-            : `Adjusted stock for product #${id} to ${newQuantity} (${reason})`,
-        new_values: { newQuantity, delta, reason },
-      });
-    }
-
-    res.status(result.success ? 200 : 400).json(result);
+    // LIRA-401: a repeated Idempotency-Key replays the first adjustment —
+    // a delta applied twice would move stock twice.
+    sendIdempotent(
+      req,
+      res,
+      () =>
+        delta !== undefined
+          ? service.adjustStockDelta(id, delta, reason, userId)
+          : service.adjustStock(id, newQuantity as number, reason, userId),
+      {
+        onBooked: () => {
+          // Mirrors inventoryHandlers.ts's inventory:adjust-stock audit.
+          auditRest(req, {
+            action: "update",
+            entity_type: "product",
+            entity_id: String(id),
+            summary:
+              delta !== undefined
+                ? `Adjusted stock for product #${id} by ${delta > 0 ? "+" : ""}${delta} (${reason})`
+                : `Adjusted stock for product #${id} to ${newQuantity} (${reason})`,
+            new_values: { newQuantity, delta, reason },
+          });
+        },
+        status: (result) => (result.success ? 200 : 400),
+      },
+    );
   },
 );
 
@@ -638,31 +645,35 @@ router.post(
     }
 
     const service = getInventoryService();
-    const result = service.receiveStock({
-      ...parsed.data,
-      userId: req.user!.userId,
-    });
-
-    if (result.success) {
-      auditRest(req, {
-        action: "update",
-        entity_type: "product",
-        entity_id: String(id),
-        summary: `Received ${parsed.data.quantity} units for product #${id}${
-          parsed.data.supplier ? ` from "${parsed.data.supplier}"` : ""
-        }`,
-        new_values: {
-          quantity: parsed.data.quantity,
-          unit_cost_usd: parsed.data.unit_cost_usd,
-          supplier: parsed.data.supplier,
-          is_old_stock: parsed.data.is_old_stock,
-        },
-      });
-    }
-
     // Rule 19c envelope parity: HTTP 200 even on a business-rule failure,
     // same as this route's PUT/DELETE/stock-adjust siblings above.
-    res.status(200).json(result);
+    sendIdempotent(
+      req,
+      res,
+      () =>
+        service.receiveStock({
+          ...parsed.data,
+          userId: req.user!.userId,
+        }),
+      {
+        onBooked: () => {
+          auditRest(req, {
+            action: "update",
+            entity_type: "product",
+            entity_id: String(id),
+            summary: `Received ${parsed.data.quantity} units for product #${id}${
+              parsed.data.supplier ? ` from "${parsed.data.supplier}"` : ""
+            }`,
+            new_values: {
+              quantity: parsed.data.quantity,
+              unit_cost_usd: parsed.data.unit_cost_usd,
+              supplier: parsed.data.supplier,
+              is_old_stock: parsed.data.is_old_stock,
+            },
+          });
+        },
+      },
+    );
   },
 );
 

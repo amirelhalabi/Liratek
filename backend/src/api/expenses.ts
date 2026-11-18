@@ -9,6 +9,7 @@ import {
   expenseUpdateMetadataSchema,
 } from "@liratek/core";
 import { auditRest } from "../middleware/audit.js";
+import { sendIdempotent } from "../middleware/idempotency.js";
 
 const router = express.Router();
 
@@ -38,24 +39,29 @@ router.post(
   validateRequest(createExpenseSchema),
   (req, res) => {
     const service = getExpenseService();
-    const result = service.addExpense(req.body, req.user!.userId);
-    if (result.success) {
-      // Mirrors dbHandlers.ts's db:add-expense audit.
-      auditRest(req, {
-        action: "create",
-        entity_type: "expense",
-        summary: `Added expense: ${req.body.category} $${req.body.amount_usd}`,
-        metadata: {
-          category: req.body.category,
-          amount_usd: req.body.amount_usd,
-        },
-      });
-    }
     // Rule 19c: HTTP 200 even on a service failure — the frontend adapter
     // branches on result.success, never on status code (LIRA-234: this used
     // to 400 on a business-rule refusal, which made `requestJson` throw on
     // web and swallow the real `result.error` behind a generic catch).
-    res.json(result);
+    sendIdempotent(
+      req,
+      res,
+      () => service.addExpense(req.body, req.user!.userId),
+      {
+        onBooked: () => {
+          // Mirrors dbHandlers.ts's db:add-expense audit.
+          auditRest(req, {
+            action: "create",
+            entity_type: "expense",
+            summary: `Added expense: ${req.body.category} $${req.body.amount_usd}`,
+            metadata: {
+              category: req.body.category,
+              amount_usd: req.body.amount_usd,
+            },
+          });
+        },
+      },
+    );
   },
 );
 
@@ -70,23 +76,28 @@ router.post(
   validateRequest(createStockExpenseSchema),
   (req, res) => {
     const service = getExpenseService();
-    const result = service.addStockExpense(req.body, req.user!.userId);
-    if (result.success) {
-      // Mirrors dbHandlers.ts's expenses:add-stock-use audit.
-      auditRest(req, {
-        action: "create",
-        entity_type: "expense",
-        entity_id: result.id != null ? String(result.id) : undefined,
-        summary: `Recorded shop use: ${req.body.quantity} × ${req.body.source} item #${req.body.item_id}`,
-        metadata: {
-          source: req.body.source,
-          item_id: req.body.item_id,
-          quantity: req.body.quantity,
-        },
-      });
-    }
     // Rule 19c: HTTP 200 even on a service failure (IPC-identical envelope).
-    res.json(result);
+    sendIdempotent(
+      req,
+      res,
+      () => service.addStockExpense(req.body, req.user!.userId),
+      {
+        onBooked: (result) => {
+          // Mirrors dbHandlers.ts's expenses:add-stock-use audit.
+          auditRest(req, {
+            action: "create",
+            entity_type: "expense",
+            entity_id: result.id != null ? String(result.id) : undefined,
+            summary: `Recorded shop use: ${req.body.quantity} × ${req.body.source} item #${req.body.item_id}`,
+            metadata: {
+              source: req.body.source,
+              item_id: req.body.item_id,
+              quantity: req.body.quantity,
+            },
+          });
+        },
+      },
+    );
   },
 );
 

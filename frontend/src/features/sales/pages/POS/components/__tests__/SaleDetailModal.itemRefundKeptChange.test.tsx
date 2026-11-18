@@ -160,11 +160,15 @@ describe("SaleDetailModal — kept change on the per-item refund", () => {
         undefined,
         90000,
         KEPT,
+        expect.objectContaining({ idempotencyKey: expect.any(String) }),
       ),
     );
   });
 
-  it("without a kept amount the call is unchanged (six arguments)", async () => {
+  // LIRA-401: the call now always carries every positional argument plus
+  // the refund popup's one-time key, so "unchanged" means: no kept amount
+  // (an `undefined` 7th argument, which the adapter treats as omitted).
+  it("without a kept amount no kept change rides (7th argument undefined)", async () => {
     await openItemRefund();
     fireEvent.click(screen.getByText("Confirm Without Kept (stub)"));
     await waitFor(() => expect(mockRefundSaleItem).toHaveBeenCalledTimes(1));
@@ -175,7 +179,8 @@ describe("SaleDetailModal — kept change on the per-item refund", () => {
       LEGS,
       undefined,
       90000,
+      undefined,
+      expect.objectContaining({ idempotencyKey: expect.any(String) }),
     ]);
-    expect(mockRefundSaleItem.mock.calls[0]).toHaveLength(6);
   });
 });

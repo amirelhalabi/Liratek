@@ -136,7 +136,7 @@ describe("CarrierLinesPanel", () => {
         label: null,
         credits: 0,
         validity_expires_at: todayPlus(60),
-      }),
+      }, expect.objectContaining({ idempotencyKey: expect.any(String) })),
     );
     // Reloads the (now non-empty) list after a successful create.
     await waitFor(() =>
@@ -211,7 +211,7 @@ describe("CarrierLinesPanel", () => {
           newCredits: 3.75,
           expectedCurrentCredits: 5,
           note: "customer top-up",
-        }),
+        }, expect.objectContaining({ idempotencyKey: expect.any(String) })),
       );
       // LIRA-328: the Record usage window closes on success (the amount the
       // server booked is shown as a toast).
@@ -235,7 +235,7 @@ describe("CarrierLinesPanel", () => {
           carrierLineId: 1,
           newCredits: 4,
           expectedCurrentCredits: 5,
-        }),
+        }, expect.objectContaining({ idempotencyKey: expect.any(String) })),
       );
       // The key is absent, not present-and-undefined (exactOptionalPropertyTypes,
       // and the Zod schema treats a missing note differently from "").

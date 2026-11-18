@@ -7,7 +7,7 @@
  */
 
 import type { LedgerFilters } from "@liratek/core";
-import type { ApiAdapter } from "@liratek/ui";
+import type { ApiAdapter, WriteOptions } from "@liratek/ui";
 // LIRA-333 — open a WhatsApp link outside LiraTek (rule 21).
 import type { OpenExternalUrlInput } from "@liratek/core";
 import type { TransactionSummaryInput } from "@liratek/core";
@@ -281,8 +281,10 @@ export class ElectronApiAdapter implements ApiAdapter {
   /** Plain category NAMES, distinct from `getCategoriesFull` below (which
    *  carries id/sort_order/tracks_imei_units). */
   getCategories = () => api.getCategories();
-  receiveStock = (payload: ReceiveStockPayload) => api.receiveStock(payload);
-  adjustStock = (payload: StockAdjustPayload) => api.adjustStock(payload);
+  receiveStock = (payload: ReceiveStockPayload, opts?: WriteOptions) =>
+    api.receiveStock(payload, opts);
+  adjustStock = (payload: StockAdjustPayload, opts?: WriteOptions) =>
+    api.adjustStock(payload, opts);
   getStockAdjustments = (productId?: number) =>
     api.getStockAdjustments(productId);
   /** A product's remaining cost batches, FIFO/oldest-first — "where are my
@@ -326,7 +328,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   // ---------------------------------------------------------------------------
   getDrafts = () => api.getDrafts();
   deleteDraft = (saleId: number) => api.deleteDraft(saleId);
-  processSale = (payload: SaleProcessPayload) => api.processSale(payload);
+  processSale = (payload: SaleProcessPayload, opts?: WriteOptions) =>
+    api.processSale(payload, opts);
   /** LIRA-296 SF-2 — sales between two shop days (IPC or REST). */
   getSalesByDateRange = (range: SalesDateRangeInput) =>
     api.getSalesByDateRange(range);
@@ -345,8 +348,9 @@ export class ElectronApiAdapter implements ApiAdapter {
     exchangeRate?: number,
     keptChange?: SaleRefundPayload["keptChange"],
     addedChange?: SaleRefundPayload["addedChange"],
+    opts?: WriteOptions,
   ) =>
-    addedChange !== undefined
+    opts !== undefined
       ? api.refundSale(
           saleId,
           refundLegs,
@@ -354,16 +358,26 @@ export class ElectronApiAdapter implements ApiAdapter {
           exchangeRate,
           keptChange,
           addedChange,
+          opts,
         )
-      : keptChange !== undefined
+      : addedChange !== undefined
         ? api.refundSale(
             saleId,
             refundLegs,
             unitExtras,
             exchangeRate,
             keptChange,
+            addedChange,
           )
-        : api.refundSale(saleId, refundLegs, unitExtras, exchangeRate);
+        : keptChange !== undefined
+          ? api.refundSale(
+              saleId,
+              refundLegs,
+              unitExtras,
+              exchangeRate,
+              keptChange,
+            )
+          : api.refundSale(saleId, refundLegs, unitExtras, exchangeRate);
   /** Refund a specific line item off a sale, by quantity (admin only).
    *  LIRA-231: refundLegs optional. 2026-09-26: unitExtras optional too.
    *  LIRA-236: exchangeRate optional too. */
@@ -375,8 +389,9 @@ export class ElectronApiAdapter implements ApiAdapter {
     unitExtras?: SaleRefundItemPayload["unitExtras"],
     exchangeRate?: number,
     keptChange?: SaleRefundItemPayload["keptChange"],
+    opts?: WriteOptions,
   ) =>
-    keptChange !== undefined
+    opts !== undefined
       ? api.refundSaleItem(
           saleId,
           saleItemId,
@@ -385,19 +400,31 @@ export class ElectronApiAdapter implements ApiAdapter {
           unitExtras,
           exchangeRate,
           keptChange,
+          opts,
         )
-      : api.refundSaleItem(
-          saleId,
-          saleItemId,
-          refundQuantity,
-          refundLegs,
-          unitExtras,
-          exchangeRate,
-        );
+      : keptChange !== undefined
+        ? api.refundSaleItem(
+            saleId,
+            saleItemId,
+            refundQuantity,
+            refundLegs,
+            unitExtras,
+            exchangeRate,
+            keptChange,
+          )
+        : api.refundSaleItem(
+            saleId,
+            saleItemId,
+            refundQuantity,
+            refundLegs,
+            unitExtras,
+            exchangeRate,
+          );
   /** LIRA-147 — admin-only "Undo refund" for a standalone per-item refund. */
   undoItemRefund = (
     refundTransactionId: SaleUndoItemRefundInput["refundTransactionId"],
-  ) => api.undoItemRefund(refundTransactionId);
+    opts?: WriteOptions,
+  ) => api.undoItemRefund(refundTransactionId, opts);
   /** LIRA-231 — POS refund preview (both refund buttons). */
   getSaleRefundPreview = (
     saleId: number,
@@ -415,16 +442,20 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.getClientDebtHistory(clientId);
   getAllDebtHistory = () => api.getAllDebtHistory();
   getClientDebtTotal = (clientId: number) => api.getClientDebtTotal(clientId);
-  addRepayment = (payload: AddRepaymentPayload) => api.addRepayment(payload);
+  addRepayment = (payload: AddRepaymentPayload, opts?: WriteOptions) =>
+    api.addRepayment(payload, opts);
   getOpenDebtItems = (clientId: number) => api.getOpenDebtItems(clientId);
   getDebtMonthRows = (clientId: number, month: string) =>
     api.getDebtMonthRows(clientId, month);
-  debtWriteOff = (payload: DebtWriteOffPayload) => api.debtWriteOff(payload);
+  debtWriteOff = (payload: DebtWriteOffPayload, opts?: WriteOptions) =>
+    api.debtWriteOff(payload, opts);
   getClientBalance = (clientId: number) => api.getClientBalance(clientId);
-  cashOut = (payload: DebtCashOutPayload) => api.debtCashOut(payload);
-  addAccountEntry = (payload: DebtAccountEntryPayload) =>
-    api.debtAccountEntry(payload);
-  consumeCredit = (payload: DebtUseCreditPayload) => api.debtUseCredit(payload);
+  cashOut = (payload: DebtCashOutPayload, opts?: WriteOptions) =>
+    api.debtCashOut(payload, opts);
+  addAccountEntry = (payload: DebtAccountEntryPayload, opts?: WriteOptions) =>
+    api.debtAccountEntry(payload, opts);
+  consumeCredit = (payload: DebtUseCreditPayload, opts?: WriteOptions) =>
+    api.debtUseCredit(payload, opts);
   updateDebtMetadata = (payload: DebtUpdateMetadataPayload) =>
     api.debtUpdateMetadata(payload);
 
@@ -435,8 +466,10 @@ export class ElectronApiAdapter implements ApiAdapter {
   getCurrenciesList = () => api.getCurrenciesList();
   getExchangeHistory = (limit?: number, opts?: { all?: boolean }) =>
     api.getExchangeHistory(limit, opts);
-  addExchangeTransaction = (payload: ExchangeSubmitPayload) =>
-    api.addExchangeTransaction(payload);
+  addExchangeTransaction = (
+    payload: ExchangeSubmitPayload,
+    opts?: WriteOptions,
+  ) => api.addExchangeTransaction(payload, opts);
   updateExchangeMetadata = (payload: UpdateExchangeMetadataPayload) =>
     api.updateExchangeMetadata(payload);
 
@@ -445,12 +478,13 @@ export class ElectronApiAdapter implements ApiAdapter {
   // ---------------------------------------------------------------------------
   getTodayExpenses = () => api.getTodayExpenses();
   getExpenseHistory = () => api.getExpenseHistory();
-  addExpense = (payload: CreateExpenseRequest) => api.addExpense(payload);
+  addExpense = (payload: CreateExpenseRequest, opts?: WriteOptions) =>
+    api.addExpense(payload, opts);
   deleteExpense = (id: number) => api.deleteExpense(id);
   /** LIRA-262 — the shop used one of its own items (expense at cost, no
    *  cash moves). */
-  addStockExpense = (payload: CreateStockExpenseInput) =>
-    api.addStockExpense(payload);
+  addStockExpense = (payload: CreateStockExpenseInput, opts?: WriteOptions) =>
+    api.addStockExpense(payload, opts);
   /** Edit non-financial metadata (description/category/note) on an expense
    *  row (the History modal's inline edit). */
   updateExpenseMetadata = (data: ExpenseUpdateMetadataPayload) =>
@@ -491,22 +525,25 @@ export class ElectronApiAdapter implements ApiAdapter {
   getRechargeTodayStats = (provider: "MTC" | "Alfa") =>
     api.getRechargeTodayStats(provider);
   getRechargeDrawerBalances = () => api.getRechargeDrawerBalances();
-  processRecharge = (payload: CreateRechargePayload) =>
-    api.processRecharge(payload);
+  processRecharge = (payload: CreateRechargePayload, opts?: WriteOptions) =>
+    api.processRecharge(payload, opts);
   updateRechargeMetadata = (payload: UpdateRechargeMetadataPayload) =>
     api.updateRechargeMetadata(payload);
-  topUpApp = (payload: TopUpAppPayload) => api.topUpApp(payload);
-  topUpFromSupplier = (payload: TopUpFromSupplierPayload) =>
-    api.topUpFromSupplier(payload);
+  topUpApp = (payload: TopUpAppPayload, opts?: WriteOptions) =>
+    api.topUpApp(payload, opts);
+  topUpFromSupplier = (
+    payload: TopUpFromSupplierPayload,
+    opts?: WriteOptions,
+  ) => api.topUpFromSupplier(payload, opts);
   /** OMT open-credit account (LIRA-192) — mirror of topUpFromSupplier. */
-  cashoutToSupplier = (payload: RechargeCashoutPayload) =>
-    api.cashoutToSupplier(payload);
-  topUpFromPartner = (payload: TopUpFromPartnerPayload) =>
-    api.topUpFromPartner(payload);
+  cashoutToSupplier = (payload: RechargeCashoutPayload, opts?: WriteOptions) =>
+    api.cashoutToSupplier(payload, opts);
+  topUpFromPartner = (payload: TopUpFromPartnerPayload, opts?: WriteOptions) =>
+    api.topUpFromPartner(payload, opts);
   /** Payload type is `TopUpFromClientInput`, derived from
    *  `topUpFromClientSchema` (rule 21) — never hand-copied. */
-  topUpFromClient = (payload: TopUpFromClientInput) =>
-    api.topUpFromClient(payload);
+  topUpFromClient = (payload: TopUpFromClientInput, opts?: WriteOptions) =>
+    api.topUpFromClient(payload, opts);
 
   // ---------------------------------------------------------------------------
   // Services (OMT / Whish / BOB)
@@ -514,14 +551,20 @@ export class ElectronApiAdapter implements ApiAdapter {
   getOMTHistory = (provider?: string, opts?: { all?: boolean }) =>
     api.getOMTHistory(provider, opts);
   getOMTAnalytics = (providers?: string[]) => api.getOMTAnalytics(providers);
-  addOMTTransaction = (payload: CreateFinancialServicePayload) =>
-    api.addOMTTransaction(payload);
+  addOMTTransaction = (
+    payload: CreateFinancialServicePayload,
+    opts?: WriteOptions,
+  ) => api.addOMTTransaction(payload, opts);
   /** LIRA-326 — Mobile Recharge basket across providers, paid once. */
-  rechargeBasketCheckout = (payload: RechargeBasketCheckoutPayload) =>
-    api.rechargeBasketCheckout(payload);
+  rechargeBasketCheckout = (
+    payload: RechargeBasketCheckoutPayload,
+    opts?: WriteOptions,
+  ) => api.rechargeBasketCheckout(payload, opts);
   /** LIRA-327 — basket-wide For Partner submit (all-or-nothing). */
-  rechargePartnerOrder = (payload: RechargePartnerOrderPayload) =>
-    api.rechargePartnerOrder(payload);
+  rechargePartnerOrder = (
+    payload: RechargePartnerOrderPayload,
+    opts?: WriteOptions,
+  ) => api.rechargePartnerOrder(payload, opts);
   /** A single financial_services record by id — the Debts page's
    *  service-backed debt-detail "eye" button. */
   getFinancialServiceById = (id: number) => api.getFinancialServiceById(id);
@@ -535,16 +578,20 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.updateFinancialMetadata(data);
   /** LIRA-090 §5.2: charge a telecom catalog item to the shop's own carrier line.
    *  Admin or staff only. */
-  selfChargeTelecomItem = (data: SelfChargeTelecomItemPayload) =>
-    api.selfChargeTelecomItem(data);
+  selfChargeTelecomItem = (
+    data: SelfChargeTelecomItemPayload,
+    opts?: WriteOptions,
+  ) => api.selfChargeTelecomItem(data, opts);
 
   // ---------------------------------------------------------------------------
   // Maintenance
   // ---------------------------------------------------------------------------
   getMaintenanceJobs = (statusFilter?: string) =>
     api.getMaintenanceJobs(statusFilter);
-  saveMaintenanceJob = (payload: SaveMaintenanceJobPayload) =>
-    api.saveMaintenanceJob(payload);
+  saveMaintenanceJob = (
+    payload: SaveMaintenanceJobPayload,
+    opts?: WriteOptions,
+  ) => api.saveMaintenanceJob(payload, opts);
   deleteMaintenanceJob = (id: number) => api.deleteMaintenanceJob(id);
   getMaintenanceStatusHistory = (jobId: number) =>
     api.getMaintenanceStatusHistory(jobId);
@@ -616,15 +663,17 @@ export class ElectronApiAdapter implements ApiAdapter {
   confirmRestore = (payload: ConfirmRestorePayload) =>
     api.confirmRestore(payload);
   cancelRestore = (payload: CancelRestorePayload) => api.cancelRestore(payload);
-  createCheckpoint = (data: CreateCheckpointPayload) =>
-    api.createCheckpoint(data);
+  createCheckpoint = (data: CreateCheckpointPayload, opts?: WriteOptions) =>
+    api.createCheckpoint(data, opts);
   getCheckpointTimeline = (filters?: CheckpointFilters) =>
     api.getCheckpointTimeline(filters);
   // LIRA-335 — checkpoint differences.
   getOpenDifferencesAfter = (input: OpenDifferencesAfterInput) =>
     api.getOpenDifferencesAfter(input);
-  closeCheckpointDifference = (input: CloseCheckpointDifferenceInput) =>
-    api.closeCheckpointDifference(input);
+  closeCheckpointDifference = (
+    input: CloseCheckpointDifferenceInput,
+    opts?: WriteOptions,
+  ) => api.closeCheckpointDifference(input, opts);
   reopenCheckpointDifference = (input: ReopenCheckpointDifferenceInput) =>
     api.reopenCheckpointDifference(input);
   getCarrierLineAdjustments = (filters?: CarrierLineAdjustmentFilters) =>
@@ -686,14 +735,17 @@ export class ElectronApiAdapter implements ApiAdapter {
   addSupplierLedgerEntry = (
     supplierId: number,
     data: Omit<SupplierLedgerEntryPayload, "supplier_id">,
-  ) => api.addSupplierLedgerEntry(supplierId, data);
+    opts?: WriteOptions,
+  ) => api.addSupplierLedgerEntry(supplierId, data, opts);
   getUnsettledTransactions = (provider: string) =>
     api.getUnsettledTransactions(provider);
   // Payload derived from the core supplierSettleSchema (rule 21).
-  settleTransactions = (data: SupplierSettleInput) =>
-    api.settleTransactions(data);
-  recordSupplierCashflow = (data: SupplierCashflowPayload) =>
-    api.recordSupplierCashflow(data);
+  settleTransactions = (data: SupplierSettleInput, opts?: WriteOptions) =>
+    api.settleTransactions(data, opts);
+  recordSupplierCashflow = (
+    data: SupplierCashflowPayload,
+    opts?: WriteOptions,
+  ) => api.recordSupplierCashflow(data, opts);
   /** OMT open-credit account settlement (LIRA-189) — mirror of
    *  settleTransactions above, but scoped to the whole account and taking
    *  the account parent's id separately (matching getSupplierAccountLedger's
@@ -701,12 +753,14 @@ export class ElectronApiAdapter implements ApiAdapter {
   settleSupplierAccount = (
     accountSupplierId: number,
     data: Omit<SupplierSettleAccountPayload, "account_supplier_id">,
-  ) => api.settleSupplierAccount(accountSupplierId, data);
+    opts?: WriteOptions,
+  ) => api.settleSupplierAccount(accountSupplierId, data, opts);
   /** LIRA-344 — Remove credit on the OMT account (admin). */
   removeSupplierAccountCredit = (
     accountSupplierId: number,
     data: Omit<RemoveAccountCreditPayload, "account_supplier_id">,
-  ) => api.removeSupplierAccountCredit(accountSupplierId, data);
+    opts?: WriteOptions,
+  ) => api.removeSupplierAccountCredit(accountSupplierId, data, opts);
   // supplierWriteOff REMOVED (supplier stock-intake, D8) — the standalone
   // write-off is gone; the bundled pay-form discount in
   // recordSupplierCashflow above is the only surviving forgive-debt path.
@@ -728,11 +782,13 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.getSupplierProductItems(supplierId);
   getSupplierPurchases = (supplierId: number) =>
     api.getSupplierPurchases(supplierId);
-  createSupplierPurchase = (data: SupplierPurchaseCreatePayload) =>
-    api.createSupplierPurchase(data);
+  createSupplierPurchase = (
+    data: SupplierPurchaseCreatePayload,
+    opts?: WriteOptions,
+  ) => api.createSupplierPurchase(data, opts);
   // LIRA-087 (migration v189)
-  recordSupplierDebt = (data: SupplierRecordDebtPayload) =>
-    api.recordSupplierDebt(data);
+  recordSupplierDebt = (data: SupplierRecordDebtPayload, opts?: WriteOptions) =>
+    api.recordSupplierDebt(data, opts);
   getOpenRecordedSupplierDebts = (supplierId: number) =>
     api.getOpenRecordedSupplierDebts(supplierId);
 
@@ -781,7 +837,8 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.getTransactionBySource(sourceTable, sourceId);
   getClientTransactions = (clientId: number, limit?: number) =>
     api.getClientTransactions(clientId, limit);
-  voidTransaction = (id: number) => api.voidTransaction(id);
+  voidTransaction = (id: number, opts?: WriteOptions) =>
+    api.voidTransaction(id, opts);
   /** LIRA-236 — the Transactions-page refund modal's `bookedRate`/
    *  `bookedRateSource` default. */
   getRefundBookedRate = (id: number) => api.getRefundBookedRate(id);
@@ -796,8 +853,9 @@ export class ElectronApiAdapter implements ApiAdapter {
     exchangeRate?: number,
     keptChange?: Parameters<typeof api.refundTransaction>[4],
     addedChange?: Parameters<typeof api.refundTransaction>[5],
+    opts?: WriteOptions,
   ) =>
-    addedChange !== undefined
+    opts !== undefined
       ? api.refundTransaction(
           id,
           refundLegs,
@@ -805,24 +863,38 @@ export class ElectronApiAdapter implements ApiAdapter {
           exchangeRate,
           keptChange,
           addedChange,
+          opts,
         )
-      : api.refundTransaction(
-          id,
-          refundLegs,
-          unitExtras,
-          exchangeRate,
-          keptChange,
-        );
-  voidCheckoutGroup = (groupId: string) => api.voidCheckoutGroup(groupId);
+      : addedChange !== undefined
+        ? api.refundTransaction(
+            id,
+            refundLegs,
+            unitExtras,
+            exchangeRate,
+            keptChange,
+            addedChange,
+          )
+        : api.refundTransaction(
+            id,
+            refundLegs,
+            unitExtras,
+            exchangeRate,
+            keptChange,
+          );
+  voidCheckoutGroup = (groupId: string, opts?: WriteOptions) =>
+    api.voidCheckoutGroup(groupId, opts);
   /** LIRA-201c (OWNER_NOTES_REMAINING_BUILD.md #11-C) — whole-basket
    *  void/refund, replacing the "Basket item — see admin to reverse" dead
    *  end. Mirrors voidCheckoutGroup immediately above (rule 14). */
-  voidSessionBasket = (sessionId: number) => api.voidSessionBasket(sessionId);
-  refundSessionBasket = (sessionId: number) =>
-    api.refundSessionBasket(sessionId);
+  voidSessionBasket = (sessionId: number, opts?: WriteOptions) =>
+    api.voidSessionBasket(sessionId, opts);
+  refundSessionBasket = (sessionId: number, opts?: WriteOptions) =>
+    api.refundSessionBasket(sessionId, opts);
   /** LIRA-232 phase 2 — item-level sibling of refundSessionBasket above. */
-  refundSessionBasketItem = (payload: SessionItemRefundPayload) =>
-    api.refundSessionBasketItem(payload);
+  refundSessionBasketItem = (
+    payload: SessionItemRefundPayload,
+    opts?: WriteOptions,
+  ) => api.refundSessionBasketItem(payload, opts);
   getSessionItemRefundPreview = (payload: SessionItemRefundPreviewPayload) =>
     api.getSessionItemRefundPreview(payload);
   getTransactionDailySummary = (date: string) =>
@@ -926,12 +998,14 @@ export class ElectronApiAdapter implements ApiAdapter {
   getResaleLines = (query?: ListResaleLinesQueryInput) =>
     api.getResaleLines(query);
   saveResaleLine = (data: SaveResaleLineInput) => api.saveResaleLine(data);
-  writeOffResaleLine = (data: WriteOffResaleLineInput) =>
-    api.writeOffResaleLine(data);
-  rechargeResaleLine = (data: RechargeResaleLineInput) =>
-    api.rechargeResaleLine(data);
-  giveBackResaleLineCredit = (data: GiveBackResaleLineInput) =>
-    api.giveBackResaleLineCredit(data);
+  writeOffResaleLine = (data: WriteOffResaleLineInput, opts?: WriteOptions) =>
+    api.writeOffResaleLine(data, opts);
+  rechargeResaleLine = (data: RechargeResaleLineInput, opts?: WriteOptions) =>
+    api.rechargeResaleLine(data, opts);
+  giveBackResaleLineCredit = (
+    data: GiveBackResaleLineInput,
+    opts?: WriteOptions,
+  ) => api.giveBackResaleLineCredit(data, opts);
 
   // ---------------------------------------------------------------------------
   // Wrong-number cards (LIRA-312)
@@ -940,10 +1014,12 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.getWrongNumbers(query);
   getWrongNumberSaleCard = (saleTransactionId: number) =>
     api.getWrongNumberSaleCard(saleTransactionId);
-  recordWrongNumber = (data: RecordWrongNumberInput) =>
-    api.recordWrongNumber(data);
-  recordWrongNumberCredits = (data: WrongNumberCreditsInput) =>
-    api.recordWrongNumberCredits(data);
+  recordWrongNumber = (data: RecordWrongNumberInput, opts?: WriteOptions) =>
+    api.recordWrongNumber(data, opts);
+  recordWrongNumberCredits = (
+    data: WrongNumberCreditsInput,
+    opts?: WriteOptions,
+  ) => api.recordWrongNumberCredits(data, opts);
 
   // ---------------------------------------------------------------------------
   // Carrier Lines (LIRA W6.a — shop SIM-line tracking)
@@ -952,8 +1028,8 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.getActiveCarrierLines(carrier);
   getAllActiveCarrierLines = () => api.getAllActiveCarrierLines();
   getAdminCarrierLines = () => api.getAdminCarrierLines();
-  createCarrierLine = (data: CarrierLineCreatePayload) =>
-    api.createCarrierLine(data);
+  createCarrierLine = (data: CarrierLineCreatePayload, opts?: WriteOptions) =>
+    api.createCarrierLine(data, opts);
   updateCarrierLine = (
     id: number,
     data: Omit<CarrierLineUpdatePayload, "id">,
@@ -970,8 +1046,10 @@ export class ElectronApiAdapter implements ApiAdapter {
   /** LIRA-090: designate a line as the primary for its carrier (admin only). */
   setPrimaryCarrierLine = (id: number) => api.setPrimaryCarrierLine(id);
   /** LIRA-145: book a line's consumed credits as a `Line_Usage` expense. */
-  recordCarrierLineUsage = (data: RecordCarrierLineUsagePayload) =>
-    api.recordCarrierLineUsage(data);
+  recordCarrierLineUsage = (
+    data: RecordCarrierLineUsagePayload,
+    opts?: WriteOptions,
+  ) => api.recordCarrierLineUsage(data, opts);
   /** v184 (#28, LIRA-218): the "days still to send" list. */
   getPendingCarrierLineOwedDeliveries = () =>
     api.getPendingCarrierLineOwedDeliveries();
@@ -1021,16 +1099,20 @@ export class ElectronApiAdapter implements ApiAdapter {
   // ---------------------------------------------------------------------------
   // Customer Sessions
   // ---------------------------------------------------------------------------
-  startSession = (data: StartSessionInput) => api.startSession(data);
+  startSession = (data: StartSessionInput, opts?: WriteOptions) =>
+    api.startSession(data, opts);
   getActiveSession = () => api.getActiveSession();
   getSessionDetails = (sessionId: number) => api.getSessionDetails(sessionId);
   updateSession = (sessionId: number, data: UpdateSessionInput) =>
     api.updateSession(sessionId, data);
-  closeSession = (sessionId: number) => api.closeSession(sessionId);
+  closeSession = (sessionId: number, opts?: WriteOptions) =>
+    api.closeSession(sessionId, opts);
   listSessions = (limit?: number, offset?: number) =>
     api.listSessions(limit, offset);
-  linkTransactionToSession = (data: LinkSessionTransactionInput) =>
-    api.linkTransactionToSession(data);
+  linkTransactionToSession = (
+    data: LinkSessionTransactionInput,
+    opts?: WriteOptions,
+  ) => api.linkTransactionToSession(data, opts);
 
   // Nested namespace mirroring window.api.session — so the session page /
   // context call the SAME method names on desktop (IPC) and web (REST).
@@ -1045,13 +1127,16 @@ export class ElectronApiAdapter implements ApiAdapter {
     delete: (sessionId: number) => api.deleteSession(sessionId),
     getTransactions: (sessionId: number) => api.getSessionDetails(sessionId),
     cartGet: (sessionId: number) => api.sessionCartGet(sessionId),
-    cartAdd: (sessionId: number, item: SessionCartAddInput) =>
-      api.sessionCartAdd(sessionId, item),
+    cartAdd: (
+      sessionId: number,
+      item: SessionCartAddInput,
+      opts?: WriteOptions,
+    ) => api.sessionCartAdd(sessionId, item, opts),
     cartRemove: (sessionId: number, itemId: string) =>
       api.sessionCartRemove(sessionId, itemId),
     cartClear: (sessionId: number) => api.sessionCartClear(sessionId),
-    checkout: (data: SessionCheckoutPayload) =>
-      api.processSessionCheckout(data),
+    checkout: (data: SessionCheckoutPayload, opts?: WriteOptions) =>
+      api.processSessionCheckout(data, opts),
   };
 
   // Nested namespace mirroring window.api.holdMoney (dual-mode IPC/REST).
@@ -1059,10 +1144,13 @@ export class ElectronApiAdapter implements ApiAdapter {
     list: (filter?: { status?: "held" | "collected" }) =>
       api.holdMoneyList(filter),
     active: () => api.holdMoneyActive(),
-    create: (data: HoldMoneyCreateInput) => api.holdMoneyCreate(data),
+    create: (data: HoldMoneyCreateInput, opts?: WriteOptions) =>
+      api.holdMoneyCreate(data, opts),
     pickups: (holdMoneyId: number) => api.holdMoneyPickups(holdMoneyId),
-    collect: (data: HoldMoneyCollectPayload) => api.holdMoneyCollect(data),
-    voidPickup: (pickupId: number) => api.holdMoneyVoidPickup(pickupId),
+    collect: (data: HoldMoneyCollectPayload, opts?: WriteOptions) =>
+      api.holdMoneyCollect(data, opts),
+    voidPickup: (pickupId: number, opts?: WriteOptions) =>
+      api.holdMoneyVoidPickup(pickupId, opts),
   };
 
   // Nested namespace mirroring window.api.servicePresets (dual-mode IPC/REST).
@@ -1102,11 +1190,15 @@ export class ElectronApiAdapter implements ApiAdapter {
       api.partnersUpdate(id, data),
     deactivate: (id: number) => api.partnersDeactivate(id),
     activate: (id: number) => api.partnersActivate(id),
-    recordTransaction: (data: PartnerRecordTransactionPayload) =>
-      api.partnersRecordTransaction(data),
+    recordTransaction: (
+      data: PartnerRecordTransactionPayload,
+      opts?: WriteOptions,
+    ) => api.partnersRecordTransaction(data, opts),
     // Payload derived from the core partnerSettleSchema (rule 21).
-    settle: (data: PartnerSettleInput) => api.partnersSettle(data),
-    writeOff: (data: PartnerWriteOffPayload) => api.partnerWriteOff(data),
+    settle: (data: PartnerSettleInput, opts?: WriteOptions) =>
+      api.partnersSettle(data, opts),
+    writeOff: (data: PartnerWriteOffPayload, opts?: WriteOptions) =>
+      api.partnerWriteOff(data, opts),
     // LIRA-346 — settle by day (reads raw, write envelope).
     getSettleOpenRows: (partnerId: number) =>
       api.partnersGetSettleOpenRows(partnerId),
@@ -1114,7 +1206,8 @@ export class ElectronApiAdapter implements ApiAdapter {
       api.partnersGetSettleMonthRows(partnerId, month),
     getSettleDayDetail: (partnerId: number, day: string) =>
       api.partnersGetSettleDayDetail(partnerId, day),
-    settleDays: (data: PartnerSettleDaysPayload) => api.partnersSettleDays(data),
+    settleDays: (data: PartnerSettleDaysPayload, opts?: WriteOptions) =>
+      api.partnersSettleDays(data, opts),
   };
 
   // Nested namespace mirroring window.api.vouchers (dual-mode IPC/REST).
@@ -1122,19 +1215,23 @@ export class ElectronApiAdapter implements ApiAdapter {
   vouchers = {
     getAll: (filters?: { status?: string; clientId?: number }, day?: string) =>
       api.vouchersGetAll(filters, day),
-    create: (data: VoucherCreatePayload) => api.vouchersCreate(data),
+    create: (data: VoucherCreatePayload, opts?: WriteOptions) =>
+      api.vouchersCreate(data, opts),
     validate: (code: string, day?: string) => api.vouchersValidate(code, day),
-    cancel: (id: number, data?: VoucherCancelPayload) =>
-      api.vouchersCancel(id, data),
+    cancel: (id: number, data?: VoucherCancelPayload, opts?: WriteOptions) =>
+      api.vouchersCancel(id, data, opts),
   };
 
   // Nested namespace mirroring window.api.drawerTopUp (dual-mode).
   drawerTopUp = {
     /** External (Cash In) mode only accepts `extra_currencies` — top-ups
      *  in currencies other than USD/LBP. Never sent by createFromDrawer. */
-    create: (data: DrawerTopUpCreatePayload) => api.drawerTopUpCreate(data),
-    createFromDrawer: (data: DrawerTopUpFromDrawerPayload) =>
-      api.drawerTopUpCreateFromDrawer(data),
+    create: (data: DrawerTopUpCreatePayload, opts?: WriteOptions) =>
+      api.drawerTopUpCreate(data, opts),
+    createFromDrawer: (
+      data: DrawerTopUpFromDrawerPayload,
+      opts?: WriteOptions,
+    ) => api.drawerTopUpCreateFromDrawer(data, opts),
     getSourceDrawers: () => api.drawerTopUpSourceDrawers(),
     getHistory: (limit?: number) => api.drawerTopUpHistory(limit),
   };
@@ -1143,19 +1240,22 @@ export class ElectronApiAdapter implements ApiAdapter {
    *  drawers (Primary Cash Drawer plan §8.6) — replaces the retired
    *  `drawerTopUp.fundSystem`. Flat (not nested) per the plan's exact
    *  adapter contract: `useApi().transferBetweenDrawers(data)`. */
-  transferBetweenDrawers = (data: CreateDrawerTransferPayload) =>
-    api.transferBetweenDrawers(data);
+  transferBetweenDrawers = (
+    data: CreateDrawerTransferPayload,
+    opts?: WriteOptions,
+  ) => api.transferBetweenDrawers(data, opts);
 
   // Nested namespace mirroring window.api.drawerCashout (dual-mode).
   drawerCashout = {
-    create: (data: CreateDrawerCashoutPayload) => api.drawerCashoutCreate(data),
+    create: (data: CreateDrawerCashoutPayload, opts?: WriteOptions) =>
+      api.drawerCashoutCreate(data, opts),
     getHistory: (limit?: number) => api.drawerCashoutHistory(limit),
   };
 
   // Nested namespace mirroring window.api.walletExchange (dual-mode).
   walletExchange = {
-    create: (data: CreateWalletExchangePayload) =>
-      api.walletExchangeCreate(data),
+    create: (data: CreateWalletExchangePayload, opts?: WriteOptions) =>
+      api.walletExchangeCreate(data, opts),
     getHistory: (drawerName?: "OMT_App" | "Whish_App", limit?: number) =>
       api.walletExchangeHistory(drawerName, limit),
   };
@@ -1167,7 +1267,8 @@ export class ElectronApiAdapter implements ApiAdapter {
       api.previewLotSettlement(data),
     getPositions: () => api.getLotPositions(),
     getBreakdown: (exchangeId: number) => api.getLotBreakdown(exchangeId),
-    adjust: (data: AdjustLotPositionPayload) => api.adjustLotPosition(data),
+    adjust: (data: AdjustLotPositionPayload, opts?: WriteOptions) =>
+      api.adjustLotPosition(data, opts),
   };
 
   // Nested namespace mirroring window.api.productUnits (dual-mode) — LIRA-143
@@ -1217,12 +1318,13 @@ export class ElectronApiAdapter implements ApiAdapter {
   }) => api.getCustomServices(filter);
   getCustomServicesSummary = () => api.getCustomServicesSummary();
   getCustomServiceById = (id: number) => api.getCustomServiceById(id);
-  addCustomService = (data: CreateCustomServicePayload) =>
-    api.addCustomService(data);
+  addCustomService = (data: CreateCustomServicePayload, opts?: WriteOptions) =>
+    api.addCustomService(data, opts);
   deleteCustomService = (id: number) => api.deleteCustomService(id);
   advanceCustomServiceFulfillment = (
     data: UpdateCustomServiceFulfillmentPayload,
-  ) => api.advanceCustomServiceFulfillment(data);
+    opts?: WriteOptions,
+  ) => api.advanceCustomServiceFulfillment(data, opts);
   /** LIRA-083 — set a custom service's WORK status. */
   setCustomServiceWorkStatus = (data: UpdateCustomServiceWorkStatusPayload) =>
     api.setCustomServiceWorkStatus(data);
@@ -1240,7 +1342,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   // Loto
   // ---------------------------------------------------------------------------
   loto = {
-    sell: (data: LotoSellPayload) => api.lotoSell(data),
+    sell: (data: LotoSellPayload, opts?: WriteOptions) =>
+      api.lotoSell(data, opts),
     get: (id: number) => api.lotoGet(id),
     getByDateRange: (from: string, to: string) =>
       api.lotoGetByDateRange(from, to),
@@ -1254,8 +1357,8 @@ export class ElectronApiAdapter implements ApiAdapter {
     report: (from: string, to: string) => api.lotoReport(from, to),
     settlement: (from: string, to: string) => api.lotoSettlement(from, to),
     checkpoint: {
-      create: (data: LotoCheckpointCreatePayload) =>
-        api.lotoCheckpointCreate(data),
+      create: (data: LotoCheckpointCreatePayload, opts?: WriteOptions) =>
+        api.lotoCheckpointCreate(data, opts),
       get: (id: number) => api.lotoCheckpointGet(id),
       getByDate: (date: string) => api.lotoCheckpointGetByDate(date),
       getByDateRange: (from: string, to: string) =>
@@ -1263,12 +1366,18 @@ export class ElectronApiAdapter implements ApiAdapter {
       getUnsettled: () => api.lotoCheckpointGetUnsettled(),
       update: (id: number, data: LotoCheckpointUpdatePayload) =>
         api.lotoCheckpointUpdate(id, data),
-      markSettled: (id: number, settledAt?: string, settlementId?: number) =>
-        api.lotoCheckpointMarkSettled(id, settledAt, settlementId),
-      settle: (data: LotoCheckpointSettlePayload) =>
-        api.lotoCheckpointSettle(data),
-      settleBatch: (data: LotoCheckpointsSettleBatchPayload) =>
-        api.lotoCheckpointSettleBatch(data),
+      markSettled: (
+        id: number,
+        settledAt?: string,
+        settlementId?: number,
+        opts?: WriteOptions,
+      ) => api.lotoCheckpointMarkSettled(id, settledAt, settlementId, opts),
+      settle: (data: LotoCheckpointSettlePayload, opts?: WriteOptions) =>
+        api.lotoCheckpointSettle(data, opts),
+      settleBatch: (
+        data: LotoCheckpointsSettleBatchPayload,
+        opts?: WriteOptions,
+      ) => api.lotoCheckpointSettleBatch(data, opts),
       getTotalSalesUnsettled: () => api.lotoCheckpointGetTotalSalesUnsettled(),
       getTotalCommissionUnsettled: () =>
         api.lotoCheckpointGetTotalCommissionUnsettled(),
@@ -1278,7 +1387,8 @@ export class ElectronApiAdapter implements ApiAdapter {
       delete: (id: number) => api.lotoCheckpointDelete(id),
     },
     cashPrize: {
-      create: (data: LotoCashPrizePayload) => api.lotoCashPrizeCreate(data),
+      create: (data: LotoCashPrizePayload, opts?: WriteOptions) =>
+        api.lotoCashPrizeCreate(data, opts),
       getByDateRange: (from: string, to: string) =>
         api.lotoCashPrizeGetByDateRange(from, to),
       getUnreimbursed: () => api.lotoCashPrizeGetUnreimbursed(),
@@ -1286,13 +1396,16 @@ export class ElectronApiAdapter implements ApiAdapter {
         id: number,
         reimbursedDate?: string,
         settlementId?: number,
-      ) => api.lotoCashPrizeMarkReimbursed(id, reimbursedDate, settlementId),
+        opts?: WriteOptions,
+      ) =>
+        api.lotoCashPrizeMarkReimbursed(id, reimbursedDate, settlementId, opts),
       getTotalUnreimbursed: () => api.lotoCashPrizeGetTotalUnreimbursed(),
     },
     fees: {
-      create: (data: LotoFeePayload) => api.lotoFeesCreate(data),
+      create: (data: LotoFeePayload, opts?: WriteOptions) =>
+        api.lotoFeesCreate(data, opts),
       get: (year: number) => api.lotoFeesGet(year),
-      pay: (id: number) => api.lotoFeesPay(id),
+      pay: (id: number, opts?: WriteOptions) => api.lotoFeesPay(id, opts),
     },
     settings: {
       get: () => api.lotoSettingsGet(),

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { formatNumber } from "@liratek/ui/i18n/format";
 import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import { appEvents, useApi, DecimalInput } from "@liratek/ui";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import logger from "@/utils/logger";
 
 type WalletDrawerName = "OMT_App" | "Whish_App";
@@ -33,6 +34,9 @@ export function WalletExchangePanel({
 }: WalletExchangePanelProps) {
   const { t } = useTranslation("rechargeFinancial");
   const api = useApi();
+  // LIRA-401: one key per exchange, renewed after a success.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
   const [fromCurrency, setFromCurrency] = useState<WalletCurrency>("USD");
   const [amount, setAmount] = useState(0);
   const [rate, setRate] = useState(DEFAULT_RATE);
@@ -80,13 +84,16 @@ export function WalletExchangePanel({
     }
     setIsSubmitting(true);
     try {
-      const result = await api.walletExchange.create({
-        drawerName,
-        fromCurrency,
-        toCurrency,
-        amountIn: amount,
-        rate: rateNum,
-      });
+      const result = await api.walletExchange.create(
+        {
+          drawerName,
+          fromCurrency,
+          toCurrency,
+          amountIn: amount,
+          rate: rateNum,
+        },
+        { idempotencyKey },
+      );
       if (!result.success) {
         appEvents.emit(
           "notification:show",
@@ -95,6 +102,7 @@ export function WalletExchangePanel({
         );
         return;
       }
+      resetIdempotencyKey();
       appEvents.emit(
         "notification:show",
         t("walletExchange.converted", {

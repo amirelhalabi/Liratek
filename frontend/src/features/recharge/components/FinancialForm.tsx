@@ -68,6 +68,7 @@ import {
   useRechargeBasketCheckout,
   useRechargePartnerOrder,
 } from "../hooks/useRechargeBasketCheckout";
+import { useIdempotencyKeyWithReset } from "@/shared/hooks/useIdempotencyKey";
 import { partnerConfirmMessage } from "../utils/partnerConfirm";
 import {
   basketItemCount,
@@ -202,6 +203,14 @@ export function FinancialForm({
   } = useWhishBasket(isWhishApp);
   const checkoutBasket = useRechargeBasketCheckout();
   const submitPartnerOrder = useRechargePartnerOrder();
+  // LIRA-401 — one key per payment on this always-visible form, renewed after
+  // a fully successful submit. Each unit call gets its own deterministic
+  // suffix (`-u<n>` walk-in, `-p<n>` For Partner), so a retry after a partial
+  // failure replays the units already booked instead of booking them twice.
+  const { key: idempotencyKey, reset: resetIdempotencyKey } =
+    useIdempotencyKeyWithReset(true);
+  const unitIdempotencyKey = (tag: "u" | "p", n: number) =>
+    idempotencyKey ? `${idempotencyKey}-${tag}${n}` : undefined;
   // Report selection counts to the provider tabs (quantities, keyed by each
   // cart item's own provider). With the shared basket the page counts the
   // picks itself, for every tab.
@@ -725,6 +734,7 @@ export function FinancialForm({
     // customer paid; siblings are deferPayment (cost/commission only, no
     // legs) so printing one of THOSE would show no payment lines at all.
     let carrierSourceId: number | undefined;
+    let unitIndex = 0;
     for (const line of cartItems) {
       const sellPrice = line.item.catalogSellPrice ?? 0;
       const cost = line.item.catalogCost ?? 0;
@@ -739,74 +749,78 @@ export function FinancialForm({
       for (let i = 0; i < line.quantity; i++) {
         const isCarrier = paymentsPayload !== undefined && !legsCarried;
         if (isCarrier) legsCarried = true;
+        const unitKey = unitIdempotencyKey("u", unitIndex++);
         try {
-          const result = await api.addOMTTransaction({
-            provider: activeProvider,
-            serviceType: serviceType || "SEND",
-            amount: discountedSellPrice,
-            cost,
-            currency,
-            commission: Math.max(0, commission),
-            // LIRA-329: this unit's share of the discount the cashier typed.
-            ...(unitDiscountShare > 0
-              ? { typedDiscount: { amount: unitDiscountShare, currency } }
-              : {}),
-            paidByMethod: finalPaymentMethod,
-            payments: isCarrier ? paymentsPayload : undefined,
-            checkoutTotal: isCarrier ? checkoutTotal : undefined,
-            // Payment-Legs Integrity plan (Wave 9 + false-reject fix): the
-            // rate this form's own PaymentSheet/MultiPaymentInput actually
-            // converted tender at — captured live via onExchangeRateChange
-            // (falls back to `exchangeRate` — `isMoneyIn ? sellRate :
-            // buyRate` — if the sheet never fired, e.g. no legs). May differ
-            // from the repository's stamped/live rate lookup, so
-            // reconciliation must compare at the SAME rate the till used
-            // (lira-095). Rides only the carrier call, same gating as
-            // checkoutTotal.
-            tender_exchange_rate: isCarrier
-              ? (effectiveRate ?? exchangeRate)
-              : undefined,
-            ...(paymentsPayload !== undefined && !isCarrier
-              ? { deferPayment: true }
-              : {}),
-            // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+) — see the top of
-            // handleSubmit for the full rationale.
-            ...(useSplitGroup
-              ? {
-                  split_group: splitGroupId,
-                  split_role: isCarrier
-                    ? ("carrier" as const)
-                    : ("sibling" as const),
-                  split_units: totalCheckoutUnits,
-                }
-              : {}),
-            ...(keptPending
-              ? (() => {
-                  const k = keptPending;
-                  keptPending = null;
-                  return {
-                    kept_change_usd: k.usd,
-                    kept_change_lbp: k.lbp,
-                  };
-                })()
-              : {}),
-            ...(extraPending > 0
-              ? (() => {
-                  const e = extraPending;
-                  extraPending = 0;
-                  return isUsd ? { extra_usd: e } : { extra_lbp: e };
-                })()
-              : {}),
-            clientId: resolvedClientId || undefined,
-            clientName: clientName || undefined,
-            itemKey: line.item.key,
-            itemCategory: line.item.category,
-            note: `${formatCatalogItemName(line.item)}`,
-            // LIRA-366: the cashier's own note, on every unit's row.
-            typedNote: typedNote || undefined,
-            partnerId: partnerId || undefined,
-            transaction_time: transactionTime,
-          });
+          const result = await api.addOMTTransaction(
+            {
+              provider: activeProvider,
+              serviceType: serviceType || "SEND",
+              amount: discountedSellPrice,
+              cost,
+              currency,
+              commission: Math.max(0, commission),
+              // LIRA-329: this unit's share of the discount the cashier typed.
+              ...(unitDiscountShare > 0
+                ? { typedDiscount: { amount: unitDiscountShare, currency } }
+                : {}),
+              paidByMethod: finalPaymentMethod,
+              payments: isCarrier ? paymentsPayload : undefined,
+              checkoutTotal: isCarrier ? checkoutTotal : undefined,
+              // Payment-Legs Integrity plan (Wave 9 + false-reject fix): the
+              // rate this form's own PaymentSheet/MultiPaymentInput actually
+              // converted tender at — captured live via onExchangeRateChange
+              // (falls back to `exchangeRate` — `isMoneyIn ? sellRate :
+              // buyRate` — if the sheet never fired, e.g. no legs). May differ
+              // from the repository's stamped/live rate lookup, so
+              // reconciliation must compare at the SAME rate the till used
+              // (lira-095). Rides only the carrier call, same gating as
+              // checkoutTotal.
+              tender_exchange_rate: isCarrier
+                ? (effectiveRate ?? exchangeRate)
+                : undefined,
+              ...(paymentsPayload !== undefined && !isCarrier
+                ? { deferPayment: true }
+                : {}),
+              // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+) — see the top of
+              // handleSubmit for the full rationale.
+              ...(useSplitGroup
+                ? {
+                    split_group: splitGroupId,
+                    split_role: isCarrier
+                      ? ("carrier" as const)
+                      : ("sibling" as const),
+                    split_units: totalCheckoutUnits,
+                  }
+                : {}),
+              ...(keptPending
+                ? (() => {
+                    const k = keptPending;
+                    keptPending = null;
+                    return {
+                      kept_change_usd: k.usd,
+                      kept_change_lbp: k.lbp,
+                    };
+                  })()
+                : {}),
+              ...(extraPending > 0
+                ? (() => {
+                    const e = extraPending;
+                    extraPending = 0;
+                    return isUsd ? { extra_usd: e } : { extra_lbp: e };
+                  })()
+                : {}),
+              clientId: resolvedClientId || undefined,
+              clientName: clientName || undefined,
+              itemKey: line.item.key,
+              itemCategory: line.item.category,
+              note: `${formatCatalogItemName(line.item)}`,
+              // LIRA-366: the cashier's own note, on every unit's row.
+              typedNote: typedNote || undefined,
+              partnerId: partnerId || undefined,
+              transaction_time: transactionTime,
+            },
+            { idempotencyKey: unitKey },
+          );
 
           if (result?.success) {
             if (isCarrier) carrierSourceId = result.id;
@@ -841,6 +855,7 @@ export function FinancialForm({
     }
 
     if (allSucceeded) {
+      resetIdempotencyKey();
       appEvents.emit("notification:show", t("financial.processed"), "success");
       void autoPrintReceipt({
         type: "FINANCIAL_SERVICE",
@@ -905,6 +920,7 @@ export function FinancialForm({
     const cartItems = Array.from(cart.values());
     const svcType = serviceType || "SEND";
     let allSucceeded = true;
+    let unitIndex = 0;
 
     for (const line of cartItems) {
       const sellPrice = line.item.catalogSellPrice ?? 0;
@@ -913,31 +929,35 @@ export function FinancialForm({
       const isTransferOutLeg = cost === 0 && svcType === "SEND";
 
       for (let i = 0; i < line.quantity; i++) {
+        const unitKey = unitIdempotencyKey("p", unitIndex++);
         try {
-          const result = await api.addOMTTransaction({
-            provider: activeProvider,
-            serviceType: svcType,
-            amount: sellPrice,
-            cost,
-            currency,
-            commission,
-            payments: isTransferOutLeg
-              ? [
-                  {
-                    method: partnerPaidFromMethod,
-                    currencyCode: currency,
-                    amount: sellPrice,
-                    direction: "OUT" as const,
-                  },
-                ]
-              : [],
-            itemKey: line.item.key,
-            itemCategory: line.item.category,
-            note: `${formatCatalogItemName(line.item)}`,
-            partnerId,
-            partnerMode: "FOR" as const,
-            transaction_time: transactionTime,
-          });
+          const result = await api.addOMTTransaction(
+            {
+              provider: activeProvider,
+              serviceType: svcType,
+              amount: sellPrice,
+              cost,
+              currency,
+              commission,
+              payments: isTransferOutLeg
+                ? [
+                    {
+                      method: partnerPaidFromMethod,
+                      currencyCode: currency,
+                      amount: sellPrice,
+                      direction: "OUT" as const,
+                    },
+                  ]
+                : [],
+              itemKey: line.item.key,
+              itemCategory: line.item.category,
+              note: `${formatCatalogItemName(line.item)}`,
+              partnerId,
+              partnerMode: "FOR" as const,
+              transaction_time: transactionTime,
+            },
+            { idempotencyKey: unitKey },
+          );
 
           if (!result?.success) {
             logger.error("Partner financial submit failed:", result?.error);
@@ -956,6 +976,7 @@ export function FinancialForm({
     }
 
     if (allSucceeded) {
+      resetIdempotencyKey();
       appEvents.emit(
         "notification:show",
         t("financial.partnerProcessed"),

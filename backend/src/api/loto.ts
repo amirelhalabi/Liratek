@@ -26,6 +26,7 @@
 import express from "express";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
 import { auditRest } from "../middleware/audit.js";
+import { sendIdempotent } from "../middleware/idempotency.js";
 import {
   getLotoService,
   lotoLogger,
@@ -260,19 +261,29 @@ router.post("/sell", (req, res) => {
       res.json({ success: false, error: v.error });
       return;
     }
-    const ticket = getLotoService().sellTicket({
-      ...v.data,
-      userId: req.user!.userId,
-    });
-    // Mirrors lotoHandlers.ts's loto:sell audit.
-    auditRest(req, {
-      action: "create",
-      entity_type: "loto_ticket",
-      entity_id: String(ticket?.id ?? ""),
-      summary: "Sold loto ticket",
-      metadata: v.data as Record<string, unknown>,
-    });
-    res.json({ success: true, ticket });
+    sendIdempotent(
+      req,
+      res,
+      () => ({
+        success: true as const,
+        ticket: getLotoService().sellTicket({
+          ...v.data,
+          userId: req.user!.userId,
+        }),
+      }),
+      {
+        onBooked: ({ ticket }) => {
+          // Mirrors lotoHandlers.ts's loto:sell audit.
+          auditRest(req, {
+            action: "create",
+            entity_type: "loto_ticket",
+            entity_id: String(ticket?.id ?? ""),
+            summary: "Sold loto ticket",
+            metadata: v.data as Record<string, unknown>,
+          });
+        },
+      },
+    );
   } catch (error) {
     fail(res, error, "Failed to sell ticket");
   }
@@ -312,15 +323,25 @@ router.post("/fees", (req, res) => {
       res.json({ success: false, error: v.error });
       return;
     }
-    const fee = getLotoService().recordMonthlyFee(v.data);
-    // Mirrors lotoHandlers.ts's loto:fees:create audit.
-    auditRest(req, {
-      action: "create",
-      entity_type: "loto_fee",
-      entity_id: String(fee?.id ?? ""),
-      summary: "Recorded loto monthly fee",
-    });
-    res.json({ success: true, fee });
+    sendIdempotent(
+      req,
+      res,
+      () => ({
+        success: true as const,
+        fee: getLotoService().recordMonthlyFee(v.data),
+      }),
+      {
+        onBooked: ({ fee }) => {
+          // Mirrors lotoHandlers.ts's loto:fees:create audit.
+          auditRest(req, {
+            action: "create",
+            entity_type: "loto_fee",
+            entity_id: String(fee?.id ?? ""),
+            summary: "Recorded loto monthly fee",
+          });
+        },
+      },
+    );
   } catch (error) {
     fail(res, error, "Failed to create monthly fee");
   }
@@ -333,15 +354,25 @@ router.post("/fees/:id/pay", (req, res) => {
       res.json({ success: false, error: "Invalid id" });
       return;
     }
-    const fee = getLotoService().markFeePaid(id, req.user!.userId);
-    // Mirrors lotoHandlers.ts's loto:fees:pay audit.
-    auditRest(req, {
-      action: "update",
-      entity_type: "loto_fee",
-      entity_id: String(id),
-      summary: `Marked loto fee #${id} as paid`,
-    });
-    res.json({ success: true, fee });
+    sendIdempotent(
+      req,
+      res,
+      () => ({
+        success: true as const,
+        fee: getLotoService().markFeePaid(id, req.user!.userId),
+      }),
+      {
+        onBooked: () => {
+          // Mirrors lotoHandlers.ts's loto:fees:pay audit.
+          auditRest(req, {
+            action: "update",
+            entity_type: "loto_fee",
+            entity_id: String(id),
+            summary: `Marked loto fee #${id} as paid`,
+          });
+        },
+      },
+    );
   } catch (error) {
     fail(res, error, "Failed to mark fee as paid");
   }
@@ -390,18 +421,28 @@ router.post("/cash-prizes", (req, res) => {
       res.json({ success: false, error: v.error });
       return;
     }
-    const prize = getLotoService().recordCashPrize({
-      ...v.data,
-      userId: req.user!.userId,
-    });
-    // Mirrors lotoHandlers.ts's loto:cash-prize:create audit.
-    auditRest(req, {
-      action: "create",
-      entity_type: "loto_cash_prize",
-      entity_id: String(prize?.id ?? ""),
-      summary: "Recorded loto cash prize",
-    });
-    res.json({ success: true, prize });
+    sendIdempotent(
+      req,
+      res,
+      () => ({
+        success: true as const,
+        prize: getLotoService().recordCashPrize({
+          ...v.data,
+          userId: req.user!.userId,
+        }),
+      }),
+      {
+        onBooked: ({ prize }) => {
+          // Mirrors lotoHandlers.ts's loto:cash-prize:create audit.
+          auditRest(req, {
+            action: "create",
+            entity_type: "loto_cash_prize",
+            entity_id: String(prize?.id ?? ""),
+            summary: "Recorded loto cash prize",
+          });
+        },
+      },
+    );
   } catch (error) {
     fail(res, error, "Failed to record cash prize");
   }
@@ -415,19 +456,29 @@ router.post("/cash-prizes/:id/reimburse", (req, res) => {
       return;
     }
     const body = req.body as { reimbursedDate?: string; settlementId?: number };
-    const prize = getLotoService().markCashPrizeReimbursed(
-      id,
-      body?.reimbursedDate,
-      body?.settlementId,
+    sendIdempotent(
+      req,
+      res,
+      () => ({
+        success: true as const,
+        prize: getLotoService().markCashPrizeReimbursed(
+          id,
+          body?.reimbursedDate,
+          body?.settlementId,
+        ),
+      }),
+      {
+        onBooked: () => {
+          // Mirrors lotoHandlers.ts's loto:cash-prize:mark-reimbursed audit.
+          auditRest(req, {
+            action: "update",
+            entity_type: "loto_cash_prize",
+            entity_id: String(id),
+            summary: `Marked loto cash prize #${id} as reimbursed`,
+          });
+        },
+      },
     );
-    // Mirrors lotoHandlers.ts's loto:cash-prize:mark-reimbursed audit.
-    auditRest(req, {
-      action: "update",
-      entity_type: "loto_cash_prize",
-      entity_id: String(id),
-      summary: `Marked loto cash prize #${id} as reimbursed`,
-    });
-    res.json({ success: true, prize });
   } catch (error) {
     fail(res, error, "Failed to mark cash prize as reimbursed");
   }
@@ -528,15 +579,25 @@ router.post("/checkpoints", (req, res) => {
       res.json({ success: false, error: v.error });
       return;
     }
-    const checkpoint = getLotoService().createCheckpoint(v.data);
-    // Mirrors lotoHandlers.ts's loto:checkpoint:create audit.
-    auditRest(req, {
-      action: "create",
-      entity_type: "loto_checkpoint",
-      entity_id: String(checkpoint?.id ?? ""),
-      summary: "Created loto checkpoint",
-    });
-    res.json({ success: true, checkpoint });
+    sendIdempotent(
+      req,
+      res,
+      () => ({
+        success: true as const,
+        checkpoint: getLotoService().createCheckpoint(v.data),
+      }),
+      {
+        onBooked: ({ checkpoint }) => {
+          // Mirrors lotoHandlers.ts's loto:checkpoint:create audit.
+          auditRest(req, {
+            action: "create",
+            entity_type: "loto_checkpoint",
+            entity_id: String(checkpoint?.id ?? ""),
+            summary: "Created loto checkpoint",
+          });
+        },
+      },
+    );
   } catch (error) {
     fail(res, error, "Failed to create checkpoint");
   }
@@ -549,31 +610,41 @@ router.post("/checkpoints/settle-batch", (req, res) => {
       res.json({ success: false, error: v.error });
       return;
     }
-    const checkpoints = getLotoService().settleCheckpoints(
-      v.data.checkpointIds,
-      v.data.totalSales,
-      v.data.totalCommission,
-      v.data.settledAt,
-      req.user!.userId,
-      // LIRA-258: split legs (`payments`) or the legacy single `payment`.
-      v.data.payments ?? v.data.payment,
-      v.data.tender_exchange_rate,
-      // LIRA-310 — Waive (LBP) on the batch's combined net.
-      v.data.discount_lbp,
-    );
-    // Mirrors lotoHandlers.ts's loto:checkpoints:settle-batch audit.
-    auditRest(req, {
-      action: "settle",
-      entity_type: "loto_checkpoint",
-      entity_id: v.data.checkpointIds.join(","),
-      summary: `Batch settled ${v.data.checkpointIds.length} loto checkpoint(s)`,
-      metadata: {
-        checkpointIds: v.data.checkpointIds,
-        totalSales: v.data.totalSales,
-        totalCommission: v.data.totalCommission,
+    sendIdempotent(
+      req,
+      res,
+      () => ({
+        success: true as const,
+        checkpoints: getLotoService().settleCheckpoints(
+          v.data.checkpointIds,
+          v.data.totalSales,
+          v.data.totalCommission,
+          v.data.settledAt,
+          req.user!.userId,
+          // LIRA-258: split legs (`payments`) or the legacy single `payment`.
+          v.data.payments ?? v.data.payment,
+          v.data.tender_exchange_rate,
+          // LIRA-310 — Waive (LBP) on the batch's combined net.
+          v.data.discount_lbp,
+        ),
+      }),
+      {
+        onBooked: () => {
+          // Mirrors lotoHandlers.ts's loto:checkpoints:settle-batch audit.
+          auditRest(req, {
+            action: "settle",
+            entity_type: "loto_checkpoint",
+            entity_id: v.data.checkpointIds.join(","),
+            summary: `Batch settled ${v.data.checkpointIds.length} loto checkpoint(s)`,
+            metadata: {
+              checkpointIds: v.data.checkpointIds,
+              totalSales: v.data.totalSales,
+              totalCommission: v.data.totalCommission,
+            },
+          });
+        },
       },
-    });
-    res.json({ success: true, checkpoints });
+    );
   } catch (error) {
     fail(res, error, "Failed to settle checkpoints");
   }
@@ -613,31 +684,41 @@ router.post("/checkpoints/:id/settle", (req, res) => {
       res.json({ success: false, error: v.error });
       return;
     }
-    const checkpoint = getLotoService().settleCheckpoint(
-      v.data.id,
-      v.data.totalSales,
-      v.data.totalCommission,
-      v.data.totalPrizes,
-      0, // deprecated — checkpoint reads its own total_cash_prizes
-      v.data.settledAt,
-      req.user!.userId,
-      v.data.payments,
-      v.data.tender_exchange_rate,
-      // LIRA-310 — Waive (LBP).
-      v.data.discount_lbp,
-    );
-    // Mirrors lotoHandlers.ts's loto:checkpoint:settle audit.
-    auditRest(req, {
-      action: "settle",
-      entity_type: "loto_checkpoint",
-      entity_id: String(v.data.id),
-      summary: `Settled loto checkpoint #${v.data.id}`,
-      metadata: {
-        totalSales: v.data.totalSales,
-        totalCommission: v.data.totalCommission,
+    sendIdempotent(
+      req,
+      res,
+      () => ({
+        success: true as const,
+        checkpoint: getLotoService().settleCheckpoint(
+          v.data.id,
+          v.data.totalSales,
+          v.data.totalCommission,
+          v.data.totalPrizes,
+          0, // deprecated — checkpoint reads its own total_cash_prizes
+          v.data.settledAt,
+          req.user!.userId,
+          v.data.payments,
+          v.data.tender_exchange_rate,
+          // LIRA-310 — Waive (LBP).
+          v.data.discount_lbp,
+        ),
+      }),
+      {
+        onBooked: () => {
+          // Mirrors lotoHandlers.ts's loto:checkpoint:settle audit.
+          auditRest(req, {
+            action: "settle",
+            entity_type: "loto_checkpoint",
+            entity_id: String(v.data.id),
+            summary: `Settled loto checkpoint #${v.data.id}`,
+            metadata: {
+              totalSales: v.data.totalSales,
+              totalCommission: v.data.totalCommission,
+            },
+          });
+        },
       },
-    });
-    res.json({ success: true, checkpoint });
+    );
   } catch (error) {
     fail(res, error, "Failed to settle checkpoint");
   }
