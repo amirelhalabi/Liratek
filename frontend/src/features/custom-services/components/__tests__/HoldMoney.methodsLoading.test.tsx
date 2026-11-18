@@ -155,8 +155,9 @@ describe("Hold Money — payment method is Cash while methods are still loading"
       resolveMethods(METHODS);
     });
     await waitFor(() =>
+      // LIRA-399 — the hook labels the Cash entry by its drawer.
       expect(optionLabels(methodSelect(container))).toEqual([
-        "Cash",
+        "Cash · General",
         "OMT",
         "Whish",
       ]),

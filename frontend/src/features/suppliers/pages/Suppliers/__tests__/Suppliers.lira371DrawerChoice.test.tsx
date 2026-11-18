@@ -3,8 +3,9 @@
 /**
  * LIRA-371 T026 — the Suppliers page hands the "OMT Cash Drawer | General"
  * choice to the main-system supplier's settle screens only:
- *  - OMT shop: the OMT account's Settle Account sheet gets the choice;
- *    Katsh's does not;
+ *  - OMT shop: the OMT account's Settle Account sheet gets the choice — on
+ *    the cash line since LIRA-399 ("Cash · OMT Cash Drawer" | "Cash ·
+ *    General"); Katsh's does not;
  *  - Whish shop: the Whish bills-only batch Settle confirm, with an "Other
  *    payment" cash commission, shows it; picking General sends
  *    `cash_drawer: "GENERAL"` (parsed through supplierSettleSchema, rule 24);
@@ -196,15 +197,21 @@ describe("Suppliers page — LIRA-371 cash drawer choice", () => {
     mockSettleTransactions.mockResolvedValue({ success: true, id: 1 });
   });
 
-  it("OMT shop: the OMT account's Settle Account sheet offers the choice", async () => {
+  it("OMT shop: the OMT account's Settle Account sheet offers the choice on the cash line", async () => {
+    // LIRA-399 (owner 2026-11-18, option A): no "Comes from" control — the
+    // method list splits Cash by drawer, OMT drawer selected by default.
     renderPage();
     const card = await screen.findByTestId("supplier-account-card-OMT");
     fireEvent.click(within(card).getByTestId("supplier-account-settle-button"));
     await screen.findByTestId("supplier-account-settle-sheet");
-    expect(await screen.findByTestId("cash-drawer-choice")).toBeInTheDocument();
-    expect(screen.getByTestId("cash-drawer-choice-system").textContent).toBe(
-      "OMT Cash Drawer",
-    );
+    const usd = await screen.findByTestId("supplier-account-settle-section-usd");
+    const select = within(usd).getAllByTestId(/^payment-method-/)[0] as HTMLSelectElement;
+    expect([...select.options].map((o) => o.textContent)).toEqual([
+      "Cash · OMT Cash Drawer",
+      "Cash · General",
+    ]);
+    expect(select.value).toBe("CASH");
+    expect(screen.queryByTestId("cash-drawer-choice")).toBeNull();
   });
 
   it("OMT shop: Katsh's Settle Account sheet has no choice", async () => {

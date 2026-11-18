@@ -2854,15 +2854,15 @@ function legFeeProfit(pAlias: string, currency: "usd" | "lbp"): string {
   return `(CASE WHEN ${legFeeCurrency(pAlias)} = '${currency === "usd" ? "USD" : "LBP"}' THEN ${pAlias}.fee_amount ELSE 0 END)`;
 }
 
-/** LIRA-400 — `FROM payments <p> JOIN transactions <t>`, tenant-scoped on
- *  both sides, recognized and in range on the transaction's day. Embeds 3
- *  binds: `dateRange`'s 2, then `<p>.tenant_id`. */
+/** LIRA-400 — `FROM payments <p> JOIN transactions <t>`, joined on tenant,
+ *  recognized and in range on the transaction's day. Embeds `dateRange`'s 2
+ *  binds. Every caller appends `AND <p>.tenant_id = ?` itself (third bind)
+ *  so `check-tenant-scoping` can read the predicate in the statement. */
 function legFeeSource(pAlias: string, tAlias: string): string {
   return `payments ${pAlias}
           JOIN transactions ${tAlias} ON ${tAlias}.id = ${pAlias}.transaction_id AND ${tAlias}.tenant_id = ${pAlias}.tenant_id
           WHERE ${legFeeRecognized(pAlias, tAlias)}
-            AND ${dateRange(`${tAlias}.created_at`)}
-            AND ${pAlias}.tenant_id = ?`;
+            AND ${dateRange(`${tAlias}.created_at`)}`;
 }
 
 /** LIRA-400 — one Payment Method Fees figure by method and currency. */
@@ -5968,6 +5968,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
                 COALESCE(SUM(p.fee_amount), 0) AS total,
                 COUNT(*) AS count
            FROM ${legFeeSource("p", "t")}
+            AND p.tenant_id = ?
           GROUP BY ${legFeeCurrency("p")}`,
       )
       .all(fromDt, toDt, getCurrentTenantId()) as PmFeeCurrencyRow[];
@@ -5996,6 +5997,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
                     COALESCE(SUM(p.fee_amount), 0) AS total,
                     COUNT(*) AS count
                FROM ${legFeeSource("p", "t")}
+                AND p.tenant_id = ?
               GROUP BY p.method, ${legFeeCurrency("p")}
               ORDER BY p.method`,
           )
@@ -7331,7 +7333,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           ${legFeeCurrency("p")} AS currency_code,
           p.fee_amount AS fee,
           'leg' AS kind
-        FROM ${legFeeSource("p", "t")}`,
+        FROM ${legFeeSource("p", "t")}
+          AND p.tenant_id = ?`,
       )
       .all(fromDt, toDt, tenantId) as PmFeeDetailRow[];
     return [...fsRows, ...legRows].sort((a, b) =>
@@ -7991,6 +7994,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             COALESCE(SUM(${legFeeProfit("lfp", "usd")}), 0) AS profit_usd,
             COALESCE(SUM(${legFeeProfit("lfp", "lbp")}), 0) AS profit_lbp
           FROM ${legFeeSource("lfp", "lft")}
+            AND lfp.tenant_id = ?
           GROUP BY ${localDayExpr("lft.created_at")}`
               : ""
           }
@@ -9736,6 +9740,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           0 AS pending_profit_usd,
           0 AS pending_profit_lbp
         FROM ${legFeeSource("lfp", "lft")}
+          AND lfp.tenant_id = ?
         GROUP BY lft.user_id`
             : ""
         }
@@ -10516,6 +10521,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           0 AS pending_profit_usd,
           0 AS pending_profit_lbp
         FROM ${legFeeSource("lfp", "lft")}
+          AND lfp.tenant_id = ?
         GROUP BY CASE WHEN lft.client_id IS NOT NULL THEN lft.client_id END,
                  CASE WHEN lft.client_id IS NULL THEN COALESCE(lft.client_name, '') END`
             : ""

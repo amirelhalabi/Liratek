@@ -698,8 +698,9 @@ const SCENARIOS: Scenario[] = [
       expect(
         within(usd).queryByTestId("supplier-account-settle-commission-usd"),
       ).toBeNull();
+      // LIRA-398 — the SMS boxes live in their own block above the sections.
       type(
-        within(usd).getByTestId("supplier-account-settle-sms-usd"),
+        within(sheet).getByTestId("supplier-account-settle-sms-usd"),
         "496.30",
       );
       type(
@@ -743,8 +744,9 @@ const SCENARIOS: Scenario[] = [
       // LIRA-378: the SMS below implies commission, so its types must be
       // ticked (nothing ticked = no commission).
       await tickAllCoveredTypes("supplier-account-settle-covered");
+      // LIRA-398 — the SMS boxes live in their own block above the sections.
       type(
-        within(box).getByTestId("supplier-account-settle-sms-lbp"),
+        within(sheet).getByTestId("supplier-account-settle-sms-lbp"),
         "890000",
       );
       const submit = within(sheet).getByTestId(
