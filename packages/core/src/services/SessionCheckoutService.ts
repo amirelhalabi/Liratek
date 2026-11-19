@@ -35,6 +35,7 @@ import {
   getSessionPaymentService,
   hasKeptChangeClaim,
   resolveBasketKeptChange,
+  resolveBasketPayoutAdjustment,
 } from "./SessionPaymentService.js";
 import {
   getCustomerSessionRepository,
@@ -43,6 +44,7 @@ import {
 import { getTransactionRepository } from "../repositories/TransactionRepository.js";
 import { getSessionPaymentRepository } from "../repositories/SessionPaymentRepository.js";
 import { cashierRateStamp } from "../repositories/moneyPosting.js";
+import { bookPayoutRoundingExpense } from "../repositories/changeRoundingExpense.js";
 import { getClientRepository } from "../repositories/ClientRepository.js";
 import { clientLogger } from "../utils/logger.js";
 import { isSessionPooledFeeReceive } from "../utils/sessionFeeOnTop.js";
@@ -125,6 +127,12 @@ export interface CheckoutRequest {
    *  (`resolveBasketExtra`) before anything is written. */
   extra_usd?: number;
   extra_lbp?: number;
+  /** LIRA-402: the payout box's "+ Extra" — the shop rounded the basket's
+   *  payout UP (owed $209.50, handed $210). A CLAIM only — verified against
+   *  the basket's own payout (`resolveBasketPayoutAdjustment`) and booked
+   *  as a "Change rounding" expense linked to the session. */
+  rounding_given_usd?: number;
+  rounding_given_lbp?: number;
   /** LIRA-341: the ONE discount for the whole basket, per currency → a
    *  standalone BASKET_DISCOUNT row (amount 0, profit −discount). Verified
    *  against the basket's own item profit (`checkBasketDiscountCap`) before
@@ -709,6 +717,8 @@ export class SessionCheckoutService {
         waived_lbp,
         extra_usd,
         extra_lbp,
+        rounding_given_usd,
+        rounding_given_lbp,
         discount_usd,
         discount_lbp,
         paidByMethod,
@@ -784,6 +794,20 @@ export class SessionCheckoutService {
           success: false,
           error:
             "The waived amount can't be checked without the exchange rate. (Session checkout: waiving needs the exchange rate the basket was paid at)",
+        };
+      }
+
+      // LIRA-402: the payout round-up claim — same rate rule.
+      const roundingClaim = {
+        usd: rounding_given_usd ?? 0,
+        lbp: rounding_given_lbp ?? 0,
+      };
+      const claimsRounding = hasKeptChangeClaim(roundingClaim);
+      if (claimsRounding && !(exchangeRate && exchangeRate > 0)) {
+        return {
+          success: false,
+          error:
+            "The round-up can't be checked without the exchange rate. (Session checkout: rounding a payout needs the exchange rate the basket was paid at)",
         };
       }
 
@@ -1256,6 +1280,8 @@ export class SessionCheckoutService {
         let keptLbp = 0;
         let waivedUsd = 0;
         let waivedLbp = 0;
+        let roundingUsd = 0;
+        let roundingLbp = 0;
         if (payments && payments.length > 0) {
           const basket = getSessionPaymentService().recordBasketPayment(
             sessionId,
@@ -1267,6 +1293,7 @@ export class SessionCheckoutService {
               feeOnTopReceiveFsIds,
               keptChange: claimsKept ? keptClaim : null,
               waived: claimsWaived ? waivedClaim : null,
+              roundingGiven: claimsRounding ? roundingClaim : null,
               discount: hasDiscount ? discount : null,
               ...(checkoutTime ? { transactionTime: checkoutTime } : {}),
             },
@@ -1275,6 +1302,23 @@ export class SessionCheckoutService {
           keptLbp = basket.keptLbp;
           waivedUsd = basket.waivedUsd;
           waivedLbp = basket.waivedLbp;
+          roundingUsd = basket.roundingUsd;
+          roundingLbp = basket.roundingLbp;
+        } else if (claimsRounding) {
+          // No payment lines: nothing was handed out to round up.
+          resolveBasketPayoutAdjustment({
+            legs: [],
+            ctx: {
+              chargeTotalUsd: checkoutTotalUsd,
+              chargeTotalLbp: checkoutTotalLbp,
+              payoutTotalUsd: 0,
+              payoutTotalLbp: 0,
+            },
+            claimedKept: null,
+            claimedRounding: roundingClaim,
+            claimedWaived: null,
+            exchangeRate: exchangeRate as number,
+          });
         } else if (claimsKept || claimsWaived) {
           // No payment lines: the helper refuses ("nothing to keep it from").
           // Called rather than hand-thrown so the refusal text has one source.
@@ -1366,6 +1410,25 @@ export class SessionCheckoutService {
             keptTxnId,
             checkoutStamp,
           );
+        }
+
+        // LIRA-402: the payout box's "+ Extra" — the same books-only
+        // "Change rounding" expense every standalone payout books (LIRA-334),
+        // linked to the session (`customer_sessions` / id) so it is an auto
+        // sibling (rule 26). Reversal owner (rule 20): the basket's own
+        // void/refund (`voidSessionBasket`/`refundSessionBasket` →
+        // `voidLinkedExpenses`); a single-item refund leaves it — the
+        // rounding was really handed over. Books the VERIFIED amount.
+        if (roundingUsd > 0 || roundingLbp > 0) {
+          bookPayoutRoundingExpense({
+            parentSourceTable: "customer_sessions",
+            parentSourceId: sessionId,
+            parentLabel: `Session #${sessionId}`,
+            amount: { usd: roundingUsd, lbp: roundingLbp },
+            exchangeRate: exchangeRate as number,
+            userId,
+            transactionTime: checkoutTime,
+          });
         }
 
         // LIRA-310 Waive: the KEPT_CHANGE mirror — a standalone profit-only

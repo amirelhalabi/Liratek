@@ -97,6 +97,8 @@ export * from "./utils/settleAccountAudit.js";
 // LIRA-304 — basket checkout cash split, OMT first: shared by the session
 // checkout "Goes to" preview and SessionPaymentService (pure leaf, rule 29).
 export * from "./utils/sessionCashSplit.js";
+// LIRA-402 — the ONE session checkout leg builder (pure leaf, rule 29).
+export * from "./utils/sessionCheckoutLegs.js";
 export * from "./utils/requestDay.js";
 export * from "./utils/telecomCredit.js";
 export * from "./utils/rechargeDiscount.js";

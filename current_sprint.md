@@ -8908,3 +8908,18 @@ Needs: a dry-run mode that lists what it would delete; a guard test that a live 
 
 **What users will notice:** see the Accounts and Web app bullets in `UNRELEASED.md`.
 
+---
+
+## LIRA-402: Payment box on payout baskets at Session Checkout — BUILT 2026-11-19
+
+**Ask (owner 2026-11-19, Corner Tech):** a walk-in session with Exchange 10 EUR → $10.50 and a Whish App receive of $201 ($2 fee from the payout, $199) showed only a "Payout to customer" row with one Cash select per currency — no Split, no second currency, no typed amount, no "− Less | + Extra"; its note said "nets against the payment below" with nothing below. "We should always see a payment form in all payment pages."
+
+**Cause:** `SessionCheckoutModal` mounted `MultiPaymentInput` only while the customer still owed money (`hasChargeToCollect`); payouts had only the Phase F per-currency select.
+
+**Built (spec `specs/402-session-payout-payment-form/`, decisions by the orchestrator logged in its Clarifications):** payout mode — when nothing is left to collect on the cash-netting basis and General money is still owed (payout after netting + any exchange payout), the checkout shows the payout box (`payer="payout"`): Split, USD/LBP, method per line (Cash / OMT / Whish / Binance / Customer Account with a client), "− Less | + Extra". ONE leg builder `buildSessionCheckoutLegs` (core leaf, browser-safe) for both modes; payout lines go OUT/PAYOUT/GENERAL; OMT/Whish SYSTEM payouts keep their own row + select. Core: `sessionCheckoutSchema` takes `rounding_given_*`; `resolveBasketPayoutAdjustment` verifies Less/Extra with the standalone payout helpers before any write; "+ Extra" books the "Change rounding" expense linked to the session; basket void/refund voids it (rule 20). Also fixed: `systemPayoutTotal*` counted wallet cash-outs (`fs.provider IS NOT NULL`), so an OMT receive + Whish App receive basket sent part of the OMT payout from General — now `IN ('OMT','WHISH')`.
+
+**Tests:** failing-first evidence recorded in `specs/402-session-payout-payment-form/tasks.md`. Core `lira402.sessionPayoutForm` 21 tests; full core suite `--maxWorkers=2` 1051 suites / 10022 passed, 1 skipped (127 s); frontend `SessionCheckoutModal.payoutForm` 8 tests; sessions feature suites 20 / 119 green (two `sessions.payloadLanguage` cases rewritten for the payout box); web e2e `lira-web-105` + session web specs 18 passed, shared session specs 11 passed. Desktop specs `lira-098` and `lira-135` updated by reading (no Electron on this Mac), not run.
+
+**Open questions for the owner (details in the spec):** (1) payout mode nets a charge against the payout, so a $10 charge + $20 cash-out paid to Customer Account books ONE $10 credit — this overrides the modal's "gross on the Debts page" rule ($10 debt + $20 credit); keep? (2) a single-item refund of the cash-out after "− Less $0.50" asks the customer to pay back $199 though they got $198.50 (kept profit stays; after "+ Extra" the expense stays) — books balance, pre-fill what was handed over instead? (3) a SYSTEM-only payout basket still has just its row + select. (4) the server does not check payout lines without a Less/Extra claim (a $199 payout where $197.88 was owed is accepted; the screen blocks it). (5) **Test tenant page (5176) runs the deployed backend: do not use "+ Extra" there until deploy** — it pays out the extra and books no rounding expense; "− Less" is refused (safe); split / currency / method work now. Spec Kit `analyze` was not run as a skill; spec/plan/tasks were checked by hand.
+
+**What users will notice:** at Session Checkout, a basket where the shop pays the customer now shows the payment box — split the payout, pay in dollars and lira, pick the method per line, round up or pay a little less.

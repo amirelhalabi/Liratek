@@ -59,6 +59,7 @@ import {
 import { primaryCashDrawerName } from "../constants/systemFloatDrawers.js";
 import { closingLogger } from "../utils/logger.js";
 import { resolveKeptChange } from "../repositories/keptChange.js";
+import { resolveRoundingGiven } from "../repositories/roundingGiven.js";
 import type { KeptChange } from "../repositories/moneyPosting.js";
 import { SHORTFALL_MAX } from "../validators/exchange.js";
 import { basketHasNothingToCollect } from "../utils/sessionNothingToCollect.js";
@@ -151,6 +152,13 @@ export interface RecordBasketPaymentInput {
    */
   waived?: KeptChange | null;
   /**
+   * LIRA-402 — the payout round-up claim ("+ Extra" on the checkout's
+   * payout box, `rounding_given_*`). Only a payout basket (no customer-paid
+   * or change legs) may carry it; verified by
+   * `resolveBasketPayoutAdjustment` before any write. Omitted = none.
+   */
+  roundingGiven?: KeptChange | null;
+  /**
    * LIRA-341 — the basket discount, ALREADY verified by the caller
    * (`SessionCheckoutService`, capped at the basket's own profit). What the
    * customer owes is the basket charge minus it, so the kept-change and
@@ -214,6 +222,11 @@ export interface RecordBasketPaymentResult {
    *  none was claimed). The caller books THESE, never the raw claim. */
   waivedUsd: number;
   waivedLbp: number;
+  /** LIRA-402 — the payout round-up verified by
+   *  `resolveBasketPayoutAdjustment` (0 when none was claimed). The caller
+   *  books THESE as a "Change rounding" expense, never the raw claim. */
+  roundingUsd: number;
+  roundingLbp: number;
 }
 
 // =============================================================================
@@ -287,6 +300,115 @@ export function resolveBasketKeptChange(input: {
     keptLbp,
     waivedUsd: reductionUsd,
     waivedLbp: reductionLbp,
+  };
+}
+
+const SESSION_PAYOUT_CONTEXT = "Session checkout payout";
+
+/**
+ * LIRA-402 — a payout basket: at least one `kind: "PAYOUT"` leg and no
+ * customer-paid (IN) or change leg. Only such a basket shows the payout box
+ * at the checkout, so only it may claim "− Less" as payout kept change or
+ * "+ Extra" as a payout round-up.
+ */
+export function isPayoutOnlyBasket(legs: BasketPaymentLeg[]): boolean {
+  const live = legs.filter((l) => Math.abs(l.amount) > 0);
+  return (
+    live.some((l) => l.direction === "OUT" && l.kind === "PAYOUT") &&
+    live.every((l) => l.direction === "OUT" && l.kind === "PAYOUT")
+  );
+}
+
+/**
+ * LIRA-402 — verify a payout basket's "− Less" (kept change) or "+ Extra"
+ * (round-up) claim with the SAME helpers every standalone payout screen
+ * uses (`resolveKeptChange` payer "payout", `resolveRoundingGiven` — one cap,
+ * one tolerance, one set of messages; rule 14).
+ *
+ * The payout box's lines are the non-SYSTEM PAYOUT legs; OMT/Whish SYSTEM
+ * payout legs keep their own gross amount and are not part of the box. What
+ * the box owes is read from the session's OWN items (never client totals):
+ *
+ *   owed = −net(legs without the box's lines)
+ *        = gross payout − gross charge − Σ(SYSTEM payout legs)
+ *
+ * in USD-equivalent at the basket rate, expressed in the claim's currency.
+ * Throws on refusal (before any write).
+ */
+export function resolveBasketPayoutAdjustment(input: {
+  legs: BasketPaymentLeg[];
+  ctx: Pick<
+    SessionCashSplitContext,
+    "chargeTotalUsd" | "chargeTotalLbp" | "payoutTotalUsd" | "payoutTotalLbp"
+  >;
+  claimedKept: KeptChange | null;
+  claimedRounding: KeptChange | null;
+  claimedWaived: KeptChange | null;
+  exchangeRate: number;
+}): {
+  keptUsd: number;
+  keptLbp: number;
+  roundingUsd: number;
+  roundingLbp: number;
+} {
+  const { legs, ctx, exchangeRate: rate } = input;
+  const payoutBasket = isPayoutOnlyBasket(legs);
+  const boxLegs = legs.filter(
+    (l) =>
+      l.direction === "OUT" &&
+      l.kind === "PAYOUT" &&
+      l.payoutOrigin !== "SYSTEM" &&
+      Math.abs(l.amount) > 0,
+  );
+  const fixedLegs = legs.filter((l) => !boxLegs.includes(l));
+  const base = basketNetCharge(fixedLegs, ctx);
+  const owedUsdEq = -(base.usd + (rate > 0 ? base.lbp / rate : 0));
+  const claimCurrency = (c: KeptChange | null): "USD" | "LBP" =>
+    (c?.lbp ?? 0) > 0 && !((c?.usd ?? 0) > 0) ? "LBP" : "USD";
+  const owedIn = (currency: "USD" | "LBP") =>
+    currency === "LBP" ? owedUsdEq * rate : owedUsdEq;
+  const reconciliationLegs = boxLegs.map((l) => ({
+    method: l.method,
+    currencyCode: l.currencyCode,
+    amount: Math.abs(l.amount),
+  }));
+
+  if (hasKeptChangeClaim(input.claimedRounding)) {
+    const currency = claimCurrency(input.claimedRounding);
+    const r = resolveRoundingGiven({
+      owed: Math.max(0, owedIn(currency)),
+      owedCurrency: currency,
+      payoutLegs: reconciliationLegs,
+      claimed: input.claimedRounding,
+      claimedKept: input.claimedKept,
+      // Only the payout box rounds: a basket the customer pays into, or one
+      // with a Waive, is not a payout.
+      notAllowed:
+        !payoutBasket ||
+        boxLegs.length === 0 ||
+        hasKeptChangeClaim(input.claimedWaived),
+      exchangeRate: rate,
+      context: SESSION_PAYOUT_CONTEXT,
+    });
+    return { keptUsd: 0, keptLbp: 0, roundingUsd: r.usd, roundingLbp: r.lbp };
+  }
+
+  const currency = claimCurrency(input.claimedKept);
+  const kept = resolveKeptChange({
+    payer: "payout",
+    context: SESSION_PAYOUT_CONTEXT,
+    exchangeRate: rate,
+    claimedKept: input.claimedKept,
+    isForPartner: false,
+    owed: Math.max(0, owedIn(currency)),
+    owedCurrency: currency,
+    payoutLegs: reconciliationLegs,
+  });
+  return {
+    keptUsd: kept.keptUsd,
+    keptLbp: kept.keptLbp,
+    roundingUsd: 0,
+    roundingLbp: 0,
   };
 }
 
@@ -548,6 +670,8 @@ export class SessionPaymentService {
       keptLbp: 0,
       waivedUsd: 0,
       waivedLbp: 0,
+      roundingUsd: 0,
+      roundingLbp: 0,
     };
 
     let debtUsd = 0;
@@ -577,7 +701,29 @@ export class SessionPaymentService {
     // whole checkout).
     // LIRA-310: a Waive claim is checked by the same call (kept and waived
     // together is refused there).
+    // LIRA-402: a payout basket (the shop pays the customer; no
+    // customer-paid or change line) verifies "− Less" (kept change) and
+    // "+ Extra" (round-up) the way the standalone payout screens do.
+    const claimsRounding = hasKeptChangeClaim(input.roundingGiven);
     if (
+      claimsRounding ||
+      (isPayoutOnlyBasket(legs) &&
+        hasKeptChangeClaim(input.keptChange) &&
+        !hasKeptChangeClaim(input.waived))
+    ) {
+      const adj = resolveBasketPayoutAdjustment({
+        legs,
+        ctx: owedCtx,
+        claimedKept: input.keptChange ?? null,
+        claimedRounding: input.roundingGiven ?? null,
+        claimedWaived: input.waived ?? null,
+        exchangeRate: rate,
+      });
+      result.keptUsd = adj.keptUsd;
+      result.keptLbp = adj.keptLbp;
+      result.roundingUsd = adj.roundingUsd;
+      result.roundingLbp = adj.roundingLbp;
+    } else if (
       hasKeptChangeClaim(input.keptChange) ||
       hasKeptChangeClaim(input.waived)
     ) {

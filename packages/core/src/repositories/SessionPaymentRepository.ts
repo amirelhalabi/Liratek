@@ -112,9 +112,12 @@ export interface SessionCashSplitContext {
   /**
    * Owner decision #11-A (2026-09-24) / fix-round finding #2. Payout total
    * restricted to items backed by an OMT/WHISH `financial_services` row
-   * (`fs.provider IS NOT NULL` below) — i.e. EXCLUDES a General-drawer payout
-   * (loto prize, wallet/Binance cash-out), which is never financial_services-
-   * backed. A basket's `payoutOrigin: "SYSTEM"` leg (binanceCart.ts's
+   * (`fs.provider IN ('OMT', 'WHISH')` below) — i.e. EXCLUDES a
+   * General-drawer payout (loto prize, wallet/Binance cash-out). LIRA-402: a
+   * wallet cash-out (OMT App / Whish App / Binance RECEIVE) IS backed by a
+   * financial_services row, so the old `fs.provider IS NOT NULL` counted it
+   * here and moved part of an OMT receive's SYSTEM leg to General whenever a
+   * wallet cash-out rode in the same basket. A basket's `payoutOrigin: "SYSTEM"` leg (binanceCart.ts's
    * `SYSTEM_PAYOUT_MODULES` = omt_system + whish_system combined into ONE
    * cross-provider number) needs THIS as its ratio denominator, not
    * `payoutTotalUsd` — that one also contains any General payout in the same
@@ -498,8 +501,8 @@ export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
              COALESCE(SUM(CASE WHEN fs.provider = ? AND cst.amount_lbp > 0 THEN cst.amount_lbp ELSE 0 END), 0) AS primary_charge_lbp,
              COALESCE(SUM(CASE WHEN fs.provider = ? AND cst.amount_usd < 0 THEN -cst.amount_usd ELSE 0 END), 0) AS primary_payout_usd,
              COALESCE(SUM(CASE WHEN fs.provider = ? AND cst.amount_lbp < 0 THEN -cst.amount_lbp ELSE 0 END), 0) AS primary_payout_lbp,
-             COALESCE(SUM(CASE WHEN fs.provider IS NOT NULL AND cst.amount_usd < 0 THEN -cst.amount_usd ELSE 0 END), 0) AS system_payout_usd,
-             COALESCE(SUM(CASE WHEN fs.provider IS NOT NULL AND cst.amount_lbp < 0 THEN -cst.amount_lbp ELSE 0 END), 0) AS system_payout_lbp
+             COALESCE(SUM(CASE WHEN fs.provider IN ('OMT', 'WHISH') AND cst.amount_usd < 0 THEN -cst.amount_usd ELSE 0 END), 0) AS system_payout_usd,
+             COALESCE(SUM(CASE WHEN fs.provider IN ('OMT', 'WHISH') AND cst.amount_lbp < 0 THEN -cst.amount_lbp ELSE 0 END), 0) AS system_payout_lbp
            FROM customer_session_transactions cst
            LEFT JOIN transactions t
              ON t.id = cst.unified_transaction_id

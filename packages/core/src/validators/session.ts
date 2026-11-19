@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   basketDiscountFields,
   extraChargeFields,
+  roundingGivenFields,
   transactionTimeSchema,
 } from "./common.js";
 
@@ -79,6 +80,12 @@ export const sessionCheckoutSchema = z
     // linked to the session (SessionCheckoutService). No default (offline
     // replay).
     ...basketDiscountFields,
+    // LIRA-402: the payout box's "+ Extra" on a payout basket (the shop
+    // rounded the payout up). Verified server-side against the basket's own
+    // payout (`resolveBasketPayoutAdjustment`, $5 / 450,000 LBP cap) and
+    // booked as a "Change rounding" expense linked to the session. "− Less"
+    // rides the existing `kept_change_*`. No default (offline replay).
+    ...roundingGivenFields,
     // Bug #4 (TRANSACTION_DETAIL_AUDIT §3): the time the cashier set on the
     // session checkout window (backdating). Applied by SessionCheckoutService
     // to every row the checkout writes; an item that carries its own

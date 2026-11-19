@@ -146,6 +146,9 @@
     "payment": "Payment",
     "goesTo": "Goes to",
     "payoutToCustomer": "Payout to customer",
+    "payoutBox": "Pay out to customer",
+    "payoutBoxNettedNote": "What the customer buys in this basket is already taken off what they receive.",
+    "systemPayoutToCustomer": "OMT / Whish payout (paid from its own box)",
     "payoutNetNote": "The General-drawer portion nets against the payment below — only the physical difference is collected or handed back as change.",
     "processing": "Processing...",
     "confirm": "Confirm Checkout"

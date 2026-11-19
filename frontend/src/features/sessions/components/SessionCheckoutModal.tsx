@@ -22,7 +22,10 @@ import {
 } from "@liratek/ui";
 import {
   basketHasNothingToCollect,
+  buildSessionCheckoutLegs,
+  payoutBoxMethodFor,
   splitBasketCashOmtFirst,
+  type SessionCheckoutPaymentInput,
 } from "@liratek/core";
 import { useShopBase } from "@/hooks/useShopBase";
 import { useSession } from "../context/SessionContext";
@@ -148,32 +151,9 @@ function applyItemDiscount(
   return fd;
 }
 
-/**
- * BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F — the `kind` discriminator on
- * an OUT leg: `"PAYOUT"` (the shop pays the customer — RECEIVE/loto-prize/
- * Binance cash-out) or `"CHANGE"` (change/return handed back from the pooled
- * payment). Never set on an IN leg. Typed locally: the core-side leg schema
- * (packages/core/src/validators/... — the parallel core lane) grows the
- * matching field; this file does not import from core.
- */
-type SessionPaymentLegKind = "PAYOUT" | "CHANGE";
-
-/**
- * One customer-facing payment leg sent to `api.session.checkout`. Named and
- * shared by BOTH the array annotation and the object literals that build it
- * (fix-round finding #1, 2026-09-24) so `legs.push({ ..., payoutOrigin })`
- * type-checks instead of tripping TS2353 against an inferred, narrower type.
- */
-interface SessionCheckoutLeg {
-  method: string;
-  currency_code: string;
-  amount: number;
-  direction: "IN" | "OUT";
-  voucher_code?: string;
-  kind?: SessionPaymentLegKind;
-  /** Owner decision #11-A — see SessionPaymentService's `payoutOrigin` doc. */
-  payoutOrigin?: "SYSTEM" | "GENERAL";
-}
+/** One leg sent to `api.session.checkout` — the schema's own type, built
+ *  by the ONE builder `buildSessionCheckoutLegs` (LIRA-402, rule 21/22). */
+type SessionCheckoutLeg = SessionCheckoutPaymentInput;
 
 /**
  * Payout methods the operator may route a basket's cash-out payout through,
@@ -191,6 +171,10 @@ const PAYOUT_METHOD_ORDER = [
 /** Stable empty line list (LIRA-270) — one identity, so clearing stale
  *  payment lines never churns memo dependencies. */
 const NO_LINES: PaymentLine[] = [];
+
+/** OMT/Whish SYSTEM modules — their payout keeps its own row and method
+ *  select (a different cash box, never in the payout box; LIRA-402). */
+const SYSTEM_CASHOUT_MODULES = new Set(["omt_system", "whish_system"]);
 
 /** Modules where only cashout methods are valid (CASH, CUSTOMER_ACCOUNT, OMT, WHISH, BINANCE) */
 const CASHOUT_ONLY_MODULES = new Set(["binance_receive"]);
@@ -315,6 +299,10 @@ export function SessionCheckoutModal({
       setCheckoutSuccess(null);
       setPayoutMethodOverride({});
       setChosenFirstMethod(null);
+      setPayoutLines(NO_LINES);
+      setPayoutKept(null);
+      setPayoutRoundUp(null);
+      setPayoutBoxKey((k) => k + 1);
       // Bug #4: a time picked for one basket never carries to the next.
       setCheckoutTime(undefined);
     }
@@ -430,6 +418,21 @@ export function SessionCheckoutModal({
     USD?: string;
     LBP?: string;
   }>({});
+
+  // LIRA-402 — the payout box (payout mode): its OWN lines, kept change
+  // ("− Less") and round-up ("+ Extra"), never mixed with the pay-in box's
+  // state (a payout line must not feed `payoutOnAccount` or the pay-in
+  // remount key, or picking Customer Account on it would swap the form).
+  const [payoutLines, setPayoutLines] = useState<PaymentLine[]>(NO_LINES);
+  const [payoutKept, setPayoutKept] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
+  const [payoutRoundUp, setPayoutRoundUp] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
+  const [payoutBoxKey, setPayoutBoxKey] = useState(0);
 
   // Key used to force-remount MultiPaymentInput when client context changes
   const [paymentInputKey, setPaymentInputKey] = useState(0);
@@ -586,6 +589,52 @@ export function SessionCheckoutModal({
     ],
   );
 
+  // LIRA-402 — which box the basket needs, decided on the CASH basis
+  // (owner decision #11-A netting as if every General payout is cash), so
+  // the choice of method on a payout line can never swap the form. Payout
+  // mode: nothing left to collect (a SYSTEM charge always counts — a
+  // different box, never netted) and General money still to hand out — the
+  // payout left after netting plus any exchange payout (LIRA-380: carried
+  // at its agreed amount, never netted).
+  const cashBasis = useMemo(
+    () =>
+      netCashPayoutAgainstCharge({
+        chargeUsd: generalChargeUsd,
+        chargeLbp: generalChargeLbp,
+        cashPayoutUsd: generalPayoutUsd,
+        cashPayoutLbp: generalPayoutLbp,
+        rate: exchangeRate,
+      }),
+    [
+      generalChargeUsd,
+      generalChargeLbp,
+      generalPayoutUsd,
+      generalPayoutLbp,
+      exchangeRate,
+    ],
+  );
+  const payoutBoxUsd = cashBasis.excessPayoutUsd + exchangePayoutUsd;
+  const payoutBoxLbp = cashBasis.excessPayoutLbp + exchangePayoutLbp;
+  const payoutMode =
+    basketHasNothingToCollect(
+      {
+        usd: systemChargeUsd + cashBasis.netChargeUsd,
+        lbp: systemChargeLbp + cashBasis.netChargeLbp,
+      },
+      exchangeRate,
+    ) &&
+    (payoutBoxUsd >= 0.01 || payoutBoxLbp >= 0.5);
+  /** The box's own currency: LBP for an LBP-only payout (its Less/Extra
+   *  line is then measured in LBP), else USD. */
+  const payoutBoxCurrency =
+    payoutBoxUsd < 0.01 && payoutBoxLbp >= 0.5 ? "LBP" : "USD";
+  const payoutBoxLines = payoutMode ? payoutLines : NO_LINES;
+  // The "Payout to customer" rows (one method select per currency): every
+  // payout in collect mode, as before; only the OMT/Whish SYSTEM payout in
+  // payout mode — the box carries the rest (one control per amount, rule 14).
+  const rowPayoutUsd = payoutMode ? systemPayoutUsd : payoutUsd;
+  const rowPayoutLbp = payoutMode ? systemPayoutLbp : payoutLbp;
+
   // Combined NET charge MultiPaymentInput must cover: the SYSTEM charge
   // (always gross — a different physical box, fix-round finding #3) plus the
   // General charge after netting against any General-drawer cash payout.
@@ -600,10 +649,12 @@ export function SessionCheckoutModal({
   // shared with the server's refusal (`basketHasNothingToCollect`,
   // @liratek/core): on these already-netted figures (both ≥ 0) it is the
   // per-currency dust test — anything owed in EITHER currency is collected.
-  const hasChargeToCollect = !basketHasNothingToCollect(
-    { usd: netChargeUsd, lbp: netChargeLbp },
-    exchangeRate,
-  );
+  const hasChargeToCollect =
+    !payoutMode &&
+    !basketHasNothingToCollect(
+      { usd: netChargeUsd, lbp: netChargeLbp },
+      exchangeRate,
+    );
   const collectLines = hasChargeToCollect ? paymentLines : NO_LINES;
 
   // LIRA-304 (spec FR-010a) — "Goes to": where the customer's cash lands,
@@ -693,6 +744,17 @@ export function SessionCheckoutModal({
       setDiscountUsdEq(0);
     }
   }, [hasChargeToCollect]);
+  // LIRA-402 — leaving payout mode drops the payout box's lines and claims
+  // (they are never sent outside it); entering it mounts a fresh box.
+  useEffect(() => {
+    if (!payoutMode) {
+      setPayoutLines((prev) => (prev.length === 0 ? prev : NO_LINES));
+      setPayoutKept(null);
+      setPayoutRoundUp(null);
+    } else {
+      setPayoutBoxKey((k) => k + 1);
+    }
+  }, [payoutMode]);
 
   // Group items by module for display
   const groupedItems = useMemo(() => {
@@ -766,136 +828,54 @@ export function SessionCheckoutModal({
   // distinguishes the two OUT flavors for anything downstream that needs to
   // tell them apart (receipt printing, refund tooling). GIFT_CARD legs carry
   // their voucher_code so the basket recorder can redeem the voucher.
-  const allPaymentLegs: SessionCheckoutLeg[] = useMemo(() => {
-    const toLeg =
-      (direction: "IN" | "OUT", kind?: SessionPaymentLegKind) =>
-      (l: PaymentLine): SessionCheckoutLeg => ({
-        method: l.method,
-        currency_code: l.currencyCode,
-        amount: l.amount,
-        direction,
-        ...(kind ? { kind } : {}),
-        ...(l.method === "GIFT_CARD" && l.voucherCode
-          ? { voucher_code: l.voucherCode }
-          : {}),
-      });
-    // Annotated explicitly (rather than inferred from the two `.map()` spreads
-    // above) — a bare `const legs = [...]` infers its element type from ONLY
-    // those two arrays, which lack `payoutOrigin`; the `legs.push({...
-    // payoutOrigin: "SYSTEM" })` calls below would then fail TypeScript's
-    // excess-property check on an object literal argument (TS2353). Fix-round
-    // finding #1 (2026-09-24) — this was a real compile break, never exercised
-    // because only the core `tsc` was run at the time.
-    const legs: SessionCheckoutLeg[] = [
-      ...collectLines.map(toLeg("IN")),
-      // Change/return from the pooled payment — never a payout.
-      ...collectReturnLines.map(toLeg("OUT", "CHANGE")),
-    ];
-    // Cash-out payouts (loto cash prize, OMT/Whish RECEIVE, Binance cash out):
-    // the shop owes the customer. Route to the operator-chosen method per
-    // currency (`resolvedPayoutMethodUsd`/`resolvedPayoutMethodLbp` —
-    // defaults to CUSTOMER_ACCOUNT when the basket is settled on account,
-    // else CASH, lira-098; Phase F lets the operator pick any drawer-
-    // affecting method too). Deferred cash-out items self-post nothing, so
-    // these legs are the only place the payout is booked — recordBasketPayment
-    // turns a CUSTOMER_ACCOUNT OUT leg into a session credit (Debts Payments
-    // side).
-    //
-    // Owner decision #11-A (2026-09-24) splits this into TWO legs per
-    // currency instead of one combined gross leg:
-    //  - SYSTEM (OMT/Whish money-transfer box): ALWAYS its own GROSS leg,
-    //    never netted — "keep the two boxes SEPARATE". `payoutOrigin:
-    //    "SYSTEM"` forces the recorder to route it 100% to the primary cash
-    //    drawer, bypassing the session's blended item-value-share ratio
-    //    (which would otherwise mis-split it once the General portion below
-    //    no longer equals the FULL gross payout total).
-    //  - GENERAL (loto prize / wallet / Binance cash-out): gross when routed
-    //    non-cash ("Non-cash payouts ... stay gross"), otherwise only the
-    //    EXCESS left after netting against the charge above — the rest never
-    //    physically left the drawer, so no leg is sent for it at all.
-    //    `payoutOrigin: "GENERAL"` forces the recorder to route it 100% to
-    //    General.
-    if (systemPayoutUsd > 0) {
-      legs.push({
-        method: resolvedPayoutMethodUsd,
-        currency_code: "USD",
-        amount: systemPayoutUsd,
-        direction: "OUT",
-        kind: "PAYOUT",
-        payoutOrigin: "SYSTEM",
-      });
-    }
-    if (systemPayoutLbp > 0) {
-      legs.push({
-        method: resolvedPayoutMethodLbp,
-        currency_code: "LBP",
-        amount: systemPayoutLbp,
-        direction: "OUT",
-        kind: "PAYOUT",
-        payoutOrigin: "SYSTEM",
-      });
-    }
-    // LIRA-380: an exchange's payout — the agreed amount, gross, never
-    // netted against the charge — routed 100% to General.
-    if (exchangePayoutUsd > 0) {
-      legs.push({
-        method: resolvedPayoutMethodUsd,
-        currency_code: "USD",
-        amount: exchangePayoutUsd,
-        direction: "OUT",
-        kind: "PAYOUT",
-        payoutOrigin: "GENERAL",
-      });
-    }
-    if (exchangePayoutLbp > 0) {
-      legs.push({
-        method: resolvedPayoutMethodLbp,
-        currency_code: "LBP",
-        amount: exchangePayoutLbp,
-        direction: "OUT",
-        kind: "PAYOUT",
-        payoutOrigin: "GENERAL",
-      });
-    }
-    const generalPayoutLegUsd =
-      resolvedPayoutMethodUsd === "CASH" ? excessPayoutUsd : generalPayoutUsd;
-    const generalPayoutLegLbp =
-      resolvedPayoutMethodLbp === "CASH" ? excessPayoutLbp : generalPayoutLbp;
-    if (generalPayoutLegUsd > 0) {
-      legs.push({
-        method: resolvedPayoutMethodUsd,
-        currency_code: "USD",
-        amount: generalPayoutLegUsd,
-        direction: "OUT",
-        kind: "PAYOUT",
-        payoutOrigin: "GENERAL",
-      });
-    }
-    if (generalPayoutLegLbp > 0) {
-      legs.push({
-        method: resolvedPayoutMethodLbp,
-        currency_code: "LBP",
-        amount: generalPayoutLegLbp,
-        direction: "OUT",
-        kind: "PAYOUT",
-        payoutOrigin: "GENERAL",
-      });
-    }
-    return legs;
-  }, [
-    collectLines,
-    collectReturnLines,
-    systemPayoutUsd,
-    systemPayoutLbp,
-    exchangePayoutUsd,
-    exchangePayoutLbp,
-    generalPayoutUsd,
-    generalPayoutLbp,
-    excessPayoutUsd,
-    excessPayoutLbp,
-    resolvedPayoutMethodUsd,
-    resolvedPayoutMethodLbp,
-  ]);
+  //
+  // LIRA-402: built by the ONE builder (rule 22) — the mode is a parameter.
+  // Payout mode: the payout box's lines go OUT/PAYOUT/GENERAL; OMT/Whish
+  // SYSTEM payouts keep their own gross leg (owner decision #11-A).
+  // Collect mode: byte-identical to the legs before LIRA-402 — change, the
+  // SYSTEM leg, the exchange's gross payout (LIRA-380) and the General
+  // payout (only the excess after netting when routed to cash, else gross).
+  const allPaymentLegs: SessionCheckoutLeg[] = useMemo(
+    () =>
+      buildSessionCheckoutLegs({
+        mode: payoutMode ? "payout" : "collect",
+        collectLines,
+        returnLines: collectReturnLines,
+        payoutLines: payoutBoxLines,
+        payoutMethod: {
+          USD: resolvedPayoutMethodUsd,
+          LBP: resolvedPayoutMethodLbp,
+        },
+        systemPayout: { usd: systemPayoutUsd, lbp: systemPayoutLbp },
+        exchangePayout: { usd: exchangePayoutUsd, lbp: exchangePayoutLbp },
+        generalPayoutLeg: {
+          usd:
+            resolvedPayoutMethodUsd === "CASH"
+              ? excessPayoutUsd
+              : generalPayoutUsd,
+          lbp:
+            resolvedPayoutMethodLbp === "CASH"
+              ? excessPayoutLbp
+              : generalPayoutLbp,
+        },
+      }),
+    [
+      payoutMode,
+      collectLines,
+      collectReturnLines,
+      payoutBoxLines,
+      systemPayoutUsd,
+      systemPayoutLbp,
+      exchangePayoutUsd,
+      exchangePayoutLbp,
+      generalPayoutUsd,
+      generalPayoutLbp,
+      excessPayoutUsd,
+      excessPayoutLbp,
+      resolvedPayoutMethodUsd,
+      resolvedPayoutMethodLbp,
+    ],
+  );
 
   // Primary method is the first non-zero leg's method, or CASH as fallback
   const primaryMethod =
@@ -952,10 +932,40 @@ export function SessionCheckoutModal({
   // LIRA-341: the discount comes off the basket (the input takes it off its
   // own total, so the gate must too).
   const discountUSD = hasChargeToCollect && !(extraUSD > 0) ? discountUsdEq : 0;
-  const isPaymentValid =
-    combinedTotalUSD <= 0 ||
-    paidUSD + waivedUSD + discountUSD >=
-      combinedTotalUSD + extraUSD - combinedTolerance;
+  // LIRA-402 — the payout box is valid once its lines, plus what the shop
+  // keeps ("− Less") and minus its round-up ("+ Extra"), hand out exactly
+  // what is owed (USD-equivalent at the checkout rate). The box reports a
+  // Less/Extra only within the $5 / 450,000 LBP cap, so anything else stays
+  // "Remaining to pay out" or over-paid and Confirm stays off.
+  const toUsd = (usd: number, lbp: number) =>
+    usd + (exchangeRate > 0 ? lbp / exchangeRate : 0);
+  const payoutBoxValid = (() => {
+    if (!payoutMode) return true;
+    const owed = toUsd(payoutBoxUsd, payoutBoxLbp);
+    const paid = payoutBoxLines.reduce(
+      (sum, l) =>
+        sum +
+        (l.currencyCode === "USD"
+          ? l.amount || 0
+          : l.currencyCode === "LBP"
+            ? toUsd(0, l.amount || 0)
+            : 0),
+      0,
+    );
+    const kept = payoutKept ? toUsd(payoutKept.usd, payoutKept.lbp) : 0;
+    const round = payoutRoundUp
+      ? toUsd(payoutRoundUp.usd, payoutRoundUp.lbp)
+      : 0;
+    return Math.abs(paid + kept - round - owed) <= combinedTolerance;
+  })();
+  // Payout mode has nothing to collect by definition (cash basis), so only
+  // the payout box decides — a stale per-currency override from collect
+  // mode can never leave a phantom charge blocking Confirm.
+  const isPaymentValid = payoutMode
+    ? payoutBoxValid
+    : combinedTotalUSD <= 0 ||
+      paidUSD + waivedUSD + discountUSD >=
+        combinedTotalUSD + extraUSD - combinedTolerance;
   // LIRA-319 — the extra in the basket's currency (owner decision): an
   // LBP-only basket books it in LBP (back from the input's USD at the same
   // operator rate, whole LBP), every other basket in USD (cents).
@@ -1049,11 +1059,17 @@ export function SessionCheckoutModal({
         // USD/LBP — but its cash side is folded into the USD payout bucket
         // (`binanceCashSide`), so it correctly falls through to the USD
         // method below.
+        // LIRA-402: in payout mode a General cash-out was paid through the
+        // payout box — stamp the method its lines in that currency share
+        // (else CASH); an OMT/Whish SYSTEM item keeps its own row's method.
         if (isCashoutItem(item)) {
+          const itemCurrency = item.currency === "LBP" ? "LBP" : "USD";
           updatedFormData.cashoutMethod =
-            item.currency === "LBP"
-              ? resolvedPayoutMethodLbp
-              : resolvedPayoutMethodUsd;
+            payoutMode && !SYSTEM_CASHOUT_MODULES.has(item.module)
+              ? payoutBoxMethodFor(payoutBoxLines, itemCurrency)
+              : itemCurrency === "LBP"
+                ? resolvedPayoutMethodLbp
+                : resolvedPayoutMethodUsd;
         }
 
         return {
@@ -1085,6 +1101,25 @@ export function SessionCheckoutModal({
             ? {
                 kept_change_usd: keptChange.usd,
                 kept_change_lbp: keptChange.lbp,
+              }
+            : {}),
+          // LIRA-402: the payout box's "− Less" (kept change) and "+ Extra"
+          // (round-up), only while the payout box is shown — the same keys
+          // every standalone payout screen sends.
+          ...(payoutMode &&
+          payoutKept &&
+          (payoutKept.usd > 0 || payoutKept.lbp > 0)
+            ? {
+                kept_change_usd: payoutKept.usd,
+                kept_change_lbp: payoutKept.lbp,
+              }
+            : {}),
+          ...(payoutMode &&
+          payoutRoundUp &&
+          (payoutRoundUp.usd > 0 || payoutRoundUp.lbp > 0)
+            ? {
+                rounding_given_usd: payoutRoundUp.usd,
+                rounding_given_lbp: payoutRoundUp.lbp,
               }
             : {}),
           // LIRA-310 Waive: sent next to the kept fields, each only when > 0
@@ -1143,7 +1178,7 @@ export function SessionCheckoutModal({
             method: l.method,
             currency_code: l.currency_code,
             amount: l.amount,
-            direction: l.direction,
+            direction: l.direction ?? "IN",
             ...(l.kind ? { kind: l.kind } : {}),
           })),
           ...(basketExtra.usd > 0 || basketExtra.lbp > 0
@@ -1538,6 +1573,68 @@ export function SessionCheckoutModal({
                   </div>
                 )}
 
+                {/* LIRA-402 — the payout box: the SAME payment box the
+              standalone payout screens use (payer "payout"), for the General
+              money the shop hands out — the payout left after netting plus
+              any exchange payout. Split, both currencies, a method per line,
+              and the "− Less | + Extra" line (kept change / change rounding,
+              $5 / 450,000 LBP cap). */}
+                {payoutMode && (
+                  <div className="space-y-1" data-testid="checkout-payout-box">
+                    {generalChargeUsd + generalChargeLbp > 0 && (
+                      <p className="text-[11px] text-slate-400">
+                        {t("checkout.payoutBoxNettedNote")}
+                      </p>
+                    )}
+                    <MultiPaymentInput
+                      key={`payout-${payoutBoxKey}`}
+                      totals={[
+                        ...(payoutBoxUsd >= 0.01
+                          ? [{ amount: payoutBoxUsd, currency: "USD" }]
+                          : []),
+                        ...(payoutBoxLbp >= 0.5
+                          ? [{ amount: payoutBoxLbp, currency: "LBP" }]
+                          : []),
+                      ]}
+                      side="buy"
+                      currency={payoutBoxCurrency}
+                      totalAmountCurrency={payoutBoxCurrency}
+                      initialLines={[
+                        ...(payoutBoxUsd >= 0.01
+                          ? [
+                              {
+                                method: "CASH",
+                                currencyCode: "USD",
+                                amount: payoutBoxUsd,
+                              },
+                            ]
+                          : []),
+                        ...(payoutBoxLbp >= 0.5
+                          ? [
+                              {
+                                method: "CASH",
+                                currencyCode: "LBP",
+                                amount: payoutBoxLbp,
+                              },
+                            ]
+                          : []),
+                      ]}
+                      initialMethod="CASH"
+                      onChange={setPayoutLines}
+                      onKeptChange={setPayoutKept}
+                      onRoundUpChange={setPayoutRoundUp}
+                      payer="payout"
+                      requiresClientForDebt={true}
+                      hasClient={hasClient}
+                      paymentMethods={payoutMethodChoices}
+                      currencies={currencies}
+                      exchangeRate={exchangeRate}
+                      onRateChange={handleRateChange}
+                      label={t("checkout.payoutBox")}
+                    />
+                  </div>
+                )}
+
                 {goesTo && (
                   <div
                     data-testid="checkout-goes-to"
@@ -1586,17 +1683,21 @@ export function SessionCheckoutModal({
               only the physical excess, if any, still posts as its own leg.
               An OMT/Whish SYSTEM payout, or any non-cash payout, always
               posts here in full, unaffected by that netting. */}
-                {(payoutUsd > 0 || payoutLbp > 0) && (
+                {(rowPayoutUsd > 0 || rowPayoutLbp > 0) && (
                   <div className="bg-slate-800/50 border border-slate-700/40 rounded-lg p-3 space-y-2">
                     <div className="text-xs font-medium text-slate-300">
-                      {t("checkout.payoutToCustomer")}
+                      {payoutMode
+                        ? t("checkout.systemPayoutToCustomer")
+                        : t("checkout.payoutToCustomer")}
                     </div>
-                    {(cashNetEligibleUsd > 0 || cashNetEligibleLbp > 0) && (
-                      <p className="text-[11px] text-slate-400">
-                        {t("checkout.payoutNetNote")}
-                      </p>
-                    )}
-                    {payoutUsd > 0 && (
+                    {!payoutMode &&
+                      hasChargeToCollect &&
+                      (cashNetEligibleUsd > 0 || cashNetEligibleLbp > 0) && (
+                        <p className="text-[11px] text-slate-400">
+                          {t("checkout.payoutNetNote")}
+                        </p>
+                      )}
+                    {rowPayoutUsd > 0 && (
                       <div className="flex items-center justify-between gap-2 text-sm">
                         <span className="text-slate-400 shrink-0">
                           {tc("currency.USD")}
@@ -1608,7 +1709,7 @@ export function SessionCheckoutModal({
                               : "text-amber-400"
                           }`}
                         >
-                          <Ltr>{formatAmount(-payoutUsd, "USD")}</Ltr>
+                          <Ltr>{formatAmount(-rowPayoutUsd, "USD")}</Ltr>
                         </span>
                         <select
                           data-testid="payout-method-select-USD"
@@ -1629,7 +1730,7 @@ export function SessionCheckoutModal({
                         </select>
                       </div>
                     )}
-                    {payoutLbp > 0 && (
+                    {rowPayoutLbp > 0 && (
                       <div className="flex items-center justify-between gap-2 text-sm">
                         <span className="text-slate-400 shrink-0">
                           {tc("currency.LBP")}
@@ -1641,7 +1742,7 @@ export function SessionCheckoutModal({
                               : "text-amber-400"
                           }`}
                         >
-                          <Ltr>{formatAmount(-payoutLbp, "LBP")}</Ltr>
+                          <Ltr>{formatAmount(-rowPayoutLbp, "LBP")}</Ltr>
                         </span>
                         <select
                           data-testid="payout-method-select-LBP"

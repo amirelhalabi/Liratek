@@ -146,6 +146,9 @@
     "payment": "الدفع",
     "goesTo": "يذهب إلى",
     "payoutToCustomer": "الدفع للزبون",
+    "payoutBox": "الدفع للزبون",
+    "payoutBoxNettedNote": "ما يشتريه الزبون في هذه السلة مخصوم مسبقاً مما يستلمه.",
+    "systemPayoutToCustomer": "دفع OMT / Whish (من صندوقه الخاص)",
     "payoutNetNote": "حصة الصندوق العام تُخصم من الدفع أدناه — يُقبض أو يُرَدّ كفكّة الفرق الفعلي فقط.",
     "processing": "جارٍ المعالجة...",
     "confirm": "تأكيد الدفع"

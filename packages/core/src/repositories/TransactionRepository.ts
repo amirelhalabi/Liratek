@@ -2968,6 +2968,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       }
       this._reverseSessionPooledPayments(sessionId, userId);
       this._cancelSessionDebt(sessionId, userId);
+      // LIRA-402, rule 20 — the payout box's "Change rounding" expense is
+      // linked to the session itself (`customer_sessions` / id); the basket's
+      // own reversal is its owner. No-op when there is none.
+      this._voidExpensesLinkedTo("customer_sessions", sessionId, userId);
       return {
         sessionId,
         itemCount: items.length,
@@ -3111,6 +3115,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       }
       this._reverseSessionPooledPayments(sessionId, userId);
       this._cancelSessionDebt(sessionId, userId);
+      // LIRA-402, rule 20 — the payout box's "Change rounding" expense is
+      // linked to the session itself (`customer_sessions` / id); the basket's
+      // own reversal is its owner. No-op when there is none.
+      this._voidExpensesLinkedTo("customer_sessions", sessionId, userId);
       return {
         sessionId,
         itemCount: items.length,

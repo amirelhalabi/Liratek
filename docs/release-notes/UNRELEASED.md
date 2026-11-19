@@ -36,6 +36,11 @@
 
 ## ✨ Highlights
 
+### Pay out a session basket your way
+
+When the shop owes the customer at Session Checkout (for example an exchange plus a Whish App receive), the checkout now shows the same payment box as the other payout screens: split the payout, pay part in dollars and part in lira, choose Cash or another method per line, and use "− Less | + Extra" to keep or add a little (up to $5 / 450,000 LBP). Before, it showed only one Cash choice per currency. OMT and Whish money-transfer payouts keep their own row.
+![Session Checkout for an exchange and a Whish App receive: "Pay out to customer" box split into $200 cash and 845,500 LBP cash, with the − Less | + Extra line](whats-new/1.35.0/session-payout-form.png)
+
 ### Charge a fee for paying by wallet
 
 When a customer pays with Whish, OMT wallet, Binance or another wallet, tap **+ fee** at the end of that payment line and type what you charge for it. The total stays the price; a "Payment method fee" line shows under it and Paid is price plus fee. The fee goes into that wallet's drawer and shows on Profits under Payment Method Fees, by method. Cash lines have no fee button. Works on the POS checkout, MTC/Alfa credit and days, and debt repayments. Refunding the sale gives back the price only; the fee stays yours.
@@ -572,6 +577,8 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 🧺 Customer sessions
 
+- Session checkout: when the shop owes the customer, the payout now has a full payment box: split it, pay in dollars and lira, pick the method per line, and round it up ("+ Extra", booked as change rounding) or pay a little less ("− Less", kept as profit). Before, it showed only one Cash choice per currency.
+- From now on, a session basket with both an OMT or Whish money-transfer receive and an OMT App, Whish App or Binance cash-out pays the transfer from the OMT or Whish drawer in full. Before, part of it was taken from the General drawer.
 - During a customer session, an exchange now waits in the basket like everything else: no cash moves and nothing shows on the Transactions page until the basket is paid. The basket line shows the exchange's own rate, which the checkout's rate does not change. Exchanges recorded in sessions before this change stay as they were.
 - A till or laptop no longer joins another cashier's open customer session by itself, so a sale there stays a normal walk-in sale instead of landing in that customer's basket. Each device goes back to its own open session after a refresh; to work on someone else's, pick it from the Sessions list.
 - Session checkout: you can now give one discount on the whole basket (the "− Discount" side of the line under Total Amount), up to the shop's profit on the basket. It cannot be combined with an extra or a waived amount. The Profits page shows these under a new "Session discounts" line.

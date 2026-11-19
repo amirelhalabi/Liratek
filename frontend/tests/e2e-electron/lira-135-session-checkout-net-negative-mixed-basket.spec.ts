@@ -216,20 +216,20 @@ test.describe("LIRA-135 — session checkout, net-negative mixed basket, driven 
     // render-gate fix — that fix's own guard (`SessionCheckoutModal.
     // paymentGate.test.tsx`) already covers a SYSTEM-payout basket (never
     // netted), which still needs and gets the widget.
-    const paymentWidget = appPage.getByTestId("multi-payment-input");
-    await expect(paymentWidget).not.toBeVisible();
-
-    // The GROSS payout panel still shows the full $100 — payoutUsd is
-    // unaffected by netting, only the leg(s) actually sent are reduced.
-    await expect(appPage.getByText("Payout to customer")).toBeVisible();
+    // LIRA-402 (2026-11-19): nothing is left to COLLECT, but the shop
+    // still owes the $50 excess — the payout box (payer "payout") now
+    // carries it, seeded with one Cash line for $50, instead of the old
+    // per-currency payout select.
+    const payoutBox = appPage.getByTestId("checkout-payout-box");
+    await expect(payoutBox).toBeVisible();
+    await expect(payoutBox.getByTestId("multi-payment-input")).toBeVisible();
 
     const confirmBtn = appPage.getByRole("button", {
       name: "Confirm Checkout",
     });
     await expect(confirmBtn).toBeVisible();
-    // No payment collection is needed (net charge is 0) — Confirm is
-    // enabled with ZERO extra operator interaction, exactly the
-    // untouched-basket contract this modal promises.
+    // The payout box is seeded with the full $50 — Confirm is enabled
+    // with ZERO extra operator interaction.
     await expect(confirmBtn).toBeEnabled({ timeout: 10_000 });
 
     const before = await drawers(appPage);

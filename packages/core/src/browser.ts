@@ -322,6 +322,8 @@ export * from "./utils/omtSmsSettlement.js";
 // LIRA-304 — basket checkout cash split, OMT first: shared by the session
 // checkout "Goes to" preview and SessionPaymentService (pure leaf, rule 29).
 export * from "./utils/sessionCashSplit.js";
+// LIRA-402 — the ONE session checkout leg builder (pure leaf, rule 29).
+export * from "./utils/sessionCheckoutLegs.js";
 
 // Tender exchange-rate sanity band (LIRA-240, owner decision 2026-09-28) —
 // pure constant + pure arithmetic, no Node.js deps. `@liratek/ui`'s

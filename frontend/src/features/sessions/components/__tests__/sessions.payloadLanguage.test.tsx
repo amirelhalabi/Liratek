@@ -105,7 +105,10 @@ jest.mock("@liratek/ui", () => ({
   MultiPaymentInput: (props: Record<string, unknown>) => {
     const totals = (props.totals as StubTotal[]) ?? [];
     const onChange = props.onChange as (lines: StubLine[]) => void;
-    const onReturnChange = props.onReturnChange as (lines: StubLine[]) => void;
+    // LIRA-402: the payout box has no change lines (no onReturnChange).
+    const onReturnChange = props.onReturnChange as
+      | ((lines: StubLine[]) => void)
+      | undefined;
     const apply = () => {
       const usd = totals.find((t) => t.currency === "USD")?.amount ?? 0;
       const lbp = totals.find((t) => t.currency === "LBP")?.amount ?? 0;
@@ -138,7 +141,7 @@ jest.mock("@liratek/ui", () => ({
         });
       }
       onChange(lines);
-      onReturnChange(returns);
+      onReturnChange?.(returns);
     };
     return (
       <button type="button" data-testid="stub-apply-payment" onClick={apply}>
@@ -422,17 +425,18 @@ const CHECKOUT_CASES: CheckoutCase[] = [
     discount: "1",
     expectLeg: { method: "CASH", direction: "IN" },
   },
+  // LIRA-402: a cash-out larger than the charge is paid through the payout
+  // box (its lines carry the method), no longer the per-currency select.
   {
-    name: "Binance cash-out payout routed to Whish wallet",
+    name: "Binance cash-out payout box paid by Whish wallet",
     cart: PAYOUT_CART,
-    mode: "cash",
-    payoutUsd: "WHISH",
+    mode: "wallet",
     expectLeg: { method: "WHISH", direction: "OUT" },
   },
   {
-    name: "Binance cash-out netted against the charge (nothing to collect)",
+    name: "Binance cash-out netted against the charge, payout box in cash",
     cart: PAYOUT_CART,
-    mode: "none",
+    mode: "cash",
     expectLeg: { method: "CASH", direction: "OUT" },
   },
 ];
