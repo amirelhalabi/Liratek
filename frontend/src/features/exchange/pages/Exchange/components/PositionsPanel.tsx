@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { CurrencyRate } from "@liratek/core";
 import { Layers, TrendingUp, TrendingDown, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useApi } from "@liratek/ui";
@@ -6,6 +7,10 @@ import { formatNumber } from "@liratek/ui/i18n/format";
 import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { DirIcon } from "@liratek/ui/components/ui/DirIcon";
 import logger from "@/utils/logger";
+import {
+  fillPositionsMarketFromFeed,
+  type PositionRow,
+} from "../../../utils/positionsMarket";
 
 /**
  * Open exchange-lot positions panel (EXCHANGE_LOT_SETTLEMENT.md Q16) — one
@@ -14,16 +19,13 @@ import logger from "@/utils/logger";
  * rate (when available), and the resulting unrealized P&L. Purely
  * display-only/indicative (Q11) — this NEVER feeds Profits totals, only
  * `getExchangeLotService().getPositions()`'s own read.
+ *
+ * LIRA-404: when the server leaves Market/Unrealized blank (no Settings rate
+ * row — EUR, GBP, CAD …), they are filled from the online feed snapshot the
+ * Exchange page already holds (`fillPositionsMarketFromFeed`). No feed → "—".
  */
 
-interface LotPosition {
-  currency_code: string;
-  open_qty: number;
-  avg_unit_cost_usd: number;
-  lot_count: number;
-  current_market_unit_usd: number | null;
-  unrealized_profit_usd: number | null;
-}
+type LotPosition = PositionRow;
 
 interface PositionsPanelProps {
   /** Bump this whenever the page's exchange history reloads, so open
@@ -32,11 +34,17 @@ interface PositionsPanelProps {
   refreshKey: number;
   /** Opens the History modal pre-filtered to this currency (Q16). */
   onViewCurrency: (currencyCode: string) => void;
+  /** LIRA-404 — the full online feed snapshot (`useExchangeCurrencyList`'s
+   *  `marketRates`); empty while loading or when the feed is unavailable. */
+  marketRates?: CurrencyRate[];
 }
+
+const NO_FEED: CurrencyRate[] = [];
 
 export function PositionsPanel({
   refreshKey,
   onViewCurrency,
+  marketRates = NO_FEED,
 }: PositionsPanelProps) {
   const api = useApi();
   const { t } = useTranslation("exchange");
@@ -70,7 +78,14 @@ export function PositionsPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
 
-  const openPositions = positions.filter((p) => p.open_qty > 0.005);
+  const openPositions = useMemo(
+    () =>
+      fillPositionsMarketFromFeed(
+        positions.filter((p) => p.open_qty > 0.005),
+        marketRates,
+      ),
+    [positions, marketRates],
+  );
 
   return (
     <div className="bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-4">

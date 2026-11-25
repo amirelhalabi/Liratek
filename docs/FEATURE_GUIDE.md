@@ -1168,6 +1168,16 @@ LIRA-305 decisions Y1–Y14). The old "Syria provider on the OMT/Whish page" pla
   differs from the trade's own per-unit value folds `±q·(t − r)` into this exchange's margin —
   there is no separate conversion profit. Guard:
   `ProfitRepository.lira369ExchangePending.test.ts` (with `ExchangeRepository.lira369.test.ts`).
+- **EUR is a feed currency (LIRA-404, v235, owner decision 2026-11-25).** Only LBP has a
+  Settings `exchange_rates` row; EUR, like GBP/CAD, takes its leg rates from the online feed
+  (`EXCLUDED_CURRENCIES` = USD, LBP), buy = sell = market. The write path never needed the row
+  (`addDirectTransaction` on both transports; direct EUR↔USD costs/proceeds come from the two
+  amounts, EUR↔LBP anchors on LBP's row), so open EUR lots and FIFO realized profit are
+  unchanged. Two consequences: an oversold EUR slice now books $0 (`_marketUnitCostUsd` falls
+  back to proceeds), and EUR↔GBP-style crosses skip lot tracking (accepted). The Open
+  Positions market/unrealized are filled from the feed on screen (`fillPositionsMarketFromFeed`,
+  one shared `unrealizedProfitUsd`) — display only, never Profits. Guard:
+  `lira404.eurOnlineRate.test.ts`, `lira-web-107`.
 
 ---
 

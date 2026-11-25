@@ -33,7 +33,11 @@ const ADMIN = 1; // drawer-cashout:create is admin-only
 
 const lbpRate = (sell: number) =>
   `UPDATE exchange_rates SET sell_rate = ${sell}, buy_rate = ${sell - 500}, market_rate = ${sell - 250} WHERE tenant_id = 1 AND to_code = 'LBP';`;
-const eurRate = (market: number) => `UPDATE exchange_rates SET market_rate = ${market} WHERE tenant_id = 1 AND to_code = 'EUR';`;
+// LIRA-404 (v235): a fresh DB has no EUR row any more; this test proves the
+// recorded-rate mechanism for a currency the shop DID configure in Settings,
+// so it configures one itself.
+const eurRate = (market: number) =>
+  `INSERT OR REPLACE INTO exchange_rates (tenant_id, to_code, market_rate, buy_rate, sell_rate, is_stronger) VALUES (1, 'EUR', ${market}, 1.16, 1.2, -1);`;
 const LBP_90 = { sell: 90000, buy: 89500, market: 89750, direction: 1 };
 // the harness records LBP_90; align the server row so createTransaction's
 // market-rate snapshot is the same online and replayed

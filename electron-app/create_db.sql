@@ -503,9 +503,8 @@ CREATE TABLE IF NOT EXISTS exchange_rates (
 INSERT OR IGNORE INTO exchange_rates (tenant_id, to_code, market_rate, buy_rate, sell_rate, is_stronger)
 VALUES (1, 'LBP', 89500, 89000, 90000, 1);
 
--- EUR: 1 EUR = 1.18 USD market, buy 1.16, sell 1.20
-INSERT OR IGNORE INTO exchange_rates (tenant_id, to_code, market_rate, buy_rate, sell_rate, is_stronger)
-VALUES (1, 'EUR', 1.18, 1.16, 1.20, -1);
+-- EUR has no row (v235, LIRA-404): its rate comes from the online feed, like
+-- GBP/CAD. EUR stays a currency and a drawer currency.
 
 -- =============================================================================
 -- 2. Business Entity Tables
@@ -3395,4 +3394,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- v233 (LIRA-400) adds payments.fee_amount, declared above.
     (233, 'payments_fee_amount'),
     -- v234 (LIRA-403) adds maintenance.partner_mode / partner_id, declared above.
-    (234, 'maintenance_partner_mode');
+    (234, 'maintenance_partner_mode'),
+    -- v235 (LIRA-404): no EUR exchange_rates row (removed from the seed above).
+    (235, 'eur_rate_from_feed');

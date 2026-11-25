@@ -8935,3 +8935,16 @@ Needs: a dry-run mode that lists what it would delete; a guard test that a live 
 **Open questions for the owner (spec.md):** Via owes labour cost only (not parts); For Partner transaction labelled with the partner; no discount at For delivery; Via with cost 0 books nothing; a refunded For job is not re-billed by a resave.
 
 **What users will notice:** on Maintenance, a repair can be For Partner (tap Deliver to partner — the partner owes the full price, nothing collected) or Via Partner (the customer pays as usual and you owe the partner the repair cost).
+
+## LIRA-404: Euro rate from the online feed — BUILT 2026-11-25 (not committed)
+
+**Ask (CornerTech; owner decisions 2026-11-25):** stop typing the euro rate. EUR is treated like GBP/CAD/AUD: its rate comes from the online feed the Exchange page already uses (buy = sell = market, $0 spread unless the cashier types a custom rate). Remove EUR from Settings → Currencies & Rates for existing and new shops; LBP stays typed. EUR stays a currency/drawer currency. Open euro lots and their cost untouched. Open Positions fills Market/Unrealized from the feed for every foreign currency (display only). Cross between two feed currencies (EUR → GBP) stays without lot tracking (accepted).
+
+**Built (spec `specs/404-eur-online-rate/`, audit table in spec.md):** migration **v235** `eur_rate_from_feed` deletes every EUR `exchange_rates` row (down re-seeds the old default); `create_db.sql` and `TenantRepository.seedExchangeRates` no longer seed EUR. `EXCLUDED_CURRENCIES` = USD, LBP; EUR first in the feed list. Shared `unrealizedProfitUsd` in `utils/lotMarketRate.ts` (server positions + panel); `fillPositionsMarketFromFeed` fills null rows on the Exchange page's Open Positions. No write-path change: both transports already use `addDirectTransaction`; the lot engine never needed the EUR row.
+
+**Tests:** core `lira404.eurOnlineRate` (7; 4 proven failing-first, 3 characterization) + `lotMarketRate.unrealized` (failing-first); offline drawer fixtures updated (EUR top-up carries the feed hint like the real screen); frontend `positionsMarket`, `PositionsPanel.feedMarket`, `liveExchangeRates.eurFeed` (failing-first, details in tasks.md); web e2e `lira-web-107` (mocked feed; also takes the What's new screenshot) + `022`/`026`/`089` green. Desktop `lira-142`/`146` not run (no Electron on this Mac) — they pick EUR on screen and may now need a feed mock.
+
+**Open questions for the owner (spec.md):** test covers both readings of "sell"; oversold euros now book $0 on the uncovered part (as GBP); an admin can still re-add an EUR row by hand (it would win over the feed); rollback restores the default rate only.
+
+**What users will notice:** the euro is exchanged at the online market rate (no rate to type in Settings), and Open Positions shows today's market value and gain/loss for every foreign currency held.
+

@@ -23,9 +23,12 @@ export const FIXTURES: readonly BindingFixture[] = [
     payload: { amount_usd: 500, amount_lbp: 1000000, notes: "fixture float" },
   },
   {
-    // EUR into General → an exchange lot costed at the shop's EUR market rate
+    // EUR into General → an exchange lot. LIRA-404 (v235): EUR has no
+    // Settings rate row any more, so — like the real top-up screen, which
+    // attaches the online feed's rate for a feed currency — the payload
+    // carries the feed hint as the lot's cost basis.
     channel: "drawer-topup:create",
-    payload: { amount_usd: 0, amount_lbp: 0, extra_currencies: [{ currency_code: "EUR", amount: 100 }], notes: "EUR float" },
+    payload: { amount_usd: 0, amount_lbp: 0, extra_currencies: [{ currency_code: "EUR", amount: 100, market_usd_per_unit_hint: 1.18 }], notes: "EUR float" },
   },
   {
     channel: "drawer-topup:create-from-drawer",

@@ -22,13 +22,12 @@ import {
  * `options` is the merge of:
  *  - "locally configured, feed-excluded" active currencies — i.e. codes in
  *    `EXCLUDED_CURRENCIES` (the set the live feed deliberately omits because
- *    they're managed in Settings instead) other than USD/LBP. Today that is
- *    exactly EUR — behavior-identical to the Exchange page's previous
- *    hardcoded `code === "EUR"` lookup, but keyed off the SAME constant the
- *    feed itself uses to decide what to leave out (rule 14 — one source, not
- *    a second EUR literal).
+ *    they're managed in Settings instead) other than USD/LBP. Since LIRA-404
+ *    (EUR moved to the feed) this is empty in production; it stays keyed off
+ *    the SAME constant the feed uses (rule 14) so a future locally-typed
+ *    currency needs no change here.
  *  - every currency the live FX feed carries (`liveCurrencyRates` — already
- *    excludes USD/LBP/EUR, see `liveExchangeRates.ts`).
+ *    excludes USD/LBP, see `liveExchangeRates.ts`; EUR first).
  *
  * USD and LBP are never in `options` — both callers give them a dedicated,
  * always-visible slot instead (Exchange's `fixedCodes` buttons; the top-up
@@ -50,7 +49,7 @@ export interface UseExchangeCurrencyListResult {
   /** Configured (feed-excluded) currencies + the live feed, merged. Never
    *  includes USD/LBP. */
   options: ExchangeCurrencyOption[];
-  /** Raw live-feed rates (USD/LBP/EUR excluded) — feeds exchange-rate math. */
+  /** Raw live-feed rates (USD/LBP excluded) — feeds exchange-rate math. */
   liveCurrencyRates: CurrencyRate[];
   /** Full feed (LBP/EUR included) for the market-reference panel. */
   marketRates: CurrencyRate[];

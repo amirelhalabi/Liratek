@@ -19,9 +19,13 @@ const API_URL = "https://open.er-api.com/v6/latest/USD";
  * locally-configured rather than feed-sourced" — `useExchangeCurrencyList`
  * (the shared Exchange-page/DrawerTopUpModal currency-picker hook) reads
  * this same set to decide which configured currencies to surface alongside
- * the feed, instead of re-hardcoding "EUR" a second time.
+ * the feed.
+ *
+ * LIRA-404 (2026-11-25): EUR left this set — the euro now takes its rate
+ * from the feed like GBP/CAD (buy = sell = market; the cashier can still
+ * type a custom rate on the leg). Only LBP stays a typed Settings rate.
  */
-export const EXCLUDED_CURRENCIES = new Set(["USD", "LBP", "EUR"]);
+export const EXCLUDED_CURRENCIES = new Set(["USD", "LBP"]);
 
 export interface LiveRateResponse {
   result: string;
@@ -35,11 +39,10 @@ export interface LiveRateResponse {
 /**
  * One fetch of the feed, with the provenance needed to display it honestly.
  *
- * `rates` keeps the historical filtering (USD/LBP/EUR removed — those are
- * locally configured and the currency selector adds them itself), so existing
- * callers are unaffected. `marketRates` is the full set minus USD, for the
- * market-reference panel: seeing the market's LBP and EUR next to the shop's
- * own configured rates is the point of that panel.
+ * `rates` keeps the historical filtering (USD/LBP removed — LBP is locally
+ * configured and USD is the base), so existing callers are unaffected.
+ * `marketRates` is the full set minus USD, for the market-reference panel
+ * and the Open Positions market fill (LIRA-404).
  */
 export interface LiveRatesSnapshot {
   /** Untouched `rates` map from the response (1 USD = X units). */
@@ -146,7 +149,7 @@ export async function fetchLiveRates(): Promise<Record<string, number>> {
  *   is_stronger = +1, rate = units per 1 USD = apiRate
  *
  * Since these are mid-market rates, buy_rate = sell_rate = market_rate
- * (no spread — the spread comes from EUR's settings config).
+ * (no spread — the cashier can type a custom rate on the leg).
  */
 export function apiRateToCurrencyRate(
   code: string,
@@ -174,8 +177,19 @@ export function apiRateToCurrencyRate(
   }
 }
 
-/** Common currencies first, then alphabetical. */
-const PRIORITY_CODES = ["GBP", "CAD", "AUD", "CHF", "JPY", "AED", "SAR", "TRY"];
+/** Common currencies first, then alphabetical. EUR leads (LIRA-404): it was
+ *  the first non-LBP currency in the picker while it came from Settings. */
+const PRIORITY_CODES = [
+  "EUR",
+  "GBP",
+  "CAD",
+  "AUD",
+  "CHF",
+  "JPY",
+  "AED",
+  "SAR",
+  "TRY",
+];
 
 function sortByPriority(list: CurrencyRate[]): CurrencyRate[] {
   return list.sort((a, b) => {
@@ -248,7 +262,7 @@ export async function fetchLiveRatesSnapshot(): Promise<LiveRatesSnapshot> {
 
 /**
  * Fetch live rates and convert to CurrencyRate[] for the exchange calculator.
- * Excludes USD, LBP, and EUR (those come from local settings).
+ * Excludes USD and LBP (LBP comes from local settings).
  */
 export async function fetchLiveCurrencyRates(): Promise<CurrencyRate[]> {
   return (await fetchLiveRatesSnapshot()).rates;

@@ -36,6 +36,11 @@
 
 ## ✨ Highlights
 
+### Euro at the online rate
+
+The euro now takes its rate from the online market rate on the Exchange page, like the pound, the Canadian dollar and the others, instead of a rate typed in Settings. You exchange it at the market rate with no spread, unless you type your own rate on the line. Euros you already hold keep what you paid for them, and selling them still shows the right profit. The **Open Positions** box now also shows today's market value and the gain or loss on hand for every foreign currency you hold, the euro included.
+![Exchange page: the Rates list shows EUR at 1.2500 from the market, and Open Positions shows 300 EUR held at an average of $1.1500 with a market of $1.2500 and +$30.00 unrealized](whats-new/1.35.0/eur-positions-market.png)
+
 ### Repairs for a partner, or done by a partner
 
 The Maintenance page now has the same **Customer | For Partner | Via Partner** switch as Services. **For Partner**: the repair is done for a partner — pick the partner and tap **Deliver to partner**; nothing is collected and the full price goes on the partner's account, settled later on the Partners page. Its profit counts on the Profits page as the partner pays. **Via Partner**: an outside technician does the repair — the customer pays you as usual at checkout, and you owe the partner the repair cost (not the parts, which come from your stock). For Partner is hidden during a customer session. Refunding the job takes everything back.
@@ -284,6 +289,9 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 - The payment window now opens for every exchange, whatever the currency, including euros and others. Before, it opened only when you paid out dollars or LBP.
 - You can now put part of an exchange on the customer's account in either direction: what they pay you, or what you give them. This works in any currency. An amount in a currency other than dollars or LBP is booked on the account in dollars, at the rate you type in the payment window, and the account entry keeps the original amount and that rate.
 - An exchange the customer still owes for now waits until they pay before its profit counts on the Profits page. This also applies to earlier exchanges put on an account.
+- The euro now uses the online market rate, like the other foreign currencies, with no spread unless you type your own rate. Without internet, the euro (like the pound) can't be picked on the Exchange page until the market rate loads; a euro top-up of the General drawer then needs the rate typed in.
+- Selling more euros than the shop has on record: the part you didn't have now counts no profit (as for the pound), since there is no typed euro rate to value it at.
+- Open Positions now shows the market value and the gain or loss on hand for every foreign currency you hold, taken from the online rate. It is for information only and never changes the Profits page.
 
 ## ➕ Extra charges
 
@@ -495,6 +503,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## ⚙️ Settings
 
+- Currencies & Rates no longer has a euro rate: from now on the euro comes from the online market rate on the Exchange page. The LBP rate stays here. Euros still count in your drawers and checkpoints as before.
 - Product suppliers: a supplier that still has products or a balance can no longer be deleted by mistake (which used to leave its debt behind). You are offered to merge it into another supplier instead.
 - Settings → Users now lists admin users too, so an admin account can be seen, deactivated or given a new password there.
 - Reset Data: if the list of what will be removed can't load, you now see why, with a Retry button. If it takes long, a Retry button appears too. Before, "Reset All Data" just stayed greyed out.

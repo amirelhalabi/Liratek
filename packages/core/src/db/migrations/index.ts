@@ -15495,6 +15495,30 @@ DROP TABLE IF EXISTS omt_owed_shares;`);
       }
     },
   },
+  {
+    version: 235,
+    name: "eur_rate_from_feed",
+    description:
+      "LIRA-404: the euro takes its rate from the online feed (like GBP/CAD), " +
+      "not Settings. Deletes every exchange_rates row with to_code = 'EUR' " +
+      "(all tenants). EUR stays a currency and a drawer currency; open EUR " +
+      "lots keep their own unit_cost_usd. Down re-inserts the old default " +
+      "(1.18 / 1.16 / 1.20, stronger) for every tenant that has EUR as a " +
+      "currency — a custom rate typed before is not recoverable.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "exchange_rates")) return;
+      db.exec(`DELETE FROM exchange_rates WHERE to_code = 'EUR'`);
+    },
+    down(db: Database.Database) {
+      if (!tableExists(db, "exchange_rates")) return;
+      if (!tableExists(db, "currencies")) return;
+      db.exec(
+        `INSERT OR IGNORE INTO exchange_rates (tenant_id, to_code, market_rate, buy_rate, sell_rate, is_stronger)
+         SELECT tenant_id, 'EUR', 1.18, 1.16, 1.2, -1 FROM currencies WHERE code = 'EUR'`,
+      );
+    },
+  },
 ];
 
 /** v210 — offline_review_items.kind's original 14 values (frozen). */

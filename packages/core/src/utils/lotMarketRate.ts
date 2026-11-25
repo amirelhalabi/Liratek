@@ -44,6 +44,23 @@ export function marketRateToUsdPerUnit(
 }
 
 /**
+ * LIRA-404 — the ONE indicative unrealized-P&L formula for an open lot
+ * position (Q11): open quantity × (today's market USD per unit − weighted
+ * average cost), rounded to the cent. Used by
+ * `ExchangeLotService.getPositions` (server-side, when a Settings rate row
+ * exists) AND by the Open Positions panel (filling from the online feed when
+ * the server left it blank), so the two can never disagree (rule 14).
+ * Display only — never fed into Profits, never saved.
+ */
+export function unrealizedProfitUsd(
+  openQty: number,
+  marketUnitUsd: number,
+  avgUnitCostUsd: number,
+): number {
+  return Math.round(openQty * (marketUnitUsd - avgUnitCostUsd) * 100) / 100;
+}
+
+/**
  * Whether a CROSS pair (both sides non-USD) has a USD anchor to route its
  * internal "from -> USD -> to" passthrough through — mirrors
  * `ExchangeRepository._crossUsdNotional`'s availability logic EXACTLY

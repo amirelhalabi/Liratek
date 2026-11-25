@@ -949,7 +949,9 @@ export class TenantRepository {
       VALUES (?, ?, ?, ?, ?, ?)
     `);
     stmt.run(tenantId, "LBP", 89500, 89000, 90000, 1);
-    stmt.run(tenantId, "EUR", 1.18, 1.16, 1.2, -1);
+    // LIRA-404 (v235): no EUR row — the euro's rate comes from the online
+    // feed like GBP/CAD. EUR stays a currency (seedCurrencies) with its
+    // currency modules; only the Settings rate is gone.
   }
 
   private seedProductCategories(tenantId: number): void {

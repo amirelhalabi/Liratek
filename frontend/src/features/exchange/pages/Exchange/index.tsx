@@ -2355,6 +2355,7 @@ export default function Exchange() {
             that currency. */}
           <PositionsPanel
             refreshKey={positionsRefreshKey}
+            marketRates={marketRates}
             onViewCurrency={(code) => {
               setHistoryCurrencyFilter(code);
               setShowHistoryModal(true);

@@ -38,6 +38,7 @@ import { isLotTrackedCurrency } from "../constants/index.js";
 import {
   marketRateToUsdPerUnit,
   crossPairHasUsdAnchor,
+  unrealizedProfitUsd,
 } from "../utils/lotMarketRate.js";
 import { toErrorString } from "../utils/errors.js";
 import { exchangeLogger } from "../utils/logger.js";
@@ -240,14 +241,16 @@ export class ExchangeLotService {
           rate.market_rate,
           rate.is_stronger,
         );
-        const unrealizedProfitUsd = roundMoney(
-          position.open_qty *
-            (currentMarketUnitUsd - position.avg_unit_cost_usd),
-        );
         return {
           ...position,
           current_market_unit_usd: currentMarketUnitUsd,
-          unrealized_profit_usd: unrealizedProfitUsd,
+          // LIRA-404: the shared formula — the Open Positions panel uses the
+          // same one when it fills a blank row from the online feed.
+          unrealized_profit_usd: unrealizedProfitUsd(
+            position.open_qty,
+            currentMarketUnitUsd,
+            position.avg_unit_cost_usd,
+          ),
         };
       });
     } catch (error) {
@@ -302,14 +305,6 @@ export class ExchangeLotService {
       return { success: false, error: toErrorString(error) };
     }
   }
-}
-
-/** Round a USD amount to the cent — same tolerance `ExchangeLotRepository`
- *  applies to every settlement's `profit_usd`; the unrealized figure here is
- *  indicative display math, not a persisted settlement, so it gets its own
- *  small copy rather than importing a private repository helper. */
-function roundMoney(amount: number): number {
-  return Math.round(amount * 100) / 100;
 }
 
 // =============================================================================
