@@ -22,7 +22,12 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { KeyRound, RefreshCw, CheckCircle2, AlertTriangle } from "lucide-react";
+import { RefreshCw, CheckCircle2, AlertTriangle } from "lucide-react";
+import {
+  SETTINGS_FORM_WIDTH,
+  SETTINGS_LABEL,
+  SETTINGS_PRIMARY_BUTTON,
+} from "./settingsUi";
 import { useTranslation } from "react-i18next";
 import { isElectron } from "@/api/backendApi";
 import logger from "@/utils/logger";
@@ -138,17 +143,7 @@ export default function LicensePanel() {
   const modules = sub?.entitledModules;
 
   return (
-    <div className="max-w-2xl space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-          <KeyRound className="w-4 h-4 text-violet-400" />
-          {t("license.title")}
-        </h2>
-        <p className="text-sm text-slate-400 mt-1">
-          {t("license.intro")}
-        </p>
-      </div>
-
+    <div className={`${SETTINGS_FORM_WIDTH} space-y-6`}>
       {/* Current state */}
       <div className="bg-slate-900 rounded-lg border border-slate-700 p-4 space-y-2">
         <Row
@@ -194,7 +189,7 @@ export default function LicensePanel() {
 
       {/* Enter / replace the key */}
       <div className="space-y-2">
-        <label className="text-xs text-slate-400 block" htmlFor="license-key">
+        <label className={SETTINGS_LABEL} htmlFor="license-key">
           {state?.hasLicenseKey ? t("license.replace") : t("license.key")}
         </label>
         <div className="flex gap-2">
@@ -212,7 +207,7 @@ export default function LicensePanel() {
             onClick={save}
             disabled={busy}
             data-testid="license-save"
-            className="px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-medium rounded-lg transition-colors"
+            className={SETTINGS_PRIMARY_BUTTON}
           >
             {t("common:actions.save")}
           </button>
@@ -221,7 +216,7 @@ export default function LicensePanel() {
             disabled={busy}
             data-testid="license-check"
             title={t("license.checkTitle")}
-            className="px-3 py-2 bg-slate-700 hover:bg-slate-600 disabled:text-slate-500 text-white text-sm rounded-lg transition-colors flex items-center gap-1"
+            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:text-slate-500 text-white text-sm font-semibold rounded-lg transition-colors flex items-center gap-1"
           >
             <RefreshCw className={`w-4 h-4 ${busy ? "animate-spin" : ""}`} />
             {t("license.checkNow")}

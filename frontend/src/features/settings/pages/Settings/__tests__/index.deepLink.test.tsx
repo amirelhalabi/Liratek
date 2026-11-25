@@ -119,8 +119,11 @@ describe("Settings — ?tab= deep link", () => {
       render(<Settings />);
       expect(screen.queryByText("Diagnostics")).not.toBeInTheDocument();
       expect(screen.queryByText("Licence")).not.toBeInTheDocument();
-      // Sanity check the rest of the tab bar is unaffected.
-      expect(screen.getByText("Shop Config")).toBeInTheDocument();
+      // Sanity check the rest of the tab bar is unaffected. (By role: the
+      // active tab's title is also shown as the section heading.)
+      expect(
+        screen.getByRole("button", { name: "Shop Config" }),
+      ).toBeInTheDocument();
     });
 
     it("falls back to Shop Config for ?tab=diagnostics instead of mounting Diagnostics", () => {
@@ -155,7 +158,9 @@ describe("Settings — ?tab= deep link", () => {
       (window as any).api = {};
       mockSearchParams = new URLSearchParams({ tab: "devices" });
       render(<Settings />);
-      expect(screen.getByText("Signed-in Devices")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Signed-in Devices" }),
+      ).toBeInTheDocument();
       expect(screen.getByTestId("panel-devices")).toBeInTheDocument();
     });
   });

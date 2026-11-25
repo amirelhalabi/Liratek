@@ -12,6 +12,7 @@ import { useApi, Select } from "@liratek/ui";
 import type { PaymentMethodEntity } from "@liratek/ui";
 import { BrandedLabel } from "@/shared/components/BrandedLabel";
 import { paymentMethodLabel } from "../../paymentMethodLabel";
+import { SettingsSectionHeading, SETTINGS_PRIMARY_BUTTON } from "./settingsUi";
 
 interface FormData {
   code: string;
@@ -157,18 +158,16 @@ export default function PaymentMethodsManager() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <div>
-          <h3 className="text-white font-semibold">
-            {t("paymentMethods.title")}
-          </h3>
-          <p className="text-slate-400 text-sm">
+          <SettingsSectionHeading>{t("paymentMethods.title")}</SettingsSectionHeading>
+          <p className="mt-1 text-slate-400 text-sm">
             {t("paymentMethods.intro")}
           </p>
         </div>
         <button
           onClick={openCreate}
-          className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded text-sm"
+          className={`shrink-0 ${SETTINGS_PRIMARY_BUTTON}`}
         >
           {t("paymentMethods.add")}
         </button>

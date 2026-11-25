@@ -31,6 +31,7 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { useFormat } from "@/i18n/useFormat";
 import logger from "@/utils/logger";
 import { browserTzOffsetMin, isoToLocalInput, localInputToUtcIso } from "./restoreTime";
+import { SettingsSectionHeading } from "./settingsUi";
 
 /** Shown long enough to be read before the sign-out takes the page away. */
 const SIGN_OUT_AFTER_MS = 4_000;
@@ -250,8 +251,8 @@ export default function ShopRestorePanel() {
   return (
     <div className="space-y-4 border-t border-slate-700 pt-6">
       <div>
-        <h2 className="text-lg font-semibold text-white">{t("restore.title")}</h2>
-        <p className="text-sm text-slate-400">{t("restore.intro")}</p>
+        <SettingsSectionHeading>{t("restore.title")}</SettingsSectionHeading>
+        <p className="mt-1 text-sm text-slate-400">{t("restore.intro")}</p>
       </div>
 
       {error && (
@@ -303,7 +304,7 @@ export default function ShopRestorePanel() {
       {points && (
         <section className="space-y-2">
           <h3 className="text-sm font-semibold text-slate-200">{t("restore.timeTitle")}</h3>
-          <label htmlFor="restore-time" className="text-xs text-slate-400 block">
+          <label htmlFor="restore-time" className="text-sm text-slate-400 block">
             {t("restore.timeLabel")}
           </label>
           <div className="flex flex-wrap items-center gap-2">
@@ -338,7 +339,7 @@ export default function ShopRestorePanel() {
       {points && (
         <section className="space-y-2">
           <h3 className="text-sm font-semibold text-slate-200">{t("restore.fileTitle")}</h3>
-          <label htmlFor="restore-file" className="text-xs text-slate-400 block">
+          <label htmlFor="restore-file" className="text-sm text-slate-400 block">
             {t("restore.fileLabel")}
           </label>
           <input

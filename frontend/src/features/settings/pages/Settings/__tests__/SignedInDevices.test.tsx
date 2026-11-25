@@ -121,6 +121,23 @@ describe("SignedInDevices — real error messages reach the screen", () => {
     ).toBeInTheDocument();
   });
 
+  // In Settings the shell's section header shows this sentence
+  // (Settings.sectionHeader.test.tsx), so the panel must not repeat it.
+  it("showIntro={false} leaves the sentence to the Settings header", async () => {
+    listUserSessions.mockResolvedValue([CURRENT, OTHER]);
+
+    render(<SignedInDevices showIntro={false} />);
+
+    expect(
+      await screen.findByRole("button", { name: "Sign out everywhere else" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "Review your active sessions. Sign out of devices you no longer use. To sign out this device, use its Sign out button.",
+      ),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows the server's reason when loading the list fails, not the generic fallback", async () => {
     listUserSessions.mockRejectedValue(apiThrow("Session store unreachable"));
 

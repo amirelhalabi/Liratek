@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import logger from "@/utils/logger";
 import { appEvents, useApi, DecimalInput, Select } from "@liratek/ui";
-import { Printer, Wallet } from "lucide-react";
 import clsx from "clsx";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { invalidateShopInfo } from "@/hooks/useShopName";
@@ -17,6 +16,12 @@ import {
 } from "@liratek/core";
 import { useTranslation } from "react-i18next";
 import { isArabicAvailable } from "@/i18n/arabicGate";
+import {
+  SettingsSectionHeading,
+  SETTINGS_FORM_WIDTH,
+  SETTINGS_PRIMARY_BUTTON,
+  SETTINGS_SECONDARY_BUTTON,
+} from "./settingsUi";
 
 /**
  * LIRA-331: the two language selects are shown only when the OD-4 gate allows
@@ -296,7 +301,7 @@ export default function ShopConfig() {
     );
 
   return (
-    <div className="space-y-6">
+    <div className={`space-y-6 ${SETTINGS_FORM_WIDTH}`}>
       <div>
         <label
           htmlFor="shop-name"
@@ -491,14 +496,14 @@ export default function ShopConfig() {
       </div>
 
       <div className="pt-6 border-t border-slate-700">
-        <span className="flex items-center gap-2 block text-sm text-slate-400 mb-4">
-          <Wallet size={16} /> {t("shop.alfaTitle")}
-        </span>
+        <div className="mb-4">
+          <SettingsSectionHeading>{t("shop.alfaTitle")}</SettingsSectionHeading>
+        </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label
               htmlFor="alfa-credit-cost"
-              className="block text-xs text-slate-400 mb-1.5"
+              className="block text-sm text-slate-400 mb-2"
             >
               {t("shop.alfaCost")}
             </label>
@@ -515,7 +520,7 @@ export default function ShopConfig() {
           <div>
             <label
               htmlFor="alfa-credit-sell"
-              className="block text-xs text-slate-400 mb-1.5"
+              className="block text-sm text-slate-400 mb-2"
             >
               {t("shop.alfaSell")}
             </label>
@@ -533,13 +538,13 @@ export default function ShopConfig() {
       </div>
 
       <div className="pt-6 border-t border-slate-700">
-        <span className="flex items-center gap-2 block text-sm text-slate-400 mb-4">
-          <Wallet size={16} /> {t("shop.marginTitle")}
-        </span>
+        <div className="mb-4">
+          <SettingsSectionHeading>{t("shop.marginTitle")}</SettingsSectionHeading>
+        </div>
         <div className="max-w-xs">
           <label
             htmlFor="margin-alert-threshold"
-            className="block text-xs text-slate-400 mb-1.5"
+            className="block text-sm text-slate-400 mb-2"
           >
             {t("shop.marginLabel")}
           </label>
@@ -556,9 +561,9 @@ export default function ShopConfig() {
       </div>
 
       <div className="pt-6 border-t border-slate-700">
-        <span className="flex items-center gap-2 block text-sm text-slate-400 mb-4">
-          <Printer size={16} /> {t("shop.printTitle")}
-        </span>
+        <div className="mb-4">
+          <SettingsSectionHeading>{t("shop.printTitle")}</SettingsSectionHeading>
+        </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm text-slate-400 mb-2">
@@ -604,10 +609,8 @@ export default function ShopConfig() {
       </div>
 
       {/* Feature Toggles */}
-      <div className="space-y-4">
-        <span className="block text-sm text-slate-400">
-          {t("shop.features")}
-        </span>
+      <div className="pt-6 border-t border-slate-700 space-y-4">
+        <SettingsSectionHeading>{t("shop.features")}</SettingsSectionHeading>
 
         <label className="flex items-center justify-between cursor-pointer group">
           <div>
@@ -735,18 +738,19 @@ export default function ShopConfig() {
         </label>
       </div>
 
-      <div className="flex gap-2 justify-end">
+      <div className="flex gap-2">
         <button
           onClick={load}
           disabled={isSaving}
-          className="px-4 py-2 rounded bg-slate-700 text-white"
+          className={SETTINGS_SECONDARY_BUTTON}
         >
           {t("shop.reset")}
         </button>
         <button
           onClick={save}
           disabled={isSaving}
-          className="px-4 py-2 rounded bg-violet-600 hover:bg-violet-500 text-white"
+          data-testid="shop-config-save"
+          className={SETTINGS_PRIMARY_BUTTON}
         >
           {isSaving ? t("shop.saving") : t("shop.save")}
         </button>

@@ -6,6 +6,7 @@ import { formatNumber } from "@liratek/ui/i18n/format";
 import type { DatabaseResetPreview } from "@liratek/core";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { ResetDataModal } from "./ResetDataModal";
+import { SettingsSectionHeading, SETTINGS_DANGER_BUTTON, SETTINGS_FORM_WIDTH } from "./settingsUi";
 
 /**
  * Settings › Reset Data (LIRA-165). No extra role gate here — the whole
@@ -237,7 +238,10 @@ export function ResetDataPanel() {
   const groups = preview ? groupCounts(preview.counts) : [];
 
   return (
-    <div data-testid="reset-data-panel" className="space-y-6 max-w-2xl">
+    <div
+      data-testid="reset-data-panel"
+      className={`space-y-6 ${SETTINGS_FORM_WIDTH}`}
+    >
       <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/30 flex gap-3">
         <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
         <p className="text-sm text-red-200">
@@ -246,9 +250,9 @@ export function ResetDataPanel() {
       </div>
 
       <div data-testid="reset-data-keeps">
-        <h3 className="text-sm font-semibold text-white mb-2">
-          {t("reset.keepsTitle")}
-        </h3>
+        <div className="mb-2">
+          <SettingsSectionHeading>{t("reset.keepsTitle")}</SettingsSectionHeading>
+        </div>
         <ul className="text-sm text-slate-400 list-disc list-inside space-y-1">
           <li>{t("reset.keeps.users")}</li>
           <li>{t("reset.keeps.shop")}</li>
@@ -266,9 +270,9 @@ export function ResetDataPanel() {
       </div>
 
       <div data-testid="reset-data-deletes">
-        <h3 className="text-sm font-semibold text-white mb-2">
-          {t("reset.deletesTitle")}
-        </h3>
+        <div className="mb-2">
+          <SettingsSectionHeading>{t("reset.deletesTitle")}</SettingsSectionHeading>
+        </div>
         <ul className="text-sm text-slate-400 list-disc list-inside space-y-1">
           <li>{t("reset.deletes.transactions")}</li>
           <li>{t("reset.deletes.closings")}</li>
@@ -283,9 +287,9 @@ export function ResetDataPanel() {
       </div>
 
       <div>
-        <h3 className="text-sm font-semibold text-white mb-2">
-          {t("reset.previewTitle")}
-        </h3>
+        <div className="mb-2">
+          <SettingsSectionHeading>{t("reset.previewTitle")}</SettingsSectionHeading>
+        </div>
         {loading ? (
           <div className="text-sm text-slate-400">
             {t("reset.loadingPreview")}
@@ -365,7 +369,7 @@ export function ResetDataPanel() {
         data-testid="reset-data-open-modal-btn"
         onClick={() => setModalOpen(true)}
         disabled={loading || !!error}
-        className="px-4 py-2.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold transition-colors"
+        className={SETTINGS_DANGER_BUTTON}
       >
         {t("reset.resetAll")}
       </button>

@@ -12,6 +12,7 @@ import {
   FileBox,
   CheckCircle,
 } from "lucide-react";
+import { SettingsSectionHeading } from "./settingsUi";
 
 interface ReleaseAsset {
   name: string;
@@ -271,7 +272,7 @@ export default function UpdatesPanel() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-white font-semibold">{t("updates.title")}</h3>
+        <SettingsSectionHeading>{t("updates.title")}</SettingsSectionHeading>
         <button
           onClick={check}
           disabled={loading}

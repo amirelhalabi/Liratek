@@ -36,6 +36,11 @@
 
 ## ✨ Highlights
 
+### Settings grouped in a side menu
+
+Settings now lists its sections in a menu down the left, grouped under Shop, Catalogue, People, Devices and Data & system, instead of one long row of tabs that ran off the screen. Every section is still there; click one to open it. Each section now opens with the same title and short explanation, and the forms and buttons look the same everywhere.
+![Settings page with the side menu on the left: Shop (Shop Config, Modules & Drawers, Currencies & Rates, Notifications, Integrations), Catalogue, People, Devices and Data & system, with Currencies & Rates open on the right](whats-new/1.35.0/settings-side-menu.png)
+
 ### Euro at the online rate
 
 The euro now takes its rate from the online market rate on the Exchange page, like the pound, the Canadian dollar and the others, instead of a rate typed in Settings. You exchange it at the market rate with no spread, unless you type your own rate on the line. Euros you already hold keep what you paid for them, and selling them still shows the right profit. The **Open Positions** box now also shows today's market value and the gain or loss on hand for every foreign currency you hold, the euro included.
@@ -503,6 +508,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## ⚙️ Settings
 
+- Settings sections are now grouped in a menu on the left (Shop, Catalogue, People, Devices, Data & system) instead of one long row of tabs, and every section now has the same title, layout and buttons.
 - Currencies & Rates no longer has a euro rate: from now on the euro comes from the online market rate on the Exchange page. The LBP rate stays here. Euros still count in your drawers and checkpoints as before.
 - Product suppliers: a supplier that still has products or a balance can no longer be deleted by mistake (which used to leave its debt behind). You are offered to merge it into another supplier instead.
 - Settings → Users now lists admin users too, so an admin account can be seen, deactivated or given a new password there.

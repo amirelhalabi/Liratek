@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import { categoryLabel } from "@/features/inventory/categoryLabel";
-import { Plus, Pencil, Trash2, Check, X, Tag, Truck } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, X } from "lucide-react";
 import { DataTable, useApi } from "@liratek/ui";
 import {
   serialLabelFor,
@@ -12,6 +12,7 @@ import {
 } from "@liratek/core";
 import type { ProductSupplierImpact } from "@/api/backendApi";
 import { MergeSupplierDialog } from "./MergeSupplierDialog";
+import { SettingsSectionHeading } from "./settingsUi";
 
 interface Category {
   id: number;
@@ -368,10 +369,9 @@ export default function CategoriesManager() {
       {/* ── Categories Section ──────────────────────────────────────── */}
       <div className="space-y-4">
         <div className="flex items-center gap-2">
-          <Tag size={16} className="text-violet-400" />
-          <span className="text-sm font-semibold text-white">
+          <SettingsSectionHeading>
             {t("categories.title")}
-          </span>
+          </SettingsSectionHeading>
           <span className="text-xs text-slate-500 ms-1">
             {t("categories.count", { count: categories.length })}
           </span>
@@ -647,10 +647,9 @@ export default function CategoriesManager() {
       {/* ── Product Suppliers Section ───────────────────────────────── */}
       <div className="space-y-4">
         <div className="flex items-center gap-2">
-          <Truck size={16} className="text-sky-400" />
-          <span className="text-sm font-semibold text-white">
+          <SettingsSectionHeading>
             {t("suppliers.title")}
-          </span>
+          </SettingsSectionHeading>
           <span className="text-xs text-slate-500 ms-1">
             {t("suppliers.count", { count: suppliers.length })}
           </span>

@@ -2,6 +2,13 @@ import { useEffect, useState } from "react";
 import { appEvents, useApi } from "@liratek/ui";
 import { useTranslation } from "react-i18next";
 import { normalizeDigits } from "@liratek/ui/i18n/digits";
+import {
+  SETTINGS_FORM_WIDTH,
+  SETTINGS_INPUT,
+  SETTINGS_LABEL,
+  SETTINGS_PRIMARY_BUTTON,
+  SETTINGS_SECONDARY_BUTTON,
+} from "./settingsUi";
 
 export default function NotificationsConfig() {
   const { t } = useTranslation(["settings", "common"]);
@@ -49,12 +56,9 @@ export default function NotificationsConfig() {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <label
-          htmlFor="notifications-poll-interval"
-          className="text-slate-300 text-sm"
-        >
+    <div className={`space-y-4 ${SETTINGS_FORM_WIDTH}`}>
+      <div>
+        <label htmlFor="notifications-poll-interval" className={SETTINGS_LABEL}>
           {t("notifications.pollInterval")}
         </label>
         <input
@@ -62,10 +66,10 @@ export default function NotificationsConfig() {
           inputMode="numeric"
           value={pollMs}
           onChange={(e) => setPollMs(normalizeDigits(e.target.value))}
-          className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white w-40"
+          className={`${SETTINGS_INPUT} max-w-xs`}
         />
       </div>
-      <label className="flex items-center gap-2 text-slate-300 text-sm">
+      <label className="flex items-center gap-2 text-slate-400 text-sm">
         <input
           type="checkbox"
           checked={warnLow}
@@ -74,14 +78,15 @@ export default function NotificationsConfig() {
         {t("notifications.lowStock")}
       </label>
 
-      <div className="flex gap-2 justify-end">
-        <button onClick={load} className="px-3 py-2 bg-slate-700 rounded">
+      <div className="flex gap-2">
+        <button onClick={load} className={SETTINGS_SECONDARY_BUTTON}>
           {t("notifications.reset")}
         </button>
         <button
           onClick={save}
           disabled={saving}
-          className="px-3 py-2 bg-violet-600 rounded text-white"
+          data-testid="notifications-save"
+          className={SETTINGS_PRIMARY_BUTTON}
         >
           {saving ? t("common:state.saving") : t("common:actions.save")}
         </button>

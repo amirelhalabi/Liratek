@@ -10,6 +10,7 @@ import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import AdjustStockModal, {
   type AdjustableProduct,
 } from "@/features/inventory/components/AdjustStockModal";
+import { SettingsSectionHeading } from "./settingsUi";
 
 /**
  * Diagnostics — desktop maintenance tools: DB integrity checks, local file
@@ -439,7 +440,7 @@ export default function Diagnostics() {
           </div>
         )}
         <div className="flex items-center justify-between">
-          <h3 className="text-white font-semibold">{t("diag.fkTitle")}</h3>
+          <SettingsSectionHeading>{t("diag.fkTitle")}</SettingsSectionHeading>
           <button
             onClick={runForeignKeyCheck}
             disabled={fkCheckLoading}
@@ -459,7 +460,7 @@ export default function Diagnostics() {
       {/* Negative Stock (oversold products needing reconciliation) */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-white font-semibold">{t("diag.negTitle")}</h3>
+          <SettingsSectionHeading>{t("diag.negTitle")}</SettingsSectionHeading>
           <button
             onClick={checkNegativeStock}
             disabled={negStockLoading}
@@ -528,9 +529,9 @@ export default function Diagnostics() {
       {/* Backups */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-white font-semibold">
+          <SettingsSectionHeading>
             {t("diag.backupsTitle")}
-          </h3>
+          </SettingsSectionHeading>
           <button
             onClick={backupNow}
             disabled={backupLoading}
@@ -724,7 +725,7 @@ export default function Diagnostics() {
 
       {/* Sync Errors */}
       <div className="space-y-4">
-        <h3 className="text-white font-semibold">{t("diag.syncTitle")}</h3>
+        <SettingsSectionHeading>{t("diag.syncTitle")}</SettingsSectionHeading>
         <div className="border border-slate-700 rounded overflow-hidden">
           <table className="w-full text-start">
             <thead className="bg-slate-900 text-slate-400 text-xs uppercase">

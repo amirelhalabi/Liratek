@@ -17,6 +17,11 @@ import {
   moduleOwningDrawer,
   drawersOwnedByModule,
 } from "@liratek/core";
+import {
+  SettingsSectionHeading,
+  SETTINGS_PRIMARY_BUTTON,
+  SETTINGS_SECONDARY_BUTTON,
+} from "./settingsUi";
 
 interface ModuleRow {
   key: string;
@@ -426,48 +431,47 @@ export default function ModulesManager() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-slate-400 text-sm">
-          {t("modules.intro")}
-        </p>
-        {selectedKey && (
-          <div className="flex items-center gap-1">
-            <button
-              onClick={moveUpDisplay}
-              disabled={saving}
-              className="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white text-sm disabled:opacity-40"
-              title={t("modules.moveUp")}
-            >
-              ↑
-            </button>
-            <button
-              onClick={moveDownDisplay}
-              disabled={saving}
-              className="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white text-sm disabled:opacity-40"
-              title={t("modules.moveDown")}
-            >
-              ↓
-            </button>
-            <button
-              onClick={() => setSelectedKey(null)}
-              className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs ms-1"
-            >
-              {t("modules.deselect")}
-            </button>
-            {saving && (
-              <span className="text-xs text-slate-500 ms-2">
-                {t("modules.saving")}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
       <div className="border border-slate-700 rounded-lg overflow-hidden">
         <ExportBar
           exportExcel
           exportPdf
           exportFilename="modules"
           tableRef={tableRef}
+          // Reorder controls for the selected row, in the table's own
+          // toolbar so selecting a row does not move the table.
+          headerActions={
+            selectedKey && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={moveUpDisplay}
+                  disabled={saving}
+                  className="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white text-sm disabled:opacity-40"
+                  title={t("modules.moveUp")}
+                >
+                  ↑
+                </button>
+                <button
+                  onClick={moveDownDisplay}
+                  disabled={saving}
+                  className="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white text-sm disabled:opacity-40"
+                  title={t("modules.moveDown")}
+                >
+                  ↓
+                </button>
+                <button
+                  onClick={() => setSelectedKey(null)}
+                  className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs ms-1"
+                >
+                  {t("modules.deselect")}
+                </button>
+                {saving && (
+                  <span className="text-xs text-slate-500 ms-2">
+                    {t("modules.saving")}
+                  </span>
+                )}
+              </div>
+            )
+          }
           rowCount={modules.length + providerCurrencies.length}
         />
         <table ref={tableRef} className="w-full text-sm text-start">
@@ -700,10 +704,10 @@ export default function ModulesManager() {
       {/* Drawers Section */}
       <div className="mt-8 pt-6 border-t border-slate-700 space-y-3">
         <div>
-          <h3 className="text-white font-semibold">
+          <SettingsSectionHeading>
             {t("modules.drawersTitle")}
-          </h3>
-          <p className="text-slate-400 text-sm">
+          </SettingsSectionHeading>
+          <p className="mt-1 text-slate-400 text-sm">
             {t("modules.drawersIntro")}
           </p>
         </div>
@@ -810,8 +814,8 @@ function DrawerLimitsSection() {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-white font-semibold">{t("limits.title")}</h3>
-        <p className="text-slate-400 text-sm">
+        <SettingsSectionHeading>{t("limits.title")}</SettingsSectionHeading>
+        <p className="mt-1 text-slate-400 text-sm">
           {t("limits.intro")}
         </p>
       </div>
@@ -845,18 +849,18 @@ function DrawerLimitsSection() {
           />
         </div>
       </div>
-      <div className="flex gap-2 justify-end">
+      <div className="flex gap-2">
         <button
           onClick={load}
           disabled={isSaving}
-          className="px-3 py-1.5 rounded bg-slate-700 text-white text-sm"
+          className={SETTINGS_SECONDARY_BUTTON}
         >
           {t("limits.reset")}
         </button>
         <button
           onClick={save}
           disabled={isSaving}
-          className="px-3 py-1.5 rounded bg-violet-600 hover:bg-violet-500 text-white text-sm"
+          className={SETTINGS_PRIMARY_BUTTON}
         >
           {isSaving ? t("limits.saving") : t("limits.save")}
         </button>

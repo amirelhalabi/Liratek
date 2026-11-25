@@ -76,13 +76,6 @@ export default function PairedPcsPanel() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold text-white">{t("pairedPcs.title")}</h2>
-        <p className="text-sm text-slate-400">
-          {t("pairedPcs.intro")}
-        </p>
-      </div>
-
       {error && (
         <div role="alert" className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">
           {error}

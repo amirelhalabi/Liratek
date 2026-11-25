@@ -16,6 +16,7 @@ import { isElectron } from "@/api/backendApi";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import logger from "@/utils/logger";
 import { backupStamp } from "./backupStamp";
+import { SettingsSectionHeading, SETTINGS_PRIMARY_BUTTON } from "./settingsUi";
 
 const REVOKE_AFTER_MS = 10_000;
 
@@ -60,8 +61,8 @@ export default function ShopBackupPanel() {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-lg font-semibold text-white">{t("backup.title")}</h2>
-        <p className="text-sm text-slate-400">{t("backup.intro")}</p>
+        <SettingsSectionHeading>{t("backup.title")}</SettingsSectionHeading>
+        <p className="mt-1 text-sm text-slate-400">{t("backup.intro")}</p>
       </div>
 
       {error && (
@@ -74,7 +75,7 @@ export default function ShopBackupPanel() {
         type="button"
         disabled={busy}
         onClick={() => void download()}
-        className="px-3 py-1.5 rounded-lg bg-violet-600 text-white text-sm disabled:opacity-50"
+        className={SETTINGS_PRIMARY_BUTTON}
       >
         {busy ? t("backup.preparing") : t("backup.download")}
       </button>

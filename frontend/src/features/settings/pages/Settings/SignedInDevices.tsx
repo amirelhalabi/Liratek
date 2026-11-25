@@ -36,6 +36,7 @@ import {
   groupSessionsByUser,
   isStale,
 } from "./devicesFormat";
+import { SETTINGS_DANGER_BUTTON } from "./settingsUi";
 
 /** `device_type` values are internal ("electron" | "web" | "mobile" |
  * "unknown" | "impersonation") — map them to the label an operator reads. */
@@ -57,7 +58,14 @@ const DATE_TIME = {
   second: "2-digit",
 } as const;
 
-export default function SignedInDevices() {
+/**
+ * `showIntro` — the sentence above the list. Settings passes `false` because
+ * its shell already shows it (one header per section); My account keeps the
+ * default.
+ */
+export default function SignedInDevices({
+  showIntro = true,
+}: { showIntro?: boolean } = {}) {
   const { t } = useTranslation("settings");
   const { formatDateTime } = useFormat();
   const deviceLabel = (session: SafeSession): string =>
@@ -183,12 +191,18 @@ export default function SignedInDevices() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-slate-400 text-sm">{t("devices.intro")}</p>
+      <div
+        className={
+          showIntro ? "flex items-center justify-between gap-3" : undefined
+        }
+      >
+        {showIntro && (
+          <p className="text-slate-400 text-sm">{t("devices.intro")}</p>
+        )}
         <button
           onClick={handleRevokeOthers}
           disabled={revokingOthers || otherSessionsCount === 0}
-          className="shrink-0 px-3 py-1.5 rounded bg-red-600/80 hover:bg-red-600 disabled:opacity-40 disabled:hover:bg-red-600/80 text-white text-sm transition-colors"
+          className={`shrink-0 ${SETTINGS_DANGER_BUTTON}`}
         >
           {revokingOthers
             ? t("devices.signingOut")

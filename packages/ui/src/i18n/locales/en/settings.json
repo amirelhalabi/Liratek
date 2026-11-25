@@ -89,7 +89,6 @@
     "saveFailed": "Failed to save settings.",
     "sent": "Message sent! ID: {{id}}",
     "unknownError": "Unknown error",
-    "title": "Integrations",
     "intro": "Configure external service integrations for WhatsApp messaging.",
     "accessToken": "Access Token",
     "accessTokenPlaceholder": "Enter access token from Meta Developer dashboard...",
@@ -110,7 +109,6 @@
     "saveFailed": "Could not save the key",
     "checked": "Checked",
     "checkFailed": "Check failed",
-    "title": "Licence",
     "intro": "Enter the key LiraTek gave you. Everything keeps working without one — a key is what lets your plan be managed remotely.",
     "key": "Licence key",
     "keySet": "Set",
@@ -216,7 +214,6 @@
     "unpairFailed": "Could not unpair the PC",
     "renumberFailed": "Could not ask the PC to renumber",
     "actionFailed": "The action failed",
-    "title": "Paired PCs",
     "intro": "Desktop PCs that keep a copy of the shop and can keep working when the internet is down.",
     "confirmUnpair": "Unpair {{name}}? It will need to be paired again by an admin. Work it already sent is still booked.",
     "confirmRenumber": "Renumber the unsent work of {{name}}? The next time it connects, it gives its waiting items new numbers after the last one the server has, and sends them again. Nothing is booked twice.",
@@ -280,6 +277,25 @@
     "license": "Licence",
     "backup": "Backup",
     "reset": "Reset Data"
+  },
+  "groups": {
+    "shop": "Shop",
+    "catalogue": "Catalogue",
+    "people": "People",
+    "devices": "Devices",
+    "data": "Data & system"
+  },
+  "sectionIntro": {
+    "shop": "Your shop's name and contact details, receipts, printers and the options that apply to the whole shop.",
+    "categories": "Group your products into categories and keep the list of suppliers you buy from.",
+    "notifications": "Choose how often the app checks for alerts and which warnings it shows.",
+    "currencies": "Set exchange rates, the currencies your shop uses and the drawers that hold each one.",
+    "users": "Add staff accounts and choose each person's role.",
+    "thisPc": "Pair this computer with your shop so it can keep working when the internet is down.",
+    "diagnostics": "Check the database for problems, manage backups on this computer and see app updates.",
+    "mobileServices": "The recharge cards, bundles and services you sell, with their cost and selling price.",
+    "backup": "Download a copy of your shop's data, or put the shop back as it was at an earlier time.",
+    "reset": "Clear all sales and records to start again with an empty shop. Your setup is kept."
   },
   "google": {
     "result": {

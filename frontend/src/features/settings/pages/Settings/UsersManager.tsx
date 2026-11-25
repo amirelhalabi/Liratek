@@ -25,6 +25,7 @@ import {
   adminRemoveUserGoogle,
   type AccountRouteResult,
 } from "@/api/backendApi";
+import { SettingsSectionHeading, SETTINGS_PRIMARY_BUTTON } from "./settingsUi";
 
 /**
  * User creation used to fail completely silently on the web transport: no
@@ -467,7 +468,7 @@ export default function UsersManager() {
             <button
               onClick={createUser}
               disabled={creating}
-              className="px-3 py-1 bg-violet-600 rounded text-white disabled:opacity-50"
+              className={`shrink-0 ${SETTINGS_PRIMARY_BUTTON}`}
             >
               {creating ? t("users.creating") : t("users.create")}
             </button>
@@ -476,7 +477,7 @@ export default function UsersManager() {
               data-testid="invite-submit"
               onClick={inviteByEmail}
               disabled={inviting || !emailConfigured}
-              className="px-3 py-1 bg-violet-600 rounded text-white disabled:opacity-50 whitespace-nowrap"
+              className={`shrink-0 whitespace-nowrap ${SETTINGS_PRIMARY_BUTTON}`}
             >
               {inviting ? t("users.sending") : t("users.sendInvite")}
             </button>
@@ -678,9 +679,9 @@ export default function UsersManager() {
 
       {web && visibleInvites.length > 0 && (
         <div className="space-y-2">
-          <h3 className="text-sm font-semibold text-slate-300">
+          <SettingsSectionHeading>
             {t("users.invitations")}
-          </h3>
+          </SettingsSectionHeading>
           <div className="border border-slate-700 rounded-lg overflow-hidden">
             <DataTable
               columns={[

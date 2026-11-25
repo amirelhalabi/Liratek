@@ -72,11 +72,10 @@ async function runFlow(): Promise<Array<[string, string]>> {
     .querySelectorAll("div.relative.w-10.h-5")
     .forEach((toggle) => fireEvent.click(toggle));
 
-  // The save button is the last button on the page's button row.
-  const pageRoot = byId("shop-name").closest(".space-y-6") as HTMLElement;
-  const rows = pageRoot.querySelectorAll(":scope > div.flex.gap-2.justify-end");
-  const buttons = rows[rows.length - 1]!.querySelectorAll("button");
-  fireEvent.click(buttons[buttons.length - 1]!);
+  // The page's Save button (found by test id: the same in both languages).
+  fireEvent.click(
+    document.querySelector('[data-testid="shop-config-save"]')!,
+  );
   await waitFor(() => expect(mockApi.updateSetting).toHaveBeenCalled());
 
   const calls = mockApi.updateSetting.mock.calls.map(

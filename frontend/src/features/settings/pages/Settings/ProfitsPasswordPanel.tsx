@@ -2,6 +2,12 @@ import { useEffect, useState } from "react";
 import { appEvents, useApi } from "@liratek/ui";
 import { PROFITS_PASSWORD_MIN_LENGTH } from "@liratek/core";
 import { useTranslation } from "react-i18next";
+import {
+  SETTINGS_FORM_WIDTH,
+  SETTINGS_INPUT,
+  SETTINGS_LABEL,
+  SETTINGS_PRIMARY_BUTTON,
+} from "./settingsUi";
 
 /**
  * Settings › Profits Password (PROFITS_GATE_CONTRACT.md). Only an admin
@@ -76,11 +82,10 @@ export default function ProfitsPasswordPanel() {
   }
 
   return (
-    <div data-testid="profits-password-panel" className="space-y-4 max-w-md">
-      <p className="text-sm text-slate-400">
-        {t("profitsPassword.intro")}
-      </p>
-
+    <div
+      data-testid="profits-password-panel"
+      className={`space-y-4 ${SETTINGS_FORM_WIDTH}`}
+    >
       <div
         data-testid="profits-password-status"
         className="text-sm text-slate-300"
@@ -101,7 +106,7 @@ export default function ProfitsPasswordPanel() {
       )}
 
       <div>
-        <label className="text-xs text-slate-400 block mb-1">
+        <label className={SETTINGS_LABEL}>
           {t("profitsPassword.new")}
         </label>
         <input
@@ -109,12 +114,12 @@ export default function ProfitsPasswordPanel() {
           data-testid="profits-password-new"
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
-          className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+          className={SETTINGS_INPUT}
         />
       </div>
 
       <div>
-        <label className="text-xs text-slate-400 block mb-1">
+        <label className={SETTINGS_LABEL}>
           {t("profitsPassword.confirm")}
         </label>
         <input
@@ -122,7 +127,7 @@ export default function ProfitsPasswordPanel() {
           data-testid="profits-password-confirm"
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
-          className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+          className={SETTINGS_INPUT}
         />
       </div>
 
@@ -130,7 +135,7 @@ export default function ProfitsPasswordPanel() {
         onClick={handleSave}
         disabled={saving}
         data-testid="profits-password-save"
-        className="w-full py-3 bg-violet-600 hover:bg-violet-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold rounded-lg transition-colors"
+        className={SETTINGS_PRIMARY_BUTTON}
       >
         {saving ? t("common:state.saving") : t("profitsPassword.save")}
       </button>

@@ -18,6 +18,7 @@ import { useIdempotencyKey } from "@/shared/hooks/useIdempotencyKey";
 import type { CarrierLineEntity } from "@liratek/ui";
 import { SHOP_LINE_EXPIRY_WARNING_DAYS } from "@liratek/core";
 import { LineStatusChip } from "@/features/phoneLines/components/LineStatusChip";
+import { SETTINGS_PRIMARY_BUTTON } from "./settingsUi";
 
 interface FormData {
   carrier: "alfa" | "mtc";
@@ -37,7 +38,14 @@ const EMPTY_FORM: FormData = {
   notes: "",
 };
 
-export default function CarrierLinesManager() {
+/**
+ * `showIntro` — the title and intro above the table. Settings passes `false`
+ * because its shell already shows them (one header per section); the Phone
+ * Lines page keeps the default.
+ */
+export default function CarrierLinesManager({
+  showIntro = true,
+}: { showIntro?: boolean } = {}) {
   const api = useApi();
   const { t } = useTranslation(["settings", "common"]);
   const [lines, setLines] = useState<CarrierLineEntity[]>([]);
@@ -174,16 +182,22 @@ export default function CarrierLinesManager() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-white font-semibold">
-            {t("carrierLines.title")}
-          </h3>
-          <p className="text-slate-400 text-sm">{t("carrierLines.intro")}</p>
-        </div>
+      <div
+        className={
+          showIntro ? "flex items-center justify-between gap-4" : undefined
+        }
+      >
+        {showIntro && (
+          <div>
+            <h3 className="text-white font-semibold">
+              {t("carrierLines.title")}
+            </h3>
+            <p className="text-slate-400 text-sm">{t("carrierLines.intro")}</p>
+          </div>
+        )}
         <button
           onClick={openCreate}
-          className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded text-sm"
+          className={`shrink-0 ${SETTINGS_PRIMARY_BUTTON}`}
         >
           {t("carrierLines.add")}
         </button>

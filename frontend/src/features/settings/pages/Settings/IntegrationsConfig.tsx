@@ -1,9 +1,16 @@
 import { useState, useEffect } from "react";
-import { Lock, Save, Send, CheckCircle, AlertCircle } from "lucide-react";
+import { Save, Send, CheckCircle, AlertCircle } from "lucide-react";
 import logger from "@/utils/logger";
 import { useApi } from "@liratek/ui";
 import PasswordInput from "@/shared/components/PasswordInput";
 import { useTranslation } from "react-i18next";
+import {
+  SettingsSectionHeading,
+  SETTINGS_FORM_WIDTH,
+  SETTINGS_INPUT,
+  SETTINGS_LABEL,
+  SETTINGS_PRIMARY_BUTTON,
+} from "./settingsUi";
 
 export default function IntegrationsConfig() {
   const { t } = useTranslation(["settings", "common"]);
@@ -99,40 +106,32 @@ export default function IntegrationsConfig() {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold text-white flex items-center gap-2">
-          <Lock size={20} className="text-amber-500" />
-          {t("integrations.title")}
-        </h2>
-        <p className="text-sm text-slate-400 mt-1">
-          {t("integrations.intro")}
-        </p>
-      </div>
-
-      <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-4">
-        <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
+    <div className={`space-y-8 ${SETTINGS_FORM_WIDTH}`}>
+      <div className="space-y-4">
+        <SettingsSectionHeading>
           {t("integrations.whatsappCloud")}
-        </h3>
+        </SettingsSectionHeading>
 
         <PasswordInput
           value={whatsAppApiKey}
           onChange={setWhatsAppApiKey}
           label={t("integrations.accessToken")}
           placeholder={t("integrations.accessTokenPlaceholder")}
+          labelClassName={SETTINGS_LABEL}
+          inputClassName={SETTINGS_INPUT}
         />
 
         <div>
           <label
             htmlFor="whatsAppPhoneNumberId"
-            className="block text-sm font-medium text-slate-400 mb-2"
+            className={SETTINGS_LABEL}
           >
             {t("integrations.phoneNumberId")}
           </label>
           <input
             type="text"
             id="whatsAppPhoneNumberId"
-            className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 transition-colors"
+            className={SETTINGS_INPUT}
             value={whatsAppPhoneNumberId}
             onChange={(e) => setWhatsAppPhoneNumberId(e.target.value)}
             placeholder={t("integrations.phoneNumberIdPlaceholder")}
@@ -144,22 +143,20 @@ export default function IntegrationsConfig() {
       </div>
 
       {/* Test section */}
-      <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-4">
-        <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
-          {t("integrations.test")}
-        </h3>
+      <div className="space-y-4">
+        <SettingsSectionHeading>{t("integrations.test")}</SettingsSectionHeading>
         <div className="flex items-end gap-3">
           <div className="flex-1">
             <label
               htmlFor="testPhone"
-              className="block text-sm font-medium text-slate-400 mb-2"
+              className={SETTINGS_LABEL}
             >
               {t("integrations.recipient")}
             </label>
             <input
               type="text"
               id="testPhone"
-              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 transition-colors"
+              className={SETTINGS_INPUT}
               value={testPhone}
               onChange={(e) => setTestPhone(e.target.value)}
               placeholder={t("integrations.recipientPlaceholder")}
@@ -168,7 +165,7 @@ export default function IntegrationsConfig() {
           <button
             onClick={handleTestMessage}
             disabled={isTesting || !whatsAppApiKey || !whatsAppPhoneNumberId}
-            className="flex items-center gap-2 px-5 py-3 rounded-lg font-bold bg-green-600 hover:bg-green-500 text-white shadow-lg active:scale-[0.98] transition-all disabled:bg-slate-600 disabled:cursor-not-allowed whitespace-nowrap"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-green-600 hover:bg-green-500 text-white transition-colors disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed whitespace-nowrap"
           >
             <Send size={16} />
             {isTesting ? t("integrations.sending") : t("integrations.sendTest")}
@@ -193,13 +190,13 @@ export default function IntegrationsConfig() {
         )}
       </div>
 
-      <div className="flex justify-end">
+      <div>
         <button
           onClick={handleSave}
           disabled={isSaving}
-          className="flex items-center gap-2 px-6 py-3 rounded-lg font-bold bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-900/20 active:scale-[0.98] transition-all disabled:bg-slate-600 disabled:cursor-not-allowed"
+          className={`inline-flex items-center gap-2 ${SETTINGS_PRIMARY_BUTTON}`}
         >
-          <Save size={18} />
+          <Save size={16} />
           {isSaving ? t("common:state.saving") : t("common:actions.save")}
         </button>
       </div>

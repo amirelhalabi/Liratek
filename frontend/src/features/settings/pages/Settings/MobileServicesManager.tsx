@@ -39,6 +39,7 @@ import {
   isValidMaxReturnedOverride,
   MAX_RETURNED_OVERRIDE_HEADROOM_USD,
 } from "@liratek/core";
+import { SettingsSectionHeading } from "./settingsUi";
 
 /** Tenant setting key for the resale table's reference sell price (LBP per
  *  $1 of resold credit). Seeded per-tenant by migration v141/`TenantRepository`;
@@ -690,9 +691,7 @@ export default function MobileServicesManager() {
       {/* ── Header ──────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-white">
-            {t("mobile.title")}
-          </span>
+          <SettingsSectionHeading>{t("mobile.title")}</SettingsSectionHeading>
           <span className="text-xs text-slate-500 ms-1">
             {t("mobile.counts", { active: activeCount, total: totalCount })}
           </span>

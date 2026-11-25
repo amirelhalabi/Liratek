@@ -92,7 +92,8 @@ describe("Settings — offline tabs", () => {
     (window as any).api = {};
     mockSearchParams = new URLSearchParams({ tab: "this-pc" });
     render(<Settings />);
-    expect(screen.getByText("This PC")).toBeInTheDocument();
+    // By role: the active tab's title is also the section heading.
+    expect(screen.getByRole("button", { name: "This PC" })).toBeInTheDocument();
     expect(screen.getByTestId("panel-this-pc")).toBeInTheDocument();
     expect(screen.queryByText("Paired PCs")).not.toBeInTheDocument();
   });

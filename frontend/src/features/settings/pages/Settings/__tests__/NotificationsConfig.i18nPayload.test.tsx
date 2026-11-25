@@ -9,7 +9,7 @@
  * passed "٣٠٠٠٠" straight to Number(), which is NaN, so the save was refused.
  * Not proven failing-first.
  */
-import { render, fireEvent, waitFor } from "@testing-library/react";
+import { render, fireEvent, screen, waitFor } from "@testing-library/react";
 import { i18n, loadLanguage } from "@/i18n/setup";
 import NotificationsConfig from "../NotificationsConfig";
 
@@ -36,8 +36,7 @@ async function runFlow(interval: string) {
   await waitFor(() => expect(field.value).toBe("60000"));
   fireEvent.change(field, { target: { value: interval } });
   fireEvent.click(container.querySelector('input[type="checkbox"]')!);
-  const buttons = container.querySelectorAll(".justify-end button");
-  fireEvent.click(buttons[buttons.length - 1]!);
+  fireEvent.click(screen.getByTestId("notifications-save"));
   await waitFor(() => expect(mockApi.updateSetting).toHaveBeenCalledTimes(2));
   const calls = mockApi.updateSetting.mock.calls.map((c) => [...c]);
   unmount();
