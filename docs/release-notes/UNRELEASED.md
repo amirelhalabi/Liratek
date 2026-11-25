@@ -501,6 +501,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 🧾 Expenses
 
+- Using an item from stock: the search now lists iPick and Whish App items even when many Katsh items match, and typing "iPick" or "Whish" shows only that provider's items.
 - When you use an MTC or Alfa card from iPick, Katsh or Whish App, a "Wrong number" tick records it as a card sent to the wrong number, so the credits sent back can be entered later from the Transactions page.
 - From now on, when a POS sale or a repair checkout hands back change in Lebanese pounds rounded up to the next 5,000 note, the extra is recorded as a small "Change rounding" expense, so your profits match the cash in the drawer. Example: a $26 sale paid with 2,400,000 LBP at 89,000 owes 86,000 LBP of change; you hand back 90,000, and the 4,000 LBP extra shows on the Expenses page. The drawer is not changed a second time. Voiding or refunding the sale removes the expense. On the Transactions page it shows only when you filter for Expenses.
 

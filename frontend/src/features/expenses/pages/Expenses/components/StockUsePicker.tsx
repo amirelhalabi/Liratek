@@ -123,9 +123,20 @@ export function StockUsePicker({
         currency: "USD" as const,
         stock: Number(p.stock_quantity ?? 0),
       }));
-    const catalogPicks = catalog
-      .filter((c) => c.name.toLowerCase().includes(q))
-      .slice(0, MAX_PER_GROUP);
+    // The cap is per provider: one provider with many matches (Katsh lists
+    // first) must never crowd the others out. A provider's own name also
+    // matches, so typing "ipick" or "whish" lists that provider's items.
+    const perSource = new Map<StockExpenseSource, number>();
+    const catalogPicks = catalog.filter((c) => {
+      const hit =
+        c.name.toLowerCase().includes(q) ||
+        c.sourceLabel.toLowerCase().includes(q);
+      if (!hit) return false;
+      const seen = perSource.get(c.source) ?? 0;
+      if (seen >= MAX_PER_GROUP) return false;
+      perSource.set(c.source, seen + 1);
+      return true;
+    });
     return [...productPicks, ...catalogPicks];
   };
 

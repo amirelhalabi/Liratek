@@ -135,6 +135,37 @@ describe("Expenses — use an item from the shop's own stock (LIRA-262)", () => 
     expect(mockGetProducts).toHaveBeenCalledWith("60");
   });
 
+  it("many Katsh matches never crowd out iPick / Whish App items (cap is per provider)", async () => {
+    // 20 Katsh MTC cards come first in the catalog — more than one page.
+    mockGetActiveMobileServiceItems.mockResolvedValue([
+      ...Array.from({ length: 20 }, (_, i) =>
+        catalogItem(100 + i, "Katsh", "MTC", "Cards", `Katsh card ${i}`, 90000),
+      ),
+      catalogItem(200, "iPick", "MTC", "Cards", "iPick card", 90000),
+      catalogItem(201, "WHISH_APP", "MTC", "Cards", "Whish card", 90000),
+    ]);
+    mockGetProducts.mockResolvedValue([]);
+    render(<Expenses />);
+    await waitFor(() => expect(mockGetTodayExpenses).toHaveBeenCalledTimes(1));
+
+    await searchFor("mtc");
+
+    expect(await screen.findByText("MTC · Cards · iPick card")).toBeInTheDocument();
+    expect(screen.getByText("MTC · Cards · Whish card")).toBeInTheDocument();
+  });
+
+  it("typing a provider name lists that provider's items", async () => {
+    render(<Expenses />);
+    await waitFor(() => expect(mockGetTodayExpenses).toHaveBeenCalledTimes(1));
+
+    await searchFor("ipick");
+
+    expect(
+      await screen.findByText("Gaming · Free Fire · 60 Diamonds"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Gaming · PUBG · 60 UC")).not.toBeInTheDocument();
+  });
+
   it("picking a Katsh item sends one KATSH stock-use payload with the quantity — no amount, no cash expense", async () => {
     render(<Expenses />);
     await waitFor(() => expect(mockGetTodayExpenses).toHaveBeenCalledTimes(1));
