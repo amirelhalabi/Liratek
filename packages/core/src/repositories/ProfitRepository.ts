@@ -527,11 +527,11 @@ export interface CustomServiceDetailRow {
 
 /**
  * LIRA-233 — per-job drill-down under the MAINTENANCE By Module row. Mirrors
- * {@link ProfitRepository.getMaintenanceTotals} minus the `SUM` — that
- * totals query applies NO partner weighting at all (confirmed by reading
- * it), so this row carries no partner fields; `debt_pending` (exposed as a
- * column, not a hard WHERE, same "expose don't apply" shape as
- * {@link RechargeDetailRow}) is the only reason a row is ever not counted.
+ * {@link ProfitRepository.getMaintenanceTotals} minus the `SUM`. Since
+ * LIRA-403 that totals query weights a For-Partner repair by its partner
+ * coverage, so the row carries `has_partner_obligation` /
+ * `partner_coverage_ratio` (exposed, not applied — same shape as
+ * {@link CustomServiceDetailRow}) next to `debt_pending`.
  * `parts_revenue_usd`/`parts_cost_usd` let the service reproduce
  * `ProfitByModule`'s own parts/labour split per row (rule 14 — same
  * derivation, `ProfitService.getByModule`'s MAINTENANCE push).
@@ -549,6 +549,9 @@ export interface MaintenanceDetailRow {
   profit_lbp: number;
   parts_revenue_usd: number;
   parts_cost_usd: number;
+  /** LIRA-403 — For-Partner repairs (FOR_MAINTENANCE rows). */
+  has_partner_obligation: 0 | 1;
+  partner_coverage_ratio: number;
   debt_pending: 0 | 1;
 }
 
@@ -5856,15 +5859,15 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     return this.db
       .prepare(
         `SELECT
-          COALESCE(SUM(m.final_amount_usd), 0) AS revenue_usd,
-          COALESCE(SUM(m.final_amount_lbp), 0) AS revenue_lbp,
-          COALESCE(SUM(${maintenanceCostUsd("m")}), 0) AS cost_usd,
-          COALESCE(SUM(m.cost_lbp), 0) AS cost_lbp,
-          COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
-          COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp,
-          COUNT(*) AS count,
-          COALESCE(SUM(m.parts_price_usd), 0) AS parts_revenue_usd,
-          COALESCE(SUM(m.parts_cost_usd), 0) AS parts_cost_usd
+          COALESCE(SUM(m.final_amount_usd * (${partnerCoverageRatio("maintenance", "m.id")})), 0) AS revenue_usd,
+          COALESCE(SUM(m.final_amount_lbp * (${partnerCoverageRatio("maintenance", "m.id")})), 0) AS revenue_lbp,
+          COALESCE(SUM((${maintenanceCostUsd("m")}) * (${partnerCoverageRatio("maintenance", "m.id")})), 0) AS cost_usd,
+          COALESCE(SUM(m.cost_lbp * (${partnerCoverageRatio("maintenance", "m.id")})), 0) AS cost_lbp,
+          COALESCE(SUM(t.profit_usd * (${partnerCoverageRatio("maintenance", "m.id")})), 0) AS profit_usd,
+          COALESCE(SUM(t.profit_lbp * (${partnerCoverageRatio("maintenance", "m.id")})), 0) AS profit_lbp,
+          COALESCE(SUM(CASE WHEN (${partnerCoverageRatio("maintenance", "m.id")}) > 0 THEN 1 ELSE 0 END), 0) AS count,
+          COALESCE(SUM(m.parts_price_usd * (${partnerCoverageRatio("maintenance", "m.id")})), 0) AS parts_revenue_usd,
+          COALESCE(SUM(m.parts_cost_usd * (${partnerCoverageRatio("maintenance", "m.id")})), 0) AS parts_cost_usd
         FROM maintenance m
         JOIN transactions t ON t.source_table = 'maintenance' AND t.source_id = m.id AND t.type = 'MAINTENANCE'
         WHERE ${maintenanceCompleted("m")}
@@ -6018,10 +6021,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
   }
 
   /** The transfer page's rate fee (`financial_services.payment_method_fee`). */
-  private _getFsPmFeeTotals(
-    fromDt: string,
-    toDt: string,
-  ): PmFeeCurrencyRow[] {
+  private _getFsPmFeeTotals(fromDt: string, toDt: string): PmFeeCurrencyRow[] {
     return this.db
       .prepare(
         `SELECT
@@ -7186,9 +7186,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
 
   /**
    * LIRA-233 — per-job drill-down under the MAINTENANCE By Module row.
-   * Mirrors {@link getMaintenanceTotals} minus the `SUM` — that totals query
-   * applies NO partner weighting (confirmed by reading it), so `debt_pending`
-   * is the only classification column here.
+   * Mirrors {@link getMaintenanceTotals} minus the `SUM`; exposes the
+   * partner coverage columns (LIRA-403) next to `debt_pending`.
    */
   getMaintenanceDetail(fromDt: string, toDt: string): MaintenanceDetailRow[] {
     const tenantId = getCurrentTenantId();
@@ -7209,6 +7208,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COALESCE(t.profit_lbp, 0) AS profit_lbp,
           COALESCE(m.parts_price_usd, 0) AS parts_revenue_usd,
           COALESCE(m.parts_cost_usd, 0) AS parts_cost_usd,
+          CASE WHEN ${hasPartnerObligation("maintenance", "m.id")} THEN 1 ELSE 0 END AS has_partner_obligation,
+          (${partnerCoverageRatio("maintenance", "m.id")}) AS partner_coverage_ratio,
           CASE WHEN ${notDebtPending("t.id")} THEN 0 ELSE 1 END AS debt_pending
         FROM maintenance m
         JOIN transactions t ON t.source_table = 'maintenance' AND t.source_id = m.id AND t.type = 'MAINTENANCE'
@@ -7902,12 +7903,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         daily_maint AS (
           SELECT
             ${localDayExpr("t.created_at")} AS d,
-            COALESCE(SUM(m.final_amount_usd), 0) AS revenue_usd,
-            COALESCE(SUM(m.final_amount_lbp), 0) AS revenue_lbp,
-            COALESCE(SUM(${maintenanceCostUsd("m")}), 0) AS cost_usd,
-            COALESCE(SUM(m.cost_lbp), 0) AS cost_lbp,
-            COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
-            COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp
+            COALESCE(SUM(m.final_amount_usd * (${partnerCoverageRatio("maintenance", "m.id")})), 0) AS revenue_usd,
+            COALESCE(SUM(m.final_amount_lbp * (${partnerCoverageRatio("maintenance", "m.id")})), 0) AS revenue_lbp,
+            COALESCE(SUM((${maintenanceCostUsd("m")}) * (${partnerCoverageRatio("maintenance", "m.id")})), 0) AS cost_usd,
+            COALESCE(SUM(m.cost_lbp * (${partnerCoverageRatio("maintenance", "m.id")})), 0) AS cost_lbp,
+            COALESCE(SUM(t.profit_usd * (${partnerCoverageRatio("maintenance", "m.id")})), 0) AS profit_usd,
+            COALESCE(SUM(t.profit_lbp * (${partnerCoverageRatio("maintenance", "m.id")})), 0) AS profit_lbp
           FROM maintenance m
           JOIN transactions t ON t.source_table = 'maintenance' AND t.source_id = m.id AND t.type = 'MAINTENANCE'
           WHERE ${maintenanceCompleted("m")}

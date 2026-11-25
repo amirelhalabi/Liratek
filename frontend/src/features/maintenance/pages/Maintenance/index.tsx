@@ -35,6 +35,14 @@ import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { DirIcon } from "@liratek/ui/components/ui/DirIcon";
 import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import { statusLabel } from "./components/statusLabel";
+import { PartnerModeSwitch } from "@/features/partners/components/PartnerModeSwitch";
+import {
+  partnerModeTransition,
+  type PartnerMode,
+} from "@/features/partners/utils/partnerModeTransition";
+import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
+import { ForPartnerNotice } from "@/features/partners/components/ForPartnerToggle";
+import { useForPartnerOffInSession } from "@/features/partners/hooks/useForPartnerOffInSession";
 
 /** Numeric date, as `toLocaleDateString()` printed it in en-US. */
 const NUMERIC_DATE: Intl.DateTimeFormatOptions = {
@@ -106,6 +114,9 @@ type MaintenanceJob = {
   // LIRA-296 — the repair's own warranty (months) and its stamped end day.
   warranty_months?: number | null;
   warranty_until?: string | null;
+  // LIRA-403 — the partner switch saved on the job (v234).
+  partner_mode?: "FOR" | "VIA" | null;
+  partner_id?: number | null;
 };
 
 /** Status tabs for the jobs list (client-side filtered). `key` is the status
@@ -189,6 +200,30 @@ export default function Maintenance() {
   // LIRA-176 phase 7b — the parts draft. Owned by this page; PartPicker is a
   // controlled editor over it. Always USD, never converted.
   const [parts, setParts] = useState<PartLine[]>([]);
+  // LIRA-403 — [ Customer | For Partner | Via Partner ], same control and
+  // meaning as Custom Services. Saved on the job by every save that owns the
+  // form; money still moves only at checkout:
+  //   "FOR" — no payment window; the partner owes the full price.
+  //   "VIA" — the normal checkout; the shop owes the partner the cost.
+  const [partnerMode, setPartnerMode] = useState<PartnerMode>("none");
+  const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(
+    null,
+  );
+  const isForPartner = partnerMode === "FOR";
+  const isViaPartner = partnerMode === "VIA";
+  const handlePartnerModeChange = (next: PartnerMode) => {
+    const effects = partnerModeTransition(partnerMode, next);
+    if (!effects) return;
+    setPartnerMode(next);
+    // A repair job holds no payment state on the page (the checkout window
+    // owns it) and has no Pay out, so only the partner is cleared.
+    if (effects.clearPartner) setSelectedPartnerId(null);
+  };
+  // Owner rule 2026-10-16: a customer session never has partner sales —
+  // For Partner is hidden and turned back to Customer. Via stays.
+  useForPartnerOffInSession(!!activeSession, isForPartner, () =>
+    handlePartnerModeChange("none"),
+  );
   const [statusHistory, setStatusHistory] = useState<StatusHistoryRow[]>([]);
   const {
     saveAsClient,
@@ -322,6 +357,8 @@ export default function Maintenance() {
     setClientPhone("");
     setTransactionTime(undefined);
     setParts([]);
+    setPartnerMode("none");
+    setSelectedPartnerId(null);
     resetSaveAsClient();
   };
 
@@ -343,6 +380,12 @@ export default function Maintenance() {
     }
     setClientName(job.client_name || "");
     setClientPhone(job.client_phone || "");
+    setPartnerMode(
+      job.partner_mode === "FOR" || job.partner_mode === "VIA"
+        ? job.partner_mode
+        : "none",
+    );
+    setSelectedPartnerId(job.partner_mode ? (job.partner_id ?? null) : null);
     setParts(
       (job.parts ?? []).map((p) => ({
         id: p.id,
@@ -470,6 +513,9 @@ export default function Maintenance() {
     /** LIRA-296 — the form's "Repair warranty (months)" ("" = none). Omit
      *  (status-only transitions) to leave the job's value untouched. */
     warrantyMonths?: string | undefined;
+    /** LIRA-403 — the form's partner switch. Omit (status-only transitions)
+     *  to leave the job's stored partner untouched; "none" clears it. */
+    partner?: { mode: PartnerMode; partnerId: number | null } | undefined;
   }): SaveMaintenanceJobPayload => {
     const finalAmount =
       params.finalAmount ??
@@ -541,11 +587,22 @@ export default function Maintenance() {
                 : Number(params.warrantyMonths),
           }
         : {}),
+      ...(params.partner !== undefined
+        ? params.partner.mode === "none"
+          ? { partner_mode: null, partner_id: null }
+          : {
+              partner_mode: params.partner.mode,
+              partner_id: params.partner.partnerId,
+            }
+        : {}),
       // LIRA-296 (rule 27): the shop's own day — a repair warranty starts on
       // it when the job is delivered and paid.
       client_day: localDay(),
     };
   };
+
+  /** LIRA-403 — the form's partner switch, as `buildJobPayload` takes it. */
+  const formPartner = { mode: partnerMode, partnerId: selectedPartnerId };
 
   const handleStatusTransition = async (
     job: MaintenanceJob,
@@ -676,6 +733,7 @@ export default function Maintenance() {
       parts,
       transactionTime,
       warrantyMonths,
+      partner: formPartner,
     });
 
     // This call was never wrapped in try/catch — on web, a refused save
@@ -783,6 +841,7 @@ export default function Maintenance() {
             }),
       },
       transactionTime,
+      partner: formPartner,
     });
 
     // If session is active, add to cart instead of submitting. jobData
@@ -846,6 +905,65 @@ export default function Maintenance() {
     }
   };
 
+  /**
+   * LIRA-403 — For Partner checkout: no payment window (nothing is
+   * collected); the job is saved Delivered_Paid and the partner is billed
+   * the full price server-side. Same ONE payload builder as every other save
+   * (rule 22) — the mode is a parameter, never a second object literal.
+   * Never in a session (For Partner is hidden there).
+   */
+  const handleDeliverToPartner = async () => {
+    if (!isForPartner || activeSession) return;
+    if (!selectedPartnerId) {
+      alert(t("alerts.selectPartner"));
+      return;
+    }
+    await trySaveAsClient();
+    const jobData = buildJobPayload({
+      id: editingJob?.id,
+      deviceName,
+      issue,
+      cost,
+      price,
+      currency,
+      status: "Delivered_Paid" as Status,
+      clientName,
+      clientPhone,
+      priorJob: editingJob,
+      parts,
+      transactionTime,
+      warrantyMonths,
+      partner: formPartner,
+    });
+    try {
+      const result = await api.saveMaintenanceJob(jobData, saveOpts());
+      if (result.success) {
+        resetIdempotencyKey();
+        appEvents.emit(
+          "notification:show",
+          t("alerts.deliveredToPartner"),
+          "success",
+        );
+        handleNewJob();
+        const data = await api.getMaintenanceJobs(filter);
+        setJobs(data);
+      } else {
+        alert(
+          t("alerts.error", {
+            message: translateServerError(result, t, t("alerts.saveFailed")),
+          }),
+        );
+      }
+    } catch (err) {
+      logger.error("Failed to deliver maintenance job to partner:", err);
+      alert(
+        t("alerts.error", {
+          message: getApiErrorMessage(err, t("alerts.saveFailed")),
+        }),
+      );
+    }
+  };
+
   const activeTab =
     STATUS_TABS.find((t) => t.key === statusTab) ?? STATUS_TABS[0];
   const filteredJobs = jobs.filter((job) => activeTab.match(job.status));
@@ -855,8 +973,13 @@ export default function Maintenance() {
   // IPC round-trip — paid_usd/paid_lbp are never reset by a later void or
   // refund, so this stays true forever once a job is paid, exactly like
   // jobHasActiveTransaction does on the backend).
+  // LIRA-403: a delivered For-Partner job is charged with no paid amount
+  // (the partner owes it), so it counts as money history too.
   const hasMoneyHistory = Boolean(
-    (editingJob?.paid_usd ?? 0) > 0 || (editingJob?.paid_lbp ?? 0) > 0,
+    (editingJob?.paid_usd ?? 0) > 0 ||
+    (editingJob?.paid_lbp ?? 0) > 0 ||
+    (editingJob?.partner_mode === "FOR" &&
+      editingJob?.status === "Delivered_Paid"),
   );
   // Already refunded/voided (MaintenanceRepository._markSourceRefunded sets
   // this identically for either path — the record doesn't distinguish which).
@@ -913,9 +1036,9 @@ export default function Maintenance() {
 
       {/* Main Content: form (left) + jobs/status (right) */}
       <div className="flex-1 min-h-0 overflow-y-auto -me-6 pe-6 pb-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
           {/* Right: Jobs list with status tabs */}
-          <div className="order-2 lg:col-span-2">
+          <div className="order-2 xl:col-span-1">
             <div className="bg-slate-800/60 rounded-xl border border-slate-700/50 p-4">
               <h3 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
                 <Clock size={14} className="text-amber-400" />
@@ -1000,27 +1123,36 @@ export default function Maintenance() {
                       <button
                         key={job.id}
                         onClick={() => handleEdit(job)}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-start transition-all hover:bg-slate-700/70 ${
+                        className={`w-full flex flex-col gap-2 px-3 py-2.5 rounded-lg text-start transition-all hover:bg-slate-700/70 ${
                           editingJob?.id === job.id
                             ? "bg-violet-600/20 border border-violet-500/50"
                             : "bg-slate-900/50 border border-slate-700/40"
                         }${isRefunded ? " opacity-50" : ""}`}
                       >
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-white truncate">
+                        {/* Stacked card: details on top, amount + actions on
+                            their own row, so a long amount (list → charged
+                            + parts) never squeezes the device name. */}
+                        <div className="w-full min-w-0">
+                          <div className="flex items-start gap-2">
+                            <span className="flex-1 min-w-0 text-sm font-medium text-white truncate">
                               {job.device_name}
                             </span>
                             <span
-                              className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${statusBadgeClass(job.status)}`}
+                              className={`shrink-0 whitespace-nowrap text-[10px] px-1.5 py-0.5 rounded font-medium ${statusBadgeClass(job.status)}`}
                             >
                               {statusLabel(job.status, t)}
                             </span>
                             {isRefunded && (
-                              <span className="ms-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                              <span className="shrink-0 whitespace-nowrap inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
                                 {t("jobs.refunded")}
                               </span>
                             )}
+                            <DirIcon
+                              icon={ChevronRight}
+                              width={14}
+                              height={14}
+                              className="shrink-0 mt-0.5 text-slate-600"
+                            />
                           </div>
                           <div className="flex items-center gap-2 mt-0.5">
                             {job.client_name && (
@@ -1053,42 +1185,40 @@ export default function Maintenance() {
                             </p>
                           )}
                         </div>
-                        {canTransition && (
+                        <div className="w-full flex items-center gap-2">
+                          {hasAmount ? (
+                            <span className="flex-1 min-w-0 text-xs font-mono text-emerald-400 break-words">
+                              {grandTotal}
+                            </span>
+                          ) : (
+                            <span className="flex-1" />
+                          )}
+                          {canTransition && (
+                            <button
+                              onClick={(e) => handleStatusTransition(job, e)}
+                              className="shrink-0 text-[10px] px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors whitespace-nowrap"
+                              title={
+                                job.status === "Received"
+                                  ? t("jobs.markInProgress")
+                                  : t("jobs.markReady")
+                              }
+                            >
+                              {job.status === "Received"
+                                ? t("jobs.start")
+                                : t("jobs.ready")}
+                            </button>
+                          )}
                           <button
-                            onClick={(e) => handleStatusTransition(job, e)}
-                            className="text-[10px] px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors whitespace-nowrap"
-                            title={
-                              job.status === "Received"
-                                ? t("jobs.markInProgress")
-                                : t("jobs.markReady")
-                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleVoid(job.id);
+                            }}
+                            className="shrink-0 text-[10px] px-2 py-1 rounded bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors"
+                            title={t("jobs.delete")}
                           >
-                            {job.status === "Received"
-                              ? t("jobs.start")
-                              : t("jobs.ready")}
+                            <Trash2 size={12} />
                           </button>
-                        )}
-                        {hasAmount && (
-                          <span className="text-xs font-mono text-emerald-400 shrink-0 whitespace-nowrap">
-                            {grandTotal}
-                          </span>
-                        )}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleVoid(job.id);
-                          }}
-                          className="text-[10px] px-2 py-1 rounded bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors"
-                          title={t("jobs.delete")}
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                        <DirIcon
-                          icon={ChevronRight}
-                          width={14}
-                          height={14}
-                          className="text-slate-600"
-                        />
+                        </div>
                       </button>
                     );
                   })}
@@ -1097,7 +1227,7 @@ export default function Maintenance() {
             </div>
           </div>
           {/* Left: New/Edit Job Form */}
-          <div className="order-1 lg:col-span-1 bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-5 flex flex-col overflow-hidden">
+          <div className="order-1 xl:col-span-2 bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-5 flex flex-col overflow-hidden">
             <h2 className="text-lg font-bold text-white mb-6 flex items-center justify-between gap-2">
               <span className="flex items-center gap-2">
                 <Plus className="text-violet-400" size={20} />
@@ -1177,6 +1307,29 @@ export default function Maintenance() {
                     {t("form.warrantyUntil")}{" "}
                     <Ltr>{editingJob.warranty_until}</Ltr>
                   </p>
+                )}
+              </div>
+
+              {/* LIRA-403 — who the repair is for, same control as Services.
+                  Locked with the amounts once the job is charged. */}
+              <div className="space-y-3">
+                <fieldset disabled={isAmountLocked} className="contents">
+                  <PartnerModeSwitch
+                    value={partnerMode}
+                    onChange={handlePartnerModeChange}
+                    hideFor={!!activeSession}
+                    ariaLabel={t("partnerMode.ariaLabel")}
+                    testIdPrefix="maintenance"
+                  />
+                </fieldset>
+                {(isForPartner || isViaPartner) && (
+                  <PartnerSelector
+                    required
+                    selectedPartnerId={selectedPartnerId}
+                    onSelect={(id) => {
+                      if (!isAmountLocked) setSelectedPartnerId(id);
+                    }}
+                  />
                 )}
               </div>
 
@@ -1316,6 +1469,38 @@ export default function Maintenance() {
                 </div>
               </div>
 
+              {/* LIRA-403 — what each partner mode books. */}
+              {isForPartner && (
+                <ForPartnerNotice
+                  testId="maintenance-for-partner-notice"
+                  tone="teal"
+                >
+                  {t("notice.forBefore")}{" "}
+                  <span className="font-bold">
+                    <Ltr>
+                      {currency === "LBP" && partsPriceUsd > 0
+                        ? `${fmtCurrency(labourFinalDisplay)} + $${partsPriceUsd.toFixed(2)}`
+                        : currency === "LBP"
+                          ? fmtCurrency(labourFinalDisplay)
+                          : `$${(labourFinalDisplay + partsPriceUsd).toFixed(2)}`}
+                    </Ltr>
+                  </span>{" "}
+                  {t("notice.forAfter")}
+                </ForPartnerNotice>
+              )}
+              {isViaPartner && (
+                <ForPartnerNotice
+                  testId="maintenance-via-partner-notice"
+                  tone="sky"
+                >
+                  {t("notice.viaBefore")}{" "}
+                  <span className="font-bold">
+                    <Ltr>{fmtCurrency(parseFloat(cost) || 0)}</Ltr>
+                  </span>
+                  {t("notice.viaAfter")}
+                </ForPartnerNotice>
+              )}
+
               {/* Client Info */}
               <div>
                 <label
@@ -1454,13 +1639,33 @@ export default function Maintenance() {
               >
                 {t("actions.saveDraft")}
               </button>
-              <button
-                onClick={() => setIsCheckoutOpen(true)}
-                className="flex-[2] py-3 rounded-xl font-bold text-white bg-violet-600 hover:bg-violet-500 shadow-lg shadow-violet-900/20 transition-all flex items-center justify-center gap-2"
-              >
-                <DollarSign size={18} />
-                {t("actions.checkout")}
-              </button>
+              {isForPartner ? (
+                // LIRA-403: no payment window — the partner owes the price.
+                <button
+                  data-testid="maintenance-deliver-to-partner"
+                  onClick={() => void handleDeliverToPartner()}
+                  // Already delivered: the partner was billed then (a resave
+                  // never bills again), so nothing to deliver.
+                  disabled={
+                    !selectedPartnerId ||
+                    editingJob?.status === "Delivered_Paid" ||
+                    editingJob?.status === "Delivered"
+                  }
+                  className="flex-[2] py-3 rounded-xl font-bold text-white bg-teal-600 hover:bg-teal-500 shadow-lg shadow-teal-900/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <DollarSign size={18} />
+                  {t("actions.deliverToPartner")}
+                </button>
+              ) : (
+                <button
+                  onClick={() => setIsCheckoutOpen(true)}
+                  disabled={isViaPartner && !selectedPartnerId}
+                  className="flex-[2] py-3 rounded-xl font-bold text-white bg-violet-600 hover:bg-violet-500 shadow-lg shadow-violet-900/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <DollarSign size={18} />
+                  {t("actions.checkout")}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1472,8 +1677,9 @@ export default function Maintenance() {
           <CheckoutModal
             allowKeepChange={true}
             // LIRA-319: the "− Discount | + Extra" switch. The modal hides it
-            // in a customer session (addsToSessionBasket below).
-            allowExtraCharge={true}
+            // in a customer session (addsToSessionBasket below). LIRA-403:
+            // never on a Via-Partner repair (same rule as Services).
+            allowExtraCharge={!isViaPartner}
             // LIRA-318: in a customer session this checkout only adds the
             // job to the session basket (handleCheckoutComplete), whose OUT
             // legs are dropped — so no "change to account" offer.

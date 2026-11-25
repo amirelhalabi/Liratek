@@ -8,6 +8,8 @@ import {
   extraChargeFields,
   discountAndExtraNotBoth,
   extraNotBothRefineOptions,
+  hasExtraCharge,
+  NO_EXTRA_FOR_PARTNER_MESSAGE,
 } from "./common.js";
 import {
   normalizeLineNumber,
@@ -93,6 +95,62 @@ export function maintenanceExtraInJobCurrency(job: {
     : !((job.extra_lbp ?? 0) > 0);
 }
 
+/**
+ * LIRA-403 — a repair job's partner switch, same meaning as Custom
+ * Services: 'FOR' = done for the partner (no counter payment, the partner
+ * owes the full price), 'VIA' = an outside technician does it (the customer
+ * pays as usual, the shop owes the partner the labour cost). Absent/null =
+ * an ordinary customer job.
+ */
+export const MAINTENANCE_PARTNER_MODES = ["FOR", "VIA"] as const;
+export type MaintenancePartnerMode = (typeof MAINTENANCE_PARTNER_MODES)[number];
+
+export const MAINTENANCE_PARTNER_REQUIRED_MESSAGE =
+  "Pick the partner for this repair.";
+export const MAINTENANCE_FOR_PARTNER_NO_PAYMENT_MESSAGE =
+  "A repair for a partner takes no payment — the partner owes the full price.";
+export const MAINTENANCE_FOR_PARTNER_IN_SESSION_MESSAGE =
+  "A customer session never has partner sales — use Customer or Via Partner.";
+
+/**
+ * LIRA-403 — the ONE partner-mode rule check (rule 14), shared by the save
+ * schema's refine and `MaintenanceService.saveJob` (which runs it again on
+ * the job's EFFECTIVE mode — the stored one when a save does not send it —
+ * and for a session-basket item, which never goes through the schema).
+ * Returns the refusal message, or null when the save is fine.
+ */
+export function maintenancePartnerProblem(job: {
+  partner_mode?: string | null | undefined;
+  partner_id?: number | null | undefined;
+  payments?: ReadonlyArray<unknown> | undefined;
+  change_given_usd?: number | undefined;
+  change_given_lbp?: number | undefined;
+  kept_change_usd?: number | undefined;
+  kept_change_lbp?: number | undefined;
+  extra_usd?: number | undefined;
+  extra_lbp?: number | undefined;
+  deferPayment?: boolean | undefined;
+}): string | null {
+  const mode = job.partner_mode;
+  if (mode !== "FOR" && mode !== "VIA") return null;
+  if (!job.partner_id) return MAINTENANCE_PARTNER_REQUIRED_MESSAGE;
+  if (hasExtraCharge(job)) return NO_EXTRA_FOR_PARTNER_MESSAGE;
+  if (mode === "FOR") {
+    if (job.deferPayment === true)
+      return MAINTENANCE_FOR_PARTNER_IN_SESSION_MESSAGE;
+    if (
+      (job.payments?.length ?? 0) > 0 ||
+      (job.change_given_usd ?? 0) > 0 ||
+      (job.change_given_lbp ?? 0) > 0 ||
+      (job.kept_change_usd ?? 0) > 0 ||
+      (job.kept_change_lbp ?? 0) > 0
+    ) {
+      return MAINTENANCE_FOR_PARTNER_NO_PAYMENT_MESSAGE;
+    }
+  }
+  return null;
+}
+
 export const saveMaintenanceJobSchema = z
   .object({
     id: positiveIntegerSchema.optional(), // For updates
@@ -169,6 +227,22 @@ export const saveMaintenanceJobSchema = z
     // session-basket job is refused by `MaintenanceRepository.processPayments`
     // (the cap needs the parts total, known only after the parts sync).
     ...extraChargeFields,
+    // LIRA-403 — the partner switch. Omitted = leave the job's stored mode
+    // and partner untouched (status steps and older clients send neither);
+    // `null` = back to an ordinary customer job. Locked once the job is
+    // charged (MaintenanceRepository.updateJob), like its amounts.
+    partner_mode: z.enum(MAINTENANCE_PARTNER_MODES).nullable().optional(),
+    partner_id: positiveIntegerSchema.nullable().optional(),
+  })
+  .superRefine((d, ctx) => {
+    const problem = maintenancePartnerProblem(d);
+    if (problem) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: problem,
+        path: ["partner_mode"],
+      });
+    }
   })
   .refine(
     (d) => discountAndExtraNotBoth(d, maintenanceDiscountOf(d)),

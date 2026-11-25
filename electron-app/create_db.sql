@@ -1114,6 +1114,12 @@ CREATE TABLE IF NOT EXISTS maintenance (
     warranty_months INTEGER,
     warranty_until TEXT,
     warranty_claim_id INTEGER REFERENCES warranty_claims(id),
+    -- v234 (LIRA-403): the partner switch, same meaning as Custom Services.
+    -- NULL = customer; 'FOR' = done for the partner (FOR_MAINTENANCE DEBIT of
+    -- the full price at checkout, no counter payment); 'VIA' = an outside
+    -- technician does it (THROUGH_MAINTENANCE CREDIT of the labour cost).
+    partner_mode TEXT DEFAULT NULL CHECK (partner_mode IS NULL OR partner_mode IN ('FOR', 'VIA')),
+    partner_id INTEGER DEFAULT NULL REFERENCES partners(id),
     FOREIGN KEY (client_id) REFERENCES clients(id)
 );
 CREATE INDEX IF NOT EXISTS idx_maintenance_warranty_claim ON maintenance(tenant_id, warranty_claim_id);
@@ -3387,4 +3393,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- v232 (LIRA-388) adds hold_money.voided_at / voided_by, declared above.
     (232, 'hold_money_voided'),
     -- v233 (LIRA-400) adds payments.fee_amount, declared above.
-    (233, 'payments_fee_amount');
+    (233, 'payments_fee_amount'),
+    -- v234 (LIRA-403) adds maintenance.partner_mode / partner_id, declared above.
+    (234, 'maintenance_partner_mode');

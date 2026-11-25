@@ -72,12 +72,12 @@ import { ensureRechargeClient } from "@/features/recharge/utils/ensureClient";
 import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
 import type { Client } from "@liratek/ui";
 import { ForPartnerNotice } from "@/features/partners/components/ForPartnerToggle";
-import { PartnerModeSwitch } from "@/features/custom-services/components/PartnerModeSwitch";
+import { PartnerModeSwitch } from "@/features/partners/components/PartnerModeSwitch";
 import { useForPartnerOffInSession } from "@/features/partners/hooks/useForPartnerOffInSession";
 import {
   partnerModeTransition,
   type PartnerMode,
-} from "@/features/custom-services/utils/partnerModeTransition";
+} from "@/features/partners/utils/partnerModeTransition";
 import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
 import { formatServiceAmount } from "@/features/custom-services/utils/formatServiceAmount";
 import { PriceChangeWarning } from "@/shared/components/PriceChangeWarning";
@@ -1479,6 +1479,7 @@ export default function CustomServices() {
                     value={partnerMode}
                     onChange={handlePartnerModeChange}
                     hideFor={!!activeSession}
+                    ariaLabel={t("partnerMode.ariaLabel")}
                   />
                   {(isForPartner || isViaPartner) && (
                     <div className="flex flex-wrap items-center gap-6">

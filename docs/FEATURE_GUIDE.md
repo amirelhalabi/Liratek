@@ -900,6 +900,21 @@ stamps a commission and an unfixable mistake would leave phantom earnings.
 Wallet SEND/RECEIVE still book **no** supplier ledger row ("Fix B") — correct, because the debt is
 booked once, at load time. Do not "fix" that.
 
+### 8.3.1 Repair jobs for / via a partner (LIRA-403, v234)
+
+The Maintenance page has the same `[ Customer | For Partner | Via Partner ]` switch as Custom Services, saved on the job
+(`maintenance.partner_mode` / `partner_id`); money still moves only at checkout. Partner rows use
+`reference_table = 'maintenance'`, `reference_id` = job id (= the MAINTENANCE transaction's source), so the generic
+`_reversePartnerLedger` reverses them and the FOR\_% profit gates find them.
+
+| Mode        | Checkout                                   | Drawer        | Partner row                                                                         | Profit                         |
+| ----------- | ------------------------------------------ | ------------- | ----------------------------------------------------------------------------------- | ------------------------------ |
+| For Partner | "Deliver to partner", no legs/change/extra | none          | `FOR_MAINTENANCE` **DEBIT** per currency: labour final (job currency) + parts (USD) | counted as the partner settles |
+| Via Partner | normal checkout, no "+ Extra"              | legs as usual | `THROUGH_MAINTENANCE` **CREDIT** of the labour cost (parts are shop stock)          | counted at once                |
+
+For Partner is refused in a session basket (hidden on the page); a For job is charged only on the move INTO a paid
+status. Guard: `services/__tests__/lira403.maintenancePartnerModes.test.ts`; web: `lira-web-106`.
+
 ### 8.4 Remittance corridor (Syria) — Custom Services → Via Partner
 
 A money-transfer corridor through a partner (the owner's "7welet souria" for Syria, but nothing is Syria-specific — any

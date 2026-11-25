@@ -17,8 +17,11 @@ import {
   insertPaymentRow,
   bookClientDebtCharge,
   syncTypedNote,
+  assertPartnerIdRequired,
+  assertNoCounterPayment,
   type ReconciliationLeg,
 } from "./moneyPosting.js";
+import { getPartnerRepository } from "./PartnerRepository.js";
 import { withTypedNote } from "../utils/typedNote.js";
 import { resolveKeptChange } from "./keptChange.js";
 import { bookChangeRoundingExpense } from "./changeRoundingExpense.js";
@@ -26,8 +29,13 @@ import { BusinessRuleError } from "../utils/errors.js";
 import {
   normalizeMaintenancePhone,
   maintenanceDiscountOf,
+  MAINTENANCE_FOR_PARTNER_IN_SESSION_MESSAGE,
+  MAINTENANCE_FOR_PARTNER_NO_PAYMENT_MESSAGE,
 } from "../validators/maintenance.js";
-import { EXTRA_ABOVE_TOTAL_MESSAGE } from "../validators/common.js";
+import {
+  EXTRA_ABOVE_TOTAL_MESSAGE,
+  NO_EXTRA_FOR_PARTNER_MESSAGE,
+} from "../validators/common.js";
 import { assertNoCashChangeLeg } from "../validators/changeLegs.js";
 import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
 import { nonBlankText } from "../utils/nonBlankText.js";
@@ -241,6 +249,10 @@ export interface MaintenanceRow {
   warranty_months?: number | null;
   warranty_until?: string | null;
   warranty_claim_id?: number | null;
+  /** LIRA-403 v234 — the partner switch ('FOR' | 'VIA' | null) and the
+   *  partner. Absent on a connection that predates v234. */
+  partner_mode?: string | null;
+  partner_id?: number | null;
   /** LIRA-263: the linked client's phone (`clients.phone_number`), read by
    *  `getJobs` only — `maintenance` has no phone column of its own, the
    *  number lives on the client record the job links to. Absent on rows
@@ -381,9 +393,47 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
   protected getColumns(): string {
     const base =
       "id, client_id, client_name, device_name, issue_description, cost_usd, price_usd, cost_lbp, price_lbp, discount_usd, final_amount_usd, final_amount_lbp, currency, paid_usd, paid_lbp, exchange_rate, status, paid_by, note, created_at, updated_at, edited_by, edited_at, is_refunded, refunded_at, parts_cost_usd, parts_price_usd";
-    return this.hasWarrantyColumns()
+    const withWarranty = this.hasWarrantyColumns()
       ? `${base}, warranty_months, warranty_until, warranty_claim_id`
       : base;
+    return this.hasPartnerColumns()
+      ? `${withWarranty}, partner_mode, partner_id`
+      : withWarranty;
+  }
+
+  private _partnerColumnsCache: boolean | null = null;
+  /** LIRA-403 v234 — do the maintenance partner columns exist on this
+   *  connection? (Hand-built test schemas may predate them.) */
+  hasPartnerColumns(): boolean {
+    if (this._partnerColumnsCache === null) {
+      const cols = this.db.prepare(`PRAGMA table_info(maintenance)`).all() as {
+        name: string;
+      }[];
+      this._partnerColumnsCache = cols.some((c) => c.name === "partner_id");
+    }
+    return this._partnerColumnsCache;
+  }
+
+  /** LIRA-403 — save the job's partner switch (null mode = customer job,
+   *  which also clears the partner). */
+  setJobPartner(
+    jobId: number,
+    mode: string | null,
+    partnerId: number | null,
+  ): void {
+    if (!this.hasPartnerColumns()) return;
+    this.db
+      .prepare(
+        `UPDATE maintenance SET partner_mode = ?, partner_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?`,
+      )
+      .run(mode, mode ? partnerId : null, jobId, getCurrentTenantId());
+  }
+
+  /** LIRA-403 — the shared money-lock predicate (`isJobMoneyLocked`), for
+   *  the service's partner-switch lock: a charged job keeps its partner
+   *  until it is refunded/voided, exactly like its amounts. */
+  isMoneyLocked(jobId: number): boolean {
+    return isJobMoneyLocked(this.findById(jobId) ?? null, jobId);
   }
 
   private _warrantyColumnsCache: boolean | null = null;
@@ -754,6 +804,16 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       /** LIRA-296 — the repair's own warranty end day, printed on its
        *  receipt (stamped in metadata only when the job has one). */
       warrantyUntil?: string | null;
+      /** LIRA-403 — the job's partner switch (its EFFECTIVE value, resolved
+       *  by `MaintenanceService.saveJob`). 'FOR': no counter payment, the
+       *  partner owes what the customer would have (FOR_MAINTENANCE DEBIT).
+       *  'VIA': the customer pays as usual, the shop owes the partner the
+       *  labour cost (THROUGH_MAINTENANCE CREDIT). */
+      partnerMode?: string | null;
+      partnerId?: number | null;
+      /** LIRA-403 — LABOUR cost in the job's currency: what a Via-Partner
+       *  repair owes the partner. */
+      labourCost?: number;
     },
     /**
      * The user actually running this checkout (owner follow-up, 2026-09-28,
@@ -777,6 +837,39 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     const partsMarginUsd = opts.partsMarginUsd ?? 0;
     const extraUsd = opts.extraUsd ?? 0;
     const extraLbp = opts.extraLbp ?? 0;
+
+    // LIRA-403 — the partner switch, same meaning as Custom Services. The
+    // service already ran `maintenancePartnerProblem`; these are the
+    // repository's own defense-in-depth (same shape as
+    // CustomServiceRepository's FOR block), before the first write.
+    const isForPartner = opts.partnerMode === "FOR";
+    const isViaPartner = opts.partnerMode === "VIA";
+    if (isForPartner) {
+      assertPartnerIdRequired(opts.partnerId);
+      if (defer)
+        throw new BusinessRuleError(MAINTENANCE_FOR_PARTNER_IN_SESSION_MESSAGE);
+      assertNoCounterPayment(paymentLines.length > 0, null, "repair");
+      if (
+        Math.abs(opts.changeUsd || 0) > 0 ||
+        Math.abs(opts.changeLbp || 0) > 0 ||
+        (opts.keptChangeUsd ?? 0) > 0 ||
+        (opts.keptChangeLbp ?? 0) > 0
+      ) {
+        throw new BusinessRuleError(MAINTENANCE_FOR_PARTNER_NO_PAYMENT_MESSAGE);
+      }
+    }
+    if (isViaPartner && !opts.partnerId) {
+      throw new Error('partnerId is required when partnerMode is "VIA"');
+    }
+    if ((isForPartner || isViaPartner) && (extraUsd > 0 || extraLbp > 0)) {
+      throw new BusinessRuleError(NO_EXTRA_FOR_PARTNER_MESSAGE);
+    }
+    // What the customer owes (or, For Partner, what the partner owes), per
+    // currency — the ONE figure the transaction's amounts and the
+    // FOR_MAINTENANCE rows both use (rule 14). Parts are always USD.
+    const amountDueUsd =
+      partsPriceUsd + (isLbp ? 0 : opts.finalAmount) + extraUsd;
+    const amountDueLbp = (isLbp ? opts.finalAmount : 0) + extraLbp;
 
     // LIRA-319 (FR-006): the extra may not exceed the pre-extra total — the
     // checkout's own total in the job's currency (a USD job: labour + parts;
@@ -957,28 +1050,30 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     // as "Change given" rows, never sent as a leg) and the checked kept
     // change. A session-basket job records its session instead — the
     // basket owns the payment.
-    const paymentSnapshot = defer
-      ? buildPaymentSnapshot({ sessionId: opts.paidInSession })
-      : buildPaymentSnapshot({
-          flow: "IN",
-          payments: [
-            ...paymentLines,
-            ...(
-              [
-                ["USD", Math.abs(opts.changeUsd || 0)],
-                ["LBP", Math.abs(opts.changeLbp || 0)],
-              ] as const
-            )
-              .filter(([, amount]) => amount > 0)
-              .map(([currency_code, amount]) => ({
-                method: "CASH",
-                currency_code,
-                amount,
-                direction: "OUT" as const,
-              })),
-          ],
-          keptChange: { usd: keptProfitUsd, lbp: keptProfitLbp },
-        });
+    const paymentSnapshot = isForPartner
+      ? undefined
+      : defer
+        ? buildPaymentSnapshot({ sessionId: opts.paidInSession })
+        : buildPaymentSnapshot({
+            flow: "IN",
+            payments: [
+              ...paymentLines,
+              ...(
+                [
+                  ["USD", Math.abs(opts.changeUsd || 0)],
+                  ["LBP", Math.abs(opts.changeLbp || 0)],
+                ] as const
+              )
+                .filter(([, amount]) => amount > 0)
+                .map(([currency_code, amount]) => ({
+                  method: "CASH",
+                  currency_code,
+                  amount,
+                  direction: "OUT" as const,
+                })),
+            ],
+            keptChange: { usd: keptProfitUsd, lbp: keptProfitLbp },
+          });
 
     // Create unified transaction row.
     //
@@ -989,6 +1084,10 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     // unified transaction means "what the customer owes in that currency",
     // and — for the first time for a maintenance job — BOTH currency sides
     // may now be non-zero at once (an LBP-priced job with USD parts).
+    const partnerName =
+      (isForPartner || isViaPartner) && opts.partnerId
+        ? getPartnerRepository().getById(opts.partnerId)?.name
+        : undefined;
     const txnId = getTransactionRepository().createTransaction({
       type: TRANSACTION_TYPES.MAINTENANCE,
       source_table: "maintenance",
@@ -997,8 +1096,8 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       // LIRA-319: amounts include the extra (what the customer owes); the
       // profit stamp below never does — the extra is reported from
       // extra_usd/extra_lbp (research R2).
-      amount_usd: partsPriceUsd + (isLbp ? 0 : opts.finalAmount) + extraUsd,
-      amount_lbp: (isLbp ? opts.finalAmount : 0) + extraLbp,
+      amount_usd: amountDueUsd,
+      amount_lbp: amountDueLbp,
       extra_usd: extraUsd,
       extra_lbp: extraLbp,
       // Margin: parts margin (always USD) + labour margin (job currency) +
@@ -1010,12 +1109,19 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       // An untouched phone arrives blank on a resave (the page never
       // re-sends the linked client's stored number) — fall back to that
       // stored number so the transaction/receipt still carries it.
-      ...txnClientIdentity(
-        opts.clientName,
-        opts.clientPhone?.trim()
-          ? opts.clientPhone
-          : this.findClientPhone(opts.clientId, tenantId),
-      ),
+      // LIRA-403: a For-Partner repair labels the row with the partner,
+      // like Custom Services ("<partner> [partner]") — the partner pays.
+      ...(isForPartner
+        ? txnClientIdentity(
+            `${partnerName ?? `#${opts.partnerId}`} [partner]`,
+            null,
+          )
+        : txnClientIdentity(
+            opts.clientName,
+            opts.clientPhone?.trim()
+              ? opts.clientPhone
+              : this.findClientPhone(opts.clientId, tenantId),
+          )),
       exchange_rate: opts.exchangeRate,
       summary,
       transaction_time: opts.transactionTime,
@@ -1040,6 +1146,9 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
         ...(extraUsd > 0 || extraLbp > 0
           ? { extra_usd: extraUsd, extra_lbp: extraLbp }
           : {}),
+        ...(opts.partnerMode === "FOR" || opts.partnerMode === "VIA"
+          ? { partner_mode: opts.partnerMode, partner_id: opts.partnerId }
+          : {}),
       },
     });
 
@@ -1053,6 +1162,53 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
           WHERE id = ? AND tenant_id = ? AND COALESCE(is_refunded, 0) <> 0`,
       )
       .run(jobId, tenantId);
+
+    // LIRA-403 — the partner rows, right after the transaction and BEFORE
+    // the session-basket early return below (a Via job in a basket still
+    // owes the partner its cost). Linked by reference_table='maintenance' /
+    // reference_id = job id = this transaction's source, so the generic
+    // `_reversePartnerLedger` reverses them on void/refund and the FOR_%
+    // profit gates (`partnerCoverageRatio('maintenance', …)`) find them
+    // (rule 20 — no new reversal owner). Per currency, never converted.
+    if (isForPartner || isViaPartner) {
+      const ledgerNote = `Maintenance Job #${jobId}${deviceLabel}`;
+      const rows: { amount: number; currency: "USD" | "LBP" }[] = isForPartner
+        ? [
+            { amount: amountDueLbp, currency: "LBP" },
+            { amount: amountDueUsd, currency: "USD" },
+          ]
+        : [
+            // Via: the labour cost only — parts are the shop's own stock.
+            {
+              amount: isLbp ? (opts.labourCost ?? 0) : 0,
+              currency: "LBP",
+            },
+            {
+              amount: isLbp ? 0 : (opts.labourCost ?? 0),
+              currency: "USD",
+            },
+          ];
+      for (const row of rows) {
+        if (!(row.amount > 0)) continue;
+        getPartnerRepository().addLedgerEntry({
+          partner_id: opts.partnerId as number,
+          transaction_type: isForPartner
+            ? "FOR_MAINTENANCE"
+            : "THROUGH_MAINTENANCE",
+          reference_table: "maintenance",
+          reference_id: jobId,
+          amount: row.amount,
+          currency: row.currency,
+          direction: isForPartner ? "DEBIT" : "CREDIT",
+          user_id: createdBy,
+          notes: ledgerNote,
+          created_at: opts.transactionTime,
+        });
+      }
+    }
+    // For Partner: no counter payment — no legs, change, rounding expense,
+    // account credit or debt. The partner's tab is the whole booking.
+    if (isForPartner) return;
 
     // LIRA-258: there used to be a "clear any old payment rows for this job"
     // DELETE here. It never adjusted drawer_balances, and once the

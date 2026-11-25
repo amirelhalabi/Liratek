@@ -319,6 +319,35 @@ function maintenanceItem(): CheckoutCartItem {
   };
 }
 
+/** LIRA-403 — a Via-Partner repair in the basket: the customer pays the
+ *  basket, the shop owes the partner the $10 labour cost (THROUGH_MAINTENANCE
+ *  CREDIT, booked by the deferred checkout). */
+function maintenanceViaItem(): CheckoutCartItem {
+  const item = maintenanceItem();
+  return {
+    ...item,
+    id: "repair-via",
+    formData: {
+      ...(item.formData as Record<string, unknown>),
+      partner_mode: "VIA",
+      partner_id: PARTNER_ID,
+    },
+  };
+}
+
+/** Net THROUGH_MAINTENANCE position for the partner (CREDIT − DEBIT). */
+function viaMaintenanceNet(): number {
+  const row = db
+    .prepare(
+      `SELECT COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount ELSE -amount END), 0) AS n,
+              COUNT(*) AS c
+         FROM partner_ledger
+        WHERE partner_id = ? AND transaction_type = 'THROUGH_MAINTENANCE'`,
+    )
+    .get(PARTNER_ID) as { n: number; c: number };
+  return row.n;
+}
+
 // ─── checkout + helpers ──────────────────────────────────────────────────────
 
 /** Pays the basket in cash: per currency, a positive net is an IN leg; a
@@ -531,6 +560,18 @@ const ROWS: Row[] = [
     memberType: "MAINTENANCE",
     direction: "to_customer",
     cashValueUsd: -30,
+  },
+  {
+    // LIRA-403: the partner CREDIT the basket booked is reversed by the
+    // single-item refund (generic _reversePartnerLedger).
+    name: "maintenance job via a partner (LIRA-403)",
+    items: () => [maintenanceViaItem(), companionService()],
+    memberType: "MAINTENANCE",
+    direction: "to_customer",
+    cashValueUsd: -30,
+    afterItem: () => {
+      expect(viaMaintenanceNet()).toBeCloseTo(0, 6);
+    },
   },
   {
     name: "custom service booked as a payout",
@@ -974,4 +1015,20 @@ describe("LIRA-381 — the Profits page drops the refunded member's margin, once
       expect(p3.lbp).toBeCloseTo(p0.lbp, 0);
     },
   );
+});
+
+describe("LIRA-403 — a Via-Partner repair in a basket", () => {
+  it("books the partner CREDIT at checkout and voiding the basket nets every ledger to 0", async () => {
+    const repo = getTransactionRepository();
+    const ledgersBefore = snapshotLedgers(db);
+    const netBefore = viaMaintenanceNet();
+    const sessionId = await checkoutBasket([
+      maintenanceViaItem(),
+      companionService(),
+    ]);
+    expect(viaMaintenanceNet() - netBefore).toBeCloseTo(10, 6);
+    repo.voidSessionBasket(sessionId, USER_ID);
+    expect(viaMaintenanceNet() - netBefore).toBeCloseTo(0, 6);
+    expectPostings(ledgersBefore, snapshotLedgers(db), {});
+  });
 });

@@ -15461,6 +15461,40 @@ DROP TABLE IF EXISTS omt_owed_shares;`);
       }
     },
   },
+  {
+    version: 234,
+    name: "maintenance_partner_mode",
+    description:
+      "LIRA-403: the partner switch on repair jobs, same meaning as Custom " +
+      "Services. Adds maintenance.partner_mode (TEXT, NULL = customer, " +
+      "'FOR' = done for the partner, who owes the full price as a " +
+      "FOR_MAINTENANCE partner_ledger DEBIT; 'VIA' = an outside technician " +
+      "does it, the shop owes them the labour cost as a THROUGH_MAINTENANCE " +
+      "CREDIT) and maintenance.partner_id (the partner). Money still moves " +
+      "only at checkout. NULL on every existing row. Seeds nothing.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "maintenance")) return;
+      if (!columnExists(db, "maintenance", "partner_mode")) {
+        db.exec(
+          `ALTER TABLE maintenance ADD COLUMN partner_mode TEXT DEFAULT NULL CHECK (partner_mode IS NULL OR partner_mode IN ('FOR', 'VIA'))`,
+        );
+      }
+      if (!columnExists(db, "maintenance", "partner_id")) {
+        db.exec(
+          `ALTER TABLE maintenance ADD COLUMN partner_id INTEGER DEFAULT NULL REFERENCES partners(id)`,
+        );
+      }
+    },
+    down(db: Database.Database) {
+      if (columnExists(db, "maintenance", "partner_id")) {
+        db.exec(`ALTER TABLE maintenance DROP COLUMN partner_id`);
+      }
+      if (columnExists(db, "maintenance", "partner_mode")) {
+        db.exec(`ALTER TABLE maintenance DROP COLUMN partner_mode`);
+      }
+    },
+  },
 ];
 
 /** v210 — offline_review_items.kind's original 14 values (frozen). */
@@ -15553,16 +15587,19 @@ function setOfflineReviewKinds(
     `INSERT INTO offline_review_items_new (${cols}) SELECT ${cols} FROM offline_review_items`,
   );
   db.exec(`DROP TABLE offline_review_items`);
-  db.exec(`ALTER TABLE offline_review_items_new RENAME TO offline_review_items`);
+  db.exec(
+    `ALTER TABLE offline_review_items_new RENAME TO offline_review_items`,
+  );
   for (const d of dependents) db.exec(d.sql);
   if (seq) {
     const cur = db
       .prepare(`SELECT seq FROM sqlite_sequence WHERE name = ?`)
       .get("offline_review_items") as { seq: number } | undefined;
     if (!cur) {
-      db.prepare(
-        `INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)`,
-      ).run("offline_review_items", seq.seq);
+      db.prepare(`INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)`).run(
+        "offline_review_items",
+        seq.seq,
+      );
     } else if (cur.seq < seq.seq) {
       db.prepare(`UPDATE sqlite_sequence SET seq = ? WHERE name = ?`).run(
         seq.seq,

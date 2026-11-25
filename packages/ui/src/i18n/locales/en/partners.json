@@ -211,5 +211,10 @@
       "done": "{{name}}: old history settled up to {{day}}."
     },
     "paidBefore": "{{amount}} you already paid {{name}} on an earlier settlement covers these days."
+  },
+  "partnerMode": {
+    "customer": "Customer",
+    "for": "For Partner",
+    "via": "Via Partner"
   }
 }

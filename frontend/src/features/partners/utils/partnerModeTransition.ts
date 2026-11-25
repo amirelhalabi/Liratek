@@ -1,6 +1,7 @@
 /**
- * Custom Services' partner involvement, picked on one segmented control
- * (Customer / For Partner / Via Partner — owner decision 2026-10-16):
+ * A sale's partner involvement, picked on one segmented control
+ * (Customer / For Partner / Via Partner — owner decision 2026-10-16; shared
+ * by Custom Services and, since LIRA-403, Maintenance):
  *   "none" — no partner, the ordinary walk-in flow.
  *   "FOR"  — no counter payment; the full price books to the partner's tab.
  *   "VIA"  — the partner performs the service, the customer pays us now,

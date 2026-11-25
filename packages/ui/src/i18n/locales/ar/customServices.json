@@ -41,10 +41,7 @@
     "LIFE": "حياة"
   },
   "partnerMode": {
-    "ariaLabel": "لمن هذه الخدمة",
-    "customer": "زبون",
-    "for": "لصالح شريك",
-    "via": "عبر شريك"
+    "ariaLabel": "لمن هذه الخدمة"
   },
   "form": {
     "titleHold": "أمانات",

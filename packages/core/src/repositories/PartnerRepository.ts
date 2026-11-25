@@ -225,6 +225,15 @@ export interface UpdatePartnerData {
  * operator-facing label; `THROUGH_CUSTOM_SERVICE` is this ledger's FOR_%/
  * THROUGH_% classification prefix, which `getBalanceBreakdown()` and
  * `getLedgerEntries()`'s `mode` filter both key off of.
+ *
+ * LIRA-403 additions — "FOR_MAINTENANCE" / "THROUGH_MAINTENANCE": the same
+ * two partner modes on a repair job (`maintenance.partner_mode` 'FOR' /
+ * 'VIA'), booked at checkout by MaintenanceRepository.processPayments with
+ * `reference_table = 'maintenance'`, `reference_id` = the job id (the job's
+ * MAINTENANCE transaction source, so the generic `_reversePartnerLedger`
+ * and every FOR_% profit gate find them). FOR = DEBIT of what the customer
+ * would have owed (labour in the job's currency + parts in USD); THROUGH =
+ * CREDIT of the labour cost (parts are the shop's own stock).
  */
 export interface CreateLedgerEntryData {
   partner_id: number;
@@ -246,6 +255,7 @@ export interface CreateLedgerEntryData {
     | "THROUGH_IPICK_SEND"
     | "THROUGH_KATSH_SEND"
     | "THROUGH_CUSTOM_SERVICE"
+    | "THROUGH_MAINTENANCE"
     | "FOR_OMT_SEND"
     | "FOR_OMT_RECEIVE"
     | "FOR_WHISH_SEND"
@@ -263,6 +273,7 @@ export interface CreateLedgerEntryData {
     | "FOR_LOTO"
     | "FOR_EXCHANGE"
     | "FOR_CUSTOM_SERVICE"
+    | "FOR_MAINTENANCE"
     | "CUSTOM_SERVICE"
     | "WHISH_TOPUP"
     | "SETTLEMENT"

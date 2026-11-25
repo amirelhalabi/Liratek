@@ -41,10 +41,7 @@
     "LIFE": "Life"
   },
   "partnerMode": {
-    "ariaLabel": "Who is this service for",
-    "customer": "Customer",
-    "for": "For Partner",
-    "via": "Via Partner"
+    "ariaLabel": "Who is this service for"
   },
   "form": {
     "titleHold": "Hold Money",

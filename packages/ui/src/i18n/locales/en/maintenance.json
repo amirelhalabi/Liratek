@@ -60,7 +60,8 @@
   },
   "actions": {
     "saveDraft": "Save as Draft",
-    "checkout": "Proceed to Checkout"
+    "checkout": "Proceed to Checkout",
+    "deliverToPartner": "Deliver to partner"
   },
   "alerts": {
     "error": "Error: {{message}}",
@@ -70,7 +71,9 @@
     "paymentFailed": "Failed to process payment",
     "paymentDone": "Maintenance payment processed successfully",
     "confirmDelete": "Delete this job?",
-    "confirmDiscard": "Discard unsaved changes?"
+    "confirmDiscard": "Discard unsaved changes?",
+    "selectPartner": "Pick the partner for this repair.",
+    "deliveredToPartner": "Repair delivered — the partner owes the full price"
   },
   "history": {
     "title": "Maintenance History",
@@ -102,5 +105,14 @@
   },
   "amount": {
     "listVsCharged": "List price {{list}}, charged {{charged}}"
+  },
+  "partnerMode": {
+    "ariaLabel": "Who is this repair for"
+  },
+  "notice": {
+    "forBefore": "No payment is taken. The full",
+    "forAfter": "goes on the selected partner's account, settled later on the Partners page.",
+    "viaBefore": "The customer pays the full price at checkout as usual. You will owe the selected partner the repair cost,",
+    "viaAfter": ", settled later on the Partners page."
   }
 }

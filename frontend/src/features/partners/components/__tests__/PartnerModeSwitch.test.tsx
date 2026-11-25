@@ -10,7 +10,9 @@ import { PartnerModeSwitch } from "../PartnerModeSwitch";
 
 describe("PartnerModeSwitch", () => {
   it("renders a radiogroup with Customer / For Partner / Via Partner", () => {
-    render(<PartnerModeSwitch value="none" onChange={jest.fn()} />);
+    render(
+      <PartnerModeSwitch ariaLabel="Who" value="none" onChange={jest.fn()} />,
+    );
     expect(screen.getByRole("radiogroup")).toBeInTheDocument();
     const radios = screen.getAllByRole("radio");
     expect(radios.map((r) => r.textContent)).toEqual([
@@ -30,7 +32,9 @@ describe("PartnerModeSwitch", () => {
   });
 
   it("marks only the active segment checked", () => {
-    render(<PartnerModeSwitch value="VIA" onChange={jest.fn()} />);
+    render(
+      <PartnerModeSwitch ariaLabel="Who" value="VIA" onChange={jest.fn()} />,
+    );
     expect(
       screen.getByTestId("custom-service-via-partner-toggle"),
     ).toBeChecked();
@@ -44,7 +48,9 @@ describe("PartnerModeSwitch", () => {
 
   it("calls onChange with the clicked mode, and not for the active one", () => {
     const onChange = jest.fn();
-    render(<PartnerModeSwitch value="none" onChange={onChange} />);
+    render(
+      <PartnerModeSwitch ariaLabel="Who" value="none" onChange={onChange} />,
+    );
     fireEvent.click(screen.getByTestId("custom-service-for-partner-toggle"));
     expect(onChange).toHaveBeenLastCalledWith("FOR");
     fireEvent.click(screen.getByTestId("custom-service-via-partner-toggle"));
@@ -52,5 +58,28 @@ describe("PartnerModeSwitch", () => {
     onChange.mockClear();
     fireEvent.click(screen.getByTestId("custom-service-partner-mode-none"));
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("LIRA-403: another page passes its own test-id prefix and question; hideFor drops For Partner", () => {
+    render(
+      <PartnerModeSwitch
+        ariaLabel="Who is this repair for"
+        testIdPrefix="maintenance"
+        value="none"
+        onChange={jest.fn()}
+        hideFor
+      />,
+    );
+    expect(screen.getByRole("radiogroup")).toHaveAttribute(
+      "aria-label",
+      "Who is this repair for",
+    );
+    expect(
+      screen.getByTestId("maintenance-partner-mode-none"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("maintenance-via-partner-toggle"),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("maintenance-for-partner-toggle")).toBeNull();
   });
 });

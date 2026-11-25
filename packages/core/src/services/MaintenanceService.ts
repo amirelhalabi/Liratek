@@ -20,12 +20,17 @@ import {
   maintenanceDiscountOf,
   maintenanceExtraInJobCurrency,
   MAINTENANCE_EXTRA_CURRENCY_MESSAGE,
+  maintenancePartnerProblem,
 } from "../validators/maintenance.js";
 import {
   hasExtraCharge,
   DISCOUNT_AND_EXTRA_MESSAGE,
   EXTRA_ON_SESSION_ITEM_MESSAGE,
 } from "../validators/common.js";
+
+/** LIRA-403 — a charged repair keeps its partner switch, like its amounts. */
+export const MAINTENANCE_PARTNER_LOCKED_ERROR =
+  "Cannot change the partner of a paid repair while its transaction is still active — refund it first.";
 
 /**
  * A jobs-list row with its attached parts (LIRA-176 phase 6). `parts` is
@@ -97,6 +102,12 @@ export interface SaveJobParams {
   parts?: MaintenancePartInput[];
   /** Bypass the stock-availability guard in `syncParts` (rare/admin override). */
   allowOutOfStock?: boolean;
+  /** LIRA-403 — the partner switch: 'FOR' (done for the partner, who owes
+   *  the full price), 'VIA' (an outside technician does it; the shop owes
+   *  them the labour cost), null (customer job). Omitted = leave the job's
+   *  stored value. */
+  partner_mode?: "FOR" | "VIA" | null;
+  partner_id?: number | null;
 }
 
 export class MaintenanceService {
@@ -216,6 +227,38 @@ export class MaintenanceService {
         // except a re-save that changed the name, which clears it, the same
         // way it drops the client link (the old phone must not stick to a
         // different person). `undefined` = leave the stored value alone.
+        // LIRA-403 — the job's EFFECTIVE partner switch: what this save
+        // sends, else what the job already has (status steps send neither).
+        const partnerSent =
+          params.partner_mode !== undefined || params.partner_id !== undefined;
+        const partnerMode: "FOR" | "VIA" | null =
+          params.partner_mode !== undefined
+            ? (params.partner_mode ?? null)
+            : stored?.partner_mode === "FOR" || stored?.partner_mode === "VIA"
+              ? stored.partner_mode
+              : null;
+        const partnerId: number | null = partnerMode
+          ? params.partner_id !== undefined
+            ? (params.partner_id ?? null)
+            : (stored?.partner_id ?? null)
+          : null;
+        const partnerProblem = maintenancePartnerProblem({
+          ...params,
+          partner_mode: partnerMode,
+          partner_id: partnerId,
+        });
+        if (partnerProblem) throw new Error(partnerProblem);
+        if (
+          params.id &&
+          stored &&
+          partnerSent &&
+          ((stored.partner_mode ?? null) !== partnerMode ||
+            (stored.partner_id ?? null) !== partnerId) &&
+          this.repo.isMoneyLocked(params.id)
+        ) {
+          throw new Error(MAINTENANCE_PARTNER_LOCKED_ERROR);
+        }
+
         const jobPhone: string | null | undefined = typedPhone
           ? typedPhone
           : params.id && stored && !sameName
@@ -286,8 +329,17 @@ export class MaintenanceService {
           params.status === "Delivered_Paid" || params.status === "Delivered";
         // Does this save ask to post money? (payment lines on a paid status,
         // or a session-basket deferral, whose basket then posts the legs.)
+        // LIRA-403: a For-Partner repair has no payment legs — it is charged
+        // (the partner billed) on the save that moves the job INTO a paid
+        // status, never on a resave of an already-paid job (a notes edit,
+        // a refunded job reopened), which would bill the partner again.
+        const storedPaid =
+          stored?.status === "Delivered_Paid" || stored?.status === "Delivered";
         const wantsToCharge =
-          defer || (isPaidStatus && (params.payments?.length ?? 0) > 0);
+          defer ||
+          (isPaidStatus &&
+            ((params.payments?.length ?? 0) > 0 ||
+              (partnerMode === "FOR" && !storedPaid)));
 
         // LIRA-258 / D8: never charge a job twice. Checked BEFORE any write so
         // a refused save leaves the job untouched (no partial update), and so
@@ -345,6 +397,9 @@ export class MaintenanceService {
             quantity: row.quantity,
             unit_price_usd: row.unit_price_usd,
           })),
+          partnerMode,
+          partnerId,
+          labourCost,
         });
 
         if (params.id) {
@@ -379,6 +434,9 @@ export class MaintenanceService {
           };
 
           this.repo.updateJob(params.id, jobData, actorUserId);
+          if (partnerSent) {
+            this.repo.setJobPartner(params.id, partnerMode, partnerId);
+          }
           if (jobPhone !== undefined) {
             this.repo.setJobClientPhone(params.id, jobPhone);
           }
@@ -430,6 +488,9 @@ export class MaintenanceService {
           };
           const newId = this.repo.createJob(jobData, actorUserId);
           if (jobPhone) this.repo.setJobClientPhone(newId, jobPhone);
+          if (partnerMode) {
+            this.repo.setJobPartner(newId, partnerMode, partnerId);
+          }
 
           this.repo.syncParts(newId, params.parts, {
             // LIRA-306 FR-028: a replayed offline repair always may use parts

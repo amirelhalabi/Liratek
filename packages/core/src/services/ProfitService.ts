@@ -2586,11 +2586,10 @@ export class ProfitService {
   }
 
   /**
-   * LIRA-233 — {@link ProfitRepository.getMaintenanceTotals} applies NO
-   * partner weighting at all (confirmed by reading it — a bare unweighted
-   * `SUM`), so `debt_pending` is the only classification here: a row is
-   * either fully counted (weight 1) or fully excluded (weight 0), never
-   * partial. Reproduces `ProfitService.getByModule`'s own MAINTENANCE
+   * LIRA-233 / LIRA-403 — {@link ProfitRepository.getMaintenanceTotals}
+   * weights every job by its partner coverage (1 for a job with no
+   * For-Partner rows), so this applies the same two gates as Custom
+   * Services: `debt_pending`, then `partner_coverage_ratio`. Reproduces `ProfitService.getByModule`'s own MAINTENANCE
    * parts/labour derivation per row (rule 14) — see that push site's own
    * comment for why a kept-change gain is attributed to labour.
    */
@@ -2608,14 +2607,23 @@ export class ProfitService {
     let countedProfitLbp = 0;
 
     for (const r of rows) {
-      const weight = r.debt_pending ? 0 : 1;
+      // LIRA-403: a For-Partner repair counts as its partner settles (same
+      // two gates as Custom Services: debt_pending, then partner coverage).
+      const weight = r.debt_pending ? 0 : r.partner_coverage_ratio;
+      const isFull = weight >= 0.9995;
+      const isNone = weight <= 0.0005;
       const countedProfitUsdRow = r.profit_usd * weight;
       const countedProfitLbpRow = r.profit_lbp * weight;
       const counterpart = counterpartLabel(r.client_name);
-      const reason =
-        weight === 1
-          ? null
-          : "Customer still owes — Maintenance Debt not yet repaid.";
+      const reason = isFull
+        ? null
+        : r.debt_pending
+          ? "Customer still owes — Maintenance Debt not yet repaid."
+          : r.has_partner_obligation
+            ? isNone
+              ? "Partner has not settled this repair yet."
+              : `Partner has settled ${Math.round(r.partner_coverage_ratio * 100)}% of this repair so far.`
+            : null;
       const partsProfitUsd = r.parts_revenue_usd - r.parts_cost_usd;
       const labourProfitUsd = r.profit_usd - partsProfitUsd;
 
@@ -2631,7 +2639,7 @@ export class ProfitService {
         cost_lbp: r.cost_lbp,
         profit_usd: r.profit_usd,
         profit_lbp: r.profit_lbp,
-        counted_pct: weight === 1 ? 100 : 0,
+        counted_pct: Math.round(weight * 1000) / 10,
         counted_profit_usd: countedProfitUsdRow,
         counted_profit_lbp: countedProfitLbpRow,
         reason,

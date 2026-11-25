@@ -36,6 +36,11 @@
 
 ## ✨ Highlights
 
+### Repairs for a partner, or done by a partner
+
+The Maintenance page now has the same **Customer | For Partner | Via Partner** switch as Services. **For Partner**: the repair is done for a partner — pick the partner and tap **Deliver to partner**; nothing is collected and the full price goes on the partner's account, settled later on the Partners page. Its profit counts on the Profits page as the partner pays. **Via Partner**: an outside technician does the repair — the customer pays you as usual at checkout, and you owe the partner the repair cost (not the parts, which come from your stock). For Partner is hidden during a customer session. Refunding the job takes everything back.
+![Maintenance job form with "For Partner" picked, the partner chosen, the notice that the full $100.00 goes on the partner's account, and the Deliver to partner button](whats-new/1.35.0/maintenance-partner-switch.png)
+
 ### Pay out a session basket your way
 
 When the shop owes the customer at Session Checkout (for example an exchange plus a Whish App receive), the checkout now shows the same payment box as the other payout screens: split the payout, pay part in dollars and part in lira, choose Cash or another method per line, and use "− Less | + Extra" to keep or add a little (up to $5 / 450,000 LBP). Before, it showed only one Cash choice per currency. OMT and Whish money-transfer payouts keep their own row.
@@ -603,6 +608,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 🔧 Repairs
 
+- Maintenance: new Customer | For Partner | Via Partner switch on the job. For Partner bills the partner the full price with no payment; Via Partner takes the customer's payment as usual and records that you owe the partner the repair cost.
 - The repair checkout now opens with the client name and phone you typed on the job. Before, the Customer fields were empty and you had to search for the client again.
 
 ## 🧮 Checkpoint
