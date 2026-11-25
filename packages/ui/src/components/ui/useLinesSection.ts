@@ -312,6 +312,16 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
     value: string | number,
   ) => {
     if (!enabled) return;
+    // LIRA-400 — a payment-method fee rides on top of the line's amount: it
+    // never moves the balance, so no leftover / split logic runs for it.
+    if (field === "fee") {
+      emit(
+        lines.map((line) =>
+          line.id === id ? { ...line, fee: Number(value) || 0 } : line,
+        ),
+      );
+      return;
+    }
     touchedRef.current = true;
     if (id === followIdRef.current && field !== "method") {
       followIdRef.current = null; // the cashier owns this amount now
@@ -321,6 +331,15 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
     let next = lines.map((line) => {
       if (line.id !== id) return line;
       const updated: PaymentLine = { ...line, [field]: value };
+      // LIRA-400 — a fee belongs to the line's method and currency: a new
+      // method or currency clears it (the cashier types it again).
+      if (
+        updated.fee !== undefined &&
+        ((field === "method" && value !== line.method) ||
+          (field === "currencyCode" && value !== line.currencyCode))
+      ) {
+        delete updated.fee;
+      }
       if (field === "currencyCode" && value !== line.currencyCode) {
         const newCurr = value as string;
         updated.amount = optsRef.current.round(

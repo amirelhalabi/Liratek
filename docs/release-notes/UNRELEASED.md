@@ -58,7 +58,7 @@ When the shop owes the customer at Session Checkout (for example an exchange plu
 
 ### Charge a fee for paying by wallet
 
-When a customer pays with Whish, OMT wallet, Binance or another wallet, tap **+ fee** at the end of that payment line and type what you charge for it. The total stays the price; a "Payment method fee" line shows under it and Paid is price plus fee. The fee goes into that wallet's drawer and shows on Profits under Payment Method Fees, by method. Cash lines have no fee button. Works on the POS checkout, MTC/Alfa credit and days, and debt repayments. Refunding the sale gives back the price only; the fee stays yours.
+When a customer pays with Whish, OMT wallet, Binance or another wallet, tap **+ fee** at the end of that payment line and type what you charge for it. The total stays the price; a "Payment method fee" line shows under it and Paid is price plus fee. The fee goes into that wallet's drawer and shows on Profits under Payment Method Fees, by method. Cash lines have no fee button. Works on the POS checkout, MTC/Alfa credit and days, debt repayments, and what the customer pays you on the Exchange page. Refunding the sale gives back the price only; the fee stays yours.
 ![POS checkout paid with Whish Wallet $10, the line's Fee box showing 1, "Payment method fee +$1.00" and Paid $11.00](whats-new/1.35.0/payment-method-fee.png)
 
 ### See totals by product or service
@@ -291,6 +291,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 💱 Exchange
 
+- Exchange: when the customer pays you with Whish, OMT wallet or another wallet, a **+ fee** button on that line lets you charge a fee on top. It goes into that wallet's drawer and shows on Profits under Payment Method Fees.
 - The payment window now opens for every exchange, whatever the currency, including euros and others. Before, it opened only when you paid out dollars or LBP.
 - You can now put part of an exchange on the customer's account in either direction: what they pay you, or what you give them. This works in any currency. An amount in a currency other than dollars or LBP is booked on the account in dollars, at the rate you type in the payment window, and the account entry keeps the original amount and that rate.
 - An exchange the customer still owes for now waits until they pay before its profit counts on the Profits page. This also applies to earlier exchanges put on an account.

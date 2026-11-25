@@ -492,6 +492,11 @@ export interface MultiPaymentInputProps {
          *  `onAddedChange`). Never the account or a forgiven amount. Over
          *  the cap the section is overpaid. */
         allowAddedChange?: boolean;
+        /** LIRA-400 phase 2 — "+ fee" on this section's wallet lines (the
+         *  customer pays a payment-method fee ON TOP of the line, e.g.
+         *  Exchange's "Customer pays"). The section's balance never sees
+         *  the fee; a "Payment method fee" line shows it. Off by default. */
+        lineFees?: boolean;
         /** Hidden behind "+ Customer gives change" until the cashier opens
          *  it; an × closes it again, clearing its lines (onChange([])).
          *  Closed, the box looks exactly as with no counterFlow. Used with
@@ -769,10 +774,7 @@ function PaymentLineRow({
           method select (flex-1) gives up the room. */}
       {onFeeChange &&
         (showFeeBox ? (
-          <div
-            className="relative w-24 shrink-0"
-            title={t("row.feeTitle")}
-          >
+          <div className="relative w-24 shrink-0" title={t("row.feeTitle")}>
             <span
               className={`pointer-events-none absolute start-2 top-1/2 -translate-y-1/2 text-[10px] ${accent === "emerald" ? "text-emerald-400" : "text-violet-400"}`}
             >
@@ -2051,7 +2053,9 @@ export default function MultiPaymentInput({
   const feeLines = lineFeesOn
     ? paymentLines.filter(
         (l) =>
-          l.direction !== "OUT" && (l.fee ?? 0) > 0 && isLineFeeEligible(l.method),
+          l.direction !== "OUT" &&
+          (l.fee ?? 0) > 0 &&
+          isLineFeeEligible(l.method),
       )
     : [];
   const totalLineFeesTarget = feeLines.reduce(
@@ -2068,7 +2072,10 @@ export default function MultiPaymentInput({
   }, []);
   /** The row's fee props: only on a fee-eligible money-in line. */
   const feePropsFor = (line: PaymentLine | undefined) =>
-    lineFeesOn && line && line.direction !== "OUT" && isLineFeeEligible(line.method)
+    lineFeesOn &&
+    line &&
+    line.direction !== "OUT" &&
+    isLineFeeEligible(line.method)
       ? {
           fee: line.fee ?? 0,
           onFeeChange: (n: number) => updatePaymentLine(line.id, "fee", n),
@@ -3346,6 +3353,37 @@ export default function MultiPaymentInput({
 
   const fmtCf = (n: number) =>
     `${formatWithCommas(String(cfCurrency === "LBP" ? Math.round(n) : Math.round(n * 100) / 100))} ${cfCurrency}`;
+  // LIRA-400 phase 2 — the fee on the counter-flow's wallet lines, judged
+  // against the section's own method list (the same rule as the main lines).
+  const cfLineFeesOn = !!counterFlow?.lineFees && cfActive;
+  const isCfLineFeeEligible = (code: string): boolean => {
+    const pm = counterFlowMethods.find((m) => m.code === code);
+    return isLegFeeEligibleMethod({
+      code,
+      drawerName: pm?.drawer_name ?? null,
+      affectsDrawer:
+        pm?.affects_drawer == null ? null : Boolean(pm.affects_drawer),
+    });
+  };
+  const cfFeePropsFor = (line: PaymentLine) =>
+    cfLineFeesOn && isCfLineFeeEligible(line.method)
+      ? {
+          fee: line.fee ?? 0,
+          onFeeChange: (n: number) => cf.updateLine(line.id, "fee", n),
+        }
+      : {};
+  const cfFeesByCurrency = cfLineFeesOn
+    ? cf.lines
+        .filter((l) => (l.fee ?? 0) > 0 && isCfLineFeeEligible(l.method))
+        .reduce<Array<{ amount: number; currency: string }>>((acc, l) => {
+          const hit = acc.find((a) => a.currency === l.currencyCode);
+          if (hit) hit.amount += l.fee ?? 0;
+          else acc.push({ amount: l.fee ?? 0, currency: l.currencyCode });
+          return acc;
+        }, [])
+    : [];
+  const fmtIn = (n: number, cur: string) =>
+    `${formatWithCommas(String(cur === "LBP" ? Math.round(n) : Math.round(n * 100) / 100))} ${cur}`;
   // LIRA-336 — a closed optional section: just a link where it would sit.
   const addCustomerChangeLink =
     counterFlow && cfOptional && !cfOpen ? (
@@ -3429,6 +3467,7 @@ export default function MultiPaymentInput({
             onMethodChange={(v) => cf.updateLine(line.id, "method", v)}
             onCurrencyChange={(v) => cf.updateLine(line.id, "currencyCode", v)}
             onAmountChange={(n) => cf.updateLine(line.id, "amount", n)}
+            {...cfFeePropsFor(line)}
             {...(cf.isSplit
               ? {
                   onRemove: () => cf.removeLine(line.id),
@@ -3437,6 +3476,26 @@ export default function MultiPaymentInput({
               : {})}
           />
         ))}
+
+        {/* LIRA-400 phase 2 — the fee the customer pays on top. */}
+        {cfFeesByCurrency.length > 0 && (
+          <div
+            data-testid="counter-flow-fee-summary"
+            className="flex justify-between text-xs"
+          >
+            <span className="text-violet-300">
+              {t("summary.paymentMethodFee")}
+            </span>
+            <span className="font-mono text-violet-200">
+              <Ltr>
+                +
+                {cfFeesByCurrency
+                  .map((f) => fmtIn(f.amount, f.currency))
+                  .join(" + ")}
+              </Ltr>
+            </span>
+          </div>
+        )}
 
         {/* LIRA-369 — the same rate box for this section's Account lines. */}
         {counterFlow.accountRate &&

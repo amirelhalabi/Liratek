@@ -40,8 +40,8 @@ import {
   LEG_RECONCILIATION_EPSILON_USD,
   measureCustomerLegs,
   resolveStampedExchangeRate,
+  type CustomerPaysLeg,
   type MeasuredCustomerLegs,
-  type ReconciliationLeg,
 } from "./moneyPosting.js";
 import {
   KEPT_CHANGE_ROUNDING_TOLERANCE,
@@ -56,7 +56,10 @@ import {
 
 export interface ResolveAddedChangeInput {
   /** The customer's lines (customerPayments, or a Whish receive's fee lines). */
-  legs: ReconciliationLeg[] | undefined | null;
+  legs: CustomerPaysLeg[] | undefined | null;
+  /** LIRA-400 — the screen offers "+ fee" on these lines (see
+   *  `measureCustomerLegs`' `allowLegFees`). */
+  allowLegFees?: boolean;
   /** What the customer owes the shop on this payout (0 when nothing — the
    *  lines are then only added change). */
   expected: { amount: number; currency: string };
@@ -197,6 +200,7 @@ export function resolveAddedChange(
     clientId: input.clientId ?? null,
     context,
     allowAddedChange: true,
+    ...(input.allowLegFees ? { allowLegFees: true } : {}),
   });
 
   // The extra (in the expected currency) → the payout currency.

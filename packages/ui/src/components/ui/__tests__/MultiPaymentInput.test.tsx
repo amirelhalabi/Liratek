@@ -1175,7 +1175,12 @@ describe("MultiPaymentInput.lineFees (LIRA-400)", () => {
   ];
   const METHODS = [
     { code: "CASH", label: "Cash", drawer_name: "General", affects_drawer: 1 },
-    { code: "WHISH", label: "Whish", drawer_name: "Whish_App", affects_drawer: 1 },
+    {
+      code: "WHISH",
+      label: "Whish",
+      drawer_name: "Whish_App",
+      affects_drawer: 1,
+    },
     {
       code: "CUSTOMER_ACCOUNT",
       label: "Account",
@@ -1214,7 +1219,9 @@ describe("MultiPaymentInput.lineFees (LIRA-400)", () => {
   const feeAdd = () =>
     document.querySelector('[data-testid^="payment-fee-add-"]');
   const feeBox = () =>
-    document.querySelector<HTMLInputElement>('[data-testid^="payment-fee-"]:not([data-testid*="add"]):not([data-testid*="clear"])');
+    document.querySelector<HTMLInputElement>(
+      '[data-testid^="payment-fee-"]:not([data-testid*="add"]):not([data-testid*="clear"])',
+    );
 
   it("a wallet line shows + fee; typing 1 puts fee 1 on the line, a fee line and Paid = price + fee", () => {
     const onChange = renderMpi();
@@ -1271,5 +1278,98 @@ describe("MultiPaymentInput.lineFees (LIRA-400)", () => {
     expect(last?.[0]?.method).toBe("CASH");
     expect(last?.[0]?.fee).toBeUndefined();
     expect(screen.queryByTestId("payment-method-fee-summary")).toBeNull();
+  });
+});
+
+describe("MultiPaymentInput counterFlow.lineFees (LIRA-400 phase 2, Exchange)", () => {
+  beforeAll(resetBetweenFiles);
+  beforeAll(async () => {
+    await loadLanguage("en");
+    await i18n.changeLanguage("en");
+  });
+  afterEach(cleanup);
+
+  const METHODS = [
+    { code: "CASH", label: "Cash", drawer_name: "General", affects_drawer: 1 },
+    {
+      code: "WHISH",
+      label: "Whish",
+      drawer_name: "Whish_App",
+      affects_drawer: 1,
+    },
+  ];
+
+  function renderCustomerPays(
+    method: string,
+    lineFees: boolean,
+  ): { lines: () => PaymentLine[]; states: () => LinesSectionState[] } {
+    const calls: PaymentLine[][] = [];
+    const states: LinesSectionState[] = [];
+    render(
+      <MultiPaymentInput
+        payer="payout"
+        totals={[{ amount: 100, currency: "USD" }]}
+        currency="USD"
+        totalAmountCurrency="USD"
+        paymentMethods={METHODS}
+        currencies={[
+          { code: "USD", symbol: "$" },
+          { code: "LBP", symbol: "LBP" },
+        ]}
+        exchangeRate={90_000}
+        showDiscount={false}
+        onChange={() => {}}
+        counterFlow={{
+          label: "Customer pays",
+          totalAmount: 9_000_000,
+          currency: "LBP",
+          lockCurrency: true,
+          seedLines: [{ method, currencyCode: "LBP", amount: 9_000_000 }],
+          lineFees,
+          onChange: (l) => calls.push(l),
+          onStateChange: (s) => states.push(s),
+        }}
+      />,
+    );
+    return { lines: () => calls[calls.length - 1] ?? [], states: () => states };
+  }
+
+  const cfFeeAdd = () =>
+    document.querySelector('[data-testid^="counter-flow-fee-add-"]');
+
+  it("a Whish customer line gets + fee; the fee rides on the line and shows as its own line, balance unchanged", () => {
+    const { lines, states } = renderCustomerPays("WHISH", true);
+    expect(cfFeeAdd()).not.toBeNull();
+    act(() => {
+      fireEvent.click(cfFeeAdd()!);
+    });
+    const box = document.querySelector<HTMLInputElement>(
+      '[data-testid^="counter-flow-fee-"]:not([data-testid*="add"]):not([data-testid*="clear"])',
+    );
+    expect(box).not.toBeNull();
+    act(() => {
+      fireEvent.change(box!, { target: { value: "500000" } });
+      fireEvent.blur(box!);
+    });
+    expect(lines()[0]).toMatchObject({
+      method: "WHISH",
+      amount: 9_000_000,
+      fee: 500_000,
+    });
+    expect(
+      screen.getByTestId("counter-flow-fee-summary").textContent,
+    ).toContain("500,000");
+    const last = states().at(-1);
+    expect(last?.overpaid).toBe(false);
+  });
+
+  it("no + fee on a cash customer line", () => {
+    renderCustomerPays("CASH", true);
+    expect(cfFeeAdd()).toBeNull();
+  });
+
+  it("off by default: no + fee without lineFees", () => {
+    renderCustomerPays("WHISH", false);
+    expect(cfFeeAdd()).toBeNull();
   });
 });

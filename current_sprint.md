@@ -8888,6 +8888,10 @@ Needs: a dry-run mode that lists what it would delete; a guard test that a live 
 
 **What users will notice:** on the POS checkout, MTC/Alfa payment window and Settle Debt, a "+ fee" button on Whish / OMT wallet / Binance lines; the fee shows as its own line, goes into that wallet, and appears on Profits › Payment Method Fees by method; a refund gives back the price only.
 
+**Phase 2 — Exchange (BUILT 2026-11-25, not committed):** "+ fee" on the Exchange payment window's "Customer pays" lines. `exchange.ts` `customerPaysFields.customerPayments` now takes `feeAmount` (+ `refineLegFees`) — Exchange only; the shared `customerLegSchema` is unchanged, so OMT/Whish App receive, Binance, Hold Money stay fee-free. The shared writer `measureCustomerLegs`/`writeCustomerLegs` gained `allowLegFees` (default off → any fee is REFUSED, never dropped, rule 23); when on, `assertLegFeesAllowed` per line and the fee is posted on top (`amount + fee`, `feeAmount`) into the line's drawer, so the generic void/refund and the PM_FEE profit read it with no other change. `ExchangeRepository` passes it on both paths (`bookCustomerLegs`, `resolveAddedChange`). UI: `counterFlow.lineFees` on `MultiPaymentInput` (fee box on eligible counter-flow lines, "Payment method fee" line in the section; `useLinesSection.updateLine("fee")` skips leftover/split logic; method/currency change clears the fee); Exchange page sends `feeAmount`. Test `ExchangeRepository.paymentMethodFee.test.ts` **proven failing first**: 7 failed / 1 passed (Whish_App +89,500,000 instead of +90,000,000; refusals accepted) → 8/8 after.
+
+**What users will notice (phase 2, Exchange):** on the Exchange payment window, a "+ fee" button on the customer's Whish / OMT wallet lines; the fee goes into that wallet and shows on Profits › Payment Method Fees.
+
 ---
 
 ## LIRA-401: Duplicate repayment on Accounts — Confirm lock + one-time ticket on every money write — BUILT 2026-11-18

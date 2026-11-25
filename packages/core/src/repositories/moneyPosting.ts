@@ -1299,10 +1299,24 @@ function comparisonCurrency(currency: string): string {
 }
 
 /** The pure measure half: everything `bookCustomerLegs` checks, no writes. */
+/** A customer line, optionally carrying a LIRA-400 payment-method fee. */
+export type CustomerPaysLeg = ReconciliationLeg & { feeAmount?: number };
+
+export const CUSTOMER_LEGS_FEE_NOT_ALLOWED_MESSAGE =
+  "A payment method fee cannot be charged on this screen.";
+
 export interface MeasureCustomerLegsInput {
   /** The customer's IN lines (method, currency, amount > 0). An OUT-direction
    *  (change) line is refused: this section has no change. */
-  legs: ReconciliationLeg[];
+  legs: CustomerPaysLeg[];
+  /**
+   * LIRA-400 phase 2 — the screen offers "+ fee" on its customer lines
+   * (Exchange only so far). A line's `feeAmount` is then checked (wallet
+   * line only, 0 ≤ fee ≤ amount) and posted ON TOP of its amount into the
+   * same drawer; it never counts toward the balance below. Without it any
+   * fee is refused — never silently dropped (rule 23).
+   */
+  allowLegFees?: boolean;
   /** What the customer owes the shop, in the screen's own currency
    *  (Exchange: amountIn in fromCurrency; app receive: transfer + fee).
    *  May be 0 only with `allowAddedChange` (a payout where the customer owes
@@ -1350,7 +1364,7 @@ export interface MeasuredCustomerLegs {
   /** The same, as its USD equivalent at `rate` (USDT 1:1). */
   addedChangeUsd: number;
   /** The lines that move a drawer (every non-account line), in input order. */
-  drawerLegs: ReconciliationLeg[];
+  drawerLegs: CustomerPaysLeg[];
 }
 
 export interface BookCustomerLegsInput extends MeasureCustomerLegsInput {
@@ -1440,6 +1454,14 @@ export function measureCustomerLegs(
         `${leg.method} cannot be used here — use a drawer method or the client's account.`,
         `${leg.method} moves no drawer`,
       );
+    }
+    // LIRA-400 — a fee only where the screen offers it, and only on a
+    // wallet line (the same rule as every other payment form).
+    if (legFeeOf(leg) !== 0) {
+      if (input.allowLegFees !== true) {
+        fail(CUSTOMER_LEGS_FEE_NOT_ALLOWED_MESSAGE, `${leg.method} fee`);
+      }
+      assertLegFeesAllowed([leg]);
     }
   }
   const accountLegs = legs.filter((l) => l.method === "CUSTOMER_ACCOUNT");
@@ -1612,20 +1634,25 @@ export function writeCustomerLegs(
   }
   for (const leg of measured.drawerLegs) {
     const drawerName = input.drawerFor(leg);
+    // LIRA-400 — the fee (checked by measureCustomerLegs) rides on top of
+    // the price part, into the same drawer; the row records the whole
+    // movement and the fee part, so the generic void mirrors both.
+    const fee = legFeeOf(leg);
     insertPaymentRow(db, {
       transactionId,
       method: input.storedMethodFor ? input.storedMethodFor(leg) : leg.method,
       drawerName,
       currencyCode: leg.currencyCode,
-      amount: leg.amount,
+      amount: leg.amount + fee,
       note,
       createdBy,
       tenantId,
+      ...(fee > 0 ? { feeAmount: fee } : {}),
     });
     applyDrawerDelta(db, {
       drawerName,
       currencyCode: leg.currencyCode,
-      delta: leg.amount,
+      delta: leg.amount + fee,
       tenantId,
     });
   }

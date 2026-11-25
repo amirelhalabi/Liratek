@@ -38,6 +38,10 @@ jest.mock("@liratek/core", () => ({
       TENDER_RATE_BAND_PCT: band.TENDER_RATE_BAND_PCT,
       tenderRateDeviationPct: band.tenderRateDeviationPct,
       isWithinShortfallMax: ex.isWithinShortfallMax,
+      // LIRA-400 — the customer lines' "+ fee" rule (real leaf module).
+      isLegFeeEligibleMethod: jest.requireActual(
+        "../../../../../../../packages/core/src/utils/legFee",
+      ).isLegFeeEligibleMethod,
     };
   })(),
   TAKE_USD: -1,

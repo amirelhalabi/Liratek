@@ -1316,6 +1316,8 @@ export default function Exchange() {
             method: l.method,
             currencyCode: l.currencyCode,
             amount: l.amount,
+            // LIRA-400 — the payment-method fee typed on a wallet line.
+            ...((l.fee ?? 0) > 0 ? { feeAmount: l.fee } : {}),
           }))
       : [];
     const customerWaived = onSheet ? (customerState?.forgiven ?? 0) : 0;
@@ -2465,6 +2467,8 @@ export default function Exchange() {
                 paymentMethods: customerPaymentMethods,
                 requiresClient: true,
                 hasClient: clientId !== null,
+                // LIRA-400 — "+ fee" on the customer's wallet lines.
+                lineFees: true,
                 ...(customerMaxForgive !== undefined
                   ? { maxForgive: customerMaxForgive }
                   : {}),

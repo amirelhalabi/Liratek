@@ -8,7 +8,8 @@ import {
   addedChangeFields,
   typedNoteField,
 } from "./common.js";
-import { customerPaymentsField } from "./customerLegs.js";
+import { customerLegSchema, customerPaymentsField } from "./customerLegs.js";
+import { legFeeAmountSchema, refineLegFees } from "./legFee.js";
 
 /**
  * Exchange/currency validation schemas
@@ -86,6 +87,15 @@ const keptChangeFields = {
 const customerPaysFields = {
   clientId: z.number().int().positive().optional(),
   ...customerPaymentsField,
+  /** LIRA-400 phase 2 — Exchange's customer lines may carry a
+   *  payment-method fee on a wallet line, on top of `amount` (which still
+   *  pays `amountIn`). Overrides the shared key for Exchange only: the
+   *  other "Customer pays" screens keep the fee-free shape. */
+  customerPayments: z
+    .array(customerLegSchema.extend({ feeAmount: legFeeAmountSchema }))
+    .min(1)
+    .superRefine(refineLegFees("feeAmount"))
+    .optional(),
   /** LIRA-369 — "1 fromCurrency = X USD", typed on the form, for a
    *  customer-side account line in a currency other than USD/LBP. */
   customer_account_usd_rate: z.number().positive().optional(),

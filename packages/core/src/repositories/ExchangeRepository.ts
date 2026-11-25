@@ -222,6 +222,9 @@ export interface CreateExchangeData {
     method: string;
     currencyCode: string;
     amount: number;
+    /** LIRA-400 — payment-method fee on a wallet line, ON TOP of `amount`
+     *  (which still pays `amountIn`); posted into the line's own drawer. */
+    feeAmount?: number;
   }>;
   /** LIRA-321 — the forgiven leftover, in `fromCurrency` (on screen:
    *  "Forgive"). Recorded as a WAIVED_SHORTFALL sibling row. */
@@ -840,32 +843,32 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       const exchangeSnapshot = deferred
         ? buildPaymentSnapshot({ sessionId: data.paid_in_session })
         : buildPaymentSnapshot({
-        // `payments` are the payout lines (OUT); the customer's lines go
-        // in `customerPayments` (IN).
-        flow: "PAYOUT",
-        payments:
-          payoutLegs.length > 0
-            ? payoutLegs
-            : [
-                {
-                  method: "CASH",
-                  currencyCode: data.toCurrency,
-                  amount: data.amountOut,
-                },
-              ],
-        customerPayments: isForPartner
-          ? []
-          : usesCustomerPays
-            ? customerLegs
-            : [
-                {
-                  method: "CASH",
-                  currencyCode: data.fromCurrency,
-                  amount: data.amountIn,
-                },
-              ],
-        keptChange: { usd: kept.usd, lbp: kept.lbp },
-      });
+            // `payments` are the payout lines (OUT); the customer's lines go
+            // in `customerPayments` (IN).
+            flow: "PAYOUT",
+            payments:
+              payoutLegs.length > 0
+                ? payoutLegs
+                : [
+                    {
+                      method: "CASH",
+                      currencyCode: data.toCurrency,
+                      amount: data.amountOut,
+                    },
+                  ],
+            customerPayments: isForPartner
+              ? []
+              : usesCustomerPays
+                ? customerLegs
+                : [
+                    {
+                      method: "CASH",
+                      currencyCode: data.fromCurrency,
+                      amount: data.amountIn,
+                    },
+                  ],
+            keptChange: { usd: kept.usd, lbp: kept.lbp },
+          });
       const clientPhone =
         !isForPartner && (nonBlank(data.clientName) || data.clientId)
           ? nonBlank(data.clientPhone)
@@ -992,6 +995,8 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
               note: `${note ?? exchangeSummary}${conversionNote("customer")}`,
               typedNote: data.typedNote,
               context: "Exchange",
+              // LIRA-400 — Exchange offers "+ fee" on its customer lines.
+              allowLegFees: true,
             });
         if (forgiven > 0) {
           // FR-012 — the shared writer (forgivenShortfall.ts), same row
@@ -1010,7 +1015,10 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
             transactionTime: data.transaction_time,
           });
         }
-      } else if (!isForPartner && !(deferred && isAccountCurrency(data.fromCurrency))) {
+      } else if (
+        !isForPartner &&
+        !(deferred && isAccountCurrency(data.fromCurrency))
+      ) {
         // LIRA-380: a basket line's USD/LBP side is collected by the
         // basket's pooled payment — only another currency posts here.
         const fromDelta = Math.abs(data.amountIn);
@@ -1086,23 +1094,24 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
           });
         }
         const owed = expectedTotalIn(Math.abs(data.amountOut), data.toCurrency);
-        if (!nativePayout) reconcileLegs({
-          inLegs: payoutLegs,
-          expectedTotals: {
-            usd: owed.usd - kept.usd + rounding.usd + added.usd,
-            lbp: owed.lbp - kept.lbp + rounding.lbp + added.lbp,
-          },
-          // Fallback rate only, used when `tenderExchangeRate` is absent —
-          // the stamped `rate` is the from→to exchange rate (possibly
-          // EUR-per-USD etc.), NOT a USD↔LBP rate, so the server sell rate
-          // anchors reconciliation here. LIRA-240 (2026-09-28) retired the
-          // ±15% band that used to compare a supplied tender rate against
-          // this anchor and refuse outside it — a tender rate, when
-          // supplied, is now used as-is regardless of the gap.
-          exchangeRate: getUsdLbpSellRate(this.db),
-          tenderExchangeRate: data.tender_exchange_rate,
-          context: "Exchange payout",
-        });
+        if (!nativePayout)
+          reconcileLegs({
+            inLegs: payoutLegs,
+            expectedTotals: {
+              usd: owed.usd - kept.usd + rounding.usd + added.usd,
+              lbp: owed.lbp - kept.lbp + rounding.lbp + added.lbp,
+            },
+            // Fallback rate only, used when `tenderExchangeRate` is absent —
+            // the stamped `rate` is the from→to exchange rate (possibly
+            // EUR-per-USD etc.), NOT a USD↔LBP rate, so the server sell rate
+            // anchors reconciliation here. LIRA-240 (2026-09-28) retired the
+            // ±15% band that used to compare a supplied tender rate against
+            // this anchor and refuse outside it — a tender rate, when
+            // supplied, is now used as-is regardless of the gap.
+            exchangeRate: getUsdLbpSellRate(this.db),
+            tenderExchangeRate: data.tender_exchange_rate,
+            context: "Exchange payout",
+          });
 
         // LIRA-369: the part paid to the client's account — one credit,
         // linked to this exchange so its void/refund reverses it
@@ -1495,6 +1504,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       clientId: data.clientId ?? null,
       waived: data.customer_waived_amount ?? 0,
       claimed: { usd: data.added_change_usd, lbp: data.added_change_lbp },
+      allowLegFees: true,
       notAllowed:
         isForPartner ||
         !usdOrLbp(data.fromCurrency) ||
@@ -1976,7 +1986,9 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
               WHERE source_table = 'exchange_transactions' AND source_id = ?
                 AND type = 'EXCHANGE' AND reverses_id IS NULL AND tenant_id = ?`,
           )
-          .get(id, tenantId) as { id: number; typed: string | null } | undefined;
+          .get(id, tenantId) as
+          | { id: number; typed: string | null }
+          | undefined;
         if (txn) {
           syncTypedNote(this.db, {
             transactionId: txn.id,
