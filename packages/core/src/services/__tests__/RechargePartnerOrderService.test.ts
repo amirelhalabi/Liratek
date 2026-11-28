@@ -46,6 +46,13 @@ import { resetSettingsRepository } from "../../repositories/SettingsRepository";
 import { resetFinancialServiceRepository } from "../../repositories/FinancialServiceRepository";
 import { resetSupplierRepository } from "../../repositories/SupplierRepository";
 import {
+  getCarrierLineRepository,
+  resetCarrierLineRepository,
+} from "../../repositories/CarrierLineRepository";
+import { resetCarrierLineMovementRepository } from "../../repositories/CarrierLineMovementRepository";
+import { resetCarrierLineService } from "../CarrierLineService";
+import { resetMobileServiceItemRepository } from "../../repositories/MobileServiceItemRepository";
+import {
   snapshotLedgers,
   ledgerDeltas,
   type LedgerSnapshot,
@@ -73,6 +80,10 @@ function resetAll(): void {
   resetSettingsRepository();
   resetFinancialServiceRepository();
   resetSupplierRepository();
+  resetCarrierLineRepository();
+  resetCarrierLineMovementRepository();
+  resetCarrierLineService();
+  resetMobileServiceItemRepository();
 }
 
 type Sale = RechargePartnerOrderPayload["sales"][number];
@@ -317,6 +328,77 @@ describe("RechargePartnerOrderService.submit — For Partner across the basket",
         /partner/i,
       );
     });
+  });
+
+  /**
+   * Only Days on a partner order: the credits SMSed back reach the shop's
+   * Alfa / MTC drawer and its primary line for that carrier, the same as a
+   * walk-in sale, and a void takes them back out. The sales carry
+   * `telecomCreditReturns` exactly as the screen's partner payload now builds
+   * it (one entry per unit).
+   *
+   * Not proven failing-first: the server side already booked this; the bug
+   * was the screen never sending it (guarded failing-first in the frontend's
+   * basketCheckout.test.ts). This pins the server half end to end.
+   */
+  it("Only Days cards credit the Alfa / MTC drawer and primary line, and a void nets everything to 0", () => {
+    const lines = getCarrierLineRepository();
+    const alfaLine = lines.createLine({
+      carrier: "alfa",
+      phone_number: "03100001",
+    });
+    lines.setPrimary(alfaLine.id);
+    const mtcLine = lines.createLine({
+      carrier: "mtc",
+      phone_number: "71100001",
+    });
+    lines.setPrimary(mtcLine.id);
+
+    const katshOnlyDays: Sale = {
+      ...katshCards,
+      note: "alfa 7.58 x2 [Only Days]",
+      telecomCreditReturns: [
+        { itemCategory: "alfa", returnedCreditsUsd: 7 },
+        { itemCategory: "alfa", returnedCreditsUsd: 7 },
+      ],
+    };
+    const ipickOnlyDays: Sale = {
+      ...ipickCards,
+      note: "mtc 7.58 [Only Days]",
+      telecomCreditReturns: [{ itemCategory: "mtc", returnedCreditsUsd: 4.5 }],
+    };
+
+    const before = snapshotLedgers(db);
+    const result = submit([katshOnlyDays, ipickOnlyDays]);
+    expect(result.error).toBeUndefined();
+    expect(result.success).toBe(true);
+
+    const d = ledgerDeltas(before, snapshotLedgers(db));
+    expect(d.drawers).toEqual({
+      "Katsh|LBP": -720_000,
+      "iPick|LBP": -150_000,
+      "Alfa|USD": 14,
+      "MTC|USD": 4.5,
+    });
+    expect(d.partner).toEqual({
+      [`${partnerId}|LBP`]: 800_000 + 180_000,
+    });
+    expect(lines.getById(alfaLine.id)!.credits).toBeCloseTo(14, 6);
+    expect(lines.getById(mtcLine.id)!.credits).toBeCloseTo(4.5, 6);
+
+    const txnRepo = getTransactionRepository();
+    for (const fsId of result.ids!) {
+      const txn = txnRepo.getBySourceId("financial_services", fsId)!;
+      txnRepo.voidTransaction(txn.id, 1);
+    }
+    expect(ledgerDeltas(before, snapshotLedgers(db))).toEqual({
+      drawers: {},
+      supplier: {},
+      partner: {},
+      debt: {},
+    });
+    expect(lines.getById(alfaLine.id)!.credits).toBeCloseTo(0, 6);
+    expect(lines.getById(mtcLine.id)!.credits).toBeCloseTo(0, 6);
   });
 
   it("voiding each sale nets every ledger back to 0 per currency (rule 20)", () => {

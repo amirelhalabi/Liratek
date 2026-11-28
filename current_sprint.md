@@ -8952,3 +8952,15 @@ Needs: a dry-run mode that lists what it would delete; a guard test that a live 
 
 **What users will notice:** the euro is exchanged at the online market rate (no rate to type in Settings), and Open Positions shows today's market value and gain/loss for every foreign currency held.
 
+
+## LIRA-405: Only Days credit lost on Katsh / iPick partner orders — BUILT 2026-11-28 (not committed)
+
+**Bug (owner report 2026-11-28):** an MTC or Alfa card sold "Only Days" through "For Partner" on Katsh or iPick returned no credit to the MTC / Alfa drawer or the shop line. The server's For Partner catalog arm already calls `processTelecomCreditReturn`, but the screen's partner payload (`buildPartnerOrderPayload`, `frontend/src/features/recharge/utils/basketCheckout.ts`) merged the cards into one sale and never sent `telecomCreditReturns`, so the server resolved 0 credits: no drawer leg, no line movement, no profit offset. The per-tab partner call before LIRA-327 had the same gap, so it has never worked for partner orders.
+
+**Fix:** the partner payload now adds `telecomCreditReturns` to each Katsh / iPick card sale, one entry per Only Days unit, read from the unit `catalogBatchSubItems` already built (`itemCategory`, `mobileServiceItemId`, `returnedCreditsUsd`), the same as a walk-in sale. No server change.
+
+**Tests:** frontend `basketCheckout.test.ts` "Only Days cards (Katsh alfa, iPick mtc)…" (proven failing-first: `telecomCreditReturns` was undefined) + "no Only Days card sends no credit returns" (no-regression guard, passes before and after); core `RechargePartnerOrderService.test.ts` "Only Days cards credit the Alfa / MTC drawer and primary line, and a void nets everything to 0" (real schema; not failing-first, the server half already worked).
+
+**Not changed:** past partner Only Days sales keep their missing credit. Whish App has no Only Days option on any sale (separate question for the owner).
+
+**What users will notice:** an MTC or Alfa card sold "Only Days" for a partner on Katsh or iPick now returns its credit to the MTC / Alfa balance and the shop line, like a walk-in sale.

@@ -27,13 +27,16 @@ import {
   billPricedLine,
   buildBasketCheckoutPayload,
   buildPartnerOrderPayload,
+  catalogBatchSubItems,
   spreadDiscount,
 } from "../basketCheckout";
 import {
   type BasketSubItem,
   type BasketProvider,
+  type CatalogCartLine,
   type PricedLine,
 } from "../../types/basket";
+import type { ServiceItem } from "@/contexts/MobileServiceItemsContext";
 
 function resetBetweenFiles() {
   jest.clearAllMocks();
@@ -519,6 +522,122 @@ describe("basketCheckout (LIRA-326)", () => {
         expect(s.partnerId).toBeUndefined();
         expect(s.clientId).toBeUndefined();
       }
+    });
+
+    /**
+     * Only Days on a partner order: the credits SMSed back must reach the
+     * shop's Alfa / MTC drawer and line, exactly as on a walk-in sale. The
+     * server books them from `telecomCreditReturns`; the partner payload never
+     * sent it, so every partner Only Days sale lost the card's credit.
+     *
+     * Sub-items are built by the real screen builder (`catalogBatchSubItems`)
+     * and the order is parsed through the STRICT schema (rule 24).
+     *
+     * Rule 17: written before the fix and seen failing (no
+     * `telecomCreditReturns` on either sale).
+     */
+    it("Only Days cards (Katsh alfa, iPick mtc) send one credit return per unit; other cards send none", () => {
+      const item = (
+        provider: "Katsh" | "iPick",
+        category: "alfa" | "mtc" | "Gaming",
+        extra: Partial<ServiceItem>,
+      ): ServiceItem => ({
+        key: `${provider}/${category}/x`,
+        provider,
+        category,
+        subcategory: "Prepaid",
+        label: "7.58",
+        sortOrder: 0,
+        catalogCost: 765_007,
+        ...extra,
+      });
+      const priced = (
+        cartLine: CatalogCartLine,
+        unitPrice: number,
+      ): PricedLine => {
+        const subs = catalogBatchSubItems(
+          cartLine,
+          unitPrice,
+          cartLine.item.catalogCost ?? 0,
+        );
+        return {
+          ...line(cartLine.item.provider as BasketProvider, "l", subs),
+          partnerNote: "card",
+        };
+      };
+
+      // Katsh alfa, split complete, credits not edited: the server works out
+      // the credits from the item id (2 units).
+      const katshAlfa = priced(
+        {
+          item: item("Katsh", "alfa", {
+            id: 11,
+            credits: 7.58,
+            days_cost_lbp: 120_000,
+          }),
+          quantity: 2,
+          onlyDays: true,
+          returnedCreditsUsd: 7,
+          returnedCreditsEdited: false,
+        },
+        250_000,
+      );
+      // Katsh card NOT sold as Only Days: no credit return.
+      const katshPlain = priced(
+        {
+          item: item("Katsh", "Gaming", { id: 12 }),
+          quantity: 1,
+          onlyDays: false,
+          returnedCreditsUsd: 0,
+          returnedCreditsEdited: false,
+        },
+        90_000,
+      );
+      // iPick mtc, typed credits: the typed value is sent.
+      const ipickMtc = priced(
+        {
+          item: item("iPick", "mtc", {
+            id: 21,
+            credits: 7.58,
+            days_cost_lbp: 120_000,
+          }),
+          quantity: 1,
+          onlyDays: true,
+          returnedCreditsUsd: 4.5,
+          returnedCreditsEdited: true,
+        },
+        300_000,
+      );
+
+      const order = strictOrder.parse(
+        buildPartnerOrderPayload({
+          lines: [katshAlfa, katshPlain, ipickMtc],
+          partnerId: 7,
+          userId: 3,
+        }),
+      );
+      const ipick = order.sales.find((s) => s.provider === "iPick")!;
+      const katsh = order.sales.find((s) => s.provider === "Katsh")!;
+      expect(katsh.telecomCreditReturns).toEqual([
+        { itemCategory: "alfa", mobileServiceItemId: 11 },
+        { itemCategory: "alfa", mobileServiceItemId: 11 },
+      ]);
+      expect(ipick.telecomCreditReturns).toEqual([
+        {
+          itemCategory: "mtc",
+          mobileServiceItemId: 21,
+          returnedCreditsUsd: 4.5,
+        },
+      ]);
+    });
+
+    it("a partner order with no Only Days card sends no credit returns", () => {
+      const order = buildPartnerOrderPayload({
+        lines: [line("Katsh", "k", [sub("Katsh", 90_000, 82_340)])],
+        partnerId: 7,
+        userId: 3,
+      });
+      expect("telecomCreditReturns" in order.sales[0]!).toBe(false);
     });
 
     it("a zero-cost Whish App unit pays its OUT leg from the chosen drawer, with no profit", () => {

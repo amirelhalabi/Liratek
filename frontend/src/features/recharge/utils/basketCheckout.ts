@@ -509,6 +509,32 @@ export interface BuildPartnerOrderInput {
  * stamped by the server on every sale. Providers in basket order (iPick,
  * Katsh, Whish App).
  */
+type TelecomCreditReturn = NonNullable<
+  PartnerSale["telecomCreditReturns"]
+>[number];
+
+/**
+ * The credit-return entry one card unit carries, or none. Only an Only Days
+ * unit carries `mobileServiceItemId` or `returnedCreditsUsd`
+ * (`catalogBatchSubItems`), so those two fields mark it.
+ */
+function telecomCreditReturnOf(sub: BasketSubItem): TelecomCreditReturn[] {
+  if (sub.mobileServiceItemId == null && sub.returnedCreditsUsd === undefined) {
+    return [];
+  }
+  return [
+    {
+      ...(sub.itemCategory ? { itemCategory: sub.itemCategory } : {}),
+      ...(sub.mobileServiceItemId != null
+        ? { mobileServiceItemId: sub.mobileServiceItemId }
+        : {}),
+      ...(sub.returnedCreditsUsd !== undefined
+        ? { returnedCreditsUsd: sub.returnedCreditsUsd }
+        : {}),
+    },
+  ];
+}
+
 export function buildPartnerOrderPayload(
   input: BuildPartnerOrderInput,
 ): RechargePartnerOrderPayload {
@@ -521,6 +547,13 @@ export function buildPartnerOrderPayload(
     if (cards.length > 0 && provider !== "WHISH_APP") {
       const amount = cards.reduce((s, l) => s + l.amount, 0);
       const cost = cards.reduce((s, l) => s + l.cost, 0);
+      // Only Days units: the credits SMSed back go to the shop's Alfa / MTC
+      // drawer and line, the same as a walk-in sale. One entry per unit, read
+      // from the unit itself (rule 14 — `catalogBatchSubItems` already decided
+      // which units are Only Days and what each sends).
+      const telecomCreditReturns = cards
+        .flatMap((l) => l.subItems)
+        .flatMap(telecomCreditReturnOf);
       sales.push({
         provider,
         serviceType: "SEND",
@@ -530,6 +563,7 @@ export function buildPartnerOrderPayload(
         commission: Math.max(0, amount - cost),
         payments: [],
         note: cards.map((l) => l.partnerNote ?? l.label).join(", "),
+        ...(telecomCreditReturns.length > 0 ? { telecomCreditReturns } : {}),
       });
     }
     if (provider === "WHISH_APP") {
