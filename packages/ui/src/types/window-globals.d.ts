@@ -20,6 +20,8 @@ export {};
 declare global {
   /** Injected by Vite's `define` (frontend/vite.config.ts). */
   const __APP_VERSION__: string;
+  /** The web build's id (vite.config.ts); "dev" in a local dev build. */
+  const __BUILD_ID__: string;
 
   type UINotificationHistoryItem = {
     id: string | number;

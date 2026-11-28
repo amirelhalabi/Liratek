@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { PageHeader, useApi, DateRangeFilter } from "@liratek/ui";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { businessDayOf } from "@/shared/utils/localDay";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { useFormat } from "@/i18n/useFormat";
@@ -266,7 +267,7 @@ interface SessionTransaction {
 function SessionCard({ session: s }: { session: SessionSummary }) {
   const api = useApi();
   const { t } = useTranslation("sessions");
-  const { formatTime } = useFormat();
+  const { formatTime, formatDate } = useFormat();
   const isActive = s.is_active === 1;
   // Use checkout totals if available, otherwise fall back to linked transaction totals
   const revenueUsd = s.checkout_total_usd || s.total_usd;
@@ -339,6 +340,19 @@ function SessionCard({ session: s }: { session: SessionSummary }) {
             )}
           </div>
           <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-400">
+            {/* The day the date filter files this session under
+                (business day of started_at, rule 27). */}
+            <time
+              dateTime={businessDayOf(s.started_at)}
+              data-testid={`session-date-${s.id}`}
+            >
+              {formatDate(parseDbDate(s.started_at), {
+                year: "numeric",
+                month: "numeric",
+                day: "numeric",
+              })}
+            </time>
+            <span className="text-slate-600">·</span>
             <span>
               {formatTime(parseDbDate(s.started_at), CLOCK)}
               {s.closed_at

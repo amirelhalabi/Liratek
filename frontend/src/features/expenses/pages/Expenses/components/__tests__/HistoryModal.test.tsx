@@ -441,3 +441,58 @@ describe("HistoryModal.totals (LIRA-311)", () => {
     });
   });
 });
+
+describe("HistoryModal.dateColumn (owner 2026-11-28)", () => {
+  beforeAll(resetBetweenFiles);
+
+  /**
+   * The History window filters by date (From / To), so every row must show
+   * its date — the same BUSINESS (local) day the filter files it under
+   * (rule 27), so the column and the filter always agree. A UTC instant just
+   * after local midnight shows the local day, not the UTC one.
+   *
+   * Rule 17: written before the column existed and seen failing (no date
+   * cell on any row).
+   */
+  it("shows a Date column with each row's business day", () => {
+    const AFTER_LOCAL_MIDNIGHT = new Date(2026, 8, 5, 1, 30, 0).toISOString();
+    render(
+      <HistoryModal
+        expenses={[
+          {
+            id: 1,
+            description: "rent",
+            category: "Rent",
+            amount_usd: 100,
+            amount_lbp: 0,
+            expense_date: "2026-10-19",
+            is_refunded: 0,
+          },
+          {
+            id: 2,
+            description: "line usage",
+            category: "Line_Usage",
+            amount_usd: 8,
+            amount_lbp: 0,
+            expense_date: AFTER_LOCAL_MIDNIGHT,
+            is_refunded: 0,
+          },
+        ]}
+        loading={false}
+        onClose={jest.fn()}
+        onRefresh={jest.fn()}
+        onVoid={jest.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("columnheader", { name: /date/i }),
+    ).toBeInTheDocument();
+    const dayOf = (text: string) =>
+      within(screen.getByText(text).closest("tr")!)
+        .getByTestId("expense-history-date")
+        .getAttribute("datetime");
+    expect(dayOf("rent")).toBe("2026-10-19");
+    expect(dayOf("line usage")).toBe("2026-09-05");
+  });
+});

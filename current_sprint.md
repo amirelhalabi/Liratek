@@ -8974,3 +8974,27 @@ Needs: a dry-run mode that lists what it would delete; a guard test that a live 
 **Tests:** core telecomOnlyDays LIRA-406 block (4 proven failing-first; USD guard passes before and after), RechargeBasketService + RechargePartnerOrderService Whish Only Days (real schema, not failing-first); frontend `FinancialForm.onlyDays` (3 failing-first + 1 guard), basketCheckout Whish payloads (partner failing-first; session/basket not failing-first), `onlyDaysVariants` table (16 cases, not failing-first); web e2e `lira-web-109` (also the What's new screenshot). Katsh suites unchanged and green after the move.
 
 **What users will notice:** on Whish App → Bills, an MTC or Alfa card can be ticked "Only Days"; the customer pays the days price and the returned credit goes to the MTC / Alfa balance and the shop line, in every sale mode.
+
+## LIRA-407: Date shown on every list filtered by date — BUILT 2026-11-28 (not committed)
+
+**Ask (owner 2026-11-28):** the Expenses History window can be filtered by date but shows no date; every table with a date filter must show a date column.
+
+**Audit (all date-filtered tables):** missing a date — Expenses History (no column), Exchange history (time only), Sessions page cards (time only). Everything else already showed it (Recharge, Services, Custom Services, Loto, Maintenance, Checkpoint timeline, Transactions, Audit log, Cash report, Partners / Suppliers windows, Profits, Inventory "Added"). Warranty, Vouchers, Phone lines have date inputs but no date filter on a list.
+
+**Built:** Expenses History gets a Date column (sortable, in the Excel / PDF export, edit row `colSpan` 7); Exchange history shows the date under the time; Sessions cards show the date before the times. Each date carries the row's business day (`<time datetime>`). Also fixed the shared `useDateRangeFilter`: it filed rows by the raw UTC day of a SQLite timestamp (`slice(0, 10)`) while the screens show the local day, so an entry just after midnight was filtered under the day before; it now uses one shared `businessDayOf` (rule 27), which Expenses already did on its own.
+
+**Tests (all proven failing-first):** `useDateRangeFilter.businessDay` (run with `TZ=Asia/Beirut`), Expenses `HistoryModal` dateColumn, Exchange `HistoryModal.dateShown`, `CustomerSessions.dateShown`; web e2e `lira-web-110` (also the What's new screenshot). Affected suites green in Beirut and UTC.
+
+**What users will notice:** the Expenses History has a Date column, the Exchange history and Sessions page show each entry's date, and From / To filters list a just-after-midnight entry under the day it shows.
+
+## LIRA-408: Web app reloads itself on a new version — BUILT 2026-11-28 (not committed)
+
+**Why (owner 2026-11-28):** Corner Tech partner sale #21692 (Katsh mtc 77.28 Only Days, 20:31 Beirut) booked no returned credit 1.5 h after the LIRA-405 fix went live: the till's tab had been open since before the deploy and kept running the old code. Owner decisions: no prompt — reload automatically, but never interrupt entries: only when nothing is selected and no field holds typed data; page changes are a good reload moment.
+
+**Built:** `vite.config.ts` bakes one build id (`VERCEL_GIT_COMMIT_SHA`, else `GITHUB_SHA`, else build time) into the bundle as `__BUILD_ID__` and writes `version.json`; `vercel.json` serves it `no-store`. `useAutoReloadOnNewVersion` (mounted in `App`) reads it on open, every 5 min and when the tab comes back into view; off on desktop (`isElectron()`) and in dev. A newer id reloads only when `hasPendingWork()` is false (`shared/utils/pendingWork.ts`: app-state picks registered with `usePendingWork` — the Mobile Recharge basket, each form's own cart, the POS cart — plus any field the cashier changed since first focusing it), at the first of: tab hidden, page change, 30 s with no key/click/scroll (checked every 15 s). A customer session's cart is saved on the server, so it does not block.
+
+**Tests:** `useAutoReloadOnNewVersion.test.tsx` (10): reload moments proven failing-first (hook absent); the "work in progress blocks it" cases written after the hook honoured them — not failing-first. Verified a real `vite build` writes `version.json` with the same id as the bundle.
+
+**Known gap:** selections that are neither a registered cart nor a form field (e.g. custom toggle buttons that hold page state) do not block; leaving the page drops them anyway, and the quiet-spell reload needs 30 s with no input.
+
+**What users will notice:** after an update, open web pages reload by themselves once nothing is being entered.

@@ -74,6 +74,15 @@
       ]
     },
     {
+      "source": "/version.json",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, must-revalidate"
+        }
+      ]
+    },
+    {
       "source": "/runtime-config.js",
       "headers": [
         {

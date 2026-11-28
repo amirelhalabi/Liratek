@@ -1,6 +1,7 @@
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { lazyWithReload } from "@/shared/utils/lazyWithReload";
 import { Suspense, useEffect } from "react";
+import { useAutoReloadOnNewVersion } from "@/shared/hooks/useAutoReloadOnNewVersion";
 import { useTranslation } from "react-i18next";
 import { AuthProvider, useAuth } from "@/features/auth/context/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
@@ -230,7 +231,9 @@ function PageLoader() {
   return (
     <div className="min-h-[400px] w-full flex flex-col items-center justify-center gap-4 text-slate-400">
       <div className="w-12 h-12 border-4 border-slate-700 border-t-violet-500 rounded-full animate-spin"></div>
-      <p className="text-sm font-medium animate-pulse">{t("app.loadingExperience")}</p>
+      <p className="text-sm font-medium animate-pulse">
+        {t("app.loadingExperience")}
+      </p>
     </div>
   );
 }
@@ -545,6 +548,10 @@ function App() {
     if (saved !== null) applyUiScale(saved);
   }, []);
 
+  // Web: a newer deployed build reloads this tab by itself, but only when the
+  // cashier has nothing picked or typed (desktop has its own updater).
+  useAutoReloadOnNewVersion();
+
   // Don't render until settings are loaded
   if (!isLoaded) {
     return (
@@ -581,33 +588,33 @@ function App() {
                     {/* LIRA-331: below AuthProvider (it reads the signed-in
                     user's language) and above every page. */}
                     <LanguageProvider>
-                    <ModuleProvider>
-                      <FeatureFlagProvider>
-                        {/* Mounted below AuthProvider so the currency load runs
+                      <ModuleProvider>
+                        <FeatureFlagProvider>
+                          {/* Mounted below AuthProvider so the currency load runs
                         with an authenticated session — in web mode
                         GET /api/currencies is JWT-gated, so a boot-time fetch
                         (before login) 401ed, left `currencies` empty, and every
                         amount rendered with its CODE instead of its SYMBOL
                         ("300.00 EUR" instead of "€300.00"). Re-runs when the
                         user logs in (see the auth gate inside CurrencyContext). */}
-                        <CurrencyProvider>
-                          <SessionProvider>
-                            {/* Mounted below AuthProvider so the catalog seed/load
+                          <CurrencyProvider>
+                            <SessionProvider>
+                              {/* Mounted below AuthProvider so the catalog seed/load
                             runs with an authenticated session (seeding requires
                             admin/staff role) and re-runs when the user logs in. */}
-                            <MobileServiceItemsProvider>
-                              {/* LIRA-326: the Mobile Recharge basket sits
+                              <MobileServiceItemsProvider>
+                                {/* LIRA-326: the Mobile Recharge basket sits
                               above the routes so picks survive switching
                               provider tabs and leaving the page (not kept
                               across a reload). */}
-                              <SessionAwareRechargeBasketProvider>
-                                <AppRoutes />
-                              </SessionAwareRechargeBasketProvider>
-                            </MobileServiceItemsProvider>
-                          </SessionProvider>
-                        </CurrencyProvider>
-                      </FeatureFlagProvider>
-                    </ModuleProvider>
+                                <SessionAwareRechargeBasketProvider>
+                                  <AppRoutes />
+                                </SessionAwareRechargeBasketProvider>
+                              </MobileServiceItemsProvider>
+                            </SessionProvider>
+                          </CurrencyProvider>
+                        </FeatureFlagProvider>
+                      </ModuleProvider>
                     </LanguageProvider>
                   </AuthProvider>
                 </ActiveModuleProvider>

@@ -2,6 +2,7 @@ import { fallbackMethodLabel } from "@/features/audit/transactionDisplay";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { formatNumber } from "@liratek/ui/i18n/format";
+import { useFormat } from "@/i18n/useFormat";
 import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { expenseCategoryLabel } from "../expenseCategoryLabel";
 import { Calendar, RefreshCw, X, Ban, Pencil, Check } from "lucide-react";
@@ -10,7 +11,7 @@ import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
 import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
 import { updateExpenseMetadata } from "@/api/backendApi";
-import { localDay } from "@/shared/utils/localDay";
+import { businessDayOf } from "@/shared/utils/localDay";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { UsdLbpTotalChips } from "@/shared/components/UsdLbpTotalChips";
 import { usdLbpTotals } from "@/shared/utils/usdLbpTotals";
@@ -50,10 +51,7 @@ function isCheckpointShortage(expense: Expense): boolean {
  * A bare `YYYY-MM-DD` is already a day label and is kept as is.
  */
 function expenseBusinessDay(expenseDate: string): string {
-  const raw = String(expenseDate ?? "");
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  const parsed = parseDbDate(raw);
-  return isNaN(parsed.getTime()) ? raw.slice(0, 10) : localDay(parsed);
+  return businessDayOf(expenseDate);
 }
 
 interface HistoryModalProps {
@@ -87,6 +85,7 @@ export function HistoryModal({
   useModalFocusFix(true);
   const { t } = useTranslation("expenses");
   const { t: tc } = useTranslation("common");
+  const { formatDate, formatTime } = useFormat();
   const expensesWithDay = useMemo(
     () =>
       expenses.map((e) => ({
@@ -193,8 +192,13 @@ export function HistoryModal({
               {tc("state.loading")}
             </div>
           ) : (
-            <DataTable<Expense>
+            <DataTable<Expense & { business_day: string }>
               columns={[
+                {
+                  header: t("history.date"),
+                  className: "px-6 py-3",
+                  sortKey: "business_day",
+                },
                 {
                   header: t("history.description"),
                   className: "px-6 py-3",
@@ -234,6 +238,32 @@ export function HistoryModal({
                       key={expense.id}
                       className={`hover:bg-slate-700/20 transition-colors${isRefunded ? " opacity-50" : ""}`}
                     >
+                      {/* The day the date filter files this row under (its
+                          business day, rule 27) — the column and the filter
+                          always agree. A timed entry also shows its time. */}
+                      <td className="px-6 py-4 text-sm text-slate-400 whitespace-nowrap">
+                        <time
+                          dateTime={expense.business_day}
+                          data-testid="expense-history-date"
+                        >
+                          {formatDate(
+                            new Date(`${expense.business_day}T00:00:00`),
+                            {
+                              year: "numeric",
+                              month: "numeric",
+                              day: "numeric",
+                            },
+                          )}
+                        </time>
+                        {!/^\d{4}-\d{2}-\d{2}$/.test(expense.expense_date) && (
+                          <div className="text-xs text-slate-500">
+                            {formatTime(parseDbDate(expense.expense_date), {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </div>
+                        )}
+                      </td>
                       <td className="px-6 py-4">
                         <div className="text-sm text-white font-medium flex items-center gap-1 flex-wrap">
                           <span className="inline-flex items-center gap-0.5 text-[11px] font-mono text-red-400 shrink-0">
@@ -325,7 +355,7 @@ export function HistoryModal({
                     </tr>
                     {isEditing && (
                       <tr className="bg-slate-800/60 border-b border-slate-700/50">
-                        <td colSpan={6} className="px-6 py-3">
+                        <td colSpan={7} className="px-6 py-3">
                           <div className="flex items-end gap-3 flex-wrap">
                             <div className="flex-1 min-w-[160px]">
                               <label className="text-xs text-slate-400 block mb-1">

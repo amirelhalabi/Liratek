@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { usePendingWork } from "@/shared/utils/pendingWork";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Ltr } from "@liratek/ui/components/ui/Ltr";
@@ -67,6 +68,8 @@ export default function POS() {
   // a POS cart added to a session is saved at the rate it is paid at.
   const { buyRate: defaultExchangeRate } = useSellRate();
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  // The web auto-reload (new build) waits while the cart holds items.
+  usePendingWork(cartItems.length > 0);
   // LIRA-333 — hidden again when the next sale starts (first cart item).
   const {
     completedSaleId,

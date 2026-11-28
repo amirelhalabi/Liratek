@@ -64,6 +64,7 @@
   "history": {
     "title": "سجل المصاريف",
     "records": "({{count}} سجل)",
+    "date": "التاريخ",
     "description": "الوصف",
     "paidBy": "طريقة الدفع",
     "action": "إجراء",

@@ -64,6 +64,7 @@
   "history": {
     "title": "Expense History",
     "records": "({{count}} records)",
+    "date": "Date",
     "description": "Description",
     "paidBy": "Paid By",
     "action": "Action",

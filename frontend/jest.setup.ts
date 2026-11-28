@@ -37,8 +37,17 @@ if (typeof globalThis.ResizeObserver === "undefined") {
 // substitution step, so any component that reads it (Sidebar's version
 // label) needs an actual global to resolve against, the same way the
 // ResizeObserver stub above exists only for tests.
-if (typeof (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ === "undefined") {
+if (
+  typeof (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ===
+  "undefined"
+) {
   Object.assign(globalThis, { __APP_VERSION__: "0.0.0-test" });
+}
+// Same for `__BUILD_ID__` (the auto-reload check): "dev" keeps it off.
+if (
+  typeof (globalThis as { __BUILD_ID__?: string }).__BUILD_ID__ === "undefined"
+) {
+  Object.assign(globalThis, { __BUILD_ID__: "dev" });
 }
 
 // Reduce noisy console.error output during tests.

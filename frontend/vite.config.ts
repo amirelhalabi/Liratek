@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import svgr from "vite-plugin-svgr";
 import path from "path";
@@ -8,11 +8,35 @@ const rootPkg = JSON.parse(
   readFileSync(path.resolve(__dirname, "../package.json"), "utf-8"),
 );
 
+// One id per web build (the deployed commit on Vercel, else the build time),
+// baked into the bundle AND written to `version.json`, so an open tab can
+// tell a newer build is live and reload itself (useAutoReloadOnNewVersion).
+// `vite` dev serves no version.json and gets "dev", which turns the check off.
+const BUILD_ID =
+  process.env.VERCEL_GIT_COMMIT_SHA ||
+  process.env.GITHUB_SHA ||
+  `t${Date.now()}`;
+
+const IS_BUILD = process.argv.includes("build");
+
+const versionJson: Plugin = {
+  name: "version-json",
+  apply: "build",
+  generateBundle() {
+    this.emitFile({
+      type: "asset",
+      fileName: "version.json",
+      source: JSON.stringify({ buildId: BUILD_ID }),
+    });
+  },
+};
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), svgr()],
+  plugins: [react(), svgr(), versionJson],
   define: {
     __APP_VERSION__: JSON.stringify(rootPkg.version),
+    __BUILD_ID__: JSON.stringify(IS_BUILD ? BUILD_ID : "dev"),
   },
   // Use relative paths for Electron file:// protocol
   base: "./",

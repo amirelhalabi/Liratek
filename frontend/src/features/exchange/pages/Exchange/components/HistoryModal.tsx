@@ -19,6 +19,7 @@ import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
 import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { businessDayOf } from "@/shared/utils/localDay";
 import { UsdLbpTotalChips } from "@/shared/components/UsdLbpTotalChips";
 import { usdLbpTotals } from "@/shared/utils/usdLbpTotals";
 import logger from "@/utils/logger";
@@ -260,7 +261,7 @@ export function HistoryModal({
   const api = useApi();
   const { t } = useTranslation("exchange");
   const { t: tc } = useTranslation("common");
-  const { formatTime } = useFormat();
+  const { formatTime, formatDate } = useFormat();
   // The full list, when `loadAll` is given. Read through a ref so a caller's
   // inline arrow never re-fires the load (rule 25).
   const loadAllRef = useRef(loadAll);
@@ -528,10 +529,25 @@ export function HistoryModal({
                                 className="text-slate-500 shrink-0"
                               />
                             ))}
-                          {formatTime(parseDbDate(tx.created_at), {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
+                          <div>
+                            {formatTime(parseDbDate(tx.created_at), {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                            {/* The day the date filter files this row under
+                                (business day, rule 27). */}
+                            <time
+                              dateTime={businessDayOf(tx.created_at)}
+                              data-testid={`exchange-history-date-${tx.id}`}
+                              className="block text-xs text-slate-500"
+                            >
+                              {formatDate(parseDbDate(tx.created_at), {
+                                year: "numeric",
+                                month: "numeric",
+                                day: "numeric",
+                              })}
+                            </time>
+                          </div>
                         </div>
                       </td>
                       <td className="px-4 py-3">

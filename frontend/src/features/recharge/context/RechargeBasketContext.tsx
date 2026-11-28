@@ -41,6 +41,7 @@ import {
   type ReactNode,
   type SetStateAction,
 } from "react";
+import { usePendingWork } from "@/shared/utils/pendingWork";
 import type {
   BasketBill,
   CatalogCartLine,
@@ -103,6 +104,11 @@ export function RechargeBasketProvider({
   const [whishPriced, setWhishPriced] = useState<PricedLine[]>([]);
   const [bills, setBills] = useState<BasketBill[]>([]);
   const billLines = useMemo(() => bills.map(billPricedLine), [bills]);
+  // The basket lives in memory only: the web auto-reload (new build) waits
+  // until it is empty, so a reload never drops picked items.
+  usePendingWork(
+    catalogCart.size > 0 || whishCart.size > 0 || bills.length > 0,
+  );
   const [partner, setPartner] = useState<BasketPartner>(PARTNER_OFF);
   const partnerStored = partner.forPartner || partner.partnerId !== null;
   // Only fires while something is stored, so it cannot loop (rule 25).
@@ -179,6 +185,8 @@ function useGroup<L>(
 ): BasketGroupHandle<L> {
   // Always called (hooks cannot be conditional); used only without a provider.
   const [cart, setCart] = useState<Map<string, L>>(() => new Map());
+  // A form's own (non-basket) picks: the web auto-reload waits for them.
+  usePendingWork(!shared && cart.size > 0);
   const setPriced = useCallback((_lines: PricedLine[]) => {}, []);
   const clearAll = useCallback(() => setCart(new Map()), []);
   if (shared) return { ...shared, shared: true };

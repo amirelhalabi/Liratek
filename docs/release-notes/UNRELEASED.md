@@ -36,6 +36,11 @@
 
 ## ✨ Highlights
 
+### The date on every list you filter by date
+
+The Expenses **History** window now has a **Date** column, so you can see the day of each expense you filter by From / To. The Exchange history now shows the date under each time, and each session on the Sessions page shows its date before its start and end time. Each date is the day your shop worked it, and the From / To filter now uses that same day, so an entry made just after midnight is listed under the day it shows.
+![Expense History window with the new Date column: 11/28/2026 next to a $12.00 rent expense, with the From / To date filter at the top](whats-new/1.35.0/history-date-column.png)
+
 ### Only Days on Whish App cards
 
 On Mobile Recharge → Whish App → Bills, an MTC or Alfa prepaid card that has both credit and days can now be sold **Only Days**, the same way as on Katsh and iPick. Tick **Only Days** on the card: the price becomes the days price, and the credit the customer sends back goes to your MTC or Alfa balance and to your shop line. The card still costs its full price from your Whish App balance, and the profit counts the credit that came back. It works for a walk-in customer, in a customer session, in a basket with other providers and for a partner. Refunding the sale takes everything back. Only Days is not offered in USD mode, where prepaid cards are not sold.
@@ -296,6 +301,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 💱 Exchange
 
+- Exchange: the history shows the date under each time.
 - Exchange: when the customer pays you with Whish, OMT wallet or another wallet, a **+ fee** button on that line lets you charge a fee on top. It goes into that wallet's drawer and shows on Profits under Payment Method Fees.
 - The payment window now opens for every exchange, whatever the currency, including euros and others. Before, it opened only when you paid out dollars or LBP.
 - You can now put part of an exchange on the customer's account in either direction: what they pay you, or what you give them. This works in any currency. An amount in a currency other than dollars or LBP is booked on the account in dollars, at the rate you type in the payment window, and the account entry keeps the original amount and that rate.
@@ -407,6 +413,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 🌐 Web app
 
+- The web app now updates itself: after a new version comes out, an open page reloads on its own, but only when nothing is being entered — nothing picked in a basket or cart and nothing typed in a box. If you are in the middle of a sale it waits until you finish, then reloads when you change page, switch away, or leave it idle for a moment.
 - Every money entry on the web app (sales, recharges, transfers, repayments, settlements, refunds and more) is now sent with a one-time ticket, so a retry or a double tap books it once.
 - The side menu's scroll bar only shows while your pointer is over the menu, and takes no space otherwise.
 - Refreshing the page no longer sends you back to the sign-in screen when several people use the same login at once. If the app can't check your sign-in right away, it tries again for a few seconds before showing the sign-in screen.
@@ -530,6 +537,7 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 🧾 Expenses
 
+- Expenses: the History window now shows a Date column, the same day its From / To filter uses.
 - Using an item from stock: the search now lists iPick and Whish App items even when many Katsh items match, and typing "iPick" or "Whish" shows only that provider's items.
 - When you use an MTC or Alfa card from iPick, Katsh or Whish App, a "Wrong number" tick records it as a card sent to the wrong number, so the credits sent back can be entered later from the Transactions page.
 - From now on, when a POS sale or a repair checkout hands back change in Lebanese pounds rounded up to the next 5,000 note, the extra is recorded as a small "Change rounding" expense, so your profits match the cash in the drawer. Example: a $26 sale paid with 2,400,000 LBP at 89,000 owes 86,000 LBP of change; you hand back 90,000, and the 4,000 LBP extra shows on the Expenses page. The drawer is not changed a second time. Voiding or refunding the sale removes the expense. On the Transactions page it shows only when you filter for Expenses.
@@ -607,6 +615,8 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 
 ## 🧺 Customer sessions
 
+- Sessions page: each session shows its date before its start and end time.
+- History windows with a From / To filter (Expenses, Exchange, Mobile Recharge, Services, Loto, Maintenance, Custom Services): an entry made just after midnight is now filtered under the day it shows, not the day before.
 - Session checkout: when the shop owes the customer, the payout now has a full payment box: split it, pay in dollars and lira, pick the method per line, and round it up ("+ Extra", booked as change rounding) or pay a little less ("− Less", kept as profit). Before, it showed only one Cash choice per currency.
 - From now on, a session basket with both an OMT or Whish money-transfer receive and an OMT App, Whish App or Binance cash-out pays the transfer from the OMT or Whish drawer in full. Before, part of it was taken from the General drawer.
 - During a customer session, an exchange now waits in the basket like everything else: no cash moves and nothing shows on the Transactions page until the basket is paid. The basket line shows the exchange's own rate, which the checkout's rate does not change. Exchanges recorded in sessions before this change stay as they were.
