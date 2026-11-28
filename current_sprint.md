@@ -8811,9 +8811,9 @@ Needs: a dry-run mode that lists what it would delete; a guard test that a live 
 **Asked by:** owner, Cornertech Profits audit 2026-11-16 (three totals for one period).
 **Before:** By Module was 28.30 USD / 125,500 LBP short of the Overview (off-currency kept change on recharges, transfers, loto and exchange sat in side fields outside `profit_*`; the page's TOTAL added it back, the API sums did not); By Cashier was 11.15 USD / 475,500 LBP high (`getByUser` never read counterparty discounts).
 **Decision:** Overview gross is the reference. Module kept change moves into the Kept Change row with a per-transaction drill-down; By Cashier credits a discount to the cashier who booked it, on its own day. By Client stays a top-N list.
-**Built:** `ProfitService.getByModule` fold + `moduleKeptChangeDetailRows`; `getByUser` counterparty-discount branch (same `counterpartyDiscountSource` fragment); `getExchangeDetail.kept_change_usd`; By Cashier caption (en/ar); FEATURE_GUIDE §10 mapping.
+**Built:** `ProfitService.getByModule` fold + `moduleKeptChangeDetailRows`; `getByUser` counterparty-discount branch (same `counterpartyDiscountSource` fragment); `getExchangeDetail.kept_change_usd`; By Cashier caption (en/ar); FEATURE*GUIDE §10 mapping.
 **Tests:** `ProfitService.allViewsOneTotal` (failing-first: By Module 6.31 ≠ 6.87 USD, 117,250 ≠ 127,250 LBP; By User 8.87 ≠ 6.87); `ProfitAudit.loto` and `exchangeKeptChangeLine` premise updated; `creditCashOutKeptChange` fixture extended to the detail tables the new helper walks.
-**Not changed:** By Client; Overview figures; the page's TOTAL still adds `kept_change_*` fields that are now always 0 (dead code, cleanup follow-up).
+**Not changed:** By Client; Overview figures; the page's TOTAL still adds `kept_change*\*` fields that are now always 0 (dead code, cleanup follow-up).
 **What users will notice:** every Profits tab shows the same total; Kept Change row includes change kept on recharges/transfers/loto/exchange; By Cashier includes discounts.
 
 ## LIRA-396: Profits details — Only Days cost, clear wording, no empty rows — BUILT 2026-11-18
@@ -8857,7 +8857,6 @@ Needs: a dry-run mode that lists what it would delete; a guard test that a live 
 
 **What users will notice:** see the two bullets in `UNRELEASED.md`.
 
-
 ## LIRA-400: Payment method fee (wallet lines) — phase 1 BUILT 2026-11-18 (not committed)
 
 **Asked by:** owner, decisions 2026-11-18 (decision page v4; memory `project-payment-method-fee.md`). Spec Kit: `specs/400-payment-method-fee/` (spec, plan, research, data-model, contracts, quickstart, tasks + analyze notes).
@@ -8865,6 +8864,7 @@ Needs: a dry-run mode that lists what it would delete; a guard test that a live 
 **Decisions (owner):** the cashier TYPES a fee per wallet line (OMT wallet, Whish, Binance, any method whose drawer is not General), in the line's currency; no rate, no default, nothing in Settings. "+ fee" at the right end of wallet lines only, the method box shrinks, the button turns into the fee box (✕ clears it); cash lines unchanged. Total = price, separate "Payment method fee" line, Paid = price + fee; discount / change / overpay / extra stay on the price. Fee into the method's own drawer; profit in the line's currency on Profits › Payment Method Fees, by method, outside every module margin. Void reverses fee + profit; refund (full or item) keeps it. Never on cash / account / gift card / change lines / payouts. Debt never includes it.
 
 **Decisions taken while building (see spec "Settled design" + "Open questions"):**
+
 - `payments.amount` stays the whole drawer movement (price + fee); new `payments.fee_amount` is the fee part. Reason: `ClosingRepository` rebuilds `drawer_balances` from `SUM(payments.amount)` and checkpoint resolution sums it too — a fee outside `amount` would vanish on a rebuild. Refund readers use the price part through ONE helper (`priceOnlyLegRow`).
 - Profit is NOT stamped on `transactions.profit_*` (deviation from the memory note "stamped on the transaction"): the generic refund negates the stamp, which would remove the fee. Read from `payments` instead: fee > 0, transaction ACTIVE and not a reversal, dated by the transaction — folded into the existing PM_FEE line in Summary, By Module, By Date, By User, By Client and the drill-down (views still agree).
 - Fee key follows each schema's casing (rule 24): `fee_amount` on the POS sale leg, `feeAmount` on recharge and repayment legs (deviation from the memory note's "one `fee_amount` everywhere").
@@ -8873,12 +8873,13 @@ Needs: a dry-run mode that lists what it would delete; a guard test that a live 
 **Built:** migration v233 (`payments.fee_amount` + partial index `idx_payments_fee`, up/down) + `create_db.sql`; leaf `utils/legFee.ts` (eligibility, caps, messages, `priceOnlyLegRow`; reachable from `browser.ts`); `validators/legFee.ts` refine on the three leg schemas; `insertPaymentRow.feeAmount`, `assertLegFeesAllowed`, `paymentsFeeSql` (`moneyPosting.ts`); posting in `SalesRepository` / `RechargeRepository` / `DebtRepository.addRepayment`; `_reversePayments` void vs refund, `overridableNetByCurrency`, `paymentRowsToLegs`, `getPaymentsByTransactionId`, Transactions legs carry `fee_amount`; `SalesRepository` item refunds on the price part; ProfitRepository fee fragments + `getPmFeeByMethod`; `ProfitService` `pm_fee_by_method` + drill-down source `pm_fee_leg`; `MultiPaymentInput` `lineFees` (+ fee button, fee box, summary line, Paid); `toSnakeLegs`/`toCamelLegs`; refund modal net minus fee; Profits card by method; preload + `electron.d.ts`; en/ar strings.
 
 **Tests (rule 17):**
+
 - `packages/core/src/repositories/__tests__/paymentMethodFee.guard.test.ts` — guards + rule-28d variants (POS, recharge, debt: cash only / Whish + fee / split USD + LBP with fees / Whish + fee + change in LBP), through the real schemas and services on create_db.sql + migrations. **Proven failing first:** run before any schema/repository/profit change → 26 failed, 3 passed (the 3 "cash only" variants). Real failures: Whish moved +10 not +11 (fee key stripped by the schema), refunds/void showed no fee, every refusal was accepted ("Expected false, Received true"), PM_FEE row undefined. Now 30/30 (one By Client/drill-down case added after the build — not proven failing-first).
 - `v233.paymentsFeeAmount.test.ts`, `utils/__tests__/legFee.test.ts` — written with the code, not proven failing-first.
 - Frontend: `MultiPaymentInput` "lineFees (LIRA-400)" block (4), `paymentUtils.test.ts` fee keys parsed by the real schemas (2), `refundLegOverride` net minus fee (1) — written after the code, not proven failing-first.
 - Web e2e `lira-web-103-payment-method-fee` (POS UI: Whish $10 + $1 fee → Whish_App +11, fee +1; void → 0; refund → Whish and fee each +1; saves `whats-new/1.35.0/payment-method-fee.png`) — green, written after the code (not proven failing-first).
 
-**Runs (2026-11-18):** core full suite `--maxWorkers=2` 1050 suites / 9998 passed, 1 skipped (first run caught `requestNow.guard` — fixed by writing the fee INSERT as two literal SQL texts — and a `ProfitService.auditBatchLO` repo mock missing `getPmFeeByMethod`); backend recharge/debts/sales*/transactions*/profits* 22 suites / 152; frontend affected 33 suites / 766 then 6 / 446; web e2e lira-web-103 1 passed; `yarn typecheck` exit 0 (~63 s); `yarn lint` 0 errors; `build-release-notes --check` OK. Desktop IPC not run (no Electron on this Mac): the three handlers and offline bindings were read and forward the parsed payload whole.
+**Runs (2026-11-18):** core full suite `--maxWorkers=2` 1050 suites / 9998 passed, 1 skipped (first run caught `requestNow.guard` — fixed by writing the fee INSERT as two literal SQL texts — and a `ProfitService.auditBatchLO` repo mock missing `getPmFeeByMethod`); backend recharge/debts/sales*/transactions*/profits\* 22 suites / 152; frontend affected 33 suites / 766 then 6 / 446; web e2e lira-web-103 1 passed; `yarn typecheck` exit 0 (~63 s); `yarn lint` 0 errors; `build-release-notes --check` OK. Desktop IPC not run (no Electron on this Mac): the three handlers and offline bindings were read and forward the parsed payload whole.
 
 **Not built (phase 2, listed in spec):** sessions, custom services, maintenance, exchange, voucher sale, OMT/Whish transfer page migration off the rate fee, receipts / WhatsApp fee line, Transactions details snapshot fee line, Transactions export Fee column, closing expectation wording (already includes fees: `amount` holds them), phone app, Alfa Gift sale.
 
@@ -8952,7 +8953,6 @@ Needs: a dry-run mode that lists what it would delete; a guard test that a live 
 
 **What users will notice:** the euro is exchanged at the online market rate (no rate to type in Settings), and Open Positions shows today's market value and gain/loss for every foreign currency held.
 
-
 ## LIRA-405: Only Days credit lost on Katsh / iPick partner orders — BUILT 2026-11-28 (not committed)
 
 **Bug (owner report 2026-11-28):** an MTC or Alfa card sold "Only Days" through "For Partner" on Katsh or iPick returned no credit to the MTC / Alfa drawer or the shop line. The server's For Partner catalog arm already calls `processTelecomCreditReturn`, but the screen's partner payload (`buildPartnerOrderPayload`, `frontend/src/features/recharge/utils/basketCheckout.ts`) merged the cards into one sale and never sent `telecomCreditReturns`, so the server resolved 0 credits: no drawer leg, no line movement, no profit offset. The per-tab partner call before LIRA-327 had the same gap, so it has never worked for partner orders.
@@ -8964,3 +8964,13 @@ Needs: a dry-run mode that lists what it would delete; a guard test that a live 
 **Not changed:** past partner Only Days sales keep their missing credit. Whish App has no Only Days option on any sale (separate question for the owner).
 
 **What users will notice:** an MTC or Alfa card sold "Only Days" for a partner on Katsh or iPick now returns its credit to the MTC / Alfa balance and the shop line, like a walk-in sale.
+
+## LIRA-406: Whish App "Only Days" for MTC / Alfa cards — BUILT 2026-11-28 (not committed)
+
+**Ask (owner 2026-11-28):** sell Whish App MTC / Alfa prepaid cards "Only Days" exactly like Katsh and iPick: walk-in, session basket, cross-provider basket and For Partner, desktop and web; refund reverses everything; USD mode stays out.
+
+**Built (spec `specs/406-whish-app-only-days/`):** server gate `isTelecomResellerApp` now includes `WHISH_APP` when the sale is LBP (a USD Whish App sale ignores any credit return). Katsh's Only Days pricing, toggle default and pricing-data load moved to `utils/onlyDaysPricing.ts` + `hooks/useOnlyDaysPricingData.ts` (api read through a ref), and its panel to `components/OnlyDaysPanel.tsx`; KatshForm and FinancialForm both use them. One per-unit rule `onlyDaysUnitFields` (basketCheckout) feeds every payload: Katsh carts, Whish walk-in units, `whishBatchSubItems` (session + basket) and the Whish App partner branch. FinancialForm prices every total, sheet item, basket line and unit through one `lineUnitPrice`. No migration: Whish App cards already carry the Only Days data.
+
+**Tests:** core telecomOnlyDays LIRA-406 block (4 proven failing-first; USD guard passes before and after), RechargeBasketService + RechargePartnerOrderService Whish Only Days (real schema, not failing-first); frontend `FinancialForm.onlyDays` (3 failing-first + 1 guard), basketCheckout Whish payloads (partner failing-first; session/basket not failing-first), `onlyDaysVariants` table (16 cases, not failing-first); web e2e `lira-web-109` (also the What's new screenshot). Katsh suites unchanged and green after the move.
+
+**What users will notice:** on Whish App → Bills, an MTC or Alfa card can be ticked "Only Days"; the customer pays the days price and the returned credit goes to the MTC / Alfa balance and the shop line, in every sale mode.

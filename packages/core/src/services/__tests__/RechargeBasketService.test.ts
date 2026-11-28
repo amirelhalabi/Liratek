@@ -52,6 +52,13 @@ import { resetSettingsRepository } from "../../repositories/SettingsRepository";
 import { resetFinancialServiceRepository } from "../../repositories/FinancialServiceRepository";
 import { resetSupplierRepository } from "../../repositories/SupplierRepository";
 import {
+  getCarrierLineRepository,
+  resetCarrierLineRepository,
+} from "../../repositories/CarrierLineRepository";
+import { resetCarrierLineMovementRepository } from "../../repositories/CarrierLineMovementRepository";
+import { resetCarrierLineService } from "../CarrierLineService";
+import { resetMobileServiceItemRepository } from "../../repositories/MobileServiceItemRepository";
+import {
   snapshotLedgers,
   ledgerDeltas,
   type LedgerSnapshot,
@@ -87,6 +94,10 @@ function resetAll(): void {
   resetSettingsRepository();
   resetFinancialServiceRepository();
   resetSupplierRepository();
+  resetCarrierLineRepository();
+  resetCarrierLineMovementRepository();
+  resetCarrierLineService();
+  resetMobileServiceItemRepository();
 }
 
 // ─── Cart builders (the shape KatshForm / FinancialForm put in a session) ────
@@ -451,6 +462,84 @@ describe("RechargeBasketService.checkout — one basket across providers", () =>
     const profitAfter = profitTotals();
     expect(profitAfter.lbp).toBeCloseTo(profitBefore.lbp, 2);
     expect(profitAfter.usd).toBeCloseTo(profitBefore.usd, 2);
+  });
+
+  /**
+   * LIRA-406 — Whish App Only Days in the one-payment basket, next to a Katsh
+   * Only Days card: each unit's returned credit reaches its own carrier
+   * drawer and primary line, and the whole-basket refund takes it all back.
+   * Sub-items carry the per-unit fields exactly as the screen's builder
+   * sends them. Not failing-first: written after the server gate (proven
+   * failing-first in FinancialServiceRepository.telecomOnlyDays).
+   */
+  it("LIRA-406: Whish App and Katsh Only Days cards credit their own carrier and line; the basket refund nets everything to 0", async () => {
+    const lines = getCarrierLineRepository();
+    const alfa = lines.createLine({
+      carrier: "alfa",
+      phone_number: "03100406",
+    });
+    lines.setPrimary(alfa.id);
+    const mtc = lines.createLine({ carrier: "mtc", phone_number: "71100406" });
+    lines.setPrimary(mtc.id);
+
+    const onlyDays = (
+      provider: string,
+      category: "alfa" | "mtc",
+      credits: number,
+    ): Record<string, unknown> => ({
+      provider,
+      serviceType: "SEND",
+      amount: 250_000,
+      cost: 765_007,
+      currency: "LBP",
+      commission: 0,
+      itemKey: `${provider}/${category}/7.58`,
+      itemCategory: category,
+      returnedCreditsUsd: credits,
+      note: `${category} 7.58 [Only Days]`,
+    });
+    const entry = (
+      module: "katsh" | "whish_app",
+      items: Record<string, unknown>[],
+    ): CheckoutCartItem => ({
+      id: `entry-${module}`,
+      module,
+      label: module,
+      amount: items.reduce((s, i) => s + (i.amount as number), 0),
+      currency: "LBP",
+      ipcChannel: "financial:create",
+      formData: { _batch: true, items },
+    });
+
+    const before = snapshotLedgers(db);
+    const result = await checkout({
+      cartItems: [
+        entry("whish_app", [onlyDays("WHISH_APP", "alfa", 7)]),
+        entry("katsh", [onlyDays("Katsh", "mtc", 4.5)]),
+      ],
+      payments: [cashLbp(500_000)],
+      exchangeRate: RATE,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.success).toBe(true);
+
+    const d = ledgerDeltas(before, snapshotLedgers(db));
+    expect(d.drawers["Alfa|USD"]).toBeCloseTo(7, 6);
+    expect(d.drawers["MTC|USD"]).toBeCloseTo(4.5, 6);
+    expect(d.drawers["Whish_App|LBP"]).toBeCloseTo(-765_007, 2);
+    expect(d.drawers["Katsh|LBP"]).toBeCloseTo(-765_007, 2);
+    expect(lines.getById(alfa.id)!.credits).toBeCloseTo(7, 6);
+    expect(lines.getById(mtc.id)!.credits).toBeCloseTo(4.5, 6);
+
+    getTransactionRepository().refundSessionBasket(result.sessionId!, 1);
+    expect(ledgerDeltas(before, snapshotLedgers(db))).toEqual({
+      drawers: {},
+      supplier: {},
+      partner: {},
+      debt: {},
+    });
+    expect(lines.getById(alfa.id)!.credits).toBeCloseTo(0, 6);
+    expect(lines.getById(mtc.id)!.credits).toBeCloseTo(0, 6);
   });
 
   // ── 5. Refusals write nothing ───────────────────────────────────────────

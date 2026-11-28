@@ -473,7 +473,7 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
       const alfaBefore = drawerBalance(db, "Alfa", "USD");
 
       repo.createTransaction({
-        provider: "WHISH_APP",
+        provider: "OMT_APP",
         serviceType: "SEND",
         amount: 100,
         currency: "USD",
@@ -487,6 +487,141 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
 
       expect(drawerBalance(db, "MTC", "USD")).toBeCloseTo(mtcBefore, 4);
       expect(drawerBalance(db, "Alfa", "USD")).toBeCloseTo(alfaBefore, 4);
+    });
+  });
+
+  // ── LIRA-406: Whish App sells the same alfa/mtc cards ──────────────────────
+  //
+  // Rule 17: written before the gate change and seen failing (Whish App booked
+  // no credit-return leg at all).
+
+  describe("LIRA-406 — Whish App Only-Days credit return (LBP only)", () => {
+    const WHISH_ALFA_758 = {
+      provider: "WHISH_APP" as const,
+      serviceType: "SEND" as const,
+      amount: 250_000,
+      currency: "LBP" as const,
+      commission: 0,
+      cost: 765_007,
+      price: 250_000,
+      paidByMethod: "CASH",
+      itemCategory: "alfa",
+    };
+
+    function stampedProfitLbp(fsId: number): number {
+      return (
+        db
+          .prepare(
+            "SELECT profit_lbp FROM transactions WHERE source_table = 'financial_services' AND source_id = ?",
+          )
+          .get(fsId) as { profit_lbp: number }
+      ).profit_lbp;
+    }
+
+    it("a Whish App LBP sale returns the typed credit to the Alfa drawer and the primary Alfa line, and the profit counts it", () => {
+      const line = lineRepo.createLine({
+        carrier: "alfa",
+        phone_number: "03100406",
+      });
+      lineRepo.setPrimary(line.id);
+      const alfaBefore = drawerBalance(db, "Alfa", "USD");
+
+      const result = repo.createTransaction({
+        ...WHISH_ALFA_758,
+        returnedCreditsUsd: 7,
+      });
+
+      expect(drawerBalance(db, "Alfa", "USD")).toBeCloseTo(alfaBefore + 7, 4);
+      expect(lineRepo.getById(line.id)!.credits).toBeCloseTo(7, 4);
+      expect(creditReturnPayments(db, txnIdForFsRow(db, result.id))).toEqual([
+        { drawer_name: "Alfa", currency_code: "USD", amount: 7 },
+      ]);
+      expect(stampedProfitLbp(result.id)).toBeCloseTo(
+        250_000 - 765_007 + 7 * TELECOM_CREDIT_COST_RATE_LBP,
+        0,
+      );
+    });
+
+    it("a Whish App sale of a split-complete mtc item returns the computed default to MTC", () => {
+      const item = itemRepo.createItem({ ...CART_77, provider: "WHISH_APP" });
+      const mtcBefore = drawerBalance(db, "MTC", "USD");
+
+      repo.createTransaction({
+        ...WHISH_ALFA_758,
+        amount: CART_77.sell_days_lbp as number,
+        price: CART_77.sell_days_lbp as number,
+        cost: CART_77.cost_lbp,
+        itemCategory: "mtc",
+        mobileServiceItemId: item.id,
+      });
+
+      expect(drawerBalance(db, "MTC", "USD")).toBeCloseTo(
+        mtcBefore + maxReturnableCredits(CART_77.credits as number),
+        4,
+      );
+    });
+
+    it("a Whish App USD sale books NO credit return, even if one is sent (prepaid cards are LBP-only there)", () => {
+      const alfaBefore = drawerBalance(db, "Alfa", "USD");
+
+      const result = repo.createTransaction({
+        ...WHISH_ALFA_758,
+        amount: 10,
+        price: 10,
+        cost: 9,
+        currency: "USD",
+        returnedCreditsUsd: 7,
+      });
+
+      expect(drawerBalance(db, "Alfa", "USD")).toBeCloseTo(alfaBefore, 4);
+      expect(creditReturnPayments(db, txnIdForFsRow(db, result.id))).toEqual(
+        [],
+      );
+    });
+
+    it("every unit of a multi-unit Whish App checkout credits, including the deferPayment sibling", () => {
+      const alfaBefore = drawerBalance(db, "Alfa", "USD");
+
+      const carrier = repo.createTransaction({
+        ...WHISH_ALFA_758,
+        returnedCreditsUsd: 7,
+      });
+      const sibling = repo.createTransaction({
+        ...WHISH_ALFA_758,
+        returnedCreditsUsd: 7,
+        payments: [],
+        deferPayment: true,
+      });
+
+      expect(drawerBalance(db, "Alfa", "USD")).toBeCloseTo(alfaBefore + 14, 4);
+      for (const r of [carrier, sibling]) {
+        expect(stampedProfitLbp(r.id)).toBeCloseTo(
+          250_000 - 765_007 + 7 * TELECOM_CREDIT_COST_RATE_LBP,
+          0,
+        );
+      }
+    });
+
+    it("VOID nets the Whish App LBP drawer, the Alfa USD drawer and the line credits back to 0", () => {
+      const line = lineRepo.createLine({
+        carrier: "alfa",
+        phone_number: "03100407",
+      });
+      lineRepo.setPrimary(line.id);
+      const whishBefore = drawerBalance(db, "Whish_App", "LBP");
+      const alfaBefore = drawerBalance(db, "Alfa", "USD");
+
+      const result = repo.createTransaction({
+        ...WHISH_ALFA_758,
+        returnedCreditsUsd: 7,
+      });
+      expect(drawerBalance(db, "Alfa", "USD")).toBeCloseTo(alfaBefore + 7, 4);
+
+      txnRepo.voidTransaction(txnIdForFsRow(db, result.id), 1);
+
+      expect(drawerBalance(db, "Whish_App", "LBP")).toBeCloseTo(whishBefore, 2);
+      expect(drawerBalance(db, "Alfa", "USD")).toBeCloseTo(alfaBefore, 4);
+      expect(lineRepo.getById(line.id)!.credits).toBeCloseTo(0, 4);
     });
   });
 
@@ -1124,12 +1259,15 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
   describe("selfChargeTelecomItem (spec §5.2)", () => {
     it("credits the FULL face value (not maxReturnableCredits), debits the provider drawer, and extends validity", () => {
       const item = itemRepo.createItem({ ...CART_77, validity_days: 30 });
-      const line = lineRepo.createLine({
-        carrier: "mtc",
-        phone_number: "70222222",
-        credits: 5,
-        validity_expires_at: null,
-      }, 1);
+      const line = lineRepo.createLine(
+        {
+          carrier: "mtc",
+          phone_number: "70222222",
+          credits: 5,
+          validity_expires_at: null,
+        },
+        1,
+      );
       lineRepo.setPrimary(line.id);
 
       const iPickLbpBefore = drawerBalance(db, "iPick", "LBP");
@@ -1264,12 +1402,15 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
 
     it("VOID nets every ledger the self-charge touched back to its pre-call value: iPick LBP, MTC USD, carrier line credits, AND validity_expires_at", () => {
       const item = itemRepo.createItem({ ...CART_77, validity_days: 30 });
-      const line = lineRepo.createLine({
-        carrier: "mtc",
-        phone_number: "70666666",
-        credits: 12,
-        validity_expires_at: FUTURE_EXPIRY,
-      }, 1);
+      const line = lineRepo.createLine(
+        {
+          carrier: "mtc",
+          phone_number: "70666666",
+          credits: 12,
+          validity_expires_at: FUTURE_EXPIRY,
+        },
+        1,
+      );
       lineRepo.setPrimary(line.id);
 
       const iPickLbpBefore = drawerBalance(db, "iPick", "LBP");
@@ -1314,12 +1455,15 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
 
     it("double-void does not double-restore: the second void throws, and every ledger stays at its post-first-void value", () => {
       const item = itemRepo.createItem({ ...CART_77, validity_days: 15 });
-      const line = lineRepo.createLine({
-        carrier: "mtc",
-        phone_number: "70777777",
-        credits: 3,
-        validity_expires_at: FUTURE_EXPIRY,
-      }, 1);
+      const line = lineRepo.createLine(
+        {
+          carrier: "mtc",
+          phone_number: "70777777",
+          credits: 3,
+          validity_expires_at: FUTURE_EXPIRY,
+        },
+        1,
+      );
       lineRepo.setPrimary(line.id);
 
       const iPickLbpBefore = drawerBalance(db, "iPick", "LBP");
@@ -1375,12 +1519,15 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
       // edge case is a line that started with NO validity at all (null),
       // which is covered by its own dedicated repository-level test, not
       // this end-to-end money-path proof.
-      const line = lineRepo.createLine({
-        carrier: "alfa",
-        phone_number: "70888888",
-        credits: 4,
-        validity_expires_at: FUTURE_EXPIRY,
-      }, 1);
+      const line = lineRepo.createLine(
+        {
+          carrier: "alfa",
+          phone_number: "70888888",
+          credits: 4,
+          validity_expires_at: FUTURE_EXPIRY,
+        },
+        1,
+      );
       lineRepo.setPrimary(line.id);
       const alfaItem = itemRepo.createItem({
         ...CART_77,
@@ -1429,12 +1576,15 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
 
     it("VOID nets every ledger the Only-Days sale touched back to its pre-call value: iPick LBP, MTC USD, carrier line credits", () => {
       const item = itemRepo.createItem(CART_77);
-      const line = lineRepo.createLine({
-        carrier: "mtc",
-        phone_number: "72100001",
-        credits: 5,
-        validity_expires_at: FUTURE_EXPIRY,
-      }, 1);
+      const line = lineRepo.createLine(
+        {
+          carrier: "mtc",
+          phone_number: "72100001",
+          credits: 5,
+          validity_expires_at: FUTURE_EXPIRY,
+        },
+        1,
+      );
       lineRepo.setPrimary(line.id);
 
       const iPickLbpBefore = drawerBalance(db, "iPick", "LBP");
@@ -1494,12 +1644,15 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
 
     it("double-void does not double-restore: second void throws, all ledgers stay at post-first-void value", () => {
       const item = itemRepo.createItem(CART_77);
-      const line = lineRepo.createLine({
-        carrier: "mtc",
-        phone_number: "72100002",
-        credits: 2,
-        validity_expires_at: FUTURE_EXPIRY,
-      }, 1);
+      const line = lineRepo.createLine(
+        {
+          carrier: "mtc",
+          phone_number: "72100002",
+          credits: 2,
+          validity_expires_at: FUTURE_EXPIRY,
+        },
+        1,
+      );
       lineRepo.setPrimary(line.id);
 
       const iPickLbpBefore = drawerBalance(db, "iPick", "LBP");
@@ -1658,12 +1811,15 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
      */
     it("reverses the credit the SALE booked even after the override changes underneath it", () => {
       const item = itemRepo.createItem(CART_77_WITH_OVERRIDE);
-      const line = lineRepo.createLine({
-        carrier: "mtc",
-        phone_number: "72100160",
-        credits: 5,
-        validity_expires_at: "2099-12-31",
-      }, 1);
+      const line = lineRepo.createLine(
+        {
+          carrier: "mtc",
+          phone_number: "72100160",
+          credits: 5,
+          validity_expires_at: "2099-12-31",
+        },
+        1,
+      );
       lineRepo.setPrimary(line.id);
 
       const iPickLbpBefore = drawerBalance(db, "iPick", "LBP");

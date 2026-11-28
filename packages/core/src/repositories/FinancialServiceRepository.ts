@@ -2367,8 +2367,14 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               },
             ];
 
+      // LIRA-406: Whish App sells the same alfa/mtc cards and joins the gate,
+      // LBP only — prepaid cards are LBP-only there (`isUsdSellable`), so a
+      // USD Whish App sale never books a credit return even if a stale field
+      // carries one. Katsh / iPick keep their behaviour unchanged.
       const isTelecomResellerApp =
-        data.provider === "Katsh" || data.provider === "iPick";
+        data.provider === "Katsh" ||
+        data.provider === "iPick" ||
+        (data.provider === "WHISH_APP" && currency === "LBP");
 
       const telecomCreditReturns = isTelecomResellerApp
         ? resolveTelecomCreditReturns(telecomCreditReturnLines, (id) =>

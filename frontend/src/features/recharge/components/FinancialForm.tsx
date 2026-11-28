@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { formatNumber } from "@liratek/ui/i18n/format";
 import { ChevronDown, Phone, Search, X, Plus } from "lucide-react";
@@ -75,10 +75,20 @@ import {
   basketProviders,
   basketSheetSummary,
   isBasketProvider,
+  ONLY_DAYS_NOTE_SUFFIX,
+  onlyDaysUnitFields,
   whishBatchSubItems,
   withClient,
 } from "../utils/basketCheckout";
-import type { PricedLine } from "../types/basket";
+import type { PricedLine, WhishCartLine } from "../types/basket";
+import {
+  isTelecomVoucher,
+  lineUnitPriceOf,
+  onlyDaysDefaultReturnedCredits,
+  resolveOnlyDaysPricing,
+} from "../utils/onlyDaysPricing";
+import { useOnlyDaysPricingData } from "../hooks/useOnlyDaysPricingData";
+import { OnlyDaysPanel } from "./OnlyDaysPanel";
 import { isSelfChargeEligible } from "../utils/selfChargeEligibility";
 import { ChargeLineModal } from "./ChargeLineModal";
 
@@ -118,6 +128,11 @@ interface FinancialFormProps {
    * owns the basket, so it asks before a switch drops selected items.
    */
   onCurrencyChange?: (next: CatalogCurrency) => void;
+  /**
+   * LIRA-406: LBP per $1 the Only Days price falls back to for a card with
+   * no days price (the same rate KatshForm gets from the Recharge page).
+   */
+  alfaCreditSellRate?: number;
 }
 
 export function FinancialForm({
@@ -141,6 +156,7 @@ export function FinancialForm({
   onCartCountChange,
   currency = "LBP",
   onCurrencyChange,
+  alfaCreditSellRate = 100_000,
 }: FinancialFormProps) {
   const { t } = useTranslation("rechargeFinancial");
   const { t: tRecharge } = useTranslation("recharge");
@@ -228,6 +244,72 @@ export function FinancialForm({
     return () => onCartCountChange?.({});
   }, [onCartCountChange]);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+
+  // LIRA-406 — Only Days on the Whish App grid, priced exactly like Katsh /
+  // iPick (shared module + one data load, rule 14). LBP only: prepaid cards
+  // are not sold in USD mode (LIRA-324), and the server ignores a USD return.
+  const { catalogPricing, catalogPricingRef, tenantCreditSellPriceLbp } =
+    useOnlyDaysPricingData();
+  /** ONE unit of a cart line as this form charges it — the Only Days price
+   *  for an Only Days line, else the item's price. The ONE derivation every
+   *  total, sheet item, basket line and payload reads (rule 14). */
+  const lineUnitPrice = useCallback(
+    (line: WhishCartLine): number =>
+      isUsd
+        ? (line.item.catalogSellPrice ?? 0)
+        : lineUnitPriceOf(
+            line,
+            catalogPricing,
+            tenantCreditSellPriceLbp,
+            alfaCreditSellRate,
+          ),
+    [isUsd, catalogPricing, tenantCreditSellPriceLbp, alfaCreditSellRate],
+  );
+  /** Patch one cart line (no-op when the item is not in the cart). */
+  const patchLine = useCallback(
+    (item: ServiceItem, patch: Partial<WhishCartLine>) => {
+      setCart((prev) => {
+        const existing = prev.get(item.key);
+        if (!existing) return prev;
+        const next = new Map(prev);
+        next.set(item.key, { ...existing, ...patch });
+        return next;
+      });
+    },
+    [setCart],
+  );
+  const handleOnlyDaysChange = useCallback(
+    (item: ServiceItem, checked: boolean) =>
+      patchLine(item, {
+        onlyDays: checked,
+        returnedCreditsUsd: checked
+          ? onlyDaysDefaultReturnedCredits(item, catalogPricingRef.current)
+          : 0,
+        // A fresh tick starts from the computed default and catalog prices.
+        returnedCreditsEdited: false,
+        sellDaysLbpOverride: undefined,
+        creditPriceLbpOverride: undefined,
+      }),
+    [patchLine, catalogPricingRef],
+  );
+  const handleReturnedCreditsChange = useCallback(
+    (item: ServiceItem, value: number) =>
+      patchLine(item, {
+        returnedCreditsUsd: value,
+        returnedCreditsEdited: true,
+      }),
+    [patchLine],
+  );
+  const handleSellDaysLbpChange = useCallback(
+    (item: ServiceItem, value: number) =>
+      patchLine(item, { sellDaysLbpOverride: value }),
+    [patchLine],
+  );
+  const handleCreditPriceLbpChange = useCallback(
+    (item: ServiceItem, value: number) =>
+      patchLine(item, { creditPriceLbpOverride: value }),
+    [patchLine],
+  );
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(
     new Set(),
   );
@@ -327,12 +409,13 @@ export function FinancialForm({
       Array.from(cart.values()).flatMap((line): PricedLine[] => {
         const provider = line.item.provider;
         if (!isBasketProvider(provider)) return [];
+        const unitPrice = lineUnitPrice(line);
         const subItems = whishBatchSubItems(
           line,
           serviceType || "SEND",
           currency,
+          unitPrice,
         );
-        const unitPrice = line.item.catalogSellPrice ?? 0;
         return [
           {
             key: line.item.key,
@@ -347,6 +430,7 @@ export function FinancialForm({
               unitPrice,
               currency,
               provider: providerBrandOf(line.item.provider),
+              note: line.onlyDays ? "Only days" : undefined,
             },
             currency,
             amount: unitPrice * line.quantity,
@@ -356,7 +440,7 @@ export function FinancialForm({
           },
         ];
       }),
-    [cart, currency, serviceType],
+    [cart, currency, serviceType, lineUnitPrice],
   );
   useEffect(() => {
     setPriced(pricedLines);
@@ -412,7 +496,8 @@ export function FinancialForm({
           return newKeys;
         });
       } else {
-        newCart.set(item.key, { item, quantity });
+        // LIRA-406: a quantity change keeps the line's Only Days fields.
+        newCart.set(item.key, { ...prev.get(item.key), item, quantity });
       }
       return newCart;
     });
@@ -426,10 +511,10 @@ export function FinancialForm({
     }
   };
 
-  const totalPrice = Array.from(cart.values()).reduce((sum, line) => {
-    const unitPrice = line.item.catalogSellPrice ?? 0;
-    return sum + unitPrice * line.quantity;
-  }, 0);
+  const totalPrice = Array.from(cart.values()).reduce(
+    (sum, line) => sum + lineUnitPrice(line) * line.quantity,
+    0,
+  );
 
   // The cart lines as the payment window lists them. Cart items are already
   // priced in the active currency (inCurrency, LIRA-324), so each unit price
@@ -444,7 +529,7 @@ export function FinancialForm({
         group: cardGroupLabel(line.item),
         image: getCardImage(line.item),
         quantity: line.quantity,
-        unitPrice: line.item.catalogSellPrice ?? 0,
+        unitPrice: lineUnitPrice(line),
         currency,
         provider: providerBrandOf(line.item.provider),
       }));
@@ -570,7 +655,12 @@ export function FinancialForm({
       // One shared builder (rule 14) — each unit under its own provider.
       const formDataItems = withClient(
         cartItems.flatMap((line) =>
-          whishBatchSubItems(line, serviceType || "SEND", currency),
+          whishBatchSubItems(
+            line,
+            serviceType || "SEND",
+            currency,
+            lineUnitPrice(line),
+          ),
         ),
         {
           clientId: resolvedClientId,
@@ -691,9 +781,10 @@ export function FinancialForm({
     let allSucceeded = true;
 
     // Distribute discount proportionally across items based on sell price
-    const totalSellPrice = cartItems.reduce((sum, line) => {
-      return sum + (line.item.catalogSellPrice ?? 0) * line.quantity;
-    }, 0);
+    const totalSellPrice = cartItems.reduce(
+      (sum, line) => sum + lineUnitPrice(line) * line.quantity,
+      0,
+    );
 
     // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): stamp ONE shared uuid
     // across every unit of a multi-unit checkout so the void path can find
@@ -736,7 +827,7 @@ export function FinancialForm({
     let carrierSourceId: number | undefined;
     let unitIndex = 0;
     for (const line of cartItems) {
-      const sellPrice = line.item.catalogSellPrice ?? 0;
+      const sellPrice = lineUnitPrice(line);
       const cost = line.item.catalogCost ?? 0;
       // Proportional discount per unit
       const unitDiscountShare =
@@ -813,7 +904,9 @@ export function FinancialForm({
               clientName: clientName || undefined,
               itemKey: line.item.key,
               itemCategory: line.item.category,
-              note: `${formatCatalogItemName(line.item)}`,
+              // LIRA-406: the returned credit of an Only Days unit.
+              ...onlyDaysUnitFields(line),
+              note: `${formatCatalogItemName(line.item)}${line.onlyDays ? ONLY_DAYS_NOTE_SUFFIX : ""}`,
               // LIRA-366: the cashier's own note, on every unit's row.
               typedNote: typedNote || undefined,
               partnerId: partnerId || undefined,
@@ -923,7 +1016,7 @@ export function FinancialForm({
     let unitIndex = 0;
 
     for (const line of cartItems) {
-      const sellPrice = line.item.catalogSellPrice ?? 0;
+      const sellPrice = lineUnitPrice(line);
       const cost = line.item.catalogCost ?? 0;
       const commission = cost > 0 ? Math.max(0, sellPrice - cost) : 0;
       const isTransferOutLeg = cost === 0 && svcType === "SEND";
@@ -951,7 +1044,8 @@ export function FinancialForm({
                 : [],
               itemKey: line.item.key,
               itemCategory: line.item.category,
-              note: `${formatCatalogItemName(line.item)}`,
+              ...onlyDaysUnitFields(line),
+              note: `${formatCatalogItemName(line.item)}${line.onlyDays ? ONLY_DAYS_NOTE_SUFFIX : ""}`,
               partnerId,
               partnerMode: "FOR" as const,
               transaction_time: transactionTime,
@@ -1478,6 +1572,42 @@ export function FinancialForm({
                                     {tRecharge("katsh.chargeToShopLine")}
                                   </button>
                                 )}
+                              {/* LIRA-406 — Only Days, the same panel as
+                                  Katsh / iPick. LBP only (prepaid cards are
+                                  not sold in USD mode). */}
+                              {!isUsd && isTelecomVoucher(item) && (
+                                <Collapsible open={qty > 0 && isExpanded}>
+                                  <div className="mt-2 p-3 bg-slate-900 rounded-lg border border-slate-700">
+                                    <OnlyDaysPanel
+                                      item={item}
+                                      brand={brand}
+                                      onlyDays={inCart?.onlyDays === true}
+                                      returnedCreditsUsd={
+                                        inCart?.returnedCreditsUsd ?? 0
+                                      }
+                                      onlyDaysPricing={
+                                        inCart?.onlyDays
+                                          ? resolveOnlyDaysPricing(
+                                              inCart,
+                                              catalogPricing,
+                                              tenantCreditSellPriceLbp,
+                                            )
+                                          : undefined
+                                      }
+                                      onOnlyDaysChange={handleOnlyDaysChange}
+                                      onReturnedCreditsChange={
+                                        handleReturnedCreditsChange
+                                      }
+                                      onSellDaysLbpChange={
+                                        handleSellDaysLbpChange
+                                      }
+                                      onCreditPriceLbpChange={
+                                        handleCreditPriceLbpChange
+                                      }
+                                    />
+                                  </div>
+                                </Collapsible>
+                              )}
                             </div>
                           </div>
                         );

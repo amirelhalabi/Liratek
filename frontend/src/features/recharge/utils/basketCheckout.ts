@@ -29,6 +29,53 @@ import type {
   WhishCartLine,
 } from "../types/basket";
 
+/** The note suffix of an Only Days unit (FR-008; the Profits page and the
+ *  partner note read it as written). */
+export const ONLY_DAYS_NOTE_SUFFIX = " [Only Days]";
+
+/** The Only Days fields of a cart line, whichever grid it comes from. */
+export interface OnlyDaysUnitSource {
+  item: {
+    id?: number | undefined;
+    catalogCost?: number | undefined;
+    days_cost_lbp?: number | null | undefined;
+    credits?: number | undefined;
+  };
+  onlyDays?: boolean | undefined;
+  returnedCreditsUsd?: number | undefined;
+  returnedCreditsEdited?: boolean | undefined;
+}
+
+/**
+ * The credit-return fields ONE unit of a cart line sends (LIRA-090 B2,
+ * shared by every grid and every sale mode — LIRA-406, rule 14):
+ *  - `mobileServiceItemId` when Only Days AND the item's split is complete
+ *    (the server works out the default credits from the item);
+ *  - `returnedCreditsUsd` when Only Days AND (the cashier edited it OR the
+ *    split is incomplete — the manual path always sends it).
+ * A line that is not Only Days sends neither.
+ */
+export function onlyDaysUnitFields(line: OnlyDaysUnitSource): {
+  mobileServiceItemId?: number;
+  returnedCreditsUsd?: number;
+} {
+  if (!line.onlyDays) return {};
+  const splitComplete = isTelecomSplitComplete({
+    cost_lbp: line.item.catalogCost,
+    days_cost_lbp: line.item.days_cost_lbp,
+    credits: line.item.credits,
+  });
+  const sendReturned = line.returnedCreditsEdited === true || !splitComplete;
+  return {
+    ...(splitComplete && line.item.id != null
+      ? { mobileServiceItemId: line.item.id }
+      : {}),
+    ...(sendReturned
+      ? { returnedCreditsUsd: line.returnedCreditsUsd ?? 0 }
+      : {}),
+  };
+}
+
 // ─── Sub-item builders ──────────────────────────────────────────────────────
 
 /**
@@ -42,17 +89,6 @@ export function catalogBatchSubItems(
   sellPrice: number,
   cost: number,
 ): BasketSubItem[] {
-  const splitComplete =
-    line.onlyDays &&
-    isTelecomSplitComplete({
-      cost_lbp: line.item.catalogCost,
-      days_cost_lbp: line.item.days_cost_lbp,
-      credits: line.item.credits,
-    });
-  // LIRA-090 B2: send returnedCreditsUsd ONLY when the operator edited it,
-  // or when the item has no complete split (the manual path always sends it).
-  const sendReturned =
-    line.onlyDays && (line.returnedCreditsEdited || !splitComplete);
   const unit: BasketSubItem = {
     provider: line.item.provider,
     serviceType: "SEND",
@@ -62,11 +98,8 @@ export function catalogBatchSubItems(
     commission: Math.max(0, sellPrice - cost),
     itemKey: line.item.key,
     itemCategory: line.item.category,
-    ...(splitComplete && line.item.id != null
-      ? { mobileServiceItemId: line.item.id }
-      : {}),
-    ...(sendReturned ? { returnedCreditsUsd: line.returnedCreditsUsd } : {}),
-    note: `${formatCatalogItemName(line.item)}${line.onlyDays ? " [Only Days]" : ""}`,
+    ...onlyDaysUnitFields(line),
+    note: `${formatCatalogItemName(line.item)}${line.onlyDays ? ONLY_DAYS_NOTE_SUFFIX : ""}`,
   };
   return Array.from({ length: line.quantity }, () => ({ ...unit }));
 }
@@ -79,8 +112,10 @@ export function whishBatchSubItems(
   line: WhishCartLine,
   serviceType: string,
   currency: "LBP" | "USD",
+  /** ONE unit as the form charges it (LIRA-406: the Only Days price for an
+   *  Only Days line) — the form's own unit price, never re-derived here. */
+  sellPrice: number,
 ): BasketSubItem[] {
-  const sellPrice = line.item.catalogSellPrice ?? 0;
   const cost = line.item.catalogCost ?? 0;
   const unit: BasketSubItem = {
     provider: line.item.provider,
@@ -91,7 +126,8 @@ export function whishBatchSubItems(
     commission: Math.max(0, sellPrice - cost),
     itemKey: line.item.key,
     itemCategory: line.item.category,
-    note: formatCatalogItemName(line.item),
+    ...onlyDaysUnitFields(line),
+    note: `${formatCatalogItemName(line.item)}${line.onlyDays ? ONLY_DAYS_NOTE_SUFFIX : ""}`,
   };
   return Array.from({ length: line.quantity }, () => ({ ...unit }));
 }
@@ -588,6 +624,13 @@ export function buildPartnerOrderPayload(
             : [],
           ...(sub.itemKey ? { itemKey: sub.itemKey } : {}),
           ...(sub.itemCategory ? { itemCategory: sub.itemCategory } : {}),
+          // LIRA-406: an Only Days unit's returned credit (as on walk-in).
+          ...(sub.mobileServiceItemId != null
+            ? { mobileServiceItemId: sub.mobileServiceItemId }
+            : {}),
+          ...(sub.returnedCreditsUsd !== undefined
+            ? { returnedCreditsUsd: sub.returnedCreditsUsd }
+            : {}),
           ...(sub.note ? { note: sub.note } : {}),
         });
       }

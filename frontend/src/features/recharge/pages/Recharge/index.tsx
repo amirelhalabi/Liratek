@@ -2570,6 +2570,7 @@ export default function MobileRecharge() {
               {whishAppMode === "bills" ? (
                 <FinancialForm
                   currency={whishBillsCurrency}
+                  alfaCreditSellRate={alfaCreditSellRate}
                   onCurrencyChange={(next) => {
                     saveWhishBillsCurrency(next);
                     setWhishBillsCurrency(next);

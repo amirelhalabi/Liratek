@@ -29,12 +29,14 @@ import {
   buildPartnerOrderPayload,
   catalogBatchSubItems,
   spreadDiscount,
+  whishBatchSubItems,
 } from "../basketCheckout";
 import {
   type BasketSubItem,
   type BasketProvider,
   type CatalogCartLine,
   type PricedLine,
+  type WhishCartLine,
 } from "../../types/basket";
 import type { ServiceItem } from "@/contexts/MobileServiceItemsContext";
 
@@ -660,6 +662,136 @@ describe("basketCheckout (LIRA-326)", () => {
           },
         ],
       });
+    });
+  });
+
+  /**
+   * LIRA-406 — Whish App Only Days in the session basket, the one-payment
+   * basket and partner orders. Sub-items come from the real builder
+   * (`whishBatchSubItems`) with the form's Only Days unit price; payloads are
+   * parsed STRICTLY (rule 24).
+   *
+   * Session / basket sub-items: NOT proven failing-first (the builder change
+   * landed with the walk-in work before this test was written).
+   * Partner order: written before the WHISH_APP branch forwarded the fields
+   * and seen failing (rule 17).
+   */
+  describe("Whish App Only Days payloads (LIRA-406)", () => {
+    const whishAlfa: WhishCartLine = {
+      item: {
+        id: 31,
+        key: "WHISH_APP/alfa/Prepaid/7.58",
+        provider: "WHISH_APP",
+        category: "alfa",
+        subcategory: "Prepaid",
+        label: "7.58",
+        catalogCost: 765_007,
+        catalogSellPrice: 800_000,
+        sortOrder: 0,
+        credits: 7.58,
+        days_cost_lbp: 120_707,
+      },
+      quantity: 2,
+      onlyDays: true,
+      returnedCreditsUsd: 7,
+      returnedCreditsEdited: false,
+    };
+    const whishMtcEdited: WhishCartLine = {
+      ...whishAlfa,
+      item: {
+        ...whishAlfa.item,
+        id: 41,
+        key: "WHISH_APP/mtc/Prepaid/7.58",
+        category: "mtc",
+      },
+      quantity: 1,
+      returnedCreditsUsd: 5,
+      returnedCreditsEdited: true,
+    };
+    const whishPlain: WhishCartLine = {
+      item: { ...whishAlfa.item, id: 51, key: "WHISH_APP/alfa/Prepaid/10" },
+      quantity: 1,
+    };
+    const strictUnit = createFinancialServiceSchema.strict();
+
+    it("session sub-items: Only Days price, gross cost, the per-unit credit fields and the note suffix", () => {
+      const subs = whishBatchSubItems(whishAlfa, "SEND", "LBP", 250_000);
+      expect(subs).toHaveLength(2);
+      for (const s of subs) {
+        const u = strictUnit.parse({ ...s, payments: [] });
+        expect(u.amount).toBe(250_000);
+        expect(u.cost).toBe(765_007);
+        expect(u.itemCategory).toBe("alfa");
+        expect(u.mobileServiceItemId).toBe(31);
+        expect(u.returnedCreditsUsd).toBeUndefined();
+        expect(u.note).toMatch(/ \[Only Days\]$/);
+      }
+      const [edited] = whishBatchSubItems(
+        whishMtcEdited,
+        "SEND",
+        "LBP",
+        450_000,
+      );
+      expect(
+        strictUnit.parse({ ...edited, payments: [] }).returnedCreditsUsd,
+      ).toBe(5);
+      const [plain] = whishBatchSubItems(whishPlain, "SEND", "LBP", 800_000);
+      expect("mobileServiceItemId" in plain!).toBe(false);
+      expect("returnedCreditsUsd" in plain!).toBe(false);
+    });
+
+    it("one-payment basket: the Whish App entry keeps each unit's credit fields", () => {
+      const subs = whishBatchSubItems(whishAlfa, "SEND", "LBP", 250_000);
+      const payload = strictPayload.parse(
+        buildBasketCheckoutPayload({
+          lines: [line("WHISH_APP", "w", subs)],
+          discount: 0,
+          payments: [
+            { id: "L1", method: "CASH", currencyCode: "LBP", amount: 500_000 },
+          ],
+          returnLegs: [],
+          paidByMethod: "CASH",
+          exchangeRate: 89_500,
+          keptChange: { usd: 0, lbp: 0 },
+          extra: { usd: 0, lbp: 0 },
+          client: { clientId: 12, clientName: "Rami", clientPhone: "03123456" },
+          userId: 3,
+        }),
+      );
+      const entry = (payload.cartItems as Entry[])[0]!;
+      expect(entry.amount).toBe(500_000);
+      for (const s of entry.formData.items) {
+        expect(
+          strictUnit.parse({ ...s, payments: [] }).mobileServiceItemId,
+        ).toBe(31);
+      }
+    });
+
+    it("partner order: each Whish App Only Days sale forwards its credit fields", () => {
+      const order = rechargePartnerOrderSchema.strict().parse(
+        buildPartnerOrderPayload({
+          lines: [
+            line("WHISH_APP", "w", [
+              ...whishBatchSubItems(whishAlfa, "SEND", "LBP", 250_000),
+              ...whishBatchSubItems(whishMtcEdited, "SEND", "LBP", 450_000),
+            ]),
+          ],
+          partnerId: 7,
+          userId: 3,
+        }),
+      );
+      expect(
+        order.sales.map((s) => [
+          s.itemCategory,
+          s.amount,
+          s.mobileServiceItemId,
+          s.returnedCreditsUsd,
+        ]),
+      ).toEqual([
+        ["alfa", 250_000, 31, undefined],
+        ["alfa", 250_000, 31, undefined],
+        ["mtc", 450_000, 41, 5],
+      ]);
     });
   });
 });

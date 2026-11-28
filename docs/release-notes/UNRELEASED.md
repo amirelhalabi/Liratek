@@ -36,6 +36,11 @@
 
 ## ✨ Highlights
 
+### Only Days on Whish App cards
+
+On Mobile Recharge → Whish App → Bills, an MTC or Alfa prepaid card that has both credit and days can now be sold **Only Days**, the same way as on Katsh and iPick. Tick **Only Days** on the card: the price becomes the days price, and the credit the customer sends back goes to your MTC or Alfa balance and to your shop line. The card still costs its full price from your Whish App balance, and the profit counts the credit that came back. It works for a walk-in customer, in a customer session, in a basket with other providers and for a partner. Refunding the sale takes everything back. Only Days is not offered in USD mode, where prepaid cards are not sold.
+![Whish App Bills with an Alfa card picked and Only Days ticked: credits $7, days price 250,000 LBP, total 250,000 LBP](whats-new/1.35.0/whish-only-days.png)
+
 ### Settings grouped in a side menu
 
 Settings now lists its sections in a menu down the left, grouped under Shop, Catalogue, People, Devices and Data & system, instead of one long row of tabs that ran off the screen. Every section is still there; click one to open it. Each section now opens with the same title and short explanation, and the forms and buttons look the same everywhere.
@@ -452,6 +457,8 @@ A new "Insurance renewals" card on the Dashboard lists every customer whose insu
 - Phone Lines → For sale: a new "Give credit back" button. Use it when a buyer wants a line for sale with less credit than it has. Type the credit the buyer keeps and pick the shop line that gets the rest. The credit price per $1 starts at your Shop Config price and can be changed. Before you save, you see what is sent, the SMS fee, and the line's new price and cost. Example: a $15 line where the buyer keeps $9 sends $5.68 plus a $0.32 SMS fee to your shop line, and its price drops by $6.70 at 100,000 LBP per $1. To undo, void it on the Transactions page; this works only before the line is sold.
 - Mobile Recharge, iPick / Katsh / Whish App: "Charge to shop line" now opens a window where you pick the line: any of your active MTC or Alfa shop lines (your main line is picked for you) or a line you hold for sale. Whish App MTC and Alfa cards have the button too, paid from your Whish App balance. Lines that are turned off are no longer offered or accepted.
 - Phone Lines → Recharge → Card: Whish App MTC and Alfa cards are in the list too.
+- Mobile Recharge, iPick / Katsh: the Only Days boxes (credits, days price, credit price) now fit inside the card instead of spilling past its edge on a narrow screen.
+- Mobile Recharge, Whish App: MTC and Alfa prepaid cards can be sold "Only Days", like on Katsh and iPick; the returned credit goes to your MTC or Alfa balance and your shop line.
 - Mobile Recharge, iPick / Katsh: an MTC or Alfa card sold "Only Days" for a partner now sends the returned credit back to your MTC or Alfa balance and to your shop line, the same as a sale to a walk-in customer. Before, a partner order lost that credit. This applies to partner orders from now on; older ones are not changed.
 - MTC / Alfa: the Days tab now has a phone number field. From now on the number is saved with the sale and shown on the customer's account. If you type one of your own shop lines there, a "Clear the number" button lets you start again.
 

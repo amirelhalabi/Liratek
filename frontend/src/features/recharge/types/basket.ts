@@ -42,6 +42,13 @@ export interface CatalogCartLine {
 export interface WhishCartLine {
   item: ServiceItem;
   quantity: number;
+  /** LIRA-406 — the Katsh / iPick Only Days fields (same meaning as on
+   *  `CatalogCartLine`). Optional: a line without them is sold normally. */
+  onlyDays?: boolean;
+  returnedCreditsUsd?: number;
+  returnedCreditsEdited?: boolean;
+  sellDaysLbpOverride?: number | undefined;
+  creditPriceLbpOverride?: number | undefined;
 }
 
 /**

@@ -401,6 +401,53 @@ describe("RechargePartnerOrderService.submit — For Partner across the basket",
     expect(lines.getById(mtcLine.id)!.credits).toBeCloseTo(0, 6);
   });
 
+  /** LIRA-406 — a Whish App Only Days card on a partner order (LBP), the
+   *  per-unit sale the screen's partner payload builds. Not failing-first
+   *  (server gate proven failing-first in telecomOnlyDays). */
+  it("LIRA-406: a Whish App Only Days partner sale credits the Alfa drawer and line; void nets to 0", () => {
+    const lines = getCarrierLineRepository();
+    const alfa = lines.createLine({
+      carrier: "alfa",
+      phone_number: "03100408",
+    });
+    lines.setPrimary(alfa.id);
+
+    const before = snapshotLedgers(db);
+    const result = submit([
+      {
+        provider: "WHISH_APP",
+        serviceType: "SEND",
+        amount: 250_000,
+        cost: 765_007,
+        currency: "LBP",
+        commission: 0,
+        payments: [],
+        itemKey: "WHISH_APP/alfa/Prepaid/7.58",
+        itemCategory: "alfa",
+        returnedCreditsUsd: 7,
+        note: "7.58 [Only Days]",
+      },
+    ]);
+    expect(result.error).toBeUndefined();
+    expect(result.success).toBe(true);
+
+    const d = ledgerDeltas(before, snapshotLedgers(db));
+    expect(d.drawers).toEqual({ "Whish_App|LBP": -765_007, "Alfa|USD": 7 });
+    expect(d.partner).toEqual({ [`${partnerId}|LBP`]: 250_000 });
+    expect(lines.getById(alfa.id)!.credits).toBeCloseTo(7, 6);
+
+    const txnRepo = getTransactionRepository();
+    const txn = txnRepo.getBySourceId("financial_services", result.ids![0]!)!;
+    txnRepo.voidTransaction(txn.id, 1);
+    expect(ledgerDeltas(before, snapshotLedgers(db))).toEqual({
+      drawers: {},
+      supplier: {},
+      partner: {},
+      debt: {},
+    });
+    expect(lines.getById(alfa.id)!.credits).toBeCloseTo(0, 6);
+  });
+
   it("voiding each sale nets every ledger back to 0 per currency (rule 20)", () => {
     const before = snapshotLedgers(db);
     const result = submit([katshCards, katshBill, ipickCards, whishUnit]);
